@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { useHiddenStories } from '../hooks/useHiddenStories';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
@@ -14,6 +15,7 @@ interface Props {
 export function StoryList({ feed }: Props) {
   const [page, setPage] = useState(0);
   const { ids, items, slice, totalIds } = useStoryPage(feed, page);
+  const { hiddenIds, hide } = useHiddenStories();
 
   const canLoadMore = slice.length < totalIds;
   const isFetching = items.isFetching || ids.isFetching;
@@ -52,10 +54,11 @@ export function StoryList({ feed }: Props) {
   }
 
   const stories = (items.data ?? []).filter(
-    (it): it is NonNullable<typeof it> => it != null && !it.deleted && !it.dead,
+    (it): it is NonNullable<typeof it> =>
+      it != null && !it.deleted && !it.dead && !hiddenIds.has(it.id),
   );
 
-  if (stories.length === 0) {
+  if (stories.length === 0 && !canLoadMore) {
     return <EmptyState message="No stories yet." />;
   }
 
@@ -64,7 +67,7 @@ export function StoryList({ feed }: Props) {
       <ol className="story-list">
         {stories.map((story, idx) => (
           <li key={story.id} className="story-list__item">
-            <StoryListItem story={story} rank={idx + 1} />
+            <StoryListItem story={story} rank={idx + 1} onHide={hide} />
           </li>
         ))}
       </ol>

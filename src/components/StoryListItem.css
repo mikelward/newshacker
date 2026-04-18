@@ -4,6 +4,13 @@
   gap: 8px;
   min-height: 72px;
   padding: 10px 12px;
+  touch-action: pan-y;
+}
+
+.story-row--dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
 }
 
 .story-row__vote {
