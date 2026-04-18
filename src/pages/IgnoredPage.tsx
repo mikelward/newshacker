@@ -41,7 +41,7 @@ export function IgnoredPage() {
     <SavedStoryList
       queryKey="ignored"
       ids={ids}
-      emptyMessage="Nothing ignored. Stories you scroll past without opening appear here."
+      emptyMessage="Nothing ignored. Stories you swipe away or scroll past without opening appear here."
       recover={{
         label: () => 'Un-ignore',
         onRecover: handleUnignore,

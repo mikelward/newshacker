@@ -60,6 +60,27 @@ describe('openedStories', () => {
     expect(getOpenedIds(now)).toEqual(new Set([1]));
   });
 
+  it('ignores malformed storage data', () => {
+    window.localStorage.setItem('newshacker:openedStoryIds', 'not json');
+    expect(getOpenedIds()).toEqual(new Set());
+  });
+
+  it('ignores entries that are not the expected shape', () => {
+    window.localStorage.setItem(
+      'newshacker:openedStoryIds',
+      JSON.stringify([1, 2, { id: 3, at: Date.now() }]),
+    );
+    expect(getOpenedIds()).toEqual(new Set([3]));
+  });
+
+  it('ignores storage data that is not an array', () => {
+    window.localStorage.setItem(
+      'newshacker:openedStoryIds',
+      JSON.stringify({ id: 1, at: Date.now() }),
+    );
+    expect(getOpenedIds()).toEqual(new Set());
+  });
+
   it('does not collide with the dismissedStories key', () => {
     addOpenedId(5);
     expect(

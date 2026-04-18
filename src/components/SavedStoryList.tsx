@@ -27,7 +27,13 @@ export function SavedStoryList({
   const { openedIds, markOpened } = useOpenedStories();
 
   const items = useQuery({
-    queryKey: ['savedStoryItems', queryKey, ids],
+    queryKey: [
+      'savedStoryItems',
+      queryKey,
+      ids.length,
+      ids[0] ?? null,
+      ids[ids.length - 1] ?? null,
+    ],
     queryFn: ({ signal }) => getItems(ids, signal),
     enabled: ids.length > 0,
   });

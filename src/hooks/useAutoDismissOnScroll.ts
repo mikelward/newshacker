@@ -64,7 +64,6 @@ export function useAutoDismissOnScroll({
     return () => {
       observer.disconnect();
       observerRef.current = null;
-      elMap.clear();
       seenSet.clear();
     };
   }, [enabled, topOffset]);
@@ -73,12 +72,14 @@ export function useAutoDismissOnScroll({
     (id: number, el: HTMLElement | null) => {
       if (!enabled) return;
       const elMap = elToId.current;
+      const seenSet = seen.current;
       const observer = observerRef.current;
 
       for (const [existingEl, existingId] of elMap) {
         if (existingId === id && existingEl !== el) {
           observer?.unobserve(existingEl);
           elMap.delete(existingEl);
+          seenSet.delete(id);
         }
       }
 
