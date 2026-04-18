@@ -63,6 +63,9 @@ export function StoryList({ feed }: Props) {
     ids: [],
     lastAt: 0,
   });
+  const [revealIdAfterUndo, setRevealIdAfterUndo] = useState<number | null>(
+    null,
+  );
 
   const handleBatchedDismiss = useCallback(
     (id: number) => {
@@ -79,8 +82,10 @@ export function StoryList({ feed }: Props) {
         message: ids.length === 1 ? 'Dismissed' : `Dismissed ${ids.length}`,
         actionLabel: 'Undo',
         onAction: () => {
+          const firstId = ids[0];
           for (const storyId of ids) undismiss(storyId);
           dismissBatchRef.current = { ids: [], lastAt: 0 };
+          setRevealIdAfterUndo(firstId);
         },
         durationMs: DISMISS_BATCH_WINDOW_MS,
         groupKey: DISMISS_TOAST_GROUP,
@@ -117,6 +122,22 @@ export function StoryList({ feed }: Props) {
     onScrolledPast: handleBatchedDismiss,
     topOffset: headerOffset,
   });
+
+  // After Undo, if the first restored row is above the sticky header,
+  // scroll the page so that row sits just below the header. Rows that
+  // are already in view stay put.
+  useEffect(() => {
+    if (revealIdAfterUndo == null) return;
+    setRevealIdAfterUndo(null);
+    const el = document.querySelector<HTMLElement>(
+      `.story-list__item[data-story-id="${revealIdAfterUndo}"]`,
+    );
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.top >= headerOffset) return;
+    const top = window.scrollY + rect.top - headerOffset - 8;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }, [revealIdAfterUndo, headerOffset]);
 
   if (ids.isLoading || (items.isLoading && slice.length > 0)) {
     return (
@@ -158,6 +179,7 @@ export function StoryList({ feed }: Props) {
           <li
             key={story.id}
             className="story-list__item"
+            data-story-id={story.id}
             ref={(el) => observe(story.id, el)}
           >
             <StoryListItem

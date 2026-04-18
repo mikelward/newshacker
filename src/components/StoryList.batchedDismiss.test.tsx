@@ -208,6 +208,60 @@ describe('<StoryList> batched dismiss undo toast', () => {
     expect(screen.queryByText('Story 10')).toBeNull();
   });
 
+  it('scrolls the restored top row back into view on Undo', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-04-18T10:00:00Z'));
+    const scrollToSpy = vi.fn();
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      writable: true,
+      value: scrollToSpy,
+    });
+    // Simulate the first restored row being above the viewport (top < 0)
+    // so the scroll-reveal branch fires.
+    Element.prototype.getBoundingClientRect = function () {
+      return {
+        width: 300,
+        height: 72,
+        top: -200,
+        left: 0,
+        right: 300,
+        bottom: -128,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      } as DOMRect;
+    };
+
+    const ids = [1, 2, 3];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <ToastProvider>
+        <StoryList feed="top" />
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    triggerScrollPast(obs.observers, findRow(obs.observers, 'Story 1'));
+    await waitFor(() => expect(screen.getByText('Dismissed')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Story 1')).toBeInTheDocument();
+      expect(scrollToSpy).toHaveBeenCalled();
+    });
+    const [call] = scrollToSpy.mock.calls;
+    expect(call[0]).toMatchObject({ behavior: 'smooth' });
+  });
+
   it('clears the batch after Undo so the next dismiss is fresh', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-04-18T10:00:00Z'));
