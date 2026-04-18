@@ -5,12 +5,7 @@ import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 function items(handlers: Partial<Record<string, () => void>> = {}) {
   return [
     { key: 'save', label: 'Save', onSelect: handlers.save ?? vi.fn() },
-    {
-      key: 'ignore',
-      label: 'Ignore',
-      onSelect: handlers.ignore ?? vi.fn(),
-      destructive: true,
-    },
+    { key: 'ignore', label: 'Ignore', onSelect: handlers.ignore ?? vi.fn() },
     { key: 'share', label: 'Share', onSelect: handlers.share ?? vi.fn() },
   ] as StoryRowMenuItem[];
 }

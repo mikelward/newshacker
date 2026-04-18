@@ -6,7 +6,6 @@ export interface StoryRowMenuItem {
   key: string;
   label: string;
   onSelect: () => void;
-  destructive?: boolean;
 }
 
 interface Props {
@@ -86,10 +85,7 @@ export function StoryRowMenu({ open, title, items, onClose }: Props) {
                 role="menuitem"
                 data-menu-item
                 data-testid={`story-row-menu-${item.key}`}
-                className={
-                  'story-menu__item' +
-                  (item.destructive ? ' story-menu__item--destructive' : '')
-                }
+                className="story-menu__item"
                 onClick={() => handleSelect(item)}
               >
                 {item.label}

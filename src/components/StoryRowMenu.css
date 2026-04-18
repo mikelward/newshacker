@@ -66,10 +66,6 @@
   background: var(--hn-border);
 }
 
-.story-menu__item--destructive {
-  color: #c0392b;
-}
-
 .story-menu__cancel {
   display: block;
   width: 100%;
