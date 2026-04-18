@@ -16,10 +16,9 @@ describe('<App> routing', () => {
   it('redirects / to /top', async () => {
     installHNFetchMock({ feeds: { topstories: [] } });
     renderWithProviders(<App />, { route: '/' });
-    // "Top" appears both in tabs and as feed label; if we're on /top,
-    // the active tab exists.
-    const topLinks = await screen.findAllByRole('link', { name: 'Top' });
-    expect(topLinks.length).toBeGreaterThan(0);
+    expect(
+      await screen.findByTestId('empty-state'),
+    ).toBeInTheDocument();
   });
 
   it('renders a 404 for unknown routes', () => {
