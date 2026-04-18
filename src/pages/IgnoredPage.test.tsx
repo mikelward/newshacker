@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { IgnoredPage } from './IgnoredPage';
 import { renderWithProviders } from '../test/renderUtils';
@@ -12,6 +12,7 @@ describe('<IgnoredPage>', () => {
   });
   afterEach(() => {
     window.localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it('shows an empty state when nothing is ignored', () => {
@@ -61,6 +62,98 @@ describe('<IgnoredPage>', () => {
     expect(
       window.localStorage.getItem('newshacker:dismissedStoryIds'),
     ).toBe('[]');
+  });
+
+  it('does not show a Forget all button when nothing is ignored', () => {
+    installHNFetchMock({ items: {} });
+    renderWithProviders(<IgnoredPage />);
+    expect(
+      screen.queryByRole('button', { name: /forget all ignored/i }),
+    ).toBeNull();
+  });
+
+  it('Forget all clears every ignored story after confirmation', async () => {
+    installHNFetchMock({
+      items: {
+        1: makeStory(1, { title: 'Alpha' }),
+        2: makeStory(2, { title: 'Beta' }),
+      },
+    });
+    addDismissedId(1);
+    addDismissedId(2);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderWithProviders(<IgnoredPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Alpha')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(
+        screen.getByRole('button', { name: /forget all ignored/i }),
+      );
+    });
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/forget all 2 ignored stories/i),
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
+    });
+    expect(
+      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+    ).toBe('[]');
+  });
+
+  it('Forget all is a no-op when the user cancels the confirmation', async () => {
+    installHNFetchMock({
+      items: { 1: makeStory(1, { title: 'Alpha' }) },
+    });
+    addDismissedId(1);
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    renderWithProviders(<IgnoredPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Alpha')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(
+        screen.getByRole('button', { name: /forget all ignored/i }),
+      );
+    });
+
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+  });
+
+  it('Forget all does not touch saved stories', async () => {
+    installHNFetchMock({
+      items: { 1: makeStory(1, { title: 'Alpha' }) },
+    });
+    addDismissedId(1);
+    window.localStorage.setItem(
+      'newshacker:savedStoryIds',
+      JSON.stringify([{ id: 99, at: Date.now() }]),
+    );
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderWithProviders(<IgnoredPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Alpha')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(
+        screen.getByRole('button', { name: /forget all ignored/i }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
+    });
+    const saved = window.localStorage.getItem('newshacker:savedStoryIds');
+    expect(saved).not.toBeNull();
+    expect(JSON.parse(saved as string)).toHaveLength(1);
   });
 
   it('orders ignored stories newest first by dismissal time', async () => {
