@@ -101,12 +101,7 @@ export function StoryListItem({
       items.push({ key: 'save', label: 'Save', onSelect: handleSave });
     }
     if (onDismiss) {
-      items.push({
-        key: 'ignore',
-        label: 'Ignore',
-        onSelect: handleDismiss,
-        destructive: true,
-      });
+      items.push({ key: 'ignore', label: 'Ignore', onSelect: handleDismiss });
     }
     if (onShare) {
       items.push({ key: 'share', label: 'Share', onSelect: handleShare });
