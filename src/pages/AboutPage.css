@@ -1,0 +1,40 @@
+.about-page {
+  background: var(--hn-bg-card);
+  padding: 16px;
+  border-bottom: 1px solid var(--hn-border);
+  color: var(--hn-text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.about-page__title {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+.about-page__heading {
+  margin: 20px 0 8px;
+  font-size: 16px;
+}
+
+.about-page p {
+  margin: 0 0 12px;
+  word-wrap: break-word;
+}
+
+.about-page a {
+  color: var(--hn-orange);
+  text-decoration: underline;
+}
+
+.about-page code {
+  background: var(--hn-bg-code);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.about-page__back {
+  margin-top: 20px;
+  font-size: 14px;
+}
