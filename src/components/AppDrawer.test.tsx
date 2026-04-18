@@ -1,9 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { AppDrawer } from './AppDrawer';
 import { renderWithProviders } from '../test/renderUtils';
+import { THEME_STORAGE_KEY } from '../lib/theme';
 
 describe('<AppDrawer>', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+  });
   it('renders nothing when closed', () => {
     renderWithProviders(<AppDrawer open={false} onClose={() => {}} />);
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -66,5 +76,38 @@ describe('<AppDrawer>', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('exposes a theme radiogroup with System selected by default', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const group = screen.getByRole('radiogroup', { name: 'Theme' });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'System' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('radio', { name: 'Dark' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('switches the theme when a radio is clicked', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(screen.getByRole('radio', { name: 'Dark' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Light' }));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'System' }));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
 });

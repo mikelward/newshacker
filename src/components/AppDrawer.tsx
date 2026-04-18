@@ -1,7 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { FEEDS, feedLabel } from '../lib/feeds';
+import { useTheme } from '../hooks/useTheme';
+import type { Theme } from '../lib/theme';
 import './AppDrawer.css';
+
+const THEME_OPTIONS: Array<{ value: Theme; label: string }> = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+];
 
 interface Props {
   open: boolean;
@@ -11,6 +19,7 @@ interface Props {
 export function AppDrawer({ open, onClose }: Props) {
   const location = useLocation();
   const lastLocationRef = useRef(location.key);
+  const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     if (!open) return;
@@ -81,6 +90,28 @@ export function AppDrawer({ open, onClose }: Props) {
             </Link>
           </li>
         </ul>
+        <div className="app-drawer__section-title" id="app-drawer-theme-label">
+          Theme
+        </div>
+        <div
+          className="app-drawer__segmented"
+          role="radiogroup"
+          aria-labelledby="app-drawer-theme-label"
+        >
+          {THEME_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={theme === opt.value}
+              className="app-drawer__segmented-btn"
+              data-active={theme === opt.value || undefined}
+              onClick={() => setTheme(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <div className="app-drawer__section-title">App</div>
         <ul className="app-drawer__list">
           <li>
