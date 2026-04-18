@@ -3,7 +3,7 @@
   align-items: stretch;
   gap: 8px;
   min-height: 72px;
-  padding: 16px 12px;
+  padding: 10px 12px;
 }
 
 .story-row__vote {
@@ -43,17 +43,23 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .story-row__title {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   color: var(--hn-text);
   text-decoration: none;
-  padding: 4px 0;
+  padding: 2px 0;
   min-height: var(--tap-min);
   border-radius: 6px;
   word-wrap: break-word;
+}
+
+.story-row__title:visited {
+  color: var(--hn-meta);
 }
 
 .story-row__title:hover {
@@ -76,7 +82,7 @@
   display: block;
   color: var(--hn-meta);
   font-size: 12px;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .story-row__meta-row {
@@ -84,7 +90,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 4px;
 }
 
 .story-row__meta {
