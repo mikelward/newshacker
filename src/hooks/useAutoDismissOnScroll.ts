@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 interface Options {
   enabled?: boolean;
   onScrolledPast: (id: number) => void;
+  topOffset?: number;
 }
 
 interface RowHandle {
@@ -12,6 +13,7 @@ interface RowHandle {
 export function useAutoDismissOnScroll({
   enabled = true,
   onScrolledPast,
+  topOffset = 0,
 }: Options): RowHandle {
   const callbackRef = useRef(onScrolledPast);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -28,25 +30,31 @@ export function useAutoDismissOnScroll({
 
     const elMap = elToId.current;
     const seenSet = seen.current;
+    const threshold = Math.max(0, topOffset);
 
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        const id = elMap.get(entry.target);
-        if (id === undefined) continue;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = elMap.get(entry.target);
+          if (id === undefined) continue;
 
-        if (entry.isIntersecting) {
-          seenSet.add(id);
-          continue;
+          if (entry.isIntersecting) {
+            seenSet.add(id);
+            continue;
+          }
+          if (!seenSet.has(id)) continue;
+
+          const rect = entry.boundingClientRect;
+          if (rect.bottom <= threshold) {
+            seenSet.delete(id);
+            callbackRef.current(id);
+          }
         }
-        if (!seenSet.has(id)) continue;
-
-        const rect = entry.boundingClientRect;
-        if (rect.bottom <= 0) {
-          seenSet.delete(id);
-          callbackRef.current(id);
-        }
-      }
-    });
+      },
+      topOffset > 0
+        ? { rootMargin: `-${Math.ceil(topOffset)}px 0px 0px 0px` }
+        : undefined,
+    );
 
     observerRef.current = observer;
     for (const el of elMap.keys()) {
@@ -59,7 +67,7 @@ export function useAutoDismissOnScroll({
       elMap.clear();
       seenSet.clear();
     };
-  }, [enabled]);
+  }, [enabled, topOffset]);
 
   const observe = useCallback(
     (id: number, el: HTMLElement | null) => {

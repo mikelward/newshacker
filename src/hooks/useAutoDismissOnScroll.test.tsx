@@ -95,12 +95,14 @@ interface HostProps {
   ids: number[];
   onPast: (id: number) => void;
   enabled?: boolean;
+  topOffset?: number;
 }
 
-function Host({ ids, onPast, enabled = true }: HostProps) {
+function Host({ ids, onPast, enabled = true, topOffset }: HostProps) {
   const { observe } = useAutoDismissOnScroll({
     enabled,
     onScrolledPast: onPast,
+    topOffset,
   });
   return (
     <ul>
@@ -182,6 +184,37 @@ describe('useAutoDismissOnScroll', () => {
     expect(fake.observed.has(row)).toBe(true);
     unmount();
     expect(fake.observed.size).toBe(0);
+  });
+
+  it('treats rows as past when they hide behind a topOffset sticky header', () => {
+    const onPast = vi.fn();
+    const { getByTestId } = render(
+      <Host ids={[6]} onPast={onPast} topOffset={60} />,
+    );
+    const row = getByTestId('row-6');
+
+    act(() => {
+      obs.observers[0].trigger([entry(row, true, 120)]);
+    });
+
+    act(() => {
+      obs.observers[0].trigger([entry(row, false, 40)]);
+    });
+    expect(onPast).toHaveBeenCalledWith(6);
+  });
+
+  it('does not fire when the row is still below the topOffset', () => {
+    const onPast = vi.fn();
+    const { getByTestId } = render(
+      <Host ids={[7]} onPast={onPast} topOffset={60} />,
+    );
+    const row = getByTestId('row-7');
+
+    act(() => {
+      obs.observers[0].trigger([entry(row, true, 200)]);
+      obs.observers[0].trigger([entry(row, false, 80)]);
+    });
+    expect(onPast).not.toHaveBeenCalled();
   });
 
   it('stops observing a row that is removed from the list', () => {

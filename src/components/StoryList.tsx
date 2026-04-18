@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
@@ -32,7 +32,22 @@ export function StoryList({ feed }: Props) {
     onLoadMore: handleLoadMore,
   });
 
-  const { observe } = useAutoDismissOnScroll({ onScrolledPast: dismiss });
+  const [headerOffset, setHeaderOffset] = useState(0);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const measure = () => {
+      const header = document.querySelector<HTMLElement>('.app-header');
+      setHeaderOffset(header?.getBoundingClientRect().height ?? 0);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  const { observe } = useAutoDismissOnScroll({
+    onScrolledPast: dismiss,
+    topOffset: headerOffset,
+  });
 
   if (ids.isLoading || (items.isLoading && slice.length > 0)) {
     return (
