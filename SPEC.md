@@ -64,7 +64,7 @@ We achieve that by:
 
 4. **Navigation & Chrome**
    - Sticky orange header with HN "Y" logo and current feed name.
-   - Bottom nav or top tabs for feed switching (mobile ergonomics).
+   - Top nav tabs for feed switching, integrated into the header.
    - Back button on thread/user pages.
 
 ### Stretch (behind a feature flag)
