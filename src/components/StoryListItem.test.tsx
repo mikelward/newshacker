@@ -47,16 +47,23 @@ describe('StoryListItem', () => {
     expect(btn.getAttribute('href')).not.toContain('example.com');
   });
 
-  it('does not render rank, hide, past, web, flag, via, or inline author links', () => {
+  it('does not render rank, past, web, flag, via, or inline author links', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
     const row = screen.getByTestId('story-row');
     const inner = row.innerHTML.toLowerCase();
-    expect(inner).not.toMatch(/\bhide\b/);
     expect(inner).not.toMatch(/\bpast\b/);
     expect(inner).not.toMatch(/\bflag\b/);
     expect(inner).not.toMatch(/\bvia\b/);
     // No author link in the row
     expect(within(row).queryByText('alice')).toBeNull();
+  });
+
+  it('renders a hide button alongside the comments button', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
+    const hide = screen.getByTestId('hide-btn');
+    expect(hide.tagName.toLowerCase()).toBe('button');
+    expect(hide).toHaveTextContent(/hide/i);
+    expect(hide).toHaveAttribute('aria-label', expect.stringMatching(/hide/i));
   });
 
   it('renders no upvote button when logged out, exactly one when logged in', () => {

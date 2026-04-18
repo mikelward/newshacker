@@ -43,30 +43,33 @@ export function StoryListItem({ story, isLoggedIn = false }: Props) {
       ) : null}
 
       <div className="story-row__body">
-        {hasExternalUrl ? (
-          <a
-            className="story-row__title"
-            data-testid="story-title"
-            href={story.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {titleInner}
-          </a>
-        ) : (
-          <Link
-            className="story-row__title"
-            data-testid="story-title"
-            to={`/item/${story.id}`}
-          >
-            {titleInner}
-          </Link>
-        )}
+        <div className="story-row__main">
+          {hasExternalUrl ? (
+            <a
+              className="story-row__title"
+              data-testid="story-title"
+              href={story.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {titleInner}
+            </a>
+          ) : (
+            <Link
+              className="story-row__title"
+              data-testid="story-title"
+              to={`/item/${story.id}`}
+            >
+              {titleInner}
+            </Link>
+          )}
 
-        <div className="story-row__meta-row">
           <span className="story-row__meta" data-testid="story-meta">
             {points} {pluralize(points, 'point')} · {age}
           </span>
+        </div>
+
+        <div className="story-row__actions">
           <Link
             to={`/item/${story.id}`}
             className="comments-btn"
@@ -76,6 +79,14 @@ export function StoryListItem({ story, isLoggedIn = false }: Props) {
           >
             {commentCount} {pluralize(commentCount, 'comment')}
           </Link>
+          <button
+            type="button"
+            className="hide-btn"
+            data-testid="hide-btn"
+            aria-label={`Hide ${title}`}
+          >
+            Hide
+          </button>
         </div>
       </div>
     </article>
