@@ -1,0 +1,95 @@
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--hn-orange);
+  color: #fff;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    'home feed'
+    'tabs tabs';
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 4px;
+  padding: 8px 12px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.app-header__home {
+  grid-area: home;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  text-decoration: none;
+  min-height: var(--tap-min);
+  padding: 4px 8px 4px 0;
+}
+
+.app-header__home:hover {
+  text-decoration: none;
+}
+
+.app-header__brand {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #fff;
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.app-header__title {
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.app-header__feed {
+  grid-area: feed;
+  justify-self: end;
+  font-weight: 600;
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+.app-header__tabs {
+  grid-area: tabs;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 4px;
+  margin-top: 4px;
+  scrollbar-width: none;
+}
+
+.app-header__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.app-header__tab {
+  color: #fff;
+  text-decoration: none;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  background: transparent;
+}
+
+.app-header__tab.is-active {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.app-header__tab:hover {
+  text-decoration: none;
+  background: rgba(0, 0, 0, 0.1);
+}

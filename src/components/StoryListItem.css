@@ -1,0 +1,122 @@
+.story-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 72px;
+  padding: 16px 12px;
+}
+
+.story-row__vote {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+
+.vote-btn {
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  border: none;
+  background: transparent;
+  color: var(--hn-meta);
+  font-size: 24px;
+  line-height: 1;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.vote-btn:hover {
+  background: var(--hn-pressed);
+  color: var(--hn-orange);
+}
+
+.vote-btn:active {
+  background: var(--hn-border);
+}
+
+.vote-btn.is-voted {
+  color: var(--hn-orange);
+}
+
+.story-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.story-row__title {
+  display: block;
+  color: var(--hn-text);
+  text-decoration: none;
+  padding: 4px 0;
+  min-height: var(--tap-min);
+  border-radius: 6px;
+  word-wrap: break-word;
+}
+
+.story-row__title:hover {
+  text-decoration: none;
+  background: var(--hn-pressed);
+}
+
+.story-row__title:active {
+  background: var(--hn-border);
+}
+
+.story-row__title-text {
+  display: block;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.story-row__domain {
+  display: block;
+  color: var(--hn-meta);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.story-row__meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.story-row__meta {
+  color: var(--hn-meta);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.comments-btn {
+  flex-shrink: 0;
+  min-height: var(--tap-min);
+  min-width: 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border: 1px solid var(--hn-border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--hn-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  margin-left: 12px;
+}
+
+.comments-btn:hover {
+  text-decoration: none;
+  background: var(--hn-pressed);
+}
+
+.comments-btn:active {
+  background: var(--hn-border);
+}

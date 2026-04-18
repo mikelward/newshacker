@@ -1,0 +1,70 @@
+:root {
+  --hn-orange: #ff6600;
+  --hn-orange-dark: #e65c00;
+  --hn-cream: #f6f6ef;
+  --hn-meta: #828282;
+  --hn-border: #e0e0d9;
+  --hn-text: #000;
+  --hn-link: #000;
+  --hn-bg-card: #ffffff;
+  --hn-pressed: #ececec;
+  --tap-min: 48px;
+
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-system);
+  color: var(--hn-text);
+  background: var(--hn-cream);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-size: 16px;
+  line-height: 1.4;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--hn-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--hn-orange);
+  outline-offset: 2px;
+}
+
+.app-main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 0 96px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
