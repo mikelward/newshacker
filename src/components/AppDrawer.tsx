@@ -76,6 +76,14 @@ export function AppDrawer({ open, onClose }: Props) {
             </Link>
           </li>
         </ul>
+        <div className="app-drawer__section-title">App</div>
+        <ul className="app-drawer__list">
+          <li>
+            <Link to="/about" className="app-drawer__link">
+              About
+            </Link>
+          </li>
+        </ul>
       </nav>
     </div>
   );

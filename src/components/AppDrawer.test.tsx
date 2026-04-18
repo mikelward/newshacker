@@ -27,6 +27,10 @@ describe('<AppDrawer>', () => {
       'href',
       '/ignored',
     );
+    expect(screen.getByRole('link', { name: 'About' })).toHaveAttribute(
+      'href',
+      '/about',
+    );
   });
 
   it('calls onClose when the scrim is clicked', () => {
