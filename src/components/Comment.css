@@ -83,3 +83,7 @@
 .comment.is-collapsed .comment__children {
   display: none;
 }
+
+.comment--loading .comment__meta {
+  opacity: 0.6;
+}

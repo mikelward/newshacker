@@ -1,41 +1,68 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { CommentNode } from '../hooks/useItemTree';
-import { formatTimeAgo } from '../lib/format';
+import { useCommentItem } from '../hooks/useItemTree';
+import { formatTimeAgo, pluralize } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import './Comment.css';
 
 interface Props {
-  node: CommentNode;
+  id: number;
   depth: number;
 }
 
 const MAX_INDENT = 6;
 
-export function Comment({ node, depth }: Props) {
-  const [collapsed, setCollapsed] = useState(false);
-  const { item, children } = node;
+export function Comment({ id, depth }: Props) {
+  const [repliesCollapsed, setRepliesCollapsed] = useState(true);
+  const { data: item, isLoading } = useCommentItem(id);
+
+  const indent = Math.min(depth, MAX_INDENT);
+  const indentStyle = { marginLeft: `${indent * 12}px` };
+
+  if (isLoading || !item) {
+    return (
+      <div
+        className="comment comment--loading"
+        data-depth={indent}
+        style={indentStyle}
+        aria-busy="true"
+      >
+        <div className="comment__header">
+          <div className="comment__meta">
+            <span className="comment__author">…</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isDead = item.deleted || item.dead;
   const age = item.time ? formatTimeAgo(item.time) : '';
-  const indent = Math.min(depth, MAX_INDENT);
+  const kids = item.kids ?? [];
+  const hasReplies = kids.length > 0;
 
   return (
     <div
-      className={`comment${collapsed ? ' is-collapsed' : ''}`}
+      className={`comment${repliesCollapsed ? ' is-collapsed' : ''}`}
       data-depth={indent}
-      style={{ marginLeft: `${indent * 12}px` }}
+      style={indentStyle}
     >
       <div className="comment__header">
-        <button
-          type="button"
-          className="comment__toggle"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? 'Expand comment' : 'Collapse comment'}
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          {collapsed ? '+' : '−'}
-        </button>
+        {hasReplies ? (
+          <button
+            type="button"
+            className="comment__toggle"
+            aria-expanded={!repliesCollapsed}
+            aria-label={
+              repliesCollapsed
+                ? `Show ${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`
+                : `Hide ${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`
+            }
+            onClick={() => setRepliesCollapsed((c) => !c)}
+          >
+            {repliesCollapsed ? '+' : '−'}
+          </button>
+        ) : null}
         <div className="comment__meta">
           {item.by && !isDead ? (
             <Link to={`/user/${item.by}`} className="comment__author">
@@ -47,37 +74,29 @@ export function Comment({ node, depth }: Props) {
             </span>
           )}
           {age ? <span className="comment__age"> · {age}</span> : null}
-          {collapsed && children.length > 0 ? (
+          {hasReplies && repliesCollapsed ? (
             <span className="comment__count">
               {' '}
-              [{countDescendants(node)}]
+              · {kids.length} {pluralize(kids.length, 'reply', 'replies')}
             </span>
           ) : null}
         </div>
       </div>
-      {!collapsed && !isDead && item.text ? (
+      {!isDead && item.text ? (
         <div
           className="comment__body"
           dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
         />
       ) : null}
-      {!collapsed && children.length > 0 ? (
+      {hasReplies && !repliesCollapsed ? (
         <ol className="comment__children">
-          {children.map((c) => (
-            <li key={c.item.id}>
-              <Comment node={c} depth={depth + 1} />
+          {kids.map((kidId) => (
+            <li key={kidId}>
+              <Comment id={kidId} depth={depth + 1} />
             </li>
           ))}
         </ol>
       ) : null}
     </div>
   );
-}
-
-function countDescendants(node: CommentNode): number {
-  let n = node.children.length;
-  for (const c of node.children) {
-    n += countDescendants(c);
-  }
-  return n;
 }

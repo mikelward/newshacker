@@ -77,3 +77,7 @@
   margin: 0;
   padding: 0;
 }
+
+.thread__sentinel {
+  height: 1px;
+}
