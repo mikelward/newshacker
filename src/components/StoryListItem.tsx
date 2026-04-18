@@ -43,14 +43,7 @@ export function StoryListItem({
     enabled: !!onDismiss,
   });
 
-  const titleInner = (
-    <>
-      <span className="story-row__title-text">{title}</span>
-      {domainLabel ? (
-        <span className="story-row__domain">{domainLabel}</span>
-      ) : null}
-    </>
-  );
+  const titleInner = <span className="story-row__title-text">{title}</span>;
 
   const rowClass =
     'story-row' +
@@ -99,6 +92,10 @@ export function StoryListItem({
             {titleInner}
           </Link>
         )}
+
+        {domainLabel ? (
+          <span className="story-row__domain">{domainLabel}</span>
+        ) : null}
 
         <div className="story-row__meta-row">
           <span className="story-row__meta" data-testid="story-meta">

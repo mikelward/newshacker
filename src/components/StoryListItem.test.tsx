@@ -35,7 +35,15 @@ describe('StoryListItem', () => {
   it('shows a "self post" placeholder where the domain would go for self-posts', () => {
     const selfPost: HNItem = { ...baseStory, url: undefined };
     renderWithProviders(<StoryListItem story={selfPost} />);
-    expect(screen.getByTestId('story-title')).toHaveTextContent(/self post/i);
+    expect(screen.getByTestId('story-row')).toHaveTextContent(/self post/i);
+  });
+
+  it('renders the domain outside the title link so the title tap zone does not wrap the domain', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
+    const title = screen.getByTestId('story-title');
+    expect(title).not.toHaveTextContent(/example\.com/);
+    const row = screen.getByTestId('story-row');
+    expect(row).toHaveTextContent(/example\.com/);
   });
 
   it('renders the comments button as a real button-like link to /item/:id', () => {
