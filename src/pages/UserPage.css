@@ -2,6 +2,7 @@
   background: var(--hn-bg-card);
   padding: 16px;
   border-bottom: 1px solid var(--hn-border);
+  color: var(--hn-text);
 }
 
 .user-page__id {
@@ -37,26 +38,12 @@
   word-wrap: break-word;
 }
 
+.user-page__about a {
+  color: var(--hn-orange);
+  text-decoration: underline;
+}
+
 .user-page__back {
   margin-top: 16px;
   font-size: 14px;
-}
-
-.page-message {
-  padding: 24px 16px;
-  text-align: center;
-  color: var(--hn-meta);
-}
-
-.retry-btn {
-  background: #fff;
-  border: 1px solid var(--hn-border);
-  padding: 8px 16px;
-  border-radius: 6px;
-  margin-left: 8px;
-  min-height: var(--tap-min);
-}
-
-.retry-btn:hover {
-  background: var(--hn-pressed);
 }
