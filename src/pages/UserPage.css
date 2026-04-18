@@ -1,0 +1,62 @@
+.user-page {
+  background: var(--hn-bg-card);
+  padding: 16px;
+  border-bottom: 1px solid var(--hn-border);
+}
+
+.user-page__id {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+.user-page__stats {
+  display: flex;
+  gap: 24px;
+  margin: 0 0 12px;
+}
+
+.user-page__stats > div {
+  margin: 0;
+}
+
+.user-page__stats dt {
+  font-size: 12px;
+  color: var(--hn-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.user-page__stats dd {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
+.user-page__about {
+  font-size: 15px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+.user-page__back {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+.page-message {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--hn-meta);
+}
+
+.retry-btn {
+  background: #fff;
+  border: 1px solid var(--hn-border);
+  padding: 8px 16px;
+  border-radius: 6px;
+  margin-left: 8px;
+  min-height: var(--tap-min);
+}
+
+.retry-btn:hover {
+  background: var(--hn-pressed);
+}
