@@ -5,13 +5,12 @@
   background: var(--hn-orange);
   color: #fff;
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1fr;
   grid-template-rows: auto auto;
   grid-template-areas:
-    'home feed'
-    'tabs tabs';
+    'home'
+    'tabs';
   align-items: center;
-  column-gap: 12px;
   row-gap: 4px;
   padding: 8px 12px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
@@ -47,14 +46,6 @@
 .app-header__title {
   font-weight: 700;
   font-size: 17px;
-}
-
-.app-header__feed {
-  grid-area: feed;
-  justify-self: end;
-  font-weight: 600;
-  font-size: 14px;
-  opacity: 0.95;
 }
 
 .app-header__tabs {
