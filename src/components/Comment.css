@@ -1,5 +1,5 @@
 .comment {
-  padding: 12px;
+  padding: 6px 12px 8px;
   border-top: 1px solid var(--hn-border);
   background: var(--hn-bg-card);
   color: var(--hn-text);
@@ -53,7 +53,7 @@
   display: block;
   width: 100%;
   min-height: var(--tap-min);
-  margin-top: 8px;
+  margin-top: 4px;
   padding: 8px 12px;
   border: 1px solid var(--hn-border);
   border-radius: 6px;
@@ -72,7 +72,7 @@
   font-size: 14px;
   line-height: 1.5;
   color: var(--hn-text);
-  margin-top: 6px;
+  margin-top: 2px;
   word-wrap: break-word;
 }
 

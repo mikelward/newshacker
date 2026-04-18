@@ -50,7 +50,8 @@ describe('StoryListItem', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
     const btn = screen.getByTestId('comments-btn');
     expect(btn).toHaveAttribute('href', '/item/1');
-    expect(btn).toHaveTextContent(/7 comments/);
+    expect(btn).toHaveTextContent('7');
+    expect(btn).toHaveAccessibleName('7 comments');
     // Not pointed at external url
     expect(btn.getAttribute('href')).not.toContain('example.com');
   });
