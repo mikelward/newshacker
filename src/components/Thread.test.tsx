@@ -1,14 +1,15 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Thread } from './Thread';
+import { Thread, TOP_LEVEL_PAGE_SIZE } from './Thread';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+import type { HNItem } from '../lib/hn';
 
 describe('<Thread>', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('renders story header, a Read article button, and nested comments', async () => {
+  it('renders story header + top-level comments, with replies collapsed by default', async () => {
     installHNFetchMock({
       items: {
         100: makeStory(100, { title: 'Parent', kids: [101], descendants: 3 }),
@@ -47,12 +48,16 @@ describe('<Thread>', () => {
       'href',
       'https://example.com/100',
     );
-    expect(screen.getByText(/hello/)).toBeInTheDocument();
-    expect(screen.getByText(/nested reply/)).toBeInTheDocument();
-    expect(screen.getByText(/deep/)).toBeInTheDocument();
+    // Top-level comment body visible
+    await waitFor(() => {
+      expect(screen.getByText(/hello/)).toBeInTheDocument();
+    });
+    // Nested replies are collapsed by default
+    expect(screen.queryByText(/nested reply/)).toBeNull();
+    expect(screen.queryByText(/deep/)).toBeNull();
   });
 
-  it('collapses and expands comment subtrees', async () => {
+  it('expands a collapsed subtree on click and lazy-loads children', async () => {
     installHNFetchMock({
       items: {
         200: makeStory(200, { kids: [201], descendants: 2 }),
@@ -77,16 +82,20 @@ describe('<Thread>', () => {
     renderWithProviders(<Thread id={200} />);
 
     await waitFor(() => {
+      expect(screen.getByText(/top comment/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/child comment/)).toBeNull();
+
+    const expander = screen.getByRole('button', { name: /show 1 reply/i });
+    await userEvent.click(expander);
+
+    await waitFor(() => {
       expect(screen.getByText(/child comment/)).toBeInTheDocument();
     });
 
-    const toggle = screen.getAllByRole('button', { name: /collapse comment/i })[0];
-    await userEvent.click(toggle);
+    const collapser = screen.getByRole('button', { name: /hide 1 reply/i });
+    await userEvent.click(collapser);
     expect(screen.queryByText(/child comment/)).toBeNull();
-
-    const expander = screen.getAllByRole('button', { name: /expand comment/i })[0];
-    await userEvent.click(expander);
-    expect(screen.getByText(/child comment/)).toBeInTheDocument();
   });
 
   it('shows placeholder for deleted items without crashing', async () => {
@@ -100,5 +109,39 @@ describe('<Thread>', () => {
     await waitFor(() => {
       expect(screen.getByText('[deleted]')).toBeInTheDocument();
     });
+  });
+
+  it('paginates top-level comments (only renders first page)', async () => {
+    const totalKids = TOP_LEVEL_PAGE_SIZE + 5;
+    const kidIds = Array.from({ length: totalKids }, (_, i) => 1000 + i);
+    const items: Record<number, HNItem | null> = {
+      500: makeStory(500, { kids: kidIds, descendants: totalKids }),
+    };
+    for (const kid of kidIds) {
+      items[kid] = {
+        id: kid,
+        type: 'comment',
+        by: `u${kid}`,
+        text: `comment ${kid}`,
+        time: 1,
+      };
+    }
+    installHNFetchMock({ items });
+
+    renderWithProviders(<Thread id={500} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/comment 1000/)).toBeInTheDocument();
+    });
+    // Last item on first page visible
+    expect(
+      screen.getByText(`comment ${1000 + TOP_LEVEL_PAGE_SIZE - 1}`),
+    ).toBeInTheDocument();
+    // Items beyond the first page are NOT rendered yet
+    expect(
+      screen.queryByText(`comment ${1000 + TOP_LEVEL_PAGE_SIZE}`),
+    ).toBeNull();
+    // Sentinel exists so IntersectionObserver can trigger next page
+    expect(screen.getByTestId('comments-sentinel')).toBeInTheDocument();
   });
 });

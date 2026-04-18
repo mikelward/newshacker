@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useItemTree } from '../hooks/useItemTree';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
@@ -11,8 +13,20 @@ interface Props {
   id: number;
 }
 
+export const TOP_LEVEL_PAGE_SIZE = 20;
+
 export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
+  const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
+
+  const kidIds = data?.kidIds ?? [];
+  const shown = kidIds.slice(0, visibleCount);
+  const hasMore = visibleCount < kidIds.length;
+
+  const sentinelRef = useInfiniteScroll<HTMLDivElement>({
+    enabled: hasMore,
+    onLoadMore: () => setVisibleCount((n) => n + TOP_LEVEL_PAGE_SIZE),
+  });
 
   if (isLoading) {
     return (
@@ -28,7 +42,7 @@ export function Thread({ id }: Props) {
     return <EmptyState message="Item not found." />;
   }
 
-  const { item, children } = data;
+  const { item } = data;
 
   if (item.deleted || item.dead) {
     return (
@@ -91,12 +105,20 @@ export function Thread({ id }: Props) {
         </div>
       </header>
       <ol className="thread__comments">
-        {children.map((c) => (
-          <li key={c.item.id}>
-            <Comment node={c} depth={0} />
+        {shown.map((kidId) => (
+          <li key={kidId}>
+            <Comment id={kidId} depth={0} />
           </li>
         ))}
       </ol>
+      {hasMore ? (
+        <div
+          ref={sentinelRef}
+          className="thread__sentinel"
+          data-testid="comments-sentinel"
+          aria-hidden="true"
+        />
+      ) : null}
     </article>
   );
 }
