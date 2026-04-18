@@ -44,6 +44,15 @@ export function AppDrawer({ open, onClose }: Props) {
         aria-modal="true"
         aria-label="Navigation menu"
       >
+        <button
+          type="button"
+          className="app-drawer__close"
+          data-testid="drawer-close"
+          aria-label="Close menu"
+          onClick={onClose}
+        >
+          <span aria-hidden="true">×</span>
+        </button>
         <div className="app-drawer__section-title">Feeds</div>
         <ul className="app-drawer__list">
           {FEEDS.map((f) => (
