@@ -25,6 +25,7 @@ function dispatch(
 interface HarnessProps {
   onSwipeRight?: () => void;
   onSwipeLeft?: () => void;
+  onLongPress?: () => void;
   enabled?: boolean;
   onLinkClick?: () => void;
 }
@@ -32,12 +33,14 @@ interface HarnessProps {
 function Harness({
   onSwipeRight,
   onSwipeLeft,
+  onLongPress,
   enabled,
   onLinkClick,
 }: HarnessProps) {
   const { handlers, dragging, isDismissing, offset } = useSwipeToDismiss({
     onSwipeRight,
     onSwipeLeft,
+    onLongPress,
     enabled,
   });
   return (
@@ -218,5 +221,83 @@ describe('useSwipeToDismiss', () => {
     dispatch(row, 'pointerup', 100, 100);
     fireEvent.click(link);
     expect(onLinkClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onLongPress after the press is held past the threshold', () => {
+    vi.useFakeTimers();
+    const onLongPress = vi.fn();
+    render(<Harness onLongPress={onLongPress} />);
+    const row = screen.getByTestId('row');
+
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses the click that follows a long-press', () => {
+    vi.useFakeTimers();
+    const onLongPress = vi.fn();
+    const onLinkClick = vi.fn();
+    render(
+      <Harness onLongPress={onLongPress} onLinkClick={onLinkClick} />,
+    );
+    const row = screen.getByTestId('row');
+    const link = screen.getByTestId('inner-link');
+
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    dispatch(row, 'pointerup', 100, 100);
+    fireEvent.click(link);
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(onLinkClick).not.toHaveBeenCalled();
+  });
+
+  it('cancels long-press if the pointer moves more than the tolerance', () => {
+    vi.useFakeTimers();
+    const onLongPress = vi.fn();
+    render(<Harness onLongPress={onLongPress} onSwipeRight={vi.fn()} />);
+    const row = screen.getByTestId('row');
+
+    dispatch(row, 'pointerdown', 100, 100);
+    dispatch(row, 'pointermove', 120, 100); // 20px > tolerance
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  it('does not fire long-press if pointerup happens before threshold', () => {
+    vi.useFakeTimers();
+    const onLongPress = vi.fn();
+    const onLinkClick = vi.fn();
+    render(
+      <Harness onLongPress={onLongPress} onLinkClick={onLinkClick} />,
+    );
+    const row = screen.getByTestId('row');
+    const link = screen.getByTestId('inner-link');
+
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    dispatch(row, 'pointerup', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    fireEvent.click(link);
+    expect(onLongPress).not.toHaveBeenCalled();
+    expect(onLinkClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('prevents the context menu when a long-press handler is wired', () => {
+    render(<Harness onLongPress={vi.fn()} />);
+    const row = screen.getByTestId('row');
+    const evt = new Event('contextmenu', { bubbles: true, cancelable: true });
+    row.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(true);
   });
 });

@@ -6,10 +6,13 @@ const SWIPE_MIN_PX = 80;
 const ANGLE_RATIO = 1.2;
 const START_THRESHOLD_PX = 8;
 const EXIT_DURATION_MS = 200;
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 8;
 
 interface Options {
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
+  onLongPress?: () => void;
   enabled?: boolean;
 }
 
@@ -24,6 +27,7 @@ interface PointerStart {
 export function useSwipeToDismiss({
   onSwipeLeft,
   onSwipeRight,
+  onLongPress,
   enabled = true,
 }: Options) {
   const [offset, setOffset] = useState(0);
@@ -33,8 +37,10 @@ export function useSwipeToDismiss({
   const startRef = useRef<PointerStart | null>(null);
   const justSwipedRef = useRef(false);
   const timeoutRef = useRef<number | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
   const onSwipeLeftRef = useRef(onSwipeLeft);
   const onSwipeRightRef = useRef(onSwipeRight);
+  const onLongPressRef = useRef(onLongPress);
 
   useEffect(() => {
     onSwipeLeftRef.current = onSwipeLeft;
@@ -42,16 +48,27 @@ export function useSwipeToDismiss({
   useEffect(() => {
     onSwipeRightRef.current = onSwipeRight;
   }, [onSwipeRight]);
+  useEffect(() => {
+    onLongPressRef.current = onLongPress;
+  }, [onLongPress]);
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
       if (timeoutRef.current != null) {
         window.clearTimeout(timeoutRef.current);
       }
+      clearLongPressTimer();
     };
-  }, []);
+  }, [clearLongPressTimer]);
 
-  const hasAnyHandler = !!(onSwipeLeft || onSwipeRight);
+  const hasAnyHandler = !!(onSwipeLeft || onSwipeRight || onLongPress);
   const active = enabled && hasAnyHandler;
 
   const onPointerDown = useCallback(
@@ -67,8 +84,19 @@ export function useSwipeToDismiss({
         pointerId: e.pointerId,
         swiping: false,
       };
+      clearLongPressTimer();
+      if (onLongPressRef.current) {
+        longPressTimerRef.current = window.setTimeout(() => {
+          longPressTimerRef.current = null;
+          // Suppress the click that follows pointerup so the underlying
+          // stretched link does not also navigate.
+          justSwipedRef.current = true;
+          startRef.current = null;
+          onLongPressRef.current?.();
+        }, LONG_PRESS_MS);
+      }
     },
-    [active, isDismissing],
+    [active, isDismissing, clearLongPressTimer],
   );
 
   const onPointerMove = useCallback((e: PointerEvent<HTMLElement>) => {
@@ -76,13 +104,21 @@ export function useSwipeToDismiss({
     if (!start || start.pointerId !== e.pointerId) return;
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
+    if (
+      longPressTimerRef.current != null &&
+      Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE_PX
+    ) {
+      clearLongPressTimer();
+    }
     if (!start.swiping) {
       if (Math.abs(dx) < START_THRESHOLD_PX) return;
       if (Math.abs(dx) < Math.abs(dy) * ANGLE_RATIO) {
         startRef.current = null;
+        clearLongPressTimer();
         return;
       }
       start.swiping = true;
+      clearLongPressTimer();
       setDragging(true);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -91,7 +127,7 @@ export function useSwipeToDismiss({
       }
     }
     setOffset(dx);
-  }, []);
+  }, [clearLongPressTimer]);
 
   const onPointerUp = useCallback((e: PointerEvent<HTMLElement>) => {
     const start = startRef.current;
@@ -101,6 +137,7 @@ export function useSwipeToDismiss({
     const width = start.width;
     const wasSwiping = start.swiping;
     startRef.current = null;
+    clearLongPressTimer();
     setDragging(false);
 
     const dir = dx >= 0 ? 1 : -1;
@@ -123,22 +160,37 @@ export function useSwipeToDismiss({
       setOffset(0);
       if (wasSwiping) justSwipedRef.current = true;
     }
-  }, []);
+  }, [clearLongPressTimer]);
 
   const onPointerCancel = useCallback((e: PointerEvent<HTMLElement>) => {
     const start = startRef.current;
     if (!start || start.pointerId !== e.pointerId) return;
     startRef.current = null;
+    clearLongPressTimer();
     setDragging(false);
     setOffset(0);
+  }, [clearLongPressTimer]);
+
+  const onContextMenu = useCallback((e: MouseEvent) => {
+    // If a long-press just fired we own the gesture; suppress the OS menu.
+    if (justSwipedRef.current || onLongPressRef.current) {
+      e.preventDefault();
+    }
   }, []);
 
   const onClickCapture = useCallback((e: MouseEvent) => {
-    if (justSwipedRef.current) {
-      e.preventDefault();
-      e.stopPropagation();
-      justSwipedRef.current = false;
+    if (!justSwipedRef.current) return;
+    // The menu opened by a long-press is rendered in a portal outside this
+    // row's DOM. React still routes its events through the React tree, so we
+    // must let those clicks through instead of swallowing them.
+    const currentTarget = e.currentTarget as Node | null;
+    const target = e.target as Node | null;
+    if (currentTarget && target && !currentTarget.contains(target)) {
+      return;
     }
+    e.preventDefault();
+    e.stopPropagation();
+    justSwipedRef.current = false;
   }, []);
 
   const style: CSSProperties =
@@ -165,6 +217,7 @@ export function useSwipeToDismiss({
       onPointerUp,
       onPointerCancel,
       onClickCapture,
+      onContextMenu,
     },
   };
 }

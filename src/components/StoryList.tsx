@@ -10,6 +10,7 @@ import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { useToast } from '../hooks/useToast';
+import { useShareStory } from '../hooks/useShareStory';
 import './StoryList.css';
 
 interface Props {
@@ -24,6 +25,19 @@ export function StoryList({ feed }: Props) {
     useOpenedStories();
   const { savedIds, save, unsave } = useSavedStories();
   const { showToast } = useToast();
+  const shareStory = useShareStory();
+
+  const handleMenuUnsave = useCallback(
+    (id: number) => {
+      unsave(id);
+      showToast({
+        message: 'Unsaved',
+        actionLabel: 'Undo',
+        onAction: () => save(id),
+      });
+    },
+    [save, unsave, showToast],
+  );
 
   const handleSwipeSave = useCallback(
     (id: number) => {
@@ -128,6 +142,8 @@ export function StoryList({ feed }: Props) {
               saved={savedIds.has(story.id)}
               onDismiss={handleSwipeDismiss}
               onSave={handleSwipeSave}
+              onUnsave={handleMenuUnsave}
+              onShare={shareStory}
               onMarkOpened={markOpened}
             />
           </li>
