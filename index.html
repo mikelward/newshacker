@@ -6,6 +6,19 @@
     <meta name="theme-color" content="#ff6600" />
     <title>Newshacker — a reader for Hacker News</title>
     <meta name="description" content="A mobile-friendly, unofficial reader for Hacker News." />
+    <script>
+      // Apply a stored theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var t = localStorage.getItem('newshacker:theme');
+          if (t === 'dark' || t === 'light') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
