@@ -98,12 +98,6 @@
   line-height: 1.35;
 }
 
-.story-row__domain {
-  display: block;
-  color: var(--hn-meta);
-  font-size: 12px;
-}
-
 .story-row__meta {
   display: block;
   color: var(--hn-meta);
