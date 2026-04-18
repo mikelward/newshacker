@@ -24,7 +24,8 @@ export function SavedStoryList({
   recover,
 }: Props) {
   const { dismiss } = useDismissedStories();
-  const { openedIds, markOpened } = useOpenedStories();
+  const { articleOpenedIds, commentsOpenedIds, markOpened } =
+    useOpenedStories();
 
   const items = useQuery({
     queryKey: [
@@ -82,7 +83,8 @@ export function SavedStoryList({
           <StoryListItem
             story={story}
             rank={idx + 1}
-            isOpened={openedIds.has(story.id)}
+            articleOpened={articleOpenedIds.has(story.id)}
+            commentsOpened={commentsOpenedIds.has(story.id)}
             onDismiss={dismiss}
             onMarkOpened={markOpened}
           />

@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
+import type { OpenedKind } from '../lib/openedStories';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import './StoryListItem.css';
@@ -9,15 +10,17 @@ interface Props {
   story: HNItem;
   rank?: number;
   isLoggedIn?: boolean;
-  isOpened?: boolean;
+  articleOpened?: boolean;
+  commentsOpened?: boolean;
   onDismiss?: (id: number) => void;
-  onMarkOpened?: (id: number) => void;
+  onMarkOpened?: (id: number, kind: OpenedKind) => void;
 }
 
 export function StoryListItem({
   story,
   isLoggedIn = false,
-  isOpened = false,
+  articleOpened = false,
+  commentsOpened = false,
   onDismiss,
   onMarkOpened,
 }: Props) {
@@ -34,8 +37,16 @@ export function StoryListItem({
     onDismiss?.(story.id);
   }, [onDismiss, story.id]);
 
-  const handleOpen = useCallback(() => {
-    onMarkOpened?.(story.id);
+  // For URL stories the title opens the article; for self-posts it opens
+  // the thread, so a title tap is really a comments tap in that case.
+  const titleKind: OpenedKind = hasExternalUrl ? 'article' : 'comments';
+
+  const handleOpenTitle = useCallback(() => {
+    onMarkOpened?.(story.id, titleKind);
+  }, [onMarkOpened, story.id, titleKind]);
+
+  const handleOpenComments = useCallback(() => {
+    onMarkOpened?.(story.id, 'comments');
   }, [onMarkOpened, story.id]);
 
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
@@ -45,11 +56,15 @@ export function StoryListItem({
 
   const titleInner = <span className="story-row__title-text">{title}</span>;
 
+  const titleLooksOpened =
+    titleKind === 'article' ? articleOpened : commentsOpened;
+
   const rowClass =
     'story-row' +
     (dragging ? ' story-row--dragging' : '') +
     (isDismissing ? ' story-row--dismissing' : '') +
-    (isOpened ? ' story-row--opened' : '');
+    (titleLooksOpened ? ' story-row--title-opened' : '') +
+    (commentsOpened ? ' story-row--comments-opened' : '');
 
   return (
     <article
@@ -78,7 +93,7 @@ export function StoryListItem({
             href={story.url}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={handleOpen}
+            onClick={handleOpenTitle}
           >
             {titleInner}
           </a>
@@ -87,7 +102,7 @@ export function StoryListItem({
             className="story-row__title"
             data-testid="story-title"
             to={`/item/${story.id}`}
-            onClick={handleOpen}
+            onClick={handleOpenTitle}
           >
             {titleInner}
           </Link>
@@ -107,7 +122,7 @@ export function StoryListItem({
             data-testid="comments-btn"
             onClick={(e) => {
               e.stopPropagation();
-              handleOpen();
+              handleOpenComments();
             }}
             aria-label={`${commentCount} ${pluralize(commentCount, 'comment')}`}
           >

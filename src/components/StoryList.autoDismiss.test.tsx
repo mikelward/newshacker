@@ -158,7 +158,9 @@ describe('<StoryList> auto-dismiss on scroll-past', () => {
     const rows = screen.getAllByTestId('story-row');
     const openedRow = rows.find((r) => r.textContent?.includes('Story 1'))!;
     const unopenedRow = rows.find((r) => r.textContent?.includes('Story 2'))!;
-    expect(openedRow.className).toContain('story-row--opened');
-    expect(unopenedRow.className).not.toContain('story-row--opened');
+    expect(openedRow.className).toContain('story-row--title-opened');
+    expect(openedRow.className).toContain('story-row--comments-opened');
+    expect(unopenedRow.className).not.toContain('story-row--title-opened');
+    expect(unopenedRow.className).not.toContain('story-row--comments-opened');
   });
 });

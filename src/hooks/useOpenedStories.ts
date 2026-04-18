@@ -1,16 +1,35 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   OPENED_STORIES_CHANGE_EVENT,
+  type OpenedKind,
   addOpenedId,
+  getArticleOpenedIds,
+  getCommentsOpenedIds,
   getOpenedIds,
+  markArticleOpenedId,
+  markCommentsOpenedId,
   removeOpenedId,
 } from '../lib/openedStories';
 
+interface Snapshot {
+  openedIds: Set<number>;
+  articleOpenedIds: Set<number>;
+  commentsOpenedIds: Set<number>;
+}
+
+function snapshot(): Snapshot {
+  return {
+    openedIds: getOpenedIds(),
+    articleOpenedIds: getArticleOpenedIds(),
+    commentsOpenedIds: getCommentsOpenedIds(),
+  };
+}
+
 export function useOpenedStories() {
-  const [openedIds, setOpenedIds] = useState<Set<number>>(() => getOpenedIds());
+  const [state, setState] = useState<Snapshot>(() => snapshot());
 
   useEffect(() => {
-    const sync = () => setOpenedIds(getOpenedIds());
+    const sync = () => setState(snapshot());
     window.addEventListener(OPENED_STORIES_CHANGE_EVENT, sync);
     window.addEventListener('storage', sync);
     return () => {
@@ -19,12 +38,19 @@ export function useOpenedStories() {
     };
   }, []);
 
-  const markOpened = useCallback((id: number) => addOpenedId(id), []);
+  const markOpened = useCallback((id: number, kind: OpenedKind) => {
+    if (kind === 'article') markArticleOpenedId(id);
+    else markCommentsOpenedId(id);
+  }, []);
+  const markBothOpened = useCallback((id: number) => addOpenedId(id), []);
   const unopen = useCallback((id: number) => removeOpenedId(id), []);
-  const isOpened = useCallback(
-    (id: number) => openedIds.has(id),
-    [openedIds],
-  );
 
-  return { openedIds, markOpened, unopen, isOpened };
+  return {
+    openedIds: state.openedIds,
+    articleOpenedIds: state.articleOpenedIds,
+    commentsOpenedIds: state.commentsOpenedIds,
+    markOpened,
+    markBothOpened,
+    unopen,
+  };
 }

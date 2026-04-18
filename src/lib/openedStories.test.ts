@@ -3,8 +3,12 @@ import {
   OPENED_STORY_TTL_MS,
   addOpenedId,
   clearOpenedIds,
+  getArticleOpenedIds,
+  getCommentsOpenedIds,
   getOpenedEntries,
   getOpenedIds,
+  markArticleOpenedId,
+  markCommentsOpenedId,
   removeOpenedId,
 } from './openedStories';
 
@@ -112,5 +116,62 @@ describe('openedStories', () => {
     const byId = new Map(entries.map((e) => [e.id, e.at]));
     expect(byId.get(1)).toBe(now - 2000);
     expect(byId.get(2)).toBe(now - 1000);
+  });
+
+  describe('per-kind tracking', () => {
+    it('markArticleOpenedId only marks the article half', () => {
+      markArticleOpenedId(1);
+      expect(getArticleOpenedIds()).toEqual(new Set([1]));
+      expect(getCommentsOpenedIds()).toEqual(new Set());
+      expect(getOpenedIds()).toEqual(new Set([1]));
+    });
+
+    it('markCommentsOpenedId only marks the comments half', () => {
+      markCommentsOpenedId(1);
+      expect(getCommentsOpenedIds()).toEqual(new Set([1]));
+      expect(getArticleOpenedIds()).toEqual(new Set());
+      expect(getOpenedIds()).toEqual(new Set([1]));
+    });
+
+    it('marking both halves separately keeps both set', () => {
+      markArticleOpenedId(1);
+      markCommentsOpenedId(1);
+      expect(getArticleOpenedIds()).toEqual(new Set([1]));
+      expect(getCommentsOpenedIds()).toEqual(new Set([1]));
+    });
+
+    it('addOpenedId sets both halves', () => {
+      addOpenedId(1);
+      expect(getArticleOpenedIds()).toEqual(new Set([1]));
+      expect(getCommentsOpenedIds()).toEqual(new Set([1]));
+    });
+
+    it('refreshes only the kind being marked', () => {
+      const now = 1_000_000_000_000;
+      markArticleOpenedId(1, now - 1000);
+      markCommentsOpenedId(1, now);
+      const entries = getOpenedEntries(now);
+      const e = entries.find((x) => x.id === 1)!;
+      expect(e.articleAt).toBe(now - 1000);
+      expect(e.commentsAt).toBe(now);
+      expect(e.at).toBe(now);
+    });
+
+    it('removeOpenedId clears both halves', () => {
+      markArticleOpenedId(1);
+      markCommentsOpenedId(1);
+      removeOpenedId(1);
+      expect(getArticleOpenedIds()).toEqual(new Set());
+      expect(getCommentsOpenedIds()).toEqual(new Set());
+    });
+
+    it('reads legacy {id, at} entries as if both halves were opened', () => {
+      window.localStorage.setItem(
+        'newshacker:openedStoryIds',
+        JSON.stringify([{ id: 9, at: Date.now() }]),
+      );
+      expect(getArticleOpenedIds()).toEqual(new Set([9]));
+      expect(getCommentsOpenedIds()).toEqual(new Set([9]));
+    });
   });
 });

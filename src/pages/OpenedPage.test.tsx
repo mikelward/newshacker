@@ -51,8 +51,8 @@ describe('<OpenedPage>', () => {
     await waitFor(() => {
       expect(screen.getByTestId('story-row')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('story-row').className).toContain(
-      'story-row--opened',
-    );
+    const className = screen.getByTestId('story-row').className;
+    expect(className).toContain('story-row--title-opened');
+    expect(className).toContain('story-row--comments-opened');
   });
 });

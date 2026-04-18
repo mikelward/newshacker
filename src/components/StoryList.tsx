@@ -18,7 +18,8 @@ export function StoryList({ feed }: Props) {
   const [page, setPage] = useState(0);
   const { ids, items, slice, totalIds } = useStoryPage(feed, page);
   const { dismissedIds, dismiss } = useDismissedStories();
-  const { openedIds, markOpened } = useOpenedStories();
+  const { articleOpenedIds, commentsOpenedIds, markOpened } =
+    useOpenedStories();
 
   const canLoadMore = slice.length < totalIds;
   const isFetching = items.isFetching || ids.isFetching;
@@ -94,7 +95,8 @@ export function StoryList({ feed }: Props) {
             <StoryListItem
               story={story}
               rank={idx + 1}
-              isOpened={openedIds.has(story.id)}
+              articleOpened={articleOpenedIds.has(story.id)}
+              commentsOpened={commentsOpenedIds.has(story.id)}
               onDismiss={dismiss}
               onMarkOpened={markOpened}
             />
