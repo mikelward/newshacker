@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
-import { BottomNav } from './components/BottomNav';
 import { FeedPage } from './pages/FeedPage';
 import { ItemPage } from './pages/ItemPage';
 import { UserPage } from './pages/UserPage';
@@ -19,7 +18,6 @@ export default function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
-      <BottomNav />
     </>
   );
 }

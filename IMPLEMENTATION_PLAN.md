@@ -21,7 +21,7 @@ Staged so each phase lands as a working, shippable increment. Each phase ends wi
 
 - Install React Router.
 - Add CSS variables for the HN palette (`--hn-orange`, `--hn-cream`, `--hn-meta`).
-- Build `<AppHeader>`, `<FeedTabs>`, `<BottomNav>` (mobile) / top tabs (desktop).
+- Build `<AppHeader>` with top tabs for feed switching.
 - Routes: `/`, `/:feed`, `/item/:id`, `/user/:id`, with placeholder pages.
 - Tests: header renders logo + current feed; routing renders correct page for each path.
 
