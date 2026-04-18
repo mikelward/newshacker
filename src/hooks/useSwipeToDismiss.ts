@@ -8,7 +8,8 @@ const START_THRESHOLD_PX = 8;
 const EXIT_DURATION_MS = 200;
 
 interface Options {
-  onDismiss: () => void;
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
   enabled?: boolean;
 }
 
@@ -20,7 +21,11 @@ interface PointerStart {
   swiping: boolean;
 }
 
-export function useSwipeToDismiss({ onDismiss, enabled = true }: Options) {
+export function useSwipeToDismiss({
+  onSwipeLeft,
+  onSwipeRight,
+  enabled = true,
+}: Options) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [isDismissing, setIsDismissing] = useState(false);
@@ -28,11 +33,15 @@ export function useSwipeToDismiss({ onDismiss, enabled = true }: Options) {
   const startRef = useRef<PointerStart | null>(null);
   const justSwipedRef = useRef(false);
   const timeoutRef = useRef<number | null>(null);
-  const onDismissRef = useRef(onDismiss);
+  const onSwipeLeftRef = useRef(onSwipeLeft);
+  const onSwipeRightRef = useRef(onSwipeRight);
 
   useEffect(() => {
-    onDismissRef.current = onDismiss;
-  }, [onDismiss]);
+    onSwipeLeftRef.current = onSwipeLeft;
+  }, [onSwipeLeft]);
+  useEffect(() => {
+    onSwipeRightRef.current = onSwipeRight;
+  }, [onSwipeRight]);
 
   useEffect(() => {
     return () => {
@@ -42,9 +51,12 @@ export function useSwipeToDismiss({ onDismiss, enabled = true }: Options) {
     };
   }, []);
 
+  const hasAnyHandler = !!(onSwipeLeft || onSwipeRight);
+  const active = enabled && hasAnyHandler;
+
   const onPointerDown = useCallback(
     (e: PointerEvent<HTMLElement>) => {
-      if (!enabled || isDismissing) return;
+      if (!active || isDismissing) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       justSwipedRef.current = false;
       const rect = e.currentTarget.getBoundingClientRect();
@@ -56,7 +68,7 @@ export function useSwipeToDismiss({ onDismiss, enabled = true }: Options) {
         swiping: false,
       };
     },
-    [enabled, isDismissing],
+    [active, isDismissing],
   );
 
   const onPointerMove = useCallback((e: PointerEvent<HTMLElement>) => {
@@ -91,13 +103,21 @@ export function useSwipeToDismiss({ onDismiss, enabled = true }: Options) {
     startRef.current = null;
     setDragging(false);
 
-    if (wasSwiping && Math.abs(dx) >= threshold) {
+    const dir = dx >= 0 ? 1 : -1;
+    const handler =
+      dir > 0 ? onSwipeRightRef.current : onSwipeLeftRef.current;
+
+    if (wasSwiping && Math.abs(dx) >= threshold && handler) {
       justSwipedRef.current = true;
       setIsDismissing(true);
-      const dir = dx >= 0 ? 1 : -1;
       setOffset(dir * Math.max(width, 300));
       timeoutRef.current = window.setTimeout(() => {
-        onDismissRef.current();
+        handler();
+        // If the parent kept the row mounted (e.g. save, not dismiss), reset
+        // so the row snaps back to its resting position instead of staying
+        // translated off-screen.
+        setIsDismissing(false);
+        setOffset(0);
       }, EXIT_DURATION_MS);
     } else {
       setOffset(0);

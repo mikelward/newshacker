@@ -13,6 +13,7 @@ interface Props {
   articleOpened?: boolean;
   commentsOpened?: boolean;
   onDismiss?: (id: number) => void;
+  onSave?: (id: number) => void;
   onMarkOpened?: (id: number, kind: OpenedKind) => void;
 }
 
@@ -22,6 +23,7 @@ export function StoryListItem({
   articleOpened = false,
   commentsOpened = false,
   onDismiss,
+  onSave,
   onMarkOpened,
 }: Props) {
   const hasExternalUrl = !!story.url;
@@ -37,6 +39,10 @@ export function StoryListItem({
     onDismiss?.(story.id);
   }, [onDismiss, story.id]);
 
+  const handleSave = useCallback(() => {
+    onSave?.(story.id);
+  }, [onSave, story.id]);
+
   // For URL stories the title opens the article; for self-posts it opens
   // the thread, so a title tap is really a comments tap in that case.
   const titleKind: OpenedKind = hasExternalUrl ? 'article' : 'comments';
@@ -50,8 +56,8 @@ export function StoryListItem({
   }, [onMarkOpened, story.id]);
 
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
-    onDismiss: handleDismiss,
-    enabled: !!onDismiss,
+    onSwipeRight: onDismiss ? handleDismiss : undefined,
+    onSwipeLeft: onSave ? handleSave : undefined,
   });
 
   const titleInner = <span className="story-row__title-text">{title}</span>;
