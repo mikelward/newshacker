@@ -7,7 +7,7 @@ function currentTitle(pathname: string, params: Record<string, string | undefine
   if (pathname.startsWith('/user/')) return 'User';
   const feed = params.feed;
   if (feed && isFeed(feed)) return feedLabel(feed);
-  return 'Newshacker';
+  return 'hnews.app';
 }
 
 export function AppHeader() {
@@ -17,11 +17,11 @@ export function AppHeader() {
 
   return (
     <header className="app-header" role="banner">
-      <Link to="/top" className="app-header__home" aria-label="Newshacker home">
+      <Link to="/top" className="app-header__home" aria-label="hnews.app home">
         <span className="app-header__brand" aria-hidden="true">
-          N
+          H
         </span>
-        <span className="app-header__title">Newshacker</span>
+        <span className="app-header__title">hnews.app</span>
       </Link>
       <span className="app-header__feed" aria-live="polite">
         {title}
