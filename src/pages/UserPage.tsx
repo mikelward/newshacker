@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { getUser } from '../lib/hn';
 import { formatTimeAgo } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
+import { UserSkeleton } from '../components/Skeletons';
+import { ErrorState, EmptyState } from '../components/States';
 import './UserPage.css';
 
 export function UserPage() {
@@ -14,23 +16,20 @@ export function UserPage() {
   });
 
   if (!id) {
-    return <div className="page-message">Missing user id.</div>;
+    return <EmptyState message="Missing user id." />;
   }
   if (isLoading) {
-    return <div className="page-message">Loading user…</div>;
-  }
-  if (isError) {
     return (
-      <div className="page-message" role="alert">
-        Failed to load user.{' '}
-        <button type="button" onClick={() => refetch()} className="retry-btn">
-          Retry
-        </button>
+      <div aria-busy="true" aria-label="Loading user">
+        <UserSkeleton />
       </div>
     );
   }
+  if (isError) {
+    return <ErrorState message="Could not load user." onRetry={() => refetch()} />;
+  }
   if (!data) {
-    return <div className="page-message">User not found.</div>;
+    return <EmptyState message="User not found." />;
   }
 
   return (

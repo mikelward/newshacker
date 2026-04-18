@@ -3,6 +3,8 @@ import { useItemTree } from '../hooks/useItemTree';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
+import { ThreadSkeleton } from './Skeletons';
+import { ErrorState, EmptyState } from './States';
 import './Thread.css';
 
 interface Props {
@@ -14,23 +16,16 @@ export function Thread({ id }: Props) {
 
   if (isLoading) {
     return (
-      <div className="thread" aria-busy="true">
-        <div className="thread__skeleton" />
+      <div className="thread" aria-busy="true" aria-label="Loading thread">
+        <ThreadSkeleton />
       </div>
     );
   }
   if (isError) {
-    return (
-      <div className="page-message" role="alert">
-        <p>Could not load thread.</p>
-        <button type="button" className="retry-btn" onClick={() => refetch()}>
-          Retry
-        </button>
-      </div>
-    );
+    return <ErrorState message="Could not load thread." onRetry={() => refetch()} />;
   }
   if (!data) {
-    return <div className="page-message">Item not found.</div>;
+    return <EmptyState message="Item not found." />;
   }
 
   const { item, children } = data;

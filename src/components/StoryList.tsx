@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { StoryListItem } from './StoryListItem';
+import { StoryRowSkeleton } from './Skeletons';
+import { ErrorState, EmptyState } from './States';
 import './StoryList.css';
 
 interface Props {
@@ -12,11 +15,25 @@ export function StoryList({ feed }: Props) {
   const [page, setPage] = useState(0);
   const { ids, items, slice, totalIds } = useStoryPage(feed, page);
 
+  const canLoadMore = slice.length < totalIds;
+  const isFetching = items.isFetching || ids.isFetching;
+
+  const handleLoadMore = useCallback(() => {
+    if (!isFetching && canLoadMore) setPage((p) => p + 1);
+  }, [isFetching, canLoadMore]);
+
+  const sentinelRef = useInfiniteScroll<HTMLDivElement>({
+    enabled: canLoadMore && !isFetching,
+    onLoadMore: handleLoadMore,
+  });
+
   if (ids.isLoading || (items.isLoading && slice.length > 0)) {
     return (
-      <ol className="story-list" aria-busy="true">
+      <ol className="story-list" aria-busy="true" aria-label="Loading stories">
         {Array.from({ length: 6 }).map((_, i) => (
-          <li key={i} className="story-list__skeleton" aria-hidden="true" />
+          <li key={i} className="story-list__item">
+            <StoryRowSkeleton />
+          </li>
         ))}
       </ol>
     );
@@ -24,19 +41,13 @@ export function StoryList({ feed }: Props) {
 
   if (ids.isError || items.isError) {
     return (
-      <div className="page-message" role="alert">
-        <p>Could not load stories.</p>
-        <button
-          type="button"
-          className="retry-btn"
-          onClick={() => {
-            ids.refetch();
-            items.refetch();
-          }}
-        >
-          Retry
-        </button>
-      </div>
+      <ErrorState
+        message="Could not load stories."
+        onRetry={() => {
+          ids.refetch();
+          items.refetch();
+        }}
+      />
     );
   }
 
@@ -45,10 +56,8 @@ export function StoryList({ feed }: Props) {
   );
 
   if (stories.length === 0) {
-    return <div className="page-message">No stories.</div>;
+    return <EmptyState message="No stories yet." />;
   }
-
-  const canLoadMore = slice.length < totalIds;
 
   return (
     <>
@@ -61,12 +70,18 @@ export function StoryList({ feed }: Props) {
       </ol>
       {canLoadMore ? (
         <div className="story-list__more">
+          <div
+            ref={sentinelRef}
+            className="story-list__sentinel"
+            aria-hidden="true"
+          />
           <button
             type="button"
             className="load-more-btn"
-            onClick={() => setPage((p) => p + 1)}
+            onClick={handleLoadMore}
+            disabled={isFetching}
           >
-            Load more
+            {isFetching ? 'Loading…' : 'Load more'}
           </button>
         </div>
       ) : null}

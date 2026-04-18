@@ -1,7 +1,8 @@
 .comment {
-  padding: 12px 12px 12px 12px;
+  padding: 12px;
   border-top: 1px solid var(--hn-border);
-  background: #fff;
+  background: var(--hn-bg-card);
+  color: var(--hn-text);
 }
 
 .comment__header {
@@ -15,11 +16,11 @@
   min-width: var(--tap-min);
   min-height: var(--tap-min);
   border: 1px solid var(--hn-border);
-  background: #fff;
+  background: var(--hn-bg-card);
+  color: var(--hn-meta);
   border-radius: 6px;
   font-size: 18px;
   line-height: 1;
-  color: var(--hn-meta);
 }
 
 .comment__toggle:hover {
@@ -68,7 +69,7 @@
 
 .comment__body pre {
   overflow-x: auto;
-  background: #f4f4ee;
+  background: var(--hn-bg-code);
   padding: 8px;
   border-radius: 4px;
 }

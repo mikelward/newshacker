@@ -3,7 +3,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: #fff;
+  background: var(--hn-bg-card);
   border-top: 1px solid var(--hn-border);
   display: flex;
   padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
@@ -28,7 +28,7 @@
 
 .bottom-nav__link.is-active {
   color: var(--hn-orange);
-  background: #fff4ea;
+  background: var(--hn-pressed);
 }
 
 .bottom-nav__link:hover {
