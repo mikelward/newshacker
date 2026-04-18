@@ -7,7 +7,7 @@ function currentTitle(pathname: string, params: Record<string, string | undefine
   if (pathname.startsWith('/user/')) return 'User';
   const feed = params.feed;
   if (feed && isFeed(feed)) return feedLabel(feed);
-  return 'Newshacker';
+  return '';
 }
 
 export function AppHeader() {
@@ -23,9 +23,11 @@ export function AppHeader() {
         </span>
         <span className="app-header__title">Newshacker</span>
       </Link>
-      <span className="app-header__feed" aria-live="polite">
-        {title}
-      </span>
+      {title && (
+        <span className="app-header__feed" aria-live="polite">
+          {title}
+        </span>
+      )}
       <nav className="app-header__tabs" aria-label="Feeds">
         {FEEDS.map((f) => (
           <Link
