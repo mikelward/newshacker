@@ -112,24 +112,36 @@ export function StoryListItem({
           <span className="story-row__domain">{domainLabel}</span>
         ) : null}
 
-        <div className="story-row__meta-row">
-          <span className="story-row__meta" data-testid="story-meta">
-            {points} {pluralize(points, 'point')} · {age}
-          </span>
-          <Link
-            to={`/item/${story.id}`}
-            className="comments-btn"
-            data-testid="comments-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenComments();
-            }}
-            aria-label={`${commentCount} ${pluralize(commentCount, 'comment')}`}
-          >
-            {commentCount} {pluralize(commentCount, 'comment')}
-          </Link>
-        </div>
+        <span className="story-row__meta" data-testid="story-meta">
+          {points} {pluralize(points, 'point')} · {age}
+        </span>
       </div>
+
+      <Link
+        to={`/item/${story.id}`}
+        className="comments-btn"
+        data-testid="comments-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleOpenComments();
+        }}
+        aria-label={`${commentCount} ${pluralize(commentCount, 'comment')}`}
+      >
+        <span className="comments-btn__count">{commentCount}</span>
+        <svg
+          className="comments-btn__icon"
+          viewBox="0 0 24 24"
+          width="16"
+          height="16"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            fill="currentColor"
+            d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2z"
+          />
+        </svg>
+      </Link>
     </article>
   );
 }

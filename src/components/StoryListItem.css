@@ -2,8 +2,7 @@
   display: flex;
   align-items: stretch;
   gap: 8px;
-  min-height: 72px;
-  padding: 10px 12px;
+  padding: 6px 12px;
   touch-action: pan-y;
 }
 
@@ -54,12 +53,12 @@
 
 .story-row__title {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   align-self: flex-start;
   color: var(--hn-text);
   text-decoration: none;
   min-height: var(--tap-min);
-  padding: 4px 0;
+  padding: 2px 0;
   border-radius: 6px;
   word-wrap: break-word;
 }
@@ -101,17 +100,10 @@
   display: block;
   color: var(--hn-meta);
   font-size: 12px;
-  margin-top: 2px;
-}
-
-.story-row__meta-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .story-row__meta {
+  display: block;
   color: var(--hn-meta);
   font-size: 12px;
   white-space: nowrap;
@@ -121,20 +113,27 @@
 
 .comments-btn {
   flex-shrink: 0;
+  align-self: stretch;
   min-height: var(--tap-min);
-  min-width: 120px;
+  width: 72px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
+  gap: 6px;
+  padding: 8px 12px;
   border: 1px solid var(--hn-border);
   border-radius: 8px;
   background: var(--hn-bg-card);
   color: var(--hn-text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   text-decoration: none;
-  margin-left: 12px;
+  margin-left: 4px;
+}
+
+.comments-btn__icon {
+  display: block;
+  color: var(--hn-meta);
 }
 
 .comments-btn:hover {
