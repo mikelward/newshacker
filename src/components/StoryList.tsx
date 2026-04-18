@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
@@ -12,6 +12,12 @@ import { ErrorState, EmptyState } from './States';
 import { useToast } from '../hooks/useToast';
 import { useShareStory } from '../hooks/useShareStory';
 import './StoryList.css';
+
+// Dismissals within this window are bundled into one undo toast. Long
+// enough to notice a wrong swipe and reach for the toast, short enough
+// that the toast doesn't linger forever or bundle unrelated actions.
+export const DISMISS_BATCH_WINDOW_MS = 5000;
+const DISMISS_TOAST_GROUP = 'dismiss-batch';
 
 interface Props {
   feed: Feed;
@@ -51,13 +57,31 @@ export function StoryList({ feed }: Props) {
     [save, unsave, showToast],
   );
 
-  const handleSwipeDismiss = useCallback(
+  const dismissBatchRef = useRef<{ ids: number[]; lastAt: number }>({
+    ids: [],
+    lastAt: 0,
+  });
+
+  const handleBatchedDismiss = useCallback(
     (id: number) => {
       dismiss(id);
+      const now = Date.now();
+      const batch = dismissBatchRef.current;
+      const ids =
+        now - batch.lastAt < DISMISS_BATCH_WINDOW_MS
+          ? [...batch.ids, id]
+          : [id];
+      dismissBatchRef.current = { ids, lastAt: now };
+
       showToast({
-        message: 'Dismissed',
+        message: ids.length === 1 ? 'Dismissed' : `Dismissed ${ids.length}`,
         actionLabel: 'Undo',
-        onAction: () => undismiss(id),
+        onAction: () => {
+          for (const storyId of ids) undismiss(storyId);
+          dismissBatchRef.current = { ids: [], lastAt: 0 };
+        },
+        durationMs: DISMISS_BATCH_WINDOW_MS,
+        groupKey: DISMISS_TOAST_GROUP,
       });
     },
     [dismiss, undismiss, showToast],
@@ -88,7 +112,7 @@ export function StoryList({ feed }: Props) {
   }, []);
 
   const { observe } = useAutoDismissOnScroll({
-    onScrolledPast: dismiss,
+    onScrolledPast: handleBatchedDismiss,
     topOffset: headerOffset,
   });
 
@@ -140,7 +164,7 @@ export function StoryList({ feed }: Props) {
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               saved={savedIds.has(story.id)}
-              onDismiss={handleSwipeDismiss}
+              onDismiss={handleBatchedDismiss}
               onSave={handleSwipeSave}
               onUnsave={handleMenuUnsave}
               onShare={shareStory}

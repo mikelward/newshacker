@@ -5,6 +5,10 @@ export interface ToastOptions {
   actionLabel?: string;
   onAction?: () => void;
   durationMs?: number;
+  // Toasts sharing a groupKey replace each other in place without
+  // restarting the entry animation. Used for batched updates (e.g.
+  // a growing "Dismissed N · Undo" while the user keeps dismissing).
+  groupKey?: string;
 }
 
 export interface ToastContextValue {
