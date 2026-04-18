@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import { StoryListItem } from './StoryListItem';
 import { renderWithProviders } from '../test/renderUtils';
 import type { HNItem } from '../lib/hn';
@@ -169,5 +169,132 @@ describe('StoryListItem', () => {
   it('does not show the saved badge when saved=false', () => {
     renderWithProviders(<StoryListItem story={baseStory} saved={false} />);
     expect(screen.queryByTestId('saved-badge')).toBeNull();
+  });
+
+  it('marks the title link as a stretched link so taps anywhere on the row open it', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
+    expect(screen.getByTestId('story-title').className).toContain(
+      'story-row__title--stretched',
+    );
+  });
+});
+
+describe('StoryListItem long-press menu', () => {
+  function dispatch(
+    target: Element,
+    type: 'pointerdown' | 'pointermove' | 'pointerup',
+    clientX: number,
+    clientY: number,
+  ) {
+    const evt = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(evt, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX,
+      clientY,
+      button: 0,
+      isPrimary: true,
+    });
+    act(() => {
+      target.dispatchEvent(evt);
+    });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('opens a menu with Save / Ignore / Share on long-press', () => {
+    vi.useFakeTimers();
+    renderWithProviders(
+      <StoryListItem
+        story={baseStory}
+        onSave={vi.fn()}
+        onUnsave={vi.fn()}
+        onDismiss={vi.fn()}
+        onShare={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId('story-row');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(screen.getByTestId('story-row-menu')).toBeInTheDocument();
+    expect(screen.getByTestId('story-row-menu-save')).toBeInTheDocument();
+    expect(screen.getByTestId('story-row-menu-ignore')).toBeInTheDocument();
+    expect(screen.getByTestId('story-row-menu-share')).toBeInTheDocument();
+  });
+
+  it('shows Unsave instead of Save when the story is already saved', () => {
+    vi.useFakeTimers();
+    renderWithProviders(
+      <StoryListItem
+        story={baseStory}
+        saved
+        onSave={vi.fn()}
+        onUnsave={vi.fn()}
+        onDismiss={vi.fn()}
+        onShare={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId('story-row');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(screen.getByTestId('story-row-menu-unsave')).toBeInTheDocument();
+    expect(screen.queryByTestId('story-row-menu-save')).toBeNull();
+  });
+
+  it('invokes onSave when Save is selected from the menu', () => {
+    vi.useFakeTimers();
+    const onSave = vi.fn();
+    renderWithProviders(
+      <StoryListItem story={baseStory} onSave={onSave} onDismiss={vi.fn()} />,
+    );
+    const row = screen.getByTestId('story-row');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    fireEvent.click(screen.getByTestId('story-row-menu-save'));
+    expect(onSave).toHaveBeenCalledWith(baseStory.id);
+  });
+
+  it('invokes onShare with the story when Share is selected', () => {
+    vi.useFakeTimers();
+    const onShare = vi.fn();
+    renderWithProviders(
+      <StoryListItem story={baseStory} onShare={onShare} />,
+    );
+    const row = screen.getByTestId('story-row');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    fireEvent.click(screen.getByTestId('story-row-menu-share'));
+    expect(onShare).toHaveBeenCalledWith(baseStory);
+  });
+
+  it('does not navigate to the article on the click that follows a long-press', () => {
+    vi.useFakeTimers();
+    const onMarkOpened = vi.fn();
+    renderWithProviders(
+      <StoryListItem
+        story={baseStory}
+        onSave={vi.fn()}
+        onMarkOpened={onMarkOpened}
+      />,
+    );
+    const row = screen.getByTestId('story-row');
+    const title = screen.getByTestId('story-title');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    dispatch(row, 'pointerup', 100, 100);
+    fireEvent.click(title);
+    expect(onMarkOpened).not.toHaveBeenCalled();
   });
 });

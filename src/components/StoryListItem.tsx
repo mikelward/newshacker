@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
 import type { OpenedKind } from '../lib/openedStories';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
+import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 import './StoryListItem.css';
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   saved?: boolean;
   onDismiss?: (id: number) => void;
   onSave?: (id: number) => void;
+  onUnsave?: (id: number) => void;
+  onShare?: (story: HNItem) => void;
   onMarkOpened?: (id: number, kind: OpenedKind) => void;
 }
 
@@ -26,6 +29,8 @@ export function StoryListItem({
   saved = false,
   onDismiss,
   onSave,
+  onUnsave,
+  onShare,
   onMarkOpened,
 }: Props) {
   const hasExternalUrl = !!story.url;
@@ -37,6 +42,8 @@ export function StoryListItem({
   const title = story.title ?? '[untitled]';
   const domainLabel = hasExternalUrl ? domain : 'self post';
 
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const handleDismiss = useCallback(() => {
     onDismiss?.(story.id);
   }, [onDismiss, story.id]);
@@ -44,6 +51,17 @@ export function StoryListItem({
   const handleSave = useCallback(() => {
     onSave?.(story.id);
   }, [onSave, story.id]);
+
+  const handleUnsave = useCallback(() => {
+    onUnsave?.(story.id);
+  }, [onUnsave, story.id]);
+
+  const handleShare = useCallback(() => {
+    onShare?.(story);
+  }, [onShare, story]);
+
+  const openMenu = useCallback(() => setMenuOpen(true), []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   // For URL stories the title opens the article; for self-posts it opens
   // the thread, so a title tap is really a comments tap in that case.
@@ -60,6 +78,7 @@ export function StoryListItem({
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
     onSwipeRight: onDismiss ? handleDismiss : undefined,
     onSwipeLeft: onSave ? handleSave : undefined,
+    onLongPress: openMenu,
   });
 
   const titleInner = <span className="story-row__title-text">{title}</span>;
@@ -73,6 +92,37 @@ export function StoryListItem({
     (isDismissing ? ' story-row--dismissing' : '') +
     (titleLooksOpened ? ' story-row--title-opened' : '') +
     (commentsOpened ? ' story-row--comments-opened' : '');
+
+  const menuItems = useMemo<StoryRowMenuItem[]>(() => {
+    const items: StoryRowMenuItem[] = [];
+    if (saved && onUnsave) {
+      items.push({ key: 'unsave', label: 'Unsave', onSelect: handleUnsave });
+    } else if (!saved && onSave) {
+      items.push({ key: 'save', label: 'Save', onSelect: handleSave });
+    }
+    if (onDismiss) {
+      items.push({
+        key: 'ignore',
+        label: 'Ignore',
+        onSelect: handleDismiss,
+        destructive: true,
+      });
+    }
+    if (onShare) {
+      items.push({ key: 'share', label: 'Share', onSelect: handleShare });
+    }
+    return items;
+  }, [
+    saved,
+    onSave,
+    onUnsave,
+    onDismiss,
+    onShare,
+    handleSave,
+    handleUnsave,
+    handleDismiss,
+    handleShare,
+  ]);
 
   return (
     <article
@@ -96,7 +146,7 @@ export function StoryListItem({
       <div className="story-row__body">
         {hasExternalUrl ? (
           <a
-            className="story-row__title"
+            className="story-row__title story-row__title--stretched"
             data-testid="story-title"
             href={story.url}
             target="_blank"
@@ -107,7 +157,7 @@ export function StoryListItem({
           </a>
         ) : (
           <Link
-            className="story-row__title"
+            className="story-row__title story-row__title--stretched"
             data-testid="story-title"
             to={`/item/${story.id}`}
             onClick={handleOpenTitle}
@@ -160,6 +210,15 @@ export function StoryListItem({
           />
         </svg>
       </Link>
+
+      {menuItems.length > 0 ? (
+        <StoryRowMenu
+          open={menuOpen}
+          title={title}
+          items={menuItems}
+          onClose={closeMenu}
+        />
+      ) : null}
     </article>
   );
 }

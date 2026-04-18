@@ -1,9 +1,11 @@
 .story-row {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 8px;
   padding: 6px 12px;
   touch-action: pan-y;
+  -webkit-touch-callout: none;
 }
 
 .story-row--dragging {
@@ -13,6 +15,8 @@
 }
 
 .story-row__vote {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: flex-start;
   padding-top: 2px;
@@ -61,6 +65,15 @@
   padding: 2px 0;
   border-radius: 6px;
   word-wrap: break-word;
+}
+
+/* Stretched link: a tap anywhere on the row that isn't on top of another
+   z-indexed control opens the article (or thread for self-posts). */
+.story-row__title--stretched::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 
 .story-row__title:visited {
@@ -113,6 +126,8 @@
 }
 
 .comments-btn {
+  position: relative;
+  z-index: 2;
   flex-shrink: 0;
   align-self: stretch;
   min-height: var(--tap-min);
