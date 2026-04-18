@@ -54,11 +54,12 @@
 
 .story-row__title {
   display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+  align-items: center;
+  align-self: flex-start;
   color: var(--hn-text);
   text-decoration: none;
   min-height: var(--tap-min);
+  padding: 4px 0;
   border-radius: 6px;
   word-wrap: break-word;
 }
@@ -70,6 +71,7 @@
 .story-row--opened .story-row__title,
 .story-row--opened .story-row__title-text {
   color: var(--hn-meta);
+  font-weight: 400;
 }
 
 .story-row__title:hover {
