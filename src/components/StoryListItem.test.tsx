@@ -156,4 +156,18 @@ describe('StoryListItem', () => {
     expect(row.className).not.toContain('story-row--title-opened');
     expect(row.className).not.toContain('story-row--comments-opened');
   });
+
+  it('shows a non-interactive "Saved" badge in the meta row when saved=true', () => {
+    renderWithProviders(<StoryListItem story={baseStory} saved={true} />);
+    const badge = screen.getByTestId('saved-badge');
+    expect(badge).toBeInTheDocument();
+    // Badge lives inside the meta span (not its own link/button)
+    expect(badge.tagName.toLowerCase()).toBe('span');
+    expect(screen.getByTestId('story-meta')).toContainElement(badge);
+  });
+
+  it('does not show the saved badge when saved=false', () => {
+    renderWithProviders(<StoryListItem story={baseStory} saved={false} />);
+    expect(screen.queryByTestId('saved-badge')).toBeNull();
+  });
 });

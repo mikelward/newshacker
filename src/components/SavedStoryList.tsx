@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getItems } from '../lib/hn';
 import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
+import { useSavedStories } from '../hooks/useSavedStories';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
@@ -26,6 +27,7 @@ export function SavedStoryList({
   const { dismiss } = useDismissedStories();
   const { articleOpenedIds, commentsOpenedIds, markOpened } =
     useOpenedStories();
+  const { savedIds } = useSavedStories();
 
   const items = useQuery({
     queryKey: [
@@ -85,6 +87,7 @@ export function SavedStoryList({
             rank={idx + 1}
             articleOpened={articleOpenedIds.has(story.id)}
             commentsOpened={commentsOpenedIds.has(story.id)}
+            saved={savedIds.has(story.id)}
             onDismiss={dismiss}
             onMarkOpened={markOpened}
           />

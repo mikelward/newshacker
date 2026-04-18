@@ -8,6 +8,7 @@ import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
+import { useToast } from '../hooks/useToast';
 import './Thread.css';
 
 interface Props {
@@ -19,11 +20,18 @@ export const TOP_LEVEL_PAGE_SIZE = 20;
 export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
-  const { isSaved, toggleSaved } = useSavedStories();
+  const { isSaved, save, unsave } = useSavedStories();
   const saved = isSaved(id);
+  const { showToast } = useToast();
   const handleToggleSaved = useCallback(() => {
-    toggleSaved(id);
-  }, [toggleSaved, id]);
+    if (saved) {
+      unsave(id);
+      showToast({ message: 'Unsaved' });
+    } else {
+      save(id);
+      showToast({ message: 'Saved' });
+    }
+  }, [saved, id, save, unsave, showToast]);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);

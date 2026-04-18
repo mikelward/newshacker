@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
+import { ToastProvider } from './components/Toast';
 import { FeedPage } from './pages/FeedPage';
 import { ItemPage } from './pages/ItemPage';
 import { UserPage } from './pages/UserPage';
@@ -12,7 +13,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 
 export default function App() {
   return (
-    <>
+    <ToastProvider>
       <AppHeader />
       <main className="app-main">
         <Routes>
@@ -28,6 +29,6 @@ export default function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
-    </>
+    </ToastProvider>
   );
 }

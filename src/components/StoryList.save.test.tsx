@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { StoryList } from './StoryList';
+import { ToastProvider } from './Toast';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 
@@ -59,7 +60,11 @@ describe('<StoryList> save-on-left-swipe', () => {
     );
     installHNFetchMock({ feeds: { topstories: ids }, items });
 
-    renderWithProviders(<StoryList feed="top" />);
+    renderWithProviders(
+      <ToastProvider>
+        <StoryList feed="top" />
+      </ToastProvider>,
+    );
 
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
@@ -87,5 +92,64 @@ describe('<StoryList> save-on-left-swipe', () => {
 
     // Unlike dismiss, save should NOT remove the row from the feed.
     expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+
+    // Toast feedback with Undo (scope to the toast host — the saved badge
+    // also contains the word "Saved")
+    const toastHost = screen.getByTestId('toast-host');
+    expect(within(toastHost).getByText('Saved')).toBeInTheDocument();
+    const undo = within(toastHost).getByRole('button', { name: /undo/i });
+    expect(undo).toBeInTheDocument();
+
+    // Undo removes the save and hides the toast
+    fireEvent.click(undo);
+    expect(
+      window.localStorage.getItem('newshacker:savedStoryIds'),
+    ).toBe('[]');
+    expect(within(toastHost).queryByText('Saved')).toBeNull();
+  });
+
+  it('swipe-dismiss shows a Dismissed toast with Undo that restores the row', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const ids = [10, 20, 30];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <ToastProvider>
+        <StoryList feed="top" />
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    const target = screen.getAllByTestId('story-row')[1]; // Story 20
+
+    dispatchPointer(target, 'pointerdown', 20, 50);
+    dispatchPointer(target, 'pointermove', 180, 50);
+    dispatchPointer(target, 'pointerup', 180, 50);
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Story 20')).toBeNull();
+    });
+
+    const toastHost = screen.getByTestId('toast-host');
+    expect(within(toastHost).getByText('Dismissed')).toBeInTheDocument();
+
+    fireEvent.click(within(toastHost).getByRole('button', { name: /undo/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Story 20')).toBeInTheDocument();
+    });
+    expect(
+      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+    ).toBe('[]');
   });
 });

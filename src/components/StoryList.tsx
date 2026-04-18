@@ -9,6 +9,7 @@ import { useAutoDismissOnScroll } from '../hooks/useAutoDismissOnScroll';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
+import { useToast } from '../hooks/useToast';
 import './StoryList.css';
 
 interface Props {
@@ -18,10 +19,35 @@ interface Props {
 export function StoryList({ feed }: Props) {
   const [page, setPage] = useState(0);
   const { ids, items, slice, totalIds } = useStoryPage(feed, page);
-  const { dismissedIds, dismiss } = useDismissedStories();
+  const { dismissedIds, dismiss, undismiss } = useDismissedStories();
   const { articleOpenedIds, commentsOpenedIds, markOpened } =
     useOpenedStories();
-  const { save } = useSavedStories();
+  const { savedIds, save, unsave } = useSavedStories();
+  const { showToast } = useToast();
+
+  const handleSwipeSave = useCallback(
+    (id: number) => {
+      save(id);
+      showToast({
+        message: 'Saved',
+        actionLabel: 'Undo',
+        onAction: () => unsave(id),
+      });
+    },
+    [save, unsave, showToast],
+  );
+
+  const handleSwipeDismiss = useCallback(
+    (id: number) => {
+      dismiss(id);
+      showToast({
+        message: 'Dismissed',
+        actionLabel: 'Undo',
+        onAction: () => undismiss(id),
+      });
+    },
+    [dismiss, undismiss, showToast],
+  );
 
   const canLoadMore = slice.length < totalIds;
   const isFetching = items.isFetching || ids.isFetching;
@@ -99,8 +125,9 @@ export function StoryList({ feed }: Props) {
               rank={idx + 1}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
-              onDismiss={dismiss}
-              onSave={save}
+              saved={savedIds.has(story.id)}
+              onDismiss={handleSwipeDismiss}
+              onSave={handleSwipeSave}
               onMarkOpened={markOpened}
             />
           </li>

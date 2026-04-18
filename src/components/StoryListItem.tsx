@@ -12,6 +12,7 @@ interface Props {
   isLoggedIn?: boolean;
   articleOpened?: boolean;
   commentsOpened?: boolean;
+  saved?: boolean;
   onDismiss?: (id: number) => void;
   onSave?: (id: number) => void;
   onMarkOpened?: (id: number, kind: OpenedKind) => void;
@@ -22,6 +23,7 @@ export function StoryListItem({
   isLoggedIn = false,
   articleOpened = false,
   commentsOpened = false,
+  saved = false,
   onDismiss,
   onSave,
   onMarkOpened,
@@ -115,6 +117,19 @@ export function StoryListItem({
         )}
 
         <span className="story-row__meta" data-testid="story-meta">
+          {saved ? (
+            <>
+              <span
+                className="story-row__saved-badge"
+                data-testid="saved-badge"
+                aria-label="Saved"
+                title="Saved"
+              >
+                <span aria-hidden="true">★</span> Saved
+              </span>
+              {' · '}
+            </>
+          ) : null}
           {domainLabel ? `${domainLabel} · ` : ''}
           {points} {pluralize(points, 'point')} · {age}
         </span>
