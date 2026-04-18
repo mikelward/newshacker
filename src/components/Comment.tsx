@@ -40,6 +40,7 @@ export function Comment({ id, depth }: Props) {
   const age = item.time ? formatTimeAgo(item.time) : '';
   const kids = item.kids ?? [];
   const hasReplies = kids.length > 0;
+  const repliesLabel = `${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`;
 
   return (
     <div
@@ -54,9 +55,7 @@ export function Comment({ id, depth }: Props) {
             className="comment__toggle"
             aria-expanded={!repliesCollapsed}
             aria-label={
-              repliesCollapsed
-                ? `Show ${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`
-                : `Hide ${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`
+              repliesCollapsed ? `Show ${repliesLabel}` : `Hide ${repliesLabel}`
             }
             onClick={() => setRepliesCollapsed((c) => !c)}
           >
@@ -77,7 +76,7 @@ export function Comment({ id, depth }: Props) {
           {hasReplies && repliesCollapsed ? (
             <span className="comment__count">
               {' '}
-              · {kids.length} {pluralize(kids.length, 'reply', 'replies')}
+              · {repliesLabel}
             </span>
           ) : null}
         </div>
@@ -87,6 +86,15 @@ export function Comment({ id, depth }: Props) {
           className="comment__body"
           dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
         />
+      ) : null}
+      {hasReplies && repliesCollapsed ? (
+        <button
+          type="button"
+          className="comment__replies"
+          onClick={() => setRepliesCollapsed(false)}
+        >
+          {repliesLabel}
+        </button>
       ) : null}
       {hasReplies && !repliesCollapsed ? (
         <ol className="comment__children">
