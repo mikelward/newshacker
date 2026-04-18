@@ -41,8 +41,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const showToast = useCallback(
     (opts: ToastOptions) => {
       clearTimer();
-      keyRef.current += 1;
-      setToast({ ...opts, key: keyRef.current });
+      setToast((prev) => {
+        const sameGroup =
+          prev != null &&
+          opts.groupKey != null &&
+          prev.groupKey === opts.groupKey;
+        const key = sameGroup ? prev.key : ++keyRef.current;
+        return { ...opts, key };
+      });
       const duration = opts.durationMs ?? DEFAULT_DURATION_MS;
       timeoutRef.current = window.setTimeout(() => {
         setToast(null);
