@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { StoryListItem } from './StoryListItem';
 import { renderWithProviders } from '../test/renderUtils';
 import type { HNItem } from '../lib/hn';
@@ -83,5 +83,37 @@ describe('StoryListItem', () => {
       <StoryListItem story={{ ...baseStory, title: undefined }} />,
     );
     expect(screen.getByTestId('story-title')).toHaveTextContent('[untitled]');
+  });
+
+  it('calls onMarkOpened when the title is clicked', () => {
+    const onMarkOpened = vi.fn();
+    renderWithProviders(
+      <StoryListItem story={baseStory} onMarkOpened={onMarkOpened} />,
+    );
+    fireEvent.click(screen.getByTestId('story-title'));
+    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id);
+  });
+
+  it('calls onMarkOpened when the comments button is clicked', () => {
+    const onMarkOpened = vi.fn();
+    renderWithProviders(
+      <StoryListItem story={baseStory} onMarkOpened={onMarkOpened} />,
+    );
+    fireEvent.click(screen.getByTestId('comments-btn'));
+    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id);
+  });
+
+  it('adds the opened modifier class when isOpened is true', () => {
+    renderWithProviders(<StoryListItem story={baseStory} isOpened={true} />);
+    expect(screen.getByTestId('story-row').className).toContain(
+      'story-row--opened',
+    );
+  });
+
+  it('omits the opened modifier class when isOpened is false', () => {
+    renderWithProviders(<StoryListItem story={baseStory} isOpened={false} />);
+    expect(screen.getByTestId('story-row').className).not.toContain(
+      'story-row--opened',
+    );
   });
 });

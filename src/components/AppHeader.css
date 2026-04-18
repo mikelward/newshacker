@@ -16,8 +16,43 @@
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 
-.app-header__home {
+.app-header__home-row {
   grid-area: home;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-header__menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.app-header__menu-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.app-header__menu-btn:active {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.app-header__menu-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.app-header__home {
   display: inline-flex;
   align-items: center;
   gap: 8px;

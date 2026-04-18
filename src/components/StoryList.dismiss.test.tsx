@@ -3,7 +3,7 @@ import { act, screen, waitFor } from '@testing-library/react';
 import { StoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
-import { addHiddenId } from '../lib/hiddenStories';
+import { addDismissedId } from '../lib/dismissedStories';
 
 function dispatchPointer(
   target: Element,
@@ -25,7 +25,7 @@ function dispatchPointer(
   });
 }
 
-describe('<StoryList> hidden-story handling', () => {
+describe('<StoryList> dismissed-story handling', () => {
   beforeEach(() => {
     window.localStorage.clear();
     Object.defineProperty(Element.prototype, 'setPointerCapture', {
@@ -58,7 +58,7 @@ describe('<StoryList> hidden-story handling', () => {
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
     );
     installHNFetchMock({ feeds: { topstories: ids }, items });
-    addHiddenId(2);
+    addDismissedId(2);
 
     renderWithProviders(<StoryList feed="top" />);
 
@@ -70,7 +70,7 @@ describe('<StoryList> hidden-story handling', () => {
     expect(screen.getByText('Story 3')).toBeInTheDocument();
   });
 
-  it('hides a story after a swipe past the threshold and persists the id', async () => {
+  it('dismisses a story after a swipe past the threshold and persists the id', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const ids = [10, 20, 30];
     const items = Object.fromEntries(
@@ -100,7 +100,7 @@ describe('<StoryList> hidden-story handling', () => {
     });
     expect(screen.getAllByTestId('story-row')).toHaveLength(2);
 
-    const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
+    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number; at: number }>;
     expect(parsed.map((e) => e.id)).toContain(20);

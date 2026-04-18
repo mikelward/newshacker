@@ -46,3 +46,29 @@
   opacity: 0.6;
   cursor: default;
 }
+
+.story-list__recover {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 12px 10px;
+}
+
+.recover-btn {
+  min-height: var(--tap-min);
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--hn-border);
+  background: var(--hn-bg-card);
+  color: var(--hn-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recover-btn:hover {
+  background: var(--hn-pressed);
+}
+
+.recover-btn:active {
+  background: var(--hn-border);
+}
