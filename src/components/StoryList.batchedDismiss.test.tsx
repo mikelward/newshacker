@@ -104,6 +104,11 @@ describe('<StoryList> batched dismiss undo toast', () => {
   beforeEach(() => {
     obs = setupObserver();
     window.localStorage.clear();
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
   });
   afterEach(() => {
     obs.cleanup();
@@ -206,6 +211,169 @@ describe('<StoryList> batched dismiss undo toast', () => {
       expect(screen.getByText('Story 20')).toBeInTheDocument();
     });
     expect(screen.queryByText('Story 10')).toBeNull();
+  });
+
+  it('flashes the restored rows and scrolls to the first one if offscreen', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-04-18T10:00:00Z'));
+    const scrollTo = vi.fn();
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      writable: true,
+      value: scrollTo,
+    });
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 600,
+    });
+    // Row geometry: place each li above the viewport so undo triggers a scroll.
+    Element.prototype.getBoundingClientRect = function () {
+      const tag = (this as Element).tagName;
+      if (tag === 'LI') {
+        return {
+          width: 320,
+          height: 72,
+          top: -200,
+          bottom: -128,
+          left: 0,
+          right: 320,
+          x: 0,
+          y: -200,
+          toJSON() {},
+        } as DOMRect;
+      }
+      return {
+        width: 320,
+        height: 56,
+        top: 0,
+        bottom: 56,
+        left: 0,
+        right: 320,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      } as DOMRect;
+    };
+
+    const ids = [11, 22, 33];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <ToastProvider>
+        <StoryList feed="top" />
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    triggerScrollPast(obs.observers, findRow(obs.observers, 'Story 11'));
+    vi.setSystemTime(new Date(Date.now() + 200));
+    triggerScrollPast(obs.observers, findRow(obs.observers, 'Story 22'));
+    await waitFor(() =>
+      expect(screen.getByText('Dismissed 2')).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Story 11')).toBeInTheDocument();
+      expect(screen.getByText('Story 22')).toBeInTheDocument();
+    });
+
+    // First restored row gets scrolled into view since it's above the viewport.
+    expect(scrollTo).toHaveBeenCalled();
+    const arg = scrollTo.mock.calls[0][0] as ScrollToOptions;
+    expect(arg.behavior).toBe('smooth');
+
+    // Both restored rows are flashed.
+    const items11 = screen.getByText('Story 11').closest('li');
+    const items22 = screen.getByText('Story 22').closest('li');
+    expect(items11?.className).toContain('story-list__item--restored');
+    expect(items22?.className).toContain('story-list__item--restored');
+
+    // Highlight clears after the flash duration.
+    act(() => {
+      vi.advanceTimersByTime(1300);
+    });
+    await waitFor(() => {
+      const liAfter = screen.getByText('Story 11').closest('li');
+      expect(liAfter?.className).not.toContain('story-list__item--restored');
+    });
+  });
+
+  it('does not scroll when the first restored row is already on screen', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-04-18T10:00:00Z'));
+    const scrollTo = vi.fn();
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      writable: true,
+      value: scrollTo,
+    });
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 600,
+    });
+    // Row sits inside the viewport.
+    Element.prototype.getBoundingClientRect = function () {
+      const tag = (this as Element).tagName;
+      if (tag === 'LI') {
+        return {
+          width: 320,
+          height: 72,
+          top: 200,
+          bottom: 272,
+          left: 0,
+          right: 320,
+          x: 0,
+          y: 200,
+          toJSON() {},
+        } as DOMRect;
+      }
+      return {
+        width: 320,
+        height: 56,
+        top: 0,
+        bottom: 56,
+        left: 0,
+        right: 320,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      } as DOMRect;
+    };
+
+    const ids = [44, 55];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <ToastProvider>
+        <StoryList feed="top" />
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(2);
+    });
+
+    triggerScrollPast(obs.observers, findRow(obs.observers, 'Story 44'));
+    await waitFor(() => expect(screen.getByText('Dismissed')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Story 44')).toBeInTheDocument();
+    });
+
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 
   it('clears the batch after Undo so the next dismiss is fresh', async () => {

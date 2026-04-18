@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
@@ -18,6 +18,9 @@ import './StoryList.css';
 // that the toast doesn't linger forever or bundle unrelated actions.
 export const DISMISS_BATCH_WINDOW_MS = 5000;
 const DISMISS_TOAST_GROUP = 'dismiss-batch';
+// How long to keep the restored-row highlight visible after Undo. Should
+// match the CSS animation duration on .story-list__item--restored.
+const RESTORE_HIGHLIGHT_MS = 1200;
 
 interface Props {
   feed: Feed;
@@ -61,6 +64,9 @@ export function StoryList({ feed }: Props) {
     ids: [],
     lastAt: 0,
   });
+  const rowRefs = useRef<Map<number, HTMLLIElement | null>>(new Map());
+  const [restoredIds, setRestoredIds] = useState<number[]>([]);
+  const restoredSet = useMemo(() => new Set(restoredIds), [restoredIds]);
 
   const handleBatchedDismiss = useCallback(
     (id: number) => {
@@ -79,6 +85,7 @@ export function StoryList({ feed }: Props) {
         onAction: () => {
           for (const storyId of ids) undismiss(storyId);
           dismissBatchRef.current = { ids: [], lastAt: 0 };
+          setRestoredIds(ids);
         },
         durationMs: DISMISS_BATCH_WINDOW_MS,
         groupKey: DISMISS_TOAST_GROUP,
@@ -115,6 +122,28 @@ export function StoryList({ feed }: Props) {
     onScrolledPast: handleBatchedDismiss,
     topOffset: headerOffset,
   });
+
+  // After Undo restores rows, bring the first one into view (if it's
+  // offscreen) and clear the highlight class once the flash has run.
+  useEffect(() => {
+    if (restoredIds.length === 0) return;
+    const firstId = restoredIds[0];
+    const el = rowRefs.current.get(firstId);
+    if (el && typeof window !== 'undefined') {
+      const rect = el.getBoundingClientRect();
+      const offscreen =
+        rect.bottom <= headerOffset || rect.top >= window.innerHeight;
+      if (offscreen) {
+        const top = rect.top + window.scrollY - headerOffset - 8;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      }
+    }
+    const t = window.setTimeout(
+      () => setRestoredIds([]),
+      RESTORE_HIGHLIGHT_MS,
+    );
+    return () => window.clearTimeout(t);
+  }, [restoredIds, headerOffset]);
 
   if (ids.isLoading || (items.isLoading && slice.length > 0)) {
     return (
@@ -155,8 +184,16 @@ export function StoryList({ feed }: Props) {
         {stories.map((story, idx) => (
           <li
             key={story.id}
-            className="story-list__item"
-            ref={(el) => observe(story.id, el)}
+            className={
+              restoredSet.has(story.id)
+                ? 'story-list__item story-list__item--restored'
+                : 'story-list__item'
+            }
+            ref={(el) => {
+              observe(story.id, el);
+              if (el) rowRefs.current.set(story.id, el);
+              else rowRefs.current.delete(story.id);
+            }}
           >
             <StoryListItem
               story={story}

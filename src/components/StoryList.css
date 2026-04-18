@@ -9,6 +9,25 @@
   border-bottom: 1px solid var(--hn-border);
 }
 
+.story-list__item--restored {
+  animation: story-restored-flash 1200ms ease-out;
+}
+
+@keyframes story-restored-flash {
+  0% {
+    background: rgba(255, 102, 0, 0.28);
+  }
+  100% {
+    background: var(--hn-bg-card);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-list__item--restored {
+    animation: none;
+  }
+}
+
 .story-list__more {
   display: flex;
   flex-direction: column;
