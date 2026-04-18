@@ -11,7 +11,6 @@ interface Props {
 export function AppDrawer({ open, onClose }: Props) {
   const location = useLocation();
   const lastLocationRef = useRef(location.key);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -40,7 +39,6 @@ export function AppDrawer({ open, onClose }: Props) {
         onClick={onClose}
       />
       <nav
-        ref={dialogRef}
         className="app-drawer__panel"
         role="dialog"
         aria-modal="true"
