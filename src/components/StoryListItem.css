@@ -107,6 +107,11 @@
   text-overflow: ellipsis;
 }
 
+.story-row__saved-badge {
+  color: var(--hn-orange);
+  font-weight: 600;
+}
+
 .comments-btn {
   flex-shrink: 0;
   align-self: stretch;
