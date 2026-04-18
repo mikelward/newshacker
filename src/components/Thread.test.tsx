@@ -98,6 +98,83 @@ describe('<Thread>', () => {
     expect(screen.queryByText(/child comment/)).toBeNull();
   });
 
+  it('shows a replies button at the bottom of a collapsed comment that expands it', async () => {
+    installHNFetchMock({
+      items: {
+        400: makeStory(400, { kids: [401], descendants: 3 }),
+        401: {
+          id: 401,
+          type: 'comment',
+          by: 'x',
+          text: 'top comment',
+          kids: [402, 403],
+          time: 1,
+        },
+        402: {
+          id: 402,
+          type: 'comment',
+          by: 'y',
+          text: 'child a',
+          time: 2,
+        },
+        403: {
+          id: 403,
+          type: 'comment',
+          by: 'z',
+          text: 'child b',
+          time: 3,
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={400} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/top comment/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/child a/)).toBeNull();
+
+    const replies = screen.getByRole('button', { name: '2 replies' });
+    expect(replies).toBeInTheDocument();
+
+    await userEvent.click(replies);
+    await waitFor(() => {
+      expect(screen.getByText(/child a/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/child b/)).toBeInTheDocument();
+  });
+
+  it('uses singular "reply" on the bottom button when there is exactly one reply', async () => {
+    installHNFetchMock({
+      items: {
+        600: makeStory(600, { kids: [601], descendants: 2 }),
+        601: {
+          id: 601,
+          type: 'comment',
+          by: 'a',
+          text: 'parent',
+          kids: [602],
+          time: 1,
+        },
+        602: {
+          id: 602,
+          type: 'comment',
+          by: 'b',
+          text: 'only child',
+          time: 2,
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={600} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/parent/)).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: '1 reply' })).toBeInTheDocument();
+  });
+
   it('shows placeholder for deleted items without crashing', async () => {
     installHNFetchMock({
       items: {

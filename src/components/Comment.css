@@ -49,9 +49,23 @@
   font-size: 12px;
 }
 
-.comment__count {
+.comment__replies {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-min);
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--hn-border);
+  border-radius: 6px;
+  background: var(--hn-bg-card);
   color: var(--hn-meta);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.comment__replies:hover {
+  background: var(--hn-pressed);
 }
 
 .comment__body {
