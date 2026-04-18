@@ -13,10 +13,12 @@ import { useToast } from '../hooks/useToast';
 import { useShareStory } from '../hooks/useShareStory';
 import './StoryList.css';
 
-// Dismissals within this window are bundled into one undo toast. Long
-// enough to notice a wrong swipe and reach for the toast, short enough
-// that the toast doesn't linger forever or bundle unrelated actions.
-export const DISMISS_BATCH_WINDOW_MS = 5000;
+// Dismisses (swipe, scroll-past, menu "Ignore") within this window of
+// each other share a single undo toast. The toast's deadline extends
+// with each new dismiss, so the user gets the full window of grace
+// time after the most recent action — but only relative to what was
+// already dismissed, never relative to when Undo was tapped.
+export const DISMISS_BATCH_WINDOW_MS = 2000;
 const DISMISS_TOAST_GROUP = 'dismiss-batch';
 
 interface Props {
