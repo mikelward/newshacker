@@ -43,16 +43,14 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 
 .story-row__title {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-end;
   color: var(--hn-text);
   text-decoration: none;
-  padding: 2px 0;
   min-height: var(--tap-min);
   border-radius: 6px;
   word-wrap: break-word;
