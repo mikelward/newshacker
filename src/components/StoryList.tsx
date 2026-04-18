@@ -2,7 +2,9 @@ import { useCallback, useState } from 'react';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
-import { useHiddenStories } from '../hooks/useHiddenStories';
+import { useDismissedStories } from '../hooks/useDismissedStories';
+import { useOpenedStories } from '../hooks/useOpenedStories';
+import { useAutoDismissOnScroll } from '../hooks/useAutoDismissOnScroll';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
@@ -15,7 +17,8 @@ interface Props {
 export function StoryList({ feed }: Props) {
   const [page, setPage] = useState(0);
   const { ids, items, slice, totalIds } = useStoryPage(feed, page);
-  const { hiddenIds, hide } = useHiddenStories();
+  const { dismissedIds, dismiss } = useDismissedStories();
+  const { openedIds, markOpened } = useOpenedStories();
 
   const canLoadMore = slice.length < totalIds;
   const isFetching = items.isFetching || ids.isFetching;
@@ -28,6 +31,8 @@ export function StoryList({ feed }: Props) {
     enabled: canLoadMore && !isFetching,
     onLoadMore: handleLoadMore,
   });
+
+  const { observe } = useAutoDismissOnScroll({ onScrolledPast: dismiss });
 
   if (ids.isLoading || (items.isLoading && slice.length > 0)) {
     return (
@@ -55,7 +60,7 @@ export function StoryList({ feed }: Props) {
 
   const stories = (items.data ?? []).filter(
     (it): it is NonNullable<typeof it> =>
-      it != null && !it.deleted && !it.dead && !hiddenIds.has(it.id),
+      it != null && !it.deleted && !it.dead && !dismissedIds.has(it.id),
   );
 
   if (stories.length === 0 && !canLoadMore) {
@@ -66,8 +71,18 @@ export function StoryList({ feed }: Props) {
     <>
       <ol className="story-list">
         {stories.map((story, idx) => (
-          <li key={story.id} className="story-list__item">
-            <StoryListItem story={story} rank={idx + 1} onHide={hide} />
+          <li
+            key={story.id}
+            className="story-list__item"
+            ref={(el) => observe(story.id, el)}
+          >
+            <StoryListItem
+              story={story}
+              rank={idx + 1}
+              isOpened={openedIds.has(story.id)}
+              onDismiss={dismiss}
+              onMarkOpened={markOpened}
+            />
           </li>
         ))}
       </ol>

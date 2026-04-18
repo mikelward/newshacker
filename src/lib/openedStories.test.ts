@@ -1,0 +1,95 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  OPENED_STORY_TTL_MS,
+  addOpenedId,
+  clearOpenedIds,
+  getOpenedEntries,
+  getOpenedIds,
+  removeOpenedId,
+} from './openedStories';
+
+describe('openedStories', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('returns an empty set when nothing is stored', () => {
+    expect(getOpenedIds()).toEqual(new Set());
+  });
+
+  it('adds and retrieves opened ids', () => {
+    addOpenedId(1);
+    addOpenedId(2);
+    expect(getOpenedIds()).toEqual(new Set([1, 2]));
+  });
+
+  it('does not duplicate an id that is added twice', () => {
+    addOpenedId(1);
+    addOpenedId(1);
+    expect(getOpenedIds().size).toBe(1);
+  });
+
+  it('removes ids', () => {
+    addOpenedId(1);
+    addOpenedId(2);
+    removeOpenedId(1);
+    expect(getOpenedIds()).toEqual(new Set([2]));
+  });
+
+  it('clears all ids', () => {
+    addOpenedId(1);
+    addOpenedId(2);
+    clearOpenedIds();
+    expect(getOpenedIds()).toEqual(new Set());
+  });
+
+  it('expires entries older than the TTL', () => {
+    const now = 1_000_000_000_000;
+    addOpenedId(1, now - OPENED_STORY_TTL_MS - 1);
+    addOpenedId(2, now - 1000);
+    expect(getOpenedIds(now)).toEqual(new Set([2]));
+  });
+
+  it('refreshes the timestamp when an id is re-added', () => {
+    const now = 1_000_000_000_000;
+    addOpenedId(1, now - OPENED_STORY_TTL_MS - 1);
+    addOpenedId(1, now);
+    expect(getOpenedIds(now)).toEqual(new Set([1]));
+  });
+
+  it('does not collide with the dismissedStories key', () => {
+    addOpenedId(5);
+    expect(
+      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem('newshacker:openedStoryIds'),
+    ).toBeTruthy();
+  });
+
+  it('dispatches a change event on add and remove', () => {
+    const events: Event[] = [];
+    const handler = (e: Event) => events.push(e);
+    window.addEventListener('newshacker:openedStoriesChanged', handler);
+    try {
+      addOpenedId(1);
+      removeOpenedId(1);
+      expect(events.length).toBe(2);
+    } finally {
+      window.removeEventListener('newshacker:openedStoriesChanged', handler);
+    }
+  });
+
+  it('exposes entries sorted by insertion for ordering', () => {
+    const now = 1_000_000_000_000;
+    addOpenedId(1, now - 2000);
+    addOpenedId(2, now - 1000);
+    const entries = getOpenedEntries(now);
+    const byId = new Map(entries.map((e) => [e.id, e.at]));
+    expect(byId.get(1)).toBe(now - 2000);
+    expect(byId.get(2)).toBe(now - 1000);
+  });
+});

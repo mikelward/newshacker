@@ -9,10 +9,18 @@ interface Props {
   story: HNItem;
   rank?: number;
   isLoggedIn?: boolean;
-  onHide?: (id: number) => void;
+  isOpened?: boolean;
+  onDismiss?: (id: number) => void;
+  onMarkOpened?: (id: number) => void;
 }
 
-export function StoryListItem({ story, isLoggedIn = false, onHide }: Props) {
+export function StoryListItem({
+  story,
+  isLoggedIn = false,
+  isOpened = false,
+  onDismiss,
+  onMarkOpened,
+}: Props) {
   const hasExternalUrl = !!story.url;
   const domain = extractDomain(story.url);
   const commentCount = story.descendants ?? 0;
@@ -23,12 +31,16 @@ export function StoryListItem({ story, isLoggedIn = false, onHide }: Props) {
   const domainLabel = hasExternalUrl ? domain : 'self post';
 
   const handleDismiss = useCallback(() => {
-    onHide?.(story.id);
-  }, [onHide, story.id]);
+    onDismiss?.(story.id);
+  }, [onDismiss, story.id]);
+
+  const handleOpen = useCallback(() => {
+    onMarkOpened?.(story.id);
+  }, [onMarkOpened, story.id]);
 
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
     onDismiss: handleDismiss,
-    enabled: !!onHide,
+    enabled: !!onDismiss,
   });
 
   const titleInner = (
@@ -43,7 +55,8 @@ export function StoryListItem({ story, isLoggedIn = false, onHide }: Props) {
   const rowClass =
     'story-row' +
     (dragging ? ' story-row--dragging' : '') +
-    (isDismissing ? ' story-row--dismissing' : '');
+    (isDismissing ? ' story-row--dismissing' : '') +
+    (isOpened ? ' story-row--opened' : '');
 
   return (
     <article
@@ -72,6 +85,7 @@ export function StoryListItem({ story, isLoggedIn = false, onHide }: Props) {
             href={story.url}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleOpen}
           >
             {titleInner}
           </a>
@@ -80,6 +94,7 @@ export function StoryListItem({ story, isLoggedIn = false, onHide }: Props) {
             className="story-row__title"
             data-testid="story-title"
             to={`/item/${story.id}`}
+            onClick={handleOpen}
           >
             {titleInner}
           </Link>
@@ -93,7 +108,10 @@ export function StoryListItem({ story, isLoggedIn = false, onHide }: Props) {
             to={`/item/${story.id}`}
             className="comments-btn"
             data-testid="comments-btn"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpen();
+            }}
             aria-label={`${commentCount} ${pluralize(commentCount, 'comment')}`}
           >
             {commentCount} {pluralize(commentCount, 'comment')}

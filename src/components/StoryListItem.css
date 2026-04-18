@@ -67,6 +67,11 @@
   color: var(--hn-meta);
 }
 
+.story-row--opened .story-row__title,
+.story-row--opened .story-row__title-text {
+  color: var(--hn-meta);
+}
+
 .story-row__title:hover {
   text-decoration: none;
   background: var(--hn-pressed);

@@ -1,0 +1,75 @@
+import { useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { FEEDS, feedLabel } from '../lib/feeds';
+import './AppDrawer.css';
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function AppDrawer({ open, onClose }: Props) {
+  const location = useLocation();
+  const lastLocationRef = useRef(location.key);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (open && location.key !== lastLocationRef.current) {
+      onClose();
+    }
+    lastLocationRef.current = location.key;
+  }, [open, location.key, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="app-drawer" role="presentation">
+      <button
+        type="button"
+        className="app-drawer__scrim"
+        aria-label="Close menu"
+        onClick={onClose}
+      />
+      <nav
+        ref={dialogRef}
+        className="app-drawer__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+      >
+        <div className="app-drawer__section-title">Feeds</div>
+        <ul className="app-drawer__list">
+          {FEEDS.map((f) => (
+            <li key={f}>
+              <Link to={`/${f}`} className="app-drawer__link">
+                {feedLabel(f)}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <div className="app-drawer__section-title">Library</div>
+        <ul className="app-drawer__list">
+          <li>
+            <Link to="/opened" className="app-drawer__link">
+              Opened
+            </Link>
+          </li>
+          <li>
+            <Link to="/ignored" className="app-drawer__link">
+              Ignored
+            </Link>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  );
+}
