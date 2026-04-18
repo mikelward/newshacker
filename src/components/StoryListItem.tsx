@@ -1,15 +1,18 @@
+import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
+import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import './StoryListItem.css';
 
 interface Props {
   story: HNItem;
   rank?: number;
   isLoggedIn?: boolean;
+  onHide?: (id: number) => void;
 }
 
-export function StoryListItem({ story, isLoggedIn = false }: Props) {
+export function StoryListItem({ story, isLoggedIn = false, onHide }: Props) {
   const hasExternalUrl = !!story.url;
   const domain = extractDomain(story.url);
   const commentCount = story.descendants ?? 0;
@@ -18,6 +21,15 @@ export function StoryListItem({ story, isLoggedIn = false }: Props) {
 
   const title = story.title ?? '[untitled]';
   const domainLabel = hasExternalUrl ? domain : 'self post';
+
+  const handleDismiss = useCallback(() => {
+    onHide?.(story.id);
+  }, [onHide, story.id]);
+
+  const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
+    onDismiss: handleDismiss,
+    enabled: !!onHide,
+  });
 
   const titleInner = (
     <>
@@ -28,8 +40,18 @@ export function StoryListItem({ story, isLoggedIn = false }: Props) {
     </>
   );
 
+  const rowClass =
+    'story-row' +
+    (dragging ? ' story-row--dragging' : '') +
+    (isDismissing ? ' story-row--dismissing' : '');
+
   return (
-    <article className="story-row" data-testid="story-row">
+    <article
+      className={rowClass}
+      data-testid="story-row"
+      style={style}
+      {...handlers}
+    >
       {isLoggedIn ? (
         <div className="story-row__vote">
           <button
