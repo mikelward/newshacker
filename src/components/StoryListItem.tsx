@@ -108,11 +108,8 @@ export function StoryListItem({
           </Link>
         )}
 
-        {domainLabel ? (
-          <span className="story-row__domain">{domainLabel}</span>
-        ) : null}
-
         <span className="story-row__meta" data-testid="story-meta">
+          {domainLabel ? `${domainLabel} · ` : ''}
           {points} {pluralize(points, 'point')} · {age}
         </span>
       </div>
