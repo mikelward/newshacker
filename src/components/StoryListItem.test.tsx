@@ -93,35 +93,66 @@ describe('StoryListItem', () => {
     expect(screen.getByTestId('story-title')).toHaveTextContent('[untitled]');
   });
 
-  it('calls onMarkOpened when the title is clicked', () => {
+  it('marks the article opened when the title of a URL story is clicked', () => {
     const onMarkOpened = vi.fn();
     renderWithProviders(
       <StoryListItem story={baseStory} onMarkOpened={onMarkOpened} />,
     );
     fireEvent.click(screen.getByTestId('story-title'));
-    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id);
+    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id, 'article');
   });
 
-  it('calls onMarkOpened when the comments button is clicked', () => {
+  it('marks comments opened when the title of a self-post is clicked', () => {
+    const selfPost: HNItem = { ...baseStory, url: undefined };
+    const onMarkOpened = vi.fn();
+    renderWithProviders(
+      <StoryListItem story={selfPost} onMarkOpened={onMarkOpened} />,
+    );
+    fireEvent.click(screen.getByTestId('story-title'));
+    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id, 'comments');
+  });
+
+  it('marks comments opened when the comments button is clicked', () => {
     const onMarkOpened = vi.fn();
     renderWithProviders(
       <StoryListItem story={baseStory} onMarkOpened={onMarkOpened} />,
     );
     fireEvent.click(screen.getByTestId('comments-btn'));
-    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id);
+    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id, 'comments');
   });
 
-  it('adds the opened modifier class when isOpened is true', () => {
-    renderWithProviders(<StoryListItem story={baseStory} isOpened={true} />);
-    expect(screen.getByTestId('story-row').className).toContain(
-      'story-row--opened',
+  it('dims only the title when just the article has been opened', () => {
+    renderWithProviders(
+      <StoryListItem story={baseStory} articleOpened={true} />,
     );
+    const row = screen.getByTestId('story-row');
+    expect(row.className).toContain('story-row--title-opened');
+    expect(row.className).not.toContain('story-row--comments-opened');
   });
 
-  it('omits the opened modifier class when isOpened is false', () => {
-    renderWithProviders(<StoryListItem story={baseStory} isOpened={false} />);
-    expect(screen.getByTestId('story-row').className).not.toContain(
-      'story-row--opened',
+  it('dims only the comments button when just the comments have been opened', () => {
+    renderWithProviders(
+      <StoryListItem story={baseStory} commentsOpened={true} />,
     );
+    const row = screen.getByTestId('story-row');
+    expect(row.className).toContain('story-row--comments-opened');
+    expect(row.className).not.toContain('story-row--title-opened');
+  });
+
+  it('dims the title for a self-post when the comments have been opened', () => {
+    const selfPost: HNItem = { ...baseStory, url: undefined };
+    renderWithProviders(
+      <StoryListItem story={selfPost} commentsOpened={true} />,
+    );
+    const row = screen.getByTestId('story-row');
+    expect(row.className).toContain('story-row--title-opened');
+    expect(row.className).toContain('story-row--comments-opened');
+  });
+
+  it('leaves the row unmodified when nothing has been opened', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
+    const row = screen.getByTestId('story-row');
+    expect(row.className).not.toContain('story-row--title-opened');
+    expect(row.className).not.toContain('story-row--comments-opened');
   });
 });

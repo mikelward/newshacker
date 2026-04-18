@@ -68,10 +68,17 @@
   color: var(--hn-meta);
 }
 
-.story-row--opened .story-row__title,
-.story-row--opened .story-row__title-text {
+.story-row--title-opened .story-row__title,
+.story-row--title-opened .story-row__title-text {
   color: var(--hn-meta);
   font-weight: 400;
+}
+
+.story-row--comments-opened .comments-btn {
+  color: var(--hn-meta);
+  background: transparent;
+  border-color: var(--hn-border);
+  font-weight: 500;
 }
 
 .story-row__title:hover {
