@@ -4,6 +4,7 @@ import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
+import { useSavedStories } from '../hooks/useSavedStories';
 import { useAutoDismissOnScroll } from '../hooks/useAutoDismissOnScroll';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
@@ -20,6 +21,7 @@ export function StoryList({ feed }: Props) {
   const { dismissedIds, dismiss } = useDismissedStories();
   const { articleOpenedIds, commentsOpenedIds, markOpened } =
     useOpenedStories();
+  const { save } = useSavedStories();
 
   const canLoadMore = slice.length < totalIds;
   const isFetching = items.isFetching || ids.isFetching;
@@ -98,6 +100,7 @@ export function StoryList({ feed }: Props) {
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               onDismiss={dismiss}
+              onSave={save}
               onMarkOpened={markOpened}
             />
           </li>

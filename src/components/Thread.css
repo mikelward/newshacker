@@ -34,6 +34,42 @@
   text-decoration: none;
 }
 
+.thread__save {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 12px 16px;
+  background: var(--hn-bg-card);
+  border: 1px solid var(--hn-border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--hn-text);
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.thread__save:hover {
+  background: var(--hn-pressed);
+}
+
+.thread__save:active {
+  background: var(--hn-border);
+}
+
+.thread__save--active {
+  background: var(--hn-orange);
+  border-color: var(--hn-orange);
+  color: #fff;
+}
+
+.thread__save--active:hover {
+  background: var(--hn-orange);
+  filter: brightness(0.95);
+}
+
 .thread__meta {
   color: var(--hn-meta);
   font-size: 13px;

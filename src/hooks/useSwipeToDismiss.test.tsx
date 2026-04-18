@@ -23,14 +23,21 @@ function dispatch(
 }
 
 interface HarnessProps {
-  onDismiss: () => void;
+  onSwipeRight?: () => void;
+  onSwipeLeft?: () => void;
   enabled?: boolean;
   onLinkClick?: () => void;
 }
 
-function Harness({ onDismiss, enabled, onLinkClick }: HarnessProps) {
+function Harness({
+  onSwipeRight,
+  onSwipeLeft,
+  enabled,
+  onLinkClick,
+}: HarnessProps) {
   const { handlers, dragging, isDismissing, offset } = useSwipeToDismiss({
-    onDismiss,
+    onSwipeRight,
+    onSwipeLeft,
     enabled,
   });
   return (
@@ -86,10 +93,10 @@ describe('useSwipeToDismiss', () => {
     vi.useRealTimers();
   });
 
-  it('calls onDismiss after a horizontal swipe past the threshold', () => {
+  it('calls onSwipeRight after a rightward swipe past the threshold', () => {
     vi.useFakeTimers();
-    const onDismiss = vi.fn();
-    render(<Harness onDismiss={onDismiss} />);
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} />);
     const row = screen.getByTestId('row');
 
     dispatch(row, 'pointerdown', 100, 100);
@@ -100,13 +107,53 @@ describe('useSwipeToDismiss', () => {
     act(() => {
       vi.advanceTimersByTime(250);
     });
-    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onSwipeRight).toHaveBeenCalledTimes(1);
   });
 
-  it('snaps back (no dismiss) when swipe is below the threshold', () => {
+  it('calls onSwipeLeft after a leftward swipe past the threshold', () => {
     vi.useFakeTimers();
-    const onDismiss = vi.fn();
-    render(<Harness onDismiss={onDismiss} />);
+    const onSwipeLeft = vi.fn();
+    const onSwipeRight = vi.fn();
+    render(
+      <Harness onSwipeLeft={onSwipeLeft} onSwipeRight={onSwipeRight} />,
+    );
+    const row = screen.getByTestId('row');
+
+    dispatch(row, 'pointerdown', 250, 100);
+    dispatch(row, 'pointermove', 100, 105);
+    dispatch(row, 'pointerup', 100, 105);
+
+    expect(row.getAttribute('data-dismissing')).toBe('true');
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(onSwipeLeft).toHaveBeenCalledTimes(1);
+    expect(onSwipeRight).not.toHaveBeenCalled();
+  });
+
+  it('does not call a handler for a direction with no handler wired', () => {
+    vi.useFakeTimers();
+    const onSwipeRight = vi.fn();
+    // Only onSwipeRight is wired; leftward swipe should snap back.
+    render(<Harness onSwipeRight={onSwipeRight} />);
+    const row = screen.getByTestId('row');
+
+    dispatch(row, 'pointerdown', 250, 100);
+    dispatch(row, 'pointermove', 100, 105);
+    dispatch(row, 'pointerup', 100, 105);
+
+    expect(row.getAttribute('data-dismissing')).toBe('false');
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(onSwipeRight).not.toHaveBeenCalled();
+    expect(row.getAttribute('data-offset')).toBe('0');
+  });
+
+  it('snaps back (no call) when swipe is below the threshold', () => {
+    vi.useFakeTimers();
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} />);
     const row = screen.getByTestId('row');
 
     dispatch(row, 'pointerdown', 100, 100);
@@ -117,13 +164,13 @@ describe('useSwipeToDismiss', () => {
     act(() => {
       vi.advanceTimersByTime(250);
     });
-    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onSwipeRight).not.toHaveBeenCalled();
     expect(row.getAttribute('data-offset')).toBe('0');
   });
 
   it('ignores predominantly vertical motion (lets the page scroll)', () => {
-    const onDismiss = vi.fn();
-    render(<Harness onDismiss={onDismiss} />);
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} />);
     const row = screen.getByTestId('row');
 
     dispatch(row, 'pointerdown', 100, 100);
@@ -131,24 +178,26 @@ describe('useSwipeToDismiss', () => {
     dispatch(row, 'pointerup', 115, 200);
 
     expect(row.getAttribute('data-dragging')).toBe('false');
-    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onSwipeRight).not.toHaveBeenCalled();
   });
 
   it('does nothing when disabled', () => {
-    const onDismiss = vi.fn();
-    render(<Harness onDismiss={onDismiss} enabled={false} />);
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} enabled={false} />);
     const row = screen.getByTestId('row');
 
     dispatch(row, 'pointerdown', 100, 100);
     dispatch(row, 'pointermove', 260, 100);
     dispatch(row, 'pointerup', 260, 100);
-    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onSwipeRight).not.toHaveBeenCalled();
   });
 
   it('suppresses the synthetic click that follows a swipe', () => {
-    const onDismiss = vi.fn();
+    const onSwipeRight = vi.fn();
     const onLinkClick = vi.fn();
-    render(<Harness onDismiss={onDismiss} onLinkClick={onLinkClick} />);
+    render(
+      <Harness onSwipeRight={onSwipeRight} onLinkClick={onLinkClick} />,
+    );
     const row = screen.getByTestId('row');
     const link = screen.getByTestId('inner-link');
 
@@ -161,7 +210,7 @@ describe('useSwipeToDismiss', () => {
 
   it('allows a plain tap to go through', () => {
     const onLinkClick = vi.fn();
-    render(<Harness onDismiss={vi.fn()} onLinkClick={onLinkClick} />);
+    render(<Harness onSwipeRight={vi.fn()} onLinkClick={onLinkClick} />);
     const row = screen.getByTestId('row');
     const link = screen.getByTestId('inner-link');
 

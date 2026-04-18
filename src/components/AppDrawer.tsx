@@ -66,6 +66,11 @@ export function AppDrawer({ open, onClose }: Props) {
         <div className="app-drawer__section-title">Library</div>
         <ul className="app-drawer__list">
           <li>
+            <Link to="/saved" className="app-drawer__link">
+              Saved
+            </Link>
+          </li>
+          <li>
             <Link to="/opened" className="app-drawer__link">
               Opened
             </Link>
@@ -78,6 +83,11 @@ export function AppDrawer({ open, onClose }: Props) {
         </ul>
         <div className="app-drawer__section-title">App</div>
         <ul className="app-drawer__list">
+          <li>
+            <Link to="/help" className="app-drawer__link">
+              Help
+            </Link>
+          </li>
           <li>
             <Link to="/about" className="app-drawer__link">
               About

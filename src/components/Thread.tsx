@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { useSavedStories } from '../hooks/useSavedStories';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
@@ -18,6 +19,11 @@ export const TOP_LEVEL_PAGE_SIZE = 20;
 export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
+  const { isSaved, toggleSaved } = useSavedStories();
+  const saved = isSaved(id);
+  const handleToggleSaved = useCallback(() => {
+    toggleSaved(id);
+  }, [toggleSaved, id]);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
@@ -75,6 +81,17 @@ export function Thread({ id }: Props) {
             Read article{domain ? ` · ${domain}` : ''}
           </a>
         ) : null}
+        <button
+          type="button"
+          className={
+            'thread__save' + (saved ? ' thread__save--active' : '')
+          }
+          data-testid="thread-save"
+          aria-pressed={saved}
+          onClick={handleToggleSaved}
+        >
+          {saved ? 'Saved' : 'Save'}
+        </button>
         <div className="thread__meta">
           <span>
             {points} {pluralize(points, 'point')}

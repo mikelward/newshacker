@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Thread, TOP_LEVEL_PAGE_SIZE } from './Thread';
@@ -7,7 +7,13 @@ import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import type { HNItem } from '../lib/hn';
 
 describe('<Thread>', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
 
   it('renders story header + top-level comments, with replies collapsed by default', async () => {
     installHNFetchMock({
@@ -186,6 +192,34 @@ describe('<Thread>', () => {
     await waitFor(() => {
       expect(screen.getByText('[deleted]')).toBeInTheDocument();
     });
+  });
+
+  it('toggles saved state via the Save button in the header', async () => {
+    installHNFetchMock({
+      items: { 700: makeStory(700, { title: 'Savable' }) },
+    });
+
+    renderWithProviders(<Thread id={700} />);
+    await waitFor(() => {
+      expect(screen.getByText('Savable')).toBeInTheDocument();
+    });
+
+    const save = screen.getByTestId('thread-save');
+    expect(save).toHaveTextContent(/save/i);
+    expect(save).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(save);
+    expect(save).toHaveTextContent(/saved/i);
+    expect(save).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      window.localStorage.getItem('newshacker:savedStoryIds'),
+    ).toContain('"id":700');
+
+    await userEvent.click(save);
+    expect(save).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBe(
+      '[]',
+    );
   });
 
   it('paginates top-level comments (only renders first page)', async () => {
