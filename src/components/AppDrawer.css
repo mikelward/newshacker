@@ -27,6 +27,35 @@
   box-shadow: 1px 0 6px rgba(0, 0, 0, 0.15);
 }
 
+.app-drawer__close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--hn-meta);
+  font-size: 28px;
+  line-height: 1;
+  padding: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .app-drawer__close:hover {
+    background: var(--hn-pressed);
+  }
+}
+
+.app-drawer__close:active {
+  background: var(--hn-border);
+}
+
 .app-drawer__section-title {
   font-size: 11px;
   font-weight: 700;

@@ -31,8 +31,19 @@ describe('<AppDrawer>', () => {
 
   it('calls onClose when the scrim is clicked', () => {
     const onClose = vi.fn();
+    const { container } = renderWithProviders(
+      <AppDrawer open={true} onClose={onClose} />,
+    );
+    const scrim = container.querySelector('.app-drawer__scrim');
+    expect(scrim).not.toBeNull();
+    fireEvent.click(scrim!);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('calls onClose when the in-panel close (X) button is clicked', () => {
+    const onClose = vi.fn();
     renderWithProviders(<AppDrawer open={true} onClose={onClose} />);
-    fireEvent.click(screen.getByRole('button', { name: /close menu/i }));
+    fireEvent.click(screen.getByTestId('drawer-close'));
     expect(onClose).toHaveBeenCalled();
   });
 
