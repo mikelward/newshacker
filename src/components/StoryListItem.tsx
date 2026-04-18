@@ -17,11 +17,14 @@ export function StoryListItem({ story, isLoggedIn = false }: Props) {
   const age = story.time ? formatTimeAgo(story.time) : '';
 
   const title = story.title ?? '[untitled]';
+  const domainLabel = hasExternalUrl ? domain : 'self post';
 
   const titleInner = (
     <>
       <span className="story-row__title-text">{title}</span>
-      {domain ? <span className="story-row__domain">{domain}</span> : null}
+      {domainLabel ? (
+        <span className="story-row__domain">{domainLabel}</span>
+      ) : null}
     </>
   );
 
