@@ -80,13 +80,15 @@
   font-weight: 500;
 }
 
-.story-row__title:hover {
-  text-decoration: none;
-  background: var(--hn-pressed);
-}
+@media (hover: hover) {
+  .story-row__title:hover {
+    text-decoration: none;
+    background: var(--hn-pressed);
+  }
 
-.story-row__title:active {
-  background: var(--hn-border);
+  .story-row__title:active {
+    background: var(--hn-border);
+  }
 }
 
 .story-row__title-text {
