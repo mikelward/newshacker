@@ -65,13 +65,13 @@ describe('openedStories', () => {
   });
 
   it('ignores malformed storage data', () => {
-    window.localStorage.setItem('newshacker:openedStoryIds', 'not json');
+    window.localStorage.setItem('hnews:openedStoryIds', 'not json');
     expect(getOpenedIds()).toEqual(new Set());
   });
 
   it('ignores entries that are not the expected shape', () => {
     window.localStorage.setItem(
-      'newshacker:openedStoryIds',
+      'hnews:openedStoryIds',
       JSON.stringify([1, 2, { id: 3, at: Date.now() }]),
     );
     expect(getOpenedIds()).toEqual(new Set([3]));
@@ -79,7 +79,7 @@ describe('openedStories', () => {
 
   it('ignores storage data that is not an array', () => {
     window.localStorage.setItem(
-      'newshacker:openedStoryIds',
+      'hnews:openedStoryIds',
       JSON.stringify({ id: 1, at: Date.now() }),
     );
     expect(getOpenedIds()).toEqual(new Set());
@@ -88,23 +88,23 @@ describe('openedStories', () => {
   it('does not collide with the dismissedStories key', () => {
     addOpenedId(5);
     expect(
-      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+      window.localStorage.getItem('hnews:dismissedStoryIds'),
     ).toBeNull();
     expect(
-      window.localStorage.getItem('newshacker:openedStoryIds'),
+      window.localStorage.getItem('hnews:openedStoryIds'),
     ).toBeTruthy();
   });
 
   it('dispatches a change event on add and remove', () => {
     const events: Event[] = [];
     const handler = (e: Event) => events.push(e);
-    window.addEventListener('newshacker:openedStoriesChanged', handler);
+    window.addEventListener('hnews:openedStoriesChanged', handler);
     try {
       addOpenedId(1);
       removeOpenedId(1);
       expect(events.length).toBe(2);
     } finally {
-      window.removeEventListener('newshacker:openedStoriesChanged', handler);
+      window.removeEventListener('hnews:openedStoriesChanged', handler);
     }
   });
 
@@ -167,7 +167,7 @@ describe('openedStories', () => {
 
     it('reads legacy {id, at} entries as if both halves were opened', () => {
       window.localStorage.setItem(
-        'newshacker:openedStoryIds',
+        'hnews:openedStoryIds',
         JSON.stringify([{ id: 9, at: Date.now() }]),
       );
       expect(getArticleOpenedIds()).toEqual(new Set([9]));

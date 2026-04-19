@@ -56,7 +56,7 @@ describe('<PinnedPage>', () => {
       expect(screen.queryByText('Five')).toBeNull();
     });
 
-    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe(
+    expect(window.localStorage.getItem('hnews:pinnedStoryIds')).toBe(
       '[]',
     );
   });

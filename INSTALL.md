@@ -10,7 +10,7 @@
 
 ```bash
 git clone <repo>
-cd newshacker
+cd hnews
 npm install
 ```
 

@@ -66,14 +66,9 @@ doesn't have to do double duty.
   soon".
 
 The two lists live side by side in the drawer ("Favorites" above "Pinned")
-and each has its own localStorage key (`newshacker:favoriteStoryIds`,
-`newshacker:pinnedStoryIds`) so one is never silently interpreted as the
-other. The pinned-stories module performs a one-shot rename of the legacy
-`newshacker:savedStoryIds` key so existing readers don't lose their list.
-The `newshacker:` prefix on storage keys is preserved from the app's
-former name so the rebrand to **hnews.app** doesn't blow away anyone's
-saved lists. New keys may use either prefix; do not rename the existing
-ones without a migration path.
+and each has its own localStorage key (`hnews:favoriteStoryIds`,
+`hnews:pinnedStoryIds`) so one is never silently interpreted as the
+other.
 
 ### MVP (read-only)
 

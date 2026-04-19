@@ -81,7 +81,7 @@ describe('<OpenedPage>', () => {
       ).toBeInTheDocument();
     });
     expect(
-      window.localStorage.getItem('newshacker:openedStoryIds'),
+      window.localStorage.getItem('hnews:openedStoryIds'),
     ).toBe('[]');
   });
 
@@ -112,11 +112,11 @@ describe('<OpenedPage>', () => {
     });
     addOpenedId(7);
     window.localStorage.setItem(
-      'newshacker:dismissedStoryIds',
+      'hnews:dismissedStoryIds',
       JSON.stringify([{ id: 88, at: Date.now() }]),
     );
     window.localStorage.setItem(
-      'newshacker:pinnedStoryIds',
+      'hnews:pinnedStoryIds',
       JSON.stringify([{ id: 99, at: Date.now() }]),
     );
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -138,9 +138,9 @@ describe('<OpenedPage>', () => {
       ).toBeInTheDocument();
     });
     const dismissed = window.localStorage.getItem(
-      'newshacker:dismissedStoryIds',
+      'hnews:dismissedStoryIds',
     );
-    const pinned = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    const pinned = window.localStorage.getItem('hnews:pinnedStoryIds');
     expect(JSON.parse(dismissed as string)).toHaveLength(1);
     expect(JSON.parse(pinned as string)).toHaveLength(1);
   });

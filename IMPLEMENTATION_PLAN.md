@@ -114,8 +114,8 @@ Gate everything in this phase behind an env flag (`VITE_ENABLE_AUTH=true`) so MV
 action doing double duty.
 
 Shipped:
-- `lib/favorites.ts` — localStorage store at `newshacker:favoriteStoryIds`,
-  shape `{ id, at }[]`, `newshacker:favoritesChanged` change event.
+- `lib/favorites.ts` — localStorage store at `hnews:favoriteStoryIds`,
+  shape `{ id, at }[]`, `hnews:favoritesChanged` change event.
 - `hooks/useFavorites.ts` — `favorite`, `unfavorite`, `isFavorite`,
   `toggleFavorite`.
 - **Favorite button on the thread page only.** No row-level heart, so the
@@ -127,9 +127,6 @@ Shipped:
   "Pin / Unpin". `lib/savedStories` → `lib/pinnedStories`,
   `useSavedStories` → `usePinnedStories`, `SavedPage` → `PinnedPage`,
   `/saved` route → `/pinned`, sweep aria label → "Dismiss N unpinned".
-  The pinned-stories module performs a one-shot rename of the legacy
-  `newshacker:savedStoryIds` localStorage key on first read so existing
-  readers don't lose their list.
 - Generic library list component renamed `SavedStoryList` → `LibraryStoryList`
   to reflect that it now backs Pinned, Favorites, Opened and Ignored.
 

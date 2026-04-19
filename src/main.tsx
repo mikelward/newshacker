@@ -32,7 +32,7 @@ const queryClient = new QueryClient({
 
 const persister = createSyncStoragePersister({
   storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-  key: 'newshacker:rq-cache',
+  key: 'hnews:rq-cache',
   throttleTime: 1000,
 });
 

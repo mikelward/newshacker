@@ -44,7 +44,7 @@ describe('<StoryList> pin and sweep', () => {
     fireEvent.click(pin);
 
     expect(pin).toHaveAttribute('aria-pressed', 'true');
-    const stored = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    const stored = window.localStorage.getItem('hnews:pinnedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number }>;
     expect(parsed.map((e) => e.id)).toContain(10);
@@ -59,7 +59,7 @@ describe('<StoryList> pin and sweep', () => {
     // Tapping again unpins, still no toast, persistence matches.
     fireEvent.click(pin);
     expect(pin).toHaveAttribute('aria-pressed', 'false');
-    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe('[]');
+    expect(window.localStorage.getItem('hnews:pinnedStoryIds')).toBe('[]');
   });
 
   it('sweep button dismisses unpinned stories and keeps pinned ones', async () => {
@@ -249,7 +249,7 @@ describe('<StoryList> pin and sweep', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
     expect(screen.getByTestId('undo-btn')).toBeDisabled();
-    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const stored = window.localStorage.getItem('hnews:dismissedStoryIds');
     const parsed = stored ? (JSON.parse(stored) as Array<{ id: number }>) : [];
     expect(parsed).toHaveLength(0);
   });

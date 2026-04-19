@@ -101,7 +101,7 @@ describe('<StoryList> dismissed-story handling', () => {
     });
     expect(screen.getAllByTestId('story-row')).toHaveLength(2);
 
-    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const stored = window.localStorage.getItem('hnews:dismissedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number; at: number }>;
     expect(parsed.map((e) => e.id)).toContain(20);
@@ -152,7 +152,7 @@ describe('<StoryList> dismissed-story handling', () => {
       expect(screen.getByText('Story 20')).toBeInTheDocument();
     });
     expect(screen.getByTestId('undo-btn')).toBeDisabled();
-    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const stored = window.localStorage.getItem('hnews:dismissedStoryIds');
     const parsed = stored ? (JSON.parse(stored) as Array<{ id: number }>) : [];
     expect(parsed.map((e) => e.id)).not.toContain(20);
   });

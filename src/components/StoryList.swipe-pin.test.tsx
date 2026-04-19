@@ -77,7 +77,7 @@ describe('<StoryList> pin-on-left-swipe', () => {
       vi.advanceTimersByTime(300);
     });
 
-    const stored = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    const stored = window.localStorage.getItem('hnews:pinnedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{
       id: number;

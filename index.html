@@ -10,7 +10,7 @@
       // Apply a stored theme before first paint to avoid a flash.
       (function () {
         try {
-          var t = localStorage.getItem('newshacker:theme');
+          var t = localStorage.getItem('hnews:theme');
           if (t === 'dark' || t === 'light') {
             document.documentElement.setAttribute('data-theme', t);
           }

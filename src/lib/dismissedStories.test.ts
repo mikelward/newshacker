@@ -61,13 +61,13 @@ describe('dismissedStories', () => {
   });
 
   it('ignores malformed storage data', () => {
-    window.localStorage.setItem('newshacker:dismissedStoryIds', 'not json');
+    window.localStorage.setItem('hnews:dismissedStoryIds', 'not json');
     expect(getDismissedIds()).toEqual(new Set());
   });
 
   it('ignores entries that are not the expected shape', () => {
     window.localStorage.setItem(
-      'newshacker:dismissedStoryIds',
+      'hnews:dismissedStoryIds',
       JSON.stringify([1, 2, { id: 3, at: Date.now() }]),
     );
     expect(getDismissedIds()).toEqual(new Set([3]));
@@ -76,14 +76,14 @@ describe('dismissedStories', () => {
   it('dispatches a change event on add and remove', () => {
     const events: Event[] = [];
     const handler = (e: Event) => events.push(e);
-    window.addEventListener('newshacker:dismissedStoriesChanged', handler);
+    window.addEventListener('hnews:dismissedStoriesChanged', handler);
     try {
       addDismissedId(1);
       removeDismissedId(1);
       expect(events.length).toBe(2);
     } finally {
       window.removeEventListener(
-        'newshacker:dismissedStoriesChanged',
+        'hnews:dismissedStoriesChanged',
         handler,
       );
     }

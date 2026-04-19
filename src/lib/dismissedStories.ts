@@ -1,6 +1,6 @@
-const STORAGE_KEY = 'newshacker:dismissedStoryIds';
+const STORAGE_KEY = 'hnews:dismissedStoryIds';
 export const DISMISSED_STORIES_CHANGE_EVENT =
-  'newshacker:dismissedStoriesChanged';
+  'hnews:dismissedStoriesChanged';
 export const DISMISSED_STORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface DismissedEntry {
