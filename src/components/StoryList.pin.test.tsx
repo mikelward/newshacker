@@ -4,14 +4,14 @@ import { StoryList } from './StoryList';
 import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
-import { addSavedId } from '../lib/savedStories';
+import { addPinnedId } from '../lib/pinnedStories';
 import {
   installIntersectionObserverMock,
   setVisibilityForTest,
   uninstallIntersectionObserverMock,
 } from '../test/intersectionObserver';
 
-describe('<StoryList> star (save) and sweep', () => {
+describe('<StoryList> pin and sweep', () => {
   beforeEach(() => {
     window.localStorage.clear();
     installIntersectionObserverMock();
@@ -23,7 +23,7 @@ describe('<StoryList> star (save) and sweep', () => {
     uninstallIntersectionObserverMock();
   });
 
-  it('tapping a star saves (and untaps unsaves) without firing a toast', async () => {
+  it('tapping a pin pins (and untaps unpins) without firing a toast', async () => {
     const ids = [10, 20];
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
@@ -38,37 +38,37 @@ describe('<StoryList> star (save) and sweep', () => {
 
     const rows = screen.getAllByTestId('story-row');
     const target = rows[0];
-    const star = within(target).getByTestId('star-btn');
-    expect(star).toHaveAttribute('aria-pressed', 'false');
+    const pin = within(target).getByTestId('pin-btn');
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
 
-    fireEvent.click(star);
+    fireEvent.click(pin);
 
-    expect(star).toHaveAttribute('aria-pressed', 'true');
-    const stored = window.localStorage.getItem('newshacker:savedStoryIds');
+    expect(pin).toHaveAttribute('aria-pressed', 'true');
+    const stored = window.localStorage.getItem('newshacker:pinnedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number }>;
     expect(parsed.map((e) => e.id)).toContain(10);
 
-    // No save/unsave toast should be rendered — the star button is the
-    // single source of truth for saved state.
+    // The pin button is the single source of truth for pinned state, so we
+    // never fire a pin/unpin toast.
     const toastHost = screen.queryByTestId('toast-host');
     if (toastHost) {
-      expect(within(toastHost).queryByText('Saved')).toBeNull();
+      expect(within(toastHost).queryByText(/pinned/i)).toBeNull();
     }
 
-    // Tapping again unsaves, still no toast, persistence matches.
-    fireEvent.click(star);
-    expect(star).toHaveAttribute('aria-pressed', 'false');
-    expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBe('[]');
+    // Tapping again unpins, still no toast, persistence matches.
+    fireEvent.click(pin);
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe('[]');
   });
 
-  it('sweep button dismisses unstarred stories and keeps starred ones', async () => {
+  it('sweep button dismisses unpinned stories and keeps pinned ones', async () => {
     const ids = [1, 2, 3, 4];
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
     );
     installHNFetchMock({ feeds: { topstories: ids }, items });
-    addSavedId(2);
+    addPinnedId(2);
 
     renderWithProviders(
       <>
@@ -85,7 +85,7 @@ describe('<StoryList> star (save) and sweep', () => {
     await waitFor(() => {
       expect(sweep).not.toBeDisabled();
     });
-    expect(sweep).toHaveAccessibleName(/dismiss unstarred/i);
+    expect(sweep).toHaveAccessibleName(/dismiss unpinned/i);
 
     fireEvent.click(sweep);
 
@@ -185,14 +185,14 @@ describe('<StoryList> star (save) and sweep', () => {
     expect(screen.getByTestId('sweep-btn')).toBeDisabled();
   });
 
-  it('disables the sweep button when every story is starred', async () => {
+  it('disables the sweep button when every story is pinned', async () => {
     const ids = [11, 22];
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
     );
     installHNFetchMock({ feeds: { topstories: ids }, items });
-    addSavedId(11);
-    addSavedId(22);
+    addPinnedId(11);
+    addPinnedId(22);
 
     renderWithProviders(
       <>

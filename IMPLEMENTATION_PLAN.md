@@ -107,6 +107,39 @@ Gate everything in this phase behind an env flag (`VITE_ENABLE_AUTH=true`) so MV
   - Serverless vote handler: mocks item fetch + vote fetch; asserts correct URL & cookie.
   - Client: optimistic update + rollback.
 
+## Phase 5.5 — Favorites + Pinned rename
+
+**Goal:** Two deliberate lists — Pinned (active reading list) and Favorites
+(permanent keepsake) — so each verb can be unambiguous instead of one row
+action doing double duty.
+
+Shipped:
+- `lib/favorites.ts` — localStorage store at `newshacker:favoriteStoryIds`,
+  shape `{ id, at }[]`, `newshacker:favoritesChanged` change event.
+- `hooks/useFavorites.ts` — `favorite`, `unfavorite`, `isFavorite`,
+  `toggleFavorite`.
+- **Favorite button on the thread page only.** No row-level heart, so the
+  3-tap-zone rule for story rows is preserved.
+- `/favorites` route + `FavoritesPage`, reusing `LibraryStoryList` with an
+  "Unfavorite" recover button.
+- Drawer entry "Favorites" in the Library group, listed above Pinned.
+- **Star → Pin rename.** Row-level "Save / Unsave / Saved" replaced with
+  "Pin / Unpin". `lib/savedStories` → `lib/pinnedStories`,
+  `useSavedStories` → `usePinnedStories`, `SavedPage` → `PinnedPage`,
+  `/saved` route → `/pinned`, sweep aria label → "Dismiss N unpinned".
+  The pinned-stories module performs a one-shot rename of the legacy
+  `newshacker:savedStoryIds` localStorage key on first read so existing
+  readers don't lose their list.
+- Generic library list component renamed `SavedStoryList` → `LibraryStoryList`
+  to reflect that it now backs Pinned, Favorites, Opened and Ignored.
+
+Follow-ups (next commits, in order):
+- [ ] **Filter opened-from-feed.** Hide stories you've already opened from
+  the main feeds (they remain in `/pinned` and `/opened`) so the home
+  screen stops growing forever.
+- [ ] **Re-evaluate Pin terminology** once it has been used for a while —
+  if "Pin" still confuses people we can revisit Bookmark / Read-later.
+
 ## Phase 6 — AI article summaries
 
 **Goal:** Reader can tap "Summarize" on a story page and get a one-sentence AI summary inline.

@@ -48,39 +48,41 @@ describe('StoryListItem', () => {
     expect(screen.queryByTestId('comments-btn')).toBeNull();
   });
 
-  it('renders a star button that toggles saved state via onSave / onUnsave', () => {
-    const onSave = vi.fn();
-    const onUnsave = vi.fn();
+  it('renders a pin button that toggles pinned state via onPin / onUnpin', () => {
+    const onPin = vi.fn();
+    const onUnpin = vi.fn();
     const { unmount } = renderWithProviders(
       <StoryListItem
         story={baseStory}
-        saved={false}
-        onSave={onSave}
-        onUnsave={onUnsave}
+        pinned={false}
+        onPin={onPin}
+        onUnpin={onUnpin}
       />,
     );
-    const star = screen.getByTestId('star-btn');
-    expect(star).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(star);
-    expect(onSave).toHaveBeenCalledWith(baseStory.id);
-    expect(onUnsave).not.toHaveBeenCalled();
+    const pin = screen.getByTestId('pin-btn');
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    expect(pin).toHaveAccessibleName(/^pin /i);
+    fireEvent.click(pin);
+    expect(onPin).toHaveBeenCalledWith(baseStory.id);
+    expect(onUnpin).not.toHaveBeenCalled();
     unmount();
 
-    onSave.mockReset();
-    onUnsave.mockReset();
+    onPin.mockReset();
+    onUnpin.mockReset();
     renderWithProviders(
       <StoryListItem
         story={baseStory}
-        saved={true}
-        onSave={onSave}
-        onUnsave={onUnsave}
+        pinned={true}
+        onPin={onPin}
+        onUnpin={onUnpin}
       />,
     );
-    const starAfter = screen.getByTestId('star-btn');
-    expect(starAfter).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(starAfter);
-    expect(onUnsave).toHaveBeenCalledWith(baseStory.id);
-    expect(onSave).not.toHaveBeenCalled();
+    const pinAfter = screen.getByTestId('pin-btn');
+    expect(pinAfter).toHaveAttribute('aria-pressed', 'true');
+    expect(pinAfter).toHaveAccessibleName(/^unpin /i);
+    fireEvent.click(pinAfter);
+    expect(onUnpin).toHaveBeenCalledWith(baseStory.id);
+    expect(onPin).not.toHaveBeenCalled();
   });
 
   it('does not render rank, hide, past, web, flag, via, or inline author links', () => {
@@ -130,16 +132,16 @@ describe('StoryListItem', () => {
     expect(onOpenThread).toHaveBeenCalledWith(baseStory.id);
   });
 
-  it('does not fire onOpenThread when the star button is tapped', () => {
+  it('does not fire onOpenThread when the pin button is tapped', () => {
     const onOpenThread = vi.fn();
     renderWithProviders(
       <StoryListItem
         story={baseStory}
         onOpenThread={onOpenThread}
-        onSave={vi.fn()}
+        onPin={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByTestId('star-btn'));
+    fireEvent.click(screen.getByTestId('pin-btn'));
     expect(onOpenThread).not.toHaveBeenCalled();
   });
 
@@ -165,10 +167,10 @@ describe('StoryListItem', () => {
     expect(row.className).not.toContain('story-row--opened');
   });
 
-  it('does not render a separate "Saved" meta badge — the star button shows saved state', () => {
-    renderWithProviders(<StoryListItem story={baseStory} saved={true} />);
-    expect(screen.queryByTestId('saved-badge')).toBeNull();
-    expect(screen.getByTestId('star-btn')).toHaveAttribute(
+  it('does not render a separate "Pinned" meta badge — the pin button shows pinned state', () => {
+    renderWithProviders(<StoryListItem story={baseStory} pinned={true} />);
+    expect(screen.queryByTestId('pinned-badge')).toBeNull();
+    expect(screen.getByTestId('pin-btn')).toHaveAttribute(
       'aria-pressed',
       'true',
     );
@@ -207,13 +209,13 @@ describe('StoryListItem long-press menu', () => {
     vi.useRealTimers();
   });
 
-  it('opens a menu with Save / Ignore / Share on long-press', () => {
+  it('opens a menu with Pin / Ignore / Share on long-press', () => {
     vi.useFakeTimers();
     renderWithProviders(
       <StoryListItem
         story={baseStory}
-        onSave={vi.fn()}
-        onUnsave={vi.fn()}
+        onPin={vi.fn()}
+        onUnpin={vi.fn()}
         onDismiss={vi.fn()}
         onShare={vi.fn()}
       />,
@@ -224,19 +226,19 @@ describe('StoryListItem long-press menu', () => {
       vi.advanceTimersByTime(600);
     });
     expect(screen.getByTestId('story-row-menu')).toBeInTheDocument();
-    expect(screen.getByTestId('story-row-menu-save')).toBeInTheDocument();
+    expect(screen.getByTestId('story-row-menu-pin')).toBeInTheDocument();
     expect(screen.getByTestId('story-row-menu-ignore')).toBeInTheDocument();
     expect(screen.getByTestId('story-row-menu-share')).toBeInTheDocument();
   });
 
-  it('shows Unsave instead of Save when the story is already saved', () => {
+  it('shows Unpin instead of Pin when the story is already pinned', () => {
     vi.useFakeTimers();
     renderWithProviders(
       <StoryListItem
         story={baseStory}
-        saved
-        onSave={vi.fn()}
-        onUnsave={vi.fn()}
+        pinned
+        onPin={vi.fn()}
+        onUnpin={vi.fn()}
         onDismiss={vi.fn()}
         onShare={vi.fn()}
       />,
@@ -246,23 +248,23 @@ describe('StoryListItem long-press menu', () => {
     act(() => {
       vi.advanceTimersByTime(600);
     });
-    expect(screen.getByTestId('story-row-menu-unsave')).toBeInTheDocument();
-    expect(screen.queryByTestId('story-row-menu-save')).toBeNull();
+    expect(screen.getByTestId('story-row-menu-unpin')).toBeInTheDocument();
+    expect(screen.queryByTestId('story-row-menu-pin')).toBeNull();
   });
 
-  it('invokes onSave when Save is selected from the menu', () => {
+  it('invokes onPin when Pin is selected from the menu', () => {
     vi.useFakeTimers();
-    const onSave = vi.fn();
+    const onPin = vi.fn();
     renderWithProviders(
-      <StoryListItem story={baseStory} onSave={onSave} onDismiss={vi.fn()} />,
+      <StoryListItem story={baseStory} onPin={onPin} onDismiss={vi.fn()} />,
     );
     const row = screen.getByTestId('story-row');
     dispatch(row, 'pointerdown', 100, 100);
     act(() => {
       vi.advanceTimersByTime(600);
     });
-    fireEvent.click(screen.getByTestId('story-row-menu-save'));
-    expect(onSave).toHaveBeenCalledWith(baseStory.id);
+    fireEvent.click(screen.getByTestId('story-row-menu-pin'));
+    expect(onPin).toHaveBeenCalledWith(baseStory.id);
   });
 
   it('invokes onShare with the story when Share is selected', () => {
@@ -286,7 +288,7 @@ describe('StoryListItem long-press menu', () => {
     renderWithProviders(
       <StoryListItem
         story={baseStory}
-        onSave={vi.fn()}
+        onPin={vi.fn()}
         onOpenThread={onOpenThread}
       />,
     );

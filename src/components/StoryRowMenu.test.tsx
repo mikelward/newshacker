@@ -4,7 +4,7 @@ import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 
 function items(handlers: Partial<Record<string, () => void>> = {}) {
   return [
-    { key: 'save', label: 'Save', onSelect: handlers.save ?? vi.fn() },
+    { key: 'pin', label: 'Pin', onSelect: handlers.pin ?? vi.fn() },
     { key: 'ignore', label: 'Ignore', onSelect: handlers.ignore ?? vi.fn() },
     { key: 'share', label: 'Share', onSelect: handlers.share ?? vi.fn() },
   ] as StoryRowMenuItem[];
@@ -34,8 +34,8 @@ describe('StoryRowMenu', () => {
     );
     expect(screen.getByTestId('story-row-menu')).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-label', 'A story');
-    expect(screen.getByTestId('story-row-menu-save')).toHaveTextContent(
-      'Save',
+    expect(screen.getByTestId('story-row-menu-pin')).toHaveTextContent(
+      'Pin',
     );
     expect(screen.getByTestId('story-row-menu-ignore')).toHaveTextContent(
       'Ignore',
@@ -46,18 +46,18 @@ describe('StoryRowMenu', () => {
   });
 
   it('calls the item handler and closes the menu when an item is clicked', () => {
-    const onSave = vi.fn();
+    const onPin = vi.fn();
     const onClose = vi.fn();
     render(
       <StoryRowMenu
         open
         title="A story"
-        items={items({ save: onSave })}
+        items={items({ pin: onPin })}
         onClose={onClose}
       />,
     );
-    fireEvent.click(screen.getByTestId('story-row-menu-save'));
-    expect(onSave).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId('story-row-menu-pin'));
+    expect(onPin).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

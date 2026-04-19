@@ -9,7 +9,7 @@ import {
   OPENED_STORIES_CHANGE_EVENT,
   getOpenedIds,
 } from '../lib/openedStories';
-import { SavedStoryList } from '../components/SavedStoryList';
+import { LibraryStoryList } from '../components/LibraryStoryList';
 import './HistoryToolbar.css';
 
 function readIgnoredIdsNewestFirst(): number[] {
@@ -63,7 +63,7 @@ export function IgnoredPage() {
           </button>
         </div>
       ) : null}
-      <SavedStoryList
+      <LibraryStoryList
         queryKey="ignored"
         ids={ids}
         emptyMessage="Nothing ignored. Stories you swipe away or scroll past without opening appear here."

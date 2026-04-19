@@ -92,8 +92,13 @@ export function AppDrawer({ open, onClose }: Props) {
         <div className="app-drawer__section-title">Library</div>
         <ul className="app-drawer__list">
           <li>
-            <Link to="/saved" className="app-drawer__link">
-              Saved
+            <Link to="/favorites" className="app-drawer__link">
+              Favorites
+            </Link>
+          </li>
+          <li>
+            <Link to="/pinned" className="app-drawer__link">
+              Pinned
             </Link>
           </li>
           <li>

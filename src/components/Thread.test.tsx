@@ -219,30 +219,63 @@ describe('<Thread>', () => {
     expect(entry?.articleAt).toBeTruthy();
   });
 
-  it('toggles saved state via the Star button in the header', async () => {
+  it('toggles favorite state via the Favorite button in the header, independently of Pin', async () => {
     installHNFetchMock({
-      items: { 700: makeStory(700, { title: 'Savable' }) },
+      items: { 710: makeStory(710, { title: 'Lovable' }) },
+    });
+
+    renderWithProviders(<Thread id={710} />);
+    await waitFor(() => {
+      expect(screen.getByText('Lovable')).toBeInTheDocument();
+    });
+
+    const fav = screen.getByTestId('thread-favorite');
+    const pin = screen.getByTestId('thread-pin');
+    expect(fav).toHaveAccessibleName(/^favorite$/i);
+    expect(fav).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(fav);
+    expect(fav).toHaveAccessibleName(/unfavorite/i);
+    expect(fav).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      window.localStorage.getItem('newshacker:favoriteStoryIds'),
+    ).toContain('"id":710');
+    // Pin is untouched by Favorite
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBeNull();
+
+    await userEvent.click(fav);
+    expect(fav).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('newshacker:favoriteStoryIds')).toBe(
+      '[]',
+    );
+  });
+
+  it('toggles pinned state via the Pin button in the header', async () => {
+    installHNFetchMock({
+      items: { 700: makeStory(700, { title: 'Pinnable' }) },
     });
 
     renderWithProviders(<Thread id={700} />);
     await waitFor(() => {
-      expect(screen.getByText('Savable')).toBeInTheDocument();
+      expect(screen.getByText('Pinnable')).toBeInTheDocument();
     });
 
-    const save = screen.getByTestId('thread-save');
-    expect(save).toHaveTextContent(/^star$/i);
-    expect(save).toHaveAttribute('aria-pressed', 'false');
+    const pin = screen.getByTestId('thread-pin');
+    expect(pin).toHaveAccessibleName(/^pin$/i);
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
 
-    await userEvent.click(save);
-    expect(save).toHaveTextContent(/unstar/i);
-    expect(save).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(pin);
+    expect(pin).toHaveAccessibleName(/unpin/i);
+    expect(pin).toHaveAttribute('aria-pressed', 'true');
     expect(
-      window.localStorage.getItem('newshacker:savedStoryIds'),
+      window.localStorage.getItem('newshacker:pinnedStoryIds'),
     ).toContain('"id":700');
 
-    await userEvent.click(save);
-    expect(save).toHaveAttribute('aria-pressed', 'false');
-    expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBe(
+    await userEvent.click(pin);
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    expect(pin).toHaveAccessibleName(/^pin$/i);
+    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe(
       '[]',
     );
   });

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { prefetchSavedStory } from './savedStoryPrefetch';
+import { prefetchPinnedStory } from './pinnedStoryPrefetch';
 import { summaryQueryKey } from '../hooks/useSummary';
 
-describe('prefetchSavedStory', () => {
+describe('prefetchPinnedStory', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
   });
@@ -11,7 +11,7 @@ describe('prefetchSavedStory', () => {
     vi.unstubAllGlobals();
   });
 
-  it('prefetches item root and AI summary so /saved has both without a round-trip', async () => {
+  it('prefetches item root and AI summary so /pinned has both without a round-trip', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('/item/42')) {
@@ -40,7 +40,7 @@ describe('prefetchSavedStory', () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    prefetchSavedStory(client, { id: 42, url: 'https://example.com/cached' });
+    prefetchPinnedStory(client, { id: 42, url: 'https://example.com/cached' });
 
     await vi.waitFor(() => {
       expect(client.getQueryData(['itemRoot', 42])).toBeTruthy();
@@ -74,7 +74,7 @@ describe('prefetchSavedStory', () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    prefetchSavedStory(client, { id: 7 });
+    prefetchPinnedStory(client, { id: 7 });
 
     await vi.waitFor(() => {
       expect(client.getQueryData(['itemRoot', 7])).toBeTruthy();

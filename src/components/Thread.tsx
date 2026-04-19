@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
-import { useSavedStories } from '../hooks/useSavedStories';
+import { useFavorites } from '../hooks/useFavorites';
+import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useSummary } from '../hooks/useSummary';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
-import { prefetchSavedStory } from '../lib/savedStoryPrefetch';
+import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
@@ -20,6 +21,8 @@ interface Props {
 
 export const TOP_LEVEL_PAGE_SIZE = 20;
 
+// Material Symbols Outlined — Apache 2.0, Google. viewBox 0 -960 960 960,
+// fill-based paths that take `color` via currentColor.
 const MS_VIEWBOX = '0 -960 960 960';
 
 function OpenInNewIcon() {
@@ -38,7 +41,7 @@ function OpenInNewIcon() {
   );
 }
 
-function StarIcon() {
+function PinIcon() {
   return (
     <svg
       className="thread__action-icon"
@@ -49,12 +52,12 @@ function StarIcon() {
       aria-hidden="true"
       focusable="false"
     >
-      <path d="m354-287 126-76 126 77-33-144 111-96-146-13-58-136-58 135-146 13 111 97-33 143ZM233-120l65-281L80-590l288-25 112-265 112 265 288 25-218 189 65 281-247-149-247 149Z" />
+      <path d="m634-448 86 77v60H510v241l-30 30-30-30v-241H240v-60l80-77v-332h-50v-60h414v60h-50v332Zm-313 77h312l-59-55v-354H380v354l-59 55Zm156 0Z" />
     </svg>
   );
 }
 
-function StarFilledIcon() {
+function PinFilledIcon() {
   return (
     <svg
       className="thread__action-icon"
@@ -65,7 +68,39 @@ function StarFilledIcon() {
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M233-120l65-281L80-590l288-25 112-265 112 265 288 25-218 189 65 281-247-149-247 149Z" />
+      <path d="m634-448 86 77v60H510v241l-30 30-30-30v-241H240v-60l80-77v-333h-50v-60h414v60h-50v333Z" />
+    </svg>
+  );
+}
+
+function HeartIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m480-121-41-37q-105.77-97.12-174.88-167.56Q195-396 154-451.5T96.5-552Q80-597 80-643q0-90.15 60.5-150.58Q201-854 290-854q57 0 105.5 27t84.5 78q42-54 89-79.5T670-854q89 0 149.5 60.42Q880-733.15 880-643q0 46-16.5 91T806-451.5Q765-396 695.88-325.56 626.77-255.12 521-158l-41 37Zm0-79q101.24-93 166.62-159.5Q712-426 750.5-476t54-89.14q15.5-39.13 15.5-77.72 0-66.14-42-108.64T670.22-794q-51.52 0-95.37 31.5T504-674h-49q-26-56-69.85-88-43.85-32-95.37-32Q224-794 182-751.5t-42 108.82q0 38.68 15.5 78.18 15.5 39.5 54 90T314-358q66 66 166 158Zm0-297Z" />
+    </svg>
+  );
+}
+
+function HeartFilledIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m480-121-41-37q-106-97-175-167.5t-110-126Q113-507 96.5-552T80-643q0-90 60.5-150.5T290-854q57 0 105.5 27t84.5 78q42-54 89-79.5T670-854q89 0 149.5 60.5T880-643q0 46-16.5 91T806-451.5q-41 55.5-110 126T521-158l-41 37Z" />
     </svg>
   );
 }
@@ -129,17 +164,23 @@ export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
   const queryClient = useQueryClient();
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
-  const { isSaved, save, unsave } = useSavedStories();
-  const saved = isSaved(id);
+  const { isPinned, pin, unpin } = usePinnedStories();
+  const pinned = isPinned(id);
   const item = data?.item;
-  const handleToggleSaved = useCallback(() => {
-    if (saved) {
-      unsave(id);
+  const handleTogglePinned = useCallback(() => {
+    if (pinned) {
+      unpin(id);
     } else {
-      save(id);
-      if (item) prefetchSavedStory(queryClient, item);
+      pin(id);
+      if (item) prefetchPinnedStory(queryClient, item);
     }
-  }, [saved, id, save, unsave, item, queryClient]);
+  }, [pinned, id, pin, unpin, item, queryClient]);
+  const { isFavorite, favorite, unfavorite } = useFavorites();
+  const favorited = isFavorite(id);
+  const handleToggleFavorite = useCallback(() => {
+    if (favorited) unfavorite(id);
+    else favorite(id);
+  }, [favorited, id, favorite, unfavorite]);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
@@ -202,15 +243,30 @@ export function Thread({ id }: Props) {
             type="button"
             className={
               'thread__action thread__action--icon' +
-              (saved ? ' thread__action--active' : '')
+              (pinned ? ' thread__action--active' : '')
             }
-            data-testid="thread-save"
-            aria-pressed={saved}
-            onClick={handleToggleSaved}
+            data-testid="thread-pin"
+            aria-pressed={pinned}
+            onClick={handleTogglePinned}
           >
-            {saved ? <StarFilledIcon /> : <StarIcon />}
+            {pinned ? <PinFilledIcon /> : <PinIcon />}
             <span className="visually-hidden">
-              {saved ? 'Unstar' : 'Star'}
+              {pinned ? 'Unpin' : 'Pin'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={
+              'thread__action thread__action--icon' +
+              (favorited ? ' thread__action--active' : '')
+            }
+            data-testid="thread-favorite"
+            aria-pressed={favorited}
+            onClick={handleToggleFavorite}
+          >
+            {favorited ? <HeartFilledIcon /> : <HeartIcon />}
+            <span className="visually-hidden">
+              {favorited ? 'Unfavorite' : 'Favorite'}
             </span>
           </button>
         </div>

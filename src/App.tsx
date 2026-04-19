@@ -9,7 +9,8 @@ import { ItemPage } from './pages/ItemPage';
 import { UserPage } from './pages/UserPage';
 import { OpenedPage } from './pages/OpenedPage';
 import { IgnoredPage } from './pages/IgnoredPage';
-import { SavedPage } from './pages/SavedPage';
+import { PinnedPage } from './pages/PinnedPage';
+import { FavoritesPage } from './pages/FavoritesPage';
 import { HelpPage } from './pages/HelpPage';
 import { AboutPage } from './pages/AboutPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -26,7 +27,8 @@ export default function App() {
             <Route path="/" element={<Navigate to="/top" replace />} />
             <Route path="/opened" element={<OpenedPage />} />
             <Route path="/ignored" element={<IgnoredPage />} />
-            <Route path="/saved" element={<SavedPage />} />
+            <Route path="/pinned" element={<PinnedPage />} />
+            <Route path="/favorites" element={<FavoritesPage />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/item/:id" element={<ItemPage />} />
