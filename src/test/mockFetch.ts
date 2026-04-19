@@ -1,15 +1,45 @@
 import { vi } from 'vitest';
 import { HN_API_BASE, type HNItem, type HNUser } from '../lib/hn';
 
+interface SummaryFixture {
+  summary?: string;
+  error?: string;
+  status?: number;
+}
+
 interface Fixtures {
   feeds?: Partial<Record<string, number[]>>;
   items?: Record<number, HNItem | null>;
   users?: Record<string, HNUser | null>;
+  summaries?: Record<string, SummaryFixture>;
 }
 
 export function installHNFetchMock(fixtures: Fixtures) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/summary')) {
+      const parsed = new URL(url, 'http://localhost');
+      const articleUrl = parsed.searchParams.get('url') ?? '';
+      const fixture = fixtures.summaries?.[articleUrl];
+      if (fixture?.summary !== undefined) {
+        return new Response(JSON.stringify({ summary: fixture.summary }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (fixture?.error !== undefined) {
+        return new Response(JSON.stringify({ error: fixture.error }), {
+          status: fixture.status ?? 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ error: 'not configured' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
     const path = url.replace(`${HN_API_BASE}/`, '');
 
     if (path.endsWith('.json')) {

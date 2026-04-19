@@ -107,6 +107,26 @@ Gate everything in this phase behind an env flag (`VITE_ENABLE_AUTH=true`) so MV
   - Serverless vote handler: mocks item fetch + vote fetch; asserts correct URL & cookie.
   - Client: optimistic update + rollback.
 
+## Phase 6 — AI article summaries
+
+**Goal:** Reader can tap "Summarize" on a story page and get a one-sentence AI summary inline.
+
+Shipped:
+- `api/summary.ts` serverless function calling Gemini 2.5 Flash with the `urlContext` tool.
+- `useSummary` hook + `SummarizeCard` component (button swaps to a card with loading → summary → error states).
+- Per-instance in-memory cache with a 1-hour TTL.
+- Referer allowlist as a first-line defense (`SUMMARY_REFERER_ALLOWLIST` env var, plus hardcoded localhost / `*.vercel.app` / `newshacker.app` / `hnews.app`).
+- Requires `GOOGLE_API_KEY` in Vercel project env.
+
+### TODOs
+
+- [ ] **Cross-instance cache.** The current `Map`-based cache is per serverless instance. Move to Vercel KV (or Upstash Redis) keyed by article URL so warm summaries are shared across invocations and survive deploys. Keep the 1-hour TTL; consider longer if abuse guards prevent cache poisoning.
+- [ ] **Require a logged-in account.** Once Phase 5a (login) ships, gate `/api/summary` on a valid session cookie. Return 401 when unauthenticated. Optionally rate-limit per-user (e.g., N summaries/hour) to keep spend predictable.
+- [ ] **Rate limiting.** Even with login gating, add a simple per-user or per-IP rate limit in Vercel KV (e.g., 30 summaries / 10 minutes) to blunt burst abuse.
+- [ ] **Per-item-id lookup.** Take an `item_id` param instead of a raw URL; fetch the HN item server-side and derive the URL. Stops anyone from pointing the endpoint at arbitrary URLs.
+- [ ] **Observability.** Log aggregate request count, cache hit rate, and error classes to a cheap sink (Vercel logs + periodic dashboard). Flag if cache hit rate collapses (spend spike).
+- [ ] **Optional: default-on summaries.** Once costs + caching are proven safe, consider auto-fetching the summary on story page load (keyed by item id) so it appears without a click.
+
 ## Cross-cutting
 
 ### Testing policy
