@@ -184,9 +184,6 @@
 }
 
 .thread__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
   color: var(--hn-meta);
   font-size: 13px;
   margin-bottom: 12px;
