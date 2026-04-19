@@ -1,27 +1,46 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
 import './styles/global.css';
+
+// Bump when the shape of cached data changes in a way that would break
+// hydrated readers — it busts all persisted queries in one go.
+const CACHE_BUSTER = '1';
+const ONE_HOUR = 60 * 60 * 1000;
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,
-      gcTime: 5 * 60_000,
+      // Serve cached data as fresh for 5 minutes; long enough that
+      // navigation within a session never blocks on the network, short
+      // enough that vote/comment counts refresh naturally.
+      staleTime: 5 * 60 * 1000,
+      gcTime: ONE_HOUR,
       retry: 1,
       refetchOnWindowFocus: false,
     },
   },
 });
 
+const persister = createSyncStoragePersister({
+  storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  key: 'newshacker:rq-cache',
+  throttleTime: 1000,
+});
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{ persister, maxAge: ONE_HOUR, buster: CACHE_BUSTER }}
+    >
       <BrowserRouter>
         <App />
       </BrowserRouter>
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   </StrictMode>,
 );
