@@ -415,7 +415,9 @@ describe('<Thread>', () => {
     renderWithProviders(<Thread id={600} />);
 
     const meta = await screen.findByTestId('thread-meta');
-    expect(meta).toHaveTextContent(/example\.com · 42 points · 7 comments/);
+    expect(meta).toHaveTextContent(
+      /example\.com · \S+ · 42 points · 7 comments/,
+    );
     // Author link is not in the meta for link posts.
     expect(meta.querySelector('.thread__author')).toBeNull();
 
@@ -450,7 +452,7 @@ describe('<Thread>', () => {
     const author = meta.querySelector('.thread__author');
     expect(author).not.toBeNull();
     expect(author).toHaveTextContent('bob');
-    expect(meta).toHaveTextContent(/bob · 5 points · 0 comments/);
+    expect(meta).toHaveTextContent(/bob · \S+ · 5 points · 0 comments/);
   });
 
   it('paginates top-level comments (only renders first page)', async () => {

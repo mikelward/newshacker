@@ -299,9 +299,9 @@ export function Thread({ id }: Props) {
               {' · '}
             </>
           ) : null}
+          {age ? `${age} · ` : ''}
           {points} {pluralize(points, 'point')} · {commentCount}{' '}
           {pluralize(commentCount, 'comment')}
-          {age ? ` · ${age}` : ''}
         </div>
         {item.text ? (
           <div

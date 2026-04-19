@@ -144,8 +144,9 @@ export function StoryListItem({
         <span className="story-row__title-text">{title}</span>
         <span className="story-row__meta" data-testid="story-meta">
           {domainLabel ? `${domainLabel} · ` : ''}
+          {age ? `${age} · ` : ''}
           {points} {pluralize(points, 'point')} · {commentCount}{' '}
-          {pluralize(commentCount, 'comment')} · {age}
+          {pluralize(commentCount, 'comment')}
         </span>
       </Link>
 

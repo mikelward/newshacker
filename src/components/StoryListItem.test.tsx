@@ -116,6 +116,14 @@ describe('StoryListItem', () => {
     expect(meta).toHaveTextContent(/42 points/);
   });
 
+  it('renders the age next to the domain (before points/comments)', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
+    const meta = screen.getByTestId('story-meta');
+    expect(meta).toHaveTextContent(
+      /example\.com · \S+ · 42 points · 7 comments/,
+    );
+  });
+
   it('handles missing title with a placeholder', () => {
     renderWithProviders(
       <StoryListItem story={{ ...baseStory, title: undefined }} />,
