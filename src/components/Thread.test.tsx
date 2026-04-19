@@ -270,6 +270,35 @@ describe('<Thread>', () => {
     expect(screen.queryByTestId('thread-summarize')).toBeNull();
   });
 
+  it('shows skeleton lines while the summary is loading and marks the card busy', async () => {
+    installHNFetchMock({
+      items: {
+        820: makeStory(820, { title: 'Slow', url: 'https://example.com/820' }),
+      },
+      summaries: {
+        'https://example.com/820': { summary: 'Eventually here.' },
+      },
+    });
+
+    renderWithProviders(<Thread id={820} />);
+
+    const skeleton = await screen.findByTestId('thread-summary-skeleton');
+    expect(skeleton).toBeInTheDocument();
+    expect(screen.getByTestId('thread-summary-card')).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+
+    expect(
+      await screen.findByText('Eventually here.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('thread-summary-skeleton')).toBeNull();
+    expect(screen.getByTestId('thread-summary-card')).toHaveAttribute(
+      'aria-busy',
+      'false',
+    );
+  });
+
   it('shows an error + Retry in the summary card when the api fails', async () => {
     installHNFetchMock({
       items: {
