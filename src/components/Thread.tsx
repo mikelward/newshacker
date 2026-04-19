@@ -290,6 +290,10 @@ export function Thread({ id }: Props) {
               <span>{age}</span>
             </>
           ) : null}
+          <span aria-hidden="true"> · </span>
+          <span>
+            {commentCount} {pluralize(commentCount, 'comment')}
+          </span>
         </div>
         {item.text ? (
           <div
@@ -297,9 +301,6 @@ export function Thread({ id }: Props) {
             dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
           />
         ) : null}
-        <div className="thread__comment-count">
-          {commentCount} {pluralize(commentCount, 'comment')}
-        </div>
       </header>
       <ol className="thread__comments">
         {shown.map((kidId) => (

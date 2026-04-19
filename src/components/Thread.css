@@ -184,15 +184,25 @@
 }
 
 .thread__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   color: var(--hn-meta);
   font-size: 13px;
   margin-bottom: 12px;
 }
 
 .thread__author {
-  color: var(--hn-meta);
-  text-decoration: underline;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
   padding: 4px 2px;
+}
+
+@media (hover: hover) {
+  .thread__author:hover {
+    text-decoration: underline;
+  }
 }
 
 .thread__text {
@@ -213,12 +223,6 @@
   background: var(--hn-bg-code);
   padding: 8px;
   border-radius: 4px;
-}
-
-.thread__comment-count {
-  color: var(--hn-meta);
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .thread__comments {
