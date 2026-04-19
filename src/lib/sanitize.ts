@@ -24,7 +24,7 @@ export function rewriteHnHref(href: string | undefined): string | null {
 }
 
 export function sanitizeCommentHtml(input: string): string {
-  return sanitizeHtml(input, {
+  const clean = sanitizeHtml(input, {
     allowedTags: ['a', 'p', 'i', 'em', 'b', 'strong', 'pre', 'code', 'br'],
     allowedAttributes: {
       a: ['href', 'rel', 'target'],
@@ -51,4 +51,27 @@ export function sanitizeCommentHtml(input: string): string {
       },
     },
   });
+  return normalizeParagraphs(clean);
+}
+
+// HN stores multi-paragraph comments as raw text for the first paragraph and
+// <p> as a *separator* before each subsequent one. Rendered literally, the
+// first paragraph has no container (and no margin) so it sits flush against
+// the next, while empty <p><p> sequences leave huge gaps. Normalize so every
+// block is its own non-empty <p>.
+function normalizeParagraphs(html: string): string {
+  let out = html.replace(/<p>\s*<\/p>/g, '');
+  const firstP = out.indexOf('<p>');
+  if (firstP === -1) {
+    return out.trim() ? `<p>${out}</p>` : out;
+  }
+  if (firstP > 0) {
+    const leading = out.slice(0, firstP);
+    if (leading.trim()) {
+      out = `<p>${leading}</p>${out.slice(firstP)}`;
+    } else {
+      out = out.slice(firstP);
+    }
+  }
+  return out;
 }

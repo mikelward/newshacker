@@ -120,7 +120,8 @@ describe('<Thread>', () => {
 
     renderWithProviders(<Thread id={400} />);
 
-    const body = await screen.findByText(/a long enough comment body/);
+    const bodyText = await screen.findByText(/a long enough comment body/);
+    const body = bodyText.closest('.comment__body') as HTMLElement;
     expect(body).toHaveClass('comment__body--clamped');
 
     await userEvent.click(body);

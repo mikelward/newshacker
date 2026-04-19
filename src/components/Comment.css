@@ -1,5 +1,10 @@
 .comment {
-  padding: 6px 12px;
+  /* Smaller bottom than top: the next comment's top padding + border adds
+     most of the vertical gap, so keeping bottom modest avoids a visible
+     dead zone between the meta row and the next divider — and stops the
+     last nested reply's bottom padding from stacking too heavily with its
+     parent's before the next top-level comment. */
+  padding: 10px 12px 6px;
   border-top: 1px solid var(--hn-border);
   background: var(--hn-bg-card);
   color: var(--hn-text);
