@@ -1,5 +1,5 @@
 .comment {
-  padding: 6px 12px 8px;
+  padding: 6px 12px;
   border-top: 1px solid var(--hn-border);
   background: var(--hn-bg-card);
   color: var(--hn-text);
@@ -14,7 +14,7 @@
 .comment__header {
   display: flex;
   align-items: baseline;
-  margin-top: 2px;
+  margin-top: 0;
   padding-left: 1px;
   font-size: 13px;
   color: var(--hn-meta);
@@ -86,7 +86,7 @@
 .comment__action {
   color: var(--hn-meta);
   text-decoration: none;
-  padding: 6px 2px;
+  padding: 4px 2px;
 }
 
 @media (hover: hover) {
