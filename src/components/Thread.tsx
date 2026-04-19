@@ -20,6 +20,56 @@ interface Props {
 
 export const TOP_LEVEL_PAGE_SIZE = 20;
 
+const MS_VIEWBOX = '0 -960 960 960';
+
+function OpenInNewIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z" />
+    </svg>
+  );
+}
+
+function StarIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m354-287 126-76 126 77-33-144 111-96-146-13-58-136-58 135-146 13 111 97-33 143ZM233-120l65-281L80-590l288-25 112-265 112 265 288 25-218 189 65 281-247-149-247 149Z" />
+    </svg>
+  );
+}
+
+function StarFilledIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M233-120l65-281L80-590l288-25 112-265 112 265 288 25-218 189 65 281-247-149-247 149Z" />
+    </svg>
+  );
+}
+
 function SummaryCard({ url }: { url: string }) {
   const { data, isFetching, isError, error, refetch } = useSummary(url, true);
   const loading = isFetching && !data;
@@ -135,28 +185,35 @@ export function Thread({ id }: Props) {
       <header className="thread__header">
         <h1 className="thread__title">{item.title ?? '[untitled]'}</h1>
         {item.url ? <SummaryCard url={item.url} /> : null}
-        {item.url ? (
-          <a
-            className="thread__read-article"
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => markArticleOpenedId(item.id)}
+        <div className="thread__actions">
+          {item.url ? (
+            <a
+              className="thread__action thread__action--primary"
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => markArticleOpenedId(item.id)}
+            >
+              <OpenInNewIcon />
+              <span className="thread__action-label">Read article</span>
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className={
+              'thread__action thread__action--icon' +
+              (saved ? ' thread__action--active' : '')
+            }
+            data-testid="thread-save"
+            aria-pressed={saved}
+            onClick={handleToggleSaved}
           >
-            Read article
-          </a>
-        ) : null}
-        <button
-          type="button"
-          className={
-            'thread__save' + (saved ? ' thread__save--active' : '')
-          }
-          data-testid="thread-save"
-          aria-pressed={saved}
-          onClick={handleToggleSaved}
-        >
-          {saved ? 'Saved' : 'Save'}
-        </button>
+            {saved ? <StarFilledIcon /> : <StarIcon />}
+            <span className="visually-hidden">
+              {saved ? 'Unstar' : 'Star'}
+            </span>
+          </button>
+        </div>
         <div className="thread__meta">
           <span>
             {points} {pluralize(points, 'point')}

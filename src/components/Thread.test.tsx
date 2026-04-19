@@ -219,7 +219,7 @@ describe('<Thread>', () => {
     expect(entry?.articleAt).toBeTruthy();
   });
 
-  it('toggles saved state via the Save button in the header', async () => {
+  it('toggles saved state via the Star button in the header', async () => {
     installHNFetchMock({
       items: { 700: makeStory(700, { title: 'Savable' }) },
     });
@@ -230,11 +230,11 @@ describe('<Thread>', () => {
     });
 
     const save = screen.getByTestId('thread-save');
-    expect(save).toHaveTextContent(/save/i);
+    expect(save).toHaveTextContent(/^star$/i);
     expect(save).toHaveAttribute('aria-pressed', 'false');
 
     await userEvent.click(save);
-    expect(save).toHaveTextContent(/saved/i);
+    expect(save).toHaveTextContent(/unstar/i);
     expect(save).toHaveAttribute('aria-pressed', 'true');
     expect(
       window.localStorage.getItem('newshacker:savedStoryIds'),
