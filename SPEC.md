@@ -170,16 +170,16 @@ Thread page mirrors the same discipline: a single, full-width "Read article" but
 
 ## Top bar controls
 
-On feed pages the sticky orange header carries two feed-scoped action icons on the right. Both icons stay in place (never shift) so the layout doesn't jump; the sweep button is disabled when there's nothing to dismiss.
+On feed pages the sticky orange header carries two feed-scoped action icons on the right. Both icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.
 
-- **Show dismissed** (Material Symbols `visibility` / `visibility_off`) — toggle. Default is off. When on, dismissed stories appear inline in the current feed, muted so they're visibly deprioritised but still legible; tapping one opens the thread and un-dismisses it in one go. Not persisted across reloads.
+- **Undo** (Material Symbols `undo`) — restores the most recent dismiss action: either the last swipe-to-dismiss, the last menu "Ignore", or the last sweep (the whole batch at once). One level of undo only; recording a new dismiss replaces the stored batch. Disabled when there is nothing to undo. Not persisted across reloads.
 - **Sweep unstarred** (Material Symbols `sweep`) — dismisses every visible unstarred story in one shot. Disabled when there are no unstarred stories to dismiss.
 
-Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols). No icon font loaded at runtime.
+Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols, outlined weight, viewBox `0 -960 960 960`, drawn with `fill="currentColor"`). No icon font, CSS, or web request is used to load them at runtime.
 
 On non-feed pages (thread, `/saved`, `/ignored`, etc.) these icons do not render at all.
 
-No dismiss/sweep toast and no header Undo: the Show-dismissed toggle is the recovery path. Dismissing is always deliberate (swipe right, broom, or menu Ignore) — scroll-past no longer auto-dismisses. Save/unsave don't toast either; the star button's pressed state is the single source of truth for saved state.
+No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is always deliberate (swipe right, broom, or menu Ignore) — scroll-past does not auto-dismiss. Save/unsave don't toast either; the star button's pressed state is the single source of truth for saved state.
 
 ## Visual Design
 

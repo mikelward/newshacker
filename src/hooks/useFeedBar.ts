@@ -15,7 +15,8 @@ export function useFeedBar(): FeedBarContextValue {
     sweep: null,
     sweepCount: 0,
     setSweep: noop,
-    showDismissed: false,
-    toggleShowDismissed: noop,
+    canUndo: false,
+    recordDismiss: noop,
+    undo: noop,
   };
 }

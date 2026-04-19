@@ -2,9 +2,11 @@ import {
   createContext,
   useCallback,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { removeDismissedId } from '../lib/dismissedStories';
 
 type Handler = () => void;
 
@@ -13,8 +15,9 @@ export interface FeedBarContextValue {
   sweepCount: number;
   setSweep: (handler: Handler | null, count: number) => void;
 
-  showDismissed: boolean;
-  toggleShowDismissed: () => void;
+  canUndo: boolean;
+  recordDismiss: (ids: readonly number[]) => void;
+  undo: () => void;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -26,7 +29,11 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
     count: number;
   }>({ handler: null, count: 0 });
 
-  const [showDismissed, setShowDismissed] = useState(false);
+  // Only the most recent dismiss action is undoable — one level of undo,
+  // matching the "undo the last sweep or last swipe" behaviour.
+  const [lastDismissed, setLastDismissed] = useState<readonly number[]>([]);
+  const lastDismissedRef = useRef<readonly number[]>([]);
+  lastDismissedRef.current = lastDismissed;
 
   const setSweep = useCallback(
     (handler: Handler | null, count: number) => {
@@ -38,8 +45,16 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const toggleShowDismissed = useCallback(() => {
-    setShowDismissed((v) => !v);
+  const recordDismiss = useCallback((ids: readonly number[]) => {
+    if (ids.length === 0) return;
+    setLastDismissed(Array.from(ids));
+  }, []);
+
+  const undo = useCallback(() => {
+    const ids = lastDismissedRef.current;
+    if (ids.length === 0) return;
+    for (const id of ids) removeDismissedId(id);
+    setLastDismissed([]);
   }, []);
 
   const value = useMemo<FeedBarContextValue>(
@@ -47,15 +62,17 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
       sweep: sweepState.handler,
       sweepCount: sweepState.count,
       setSweep,
-      showDismissed,
-      toggleShowDismissed,
+      canUndo: lastDismissed.length > 0,
+      recordDismiss,
+      undo,
     }),
     [
       sweepState.handler,
       sweepState.count,
       setSweep,
-      showDismissed,
-      toggleShowDismissed,
+      lastDismissed,
+      recordDismiss,
+      undo,
     ],
   );
 
