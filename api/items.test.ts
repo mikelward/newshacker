@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleItemsRequest, parseIds, type HNItem } from './items';
 
 function makeRequest(query: string) {
-  return new Request(`https://newshacker.app/api/items?${query}`);
+  return new Request(`https://hnews.app/api/items?${query}`);
 }
 
 function story(id: number, overrides: Partial<HNItem> = {}): HNItem {

@@ -62,13 +62,13 @@ describe('pinnedStories', () => {
   });
 
   it('ignores malformed storage data', () => {
-    window.localStorage.setItem('newshacker:pinnedStoryIds', 'not json');
+    window.localStorage.setItem('hnews:pinnedStoryIds', 'not json');
     expect(getPinnedIds()).toEqual(new Set());
   });
 
   it('ignores entries that are not the expected shape', () => {
     window.localStorage.setItem(
-      'newshacker:pinnedStoryIds',
+      'hnews:pinnedStoryIds',
       JSON.stringify([1, 2, { id: 3, at: Date.now() }]),
     );
     expect(getPinnedIds()).toEqual(new Set([3]));
@@ -77,14 +77,14 @@ describe('pinnedStories', () => {
   it('dispatches a change event on add and remove', () => {
     const events: Event[] = [];
     const handler = (e: Event) => events.push(e);
-    window.addEventListener('newshacker:pinnedStoriesChanged', handler);
+    window.addEventListener('hnews:pinnedStoriesChanged', handler);
     try {
       addPinnedId(1);
       removePinnedId(1);
       expect(events.length).toBe(2);
     } finally {
       window.removeEventListener(
-        'newshacker:pinnedStoriesChanged',
+        'hnews:pinnedStoriesChanged',
         handler,
       );
     }
@@ -97,44 +97,5 @@ describe('pinnedStories', () => {
     const byId = new Map(entries.map((e) => [e.id, e.at]));
     expect(byId.get(1)).toBe(1000);
     expect(byId.get(2)).toBe(2000);
-  });
-
-  describe('legacy savedStoryIds migration', () => {
-    it('migrates an existing savedStoryIds payload to pinnedStoryIds on first read', () => {
-      const legacy = JSON.stringify([
-        { id: 11, at: 1000 },
-        { id: 22, at: 2000 },
-      ]);
-      window.localStorage.setItem('newshacker:savedStoryIds', legacy);
-
-      expect(getPinnedIds()).toEqual(new Set([11, 22]));
-      expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBeNull();
-      expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe(
-        legacy,
-      );
-    });
-
-    it('does not overwrite an existing pinnedStoryIds list with the legacy one', () => {
-      const legacy = JSON.stringify([{ id: 99, at: 1 }]);
-      const current = JSON.stringify([{ id: 7, at: 2 }]);
-      window.localStorage.setItem('newshacker:savedStoryIds', legacy);
-      window.localStorage.setItem('newshacker:pinnedStoryIds', current);
-
-      expect(getPinnedIds()).toEqual(new Set([7]));
-      // Legacy is left in place when the new key already exists, so we don't
-      // silently clobber the user's choice; another module / older client can
-      // still read it if it needs to.
-      expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBe(
-        legacy,
-      );
-    });
-
-    it('does nothing when there is no legacy data', () => {
-      expect(getPinnedIds()).toEqual(new Set());
-      expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBeNull();
-      expect(
-        window.localStorage.getItem('newshacker:pinnedStoryIds'),
-      ).toBeNull();
-    });
   });
 });

@@ -60,7 +60,7 @@ describe('<IgnoredPage>', () => {
     });
 
     expect(
-      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+      window.localStorage.getItem('hnews:dismissedStoryIds'),
     ).toBe('[]');
   });
 
@@ -101,7 +101,7 @@ describe('<IgnoredPage>', () => {
       expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
     });
     expect(
-      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+      window.localStorage.getItem('hnews:dismissedStoryIds'),
     ).toBe('[]');
   });
 
@@ -132,7 +132,7 @@ describe('<IgnoredPage>', () => {
     });
     addDismissedId(1);
     window.localStorage.setItem(
-      'newshacker:pinnedStoryIds',
+      'hnews:pinnedStoryIds',
       JSON.stringify([{ id: 99, at: Date.now() }]),
     );
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -151,7 +151,7 @@ describe('<IgnoredPage>', () => {
     await waitFor(() => {
       expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
     });
-    const pinned = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    const pinned = window.localStorage.getItem('hnews:pinnedStoryIds');
     expect(pinned).not.toBeNull();
     expect(JSON.parse(pinned as string)).toHaveLength(1);
   });

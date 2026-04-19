@@ -1,12 +1,12 @@
-# Newshacker — SPEC
+# hnews.app — SPEC
 
 ## Overview
 
-**Newshacker** is a mobile-friendly, responsive web **reader for [Hacker News](https://news.ycombinator.com)**, built with React + TypeScript and deployed on Vercel. The goal is to deliver a clean, fast, thumb-friendly reading experience that keeps the familiar HN orange look while trimming the interface down to the features that matter on a phone.
+**hnews.app** is a mobile-friendly, responsive web **reader for [Hacker News](https://news.ycombinator.com)**, built with React + TypeScript and deployed on Vercel. The goal is to deliver a clean, fast, thumb-friendly reading experience that keeps the familiar HN orange look while trimming the interface down to the features that matter on a phone.
 
-Primary domain: **newshacker.app**. `hnews.app` is also owned and redirects (301) to `newshacker.app`.
+Primary domain: **hnews.app**. `newshacker.app` is also owned and redirects (301) to `hnews.app`.
 
-"Hacker News" and "Y Combinator" are trademarks of Y Combinator; Newshacker is an unofficial third-party client and is not affiliated with or endorsed by YC. The app is always described as a *reader for Hacker News*, never as "Hacker News" itself, and does not use HN's logo as its own.
+"Hacker News" and "Y Combinator" are trademarks of Y Combinator; hnews.app is an unofficial third-party client and is not affiliated with or endorsed by YC. The app is always described as a *reader for Hacker News*, never as "Hacker News" itself, and does not use HN's logo as its own.
 
 ## Language & spelling
 
@@ -14,7 +14,7 @@ All user-visible copy, identifiers, comments, and documentation use **US English
 
 ## Primary design problem
 
-The existing HN mobile site crams many small, adjacent tappable elements onto each row (title, domain, author, "hide", "past", "web", flag, comments count). On a 6" phone that produces frequent mis-taps. The UX goal of Newshacker is to **reduce the number of tap targets per row and give the ones that remain plenty of room**, while keeping the HN look.
+The existing HN mobile site crams many small, adjacent tappable elements onto each row (title, domain, author, "hide", "past", "web", flag, comments count). On a 6" phone that produces frequent mis-taps. The UX goal of hnews.app is to **reduce the number of tap targets per row and give the ones that remain plenty of room**, while keeping the HN look.
 
 We achieve that by:
 
@@ -66,10 +66,9 @@ doesn't have to do double duty.
   soon".
 
 The two lists live side by side in the drawer ("Favorites" above "Pinned")
-and each has its own localStorage key (`newshacker:favoriteStoryIds`,
-`newshacker:pinnedStoryIds`) so one is never silently interpreted as the
-other. The pinned-stories module performs a one-shot rename of the legacy
-`newshacker:savedStoryIds` key so existing readers don't lose their list.
+and each has its own localStorage key (`hnews:favoriteStoryIds`,
+`hnews:pinnedStoryIds`) so one is never silently interpreted as the
+other.
 
 ### MVP (read-only)
 

@@ -1,5 +1,5 @@
-export const THEME_STORAGE_KEY = 'newshacker:theme';
-export const THEME_CHANGE_EVENT = 'newshacker:themeChanged';
+export const THEME_STORAGE_KEY = 'hnews:theme';
+export const THEME_CHANGE_EVENT = 'hnews:themeChanged';
 
 export type Theme = 'light' | 'dark' | 'system';
 

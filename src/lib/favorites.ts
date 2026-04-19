@@ -1,5 +1,5 @@
-const STORAGE_KEY = 'newshacker:favoriteStoryIds';
-export const FAVORITES_CHANGE_EVENT = 'newshacker:favoritesChanged';
+const STORAGE_KEY = 'hnews:favoriteStoryIds';
+export const FAVORITES_CHANGE_EVENT = 'hnews:favoritesChanged';
 
 interface FavoriteEntry {
   id: number;

@@ -237,7 +237,7 @@ describe('<Thread>', () => {
     link.addEventListener('click', (e) => e.preventDefault());
     await userEvent.click(link);
 
-    const stored = window.localStorage.getItem('newshacker:openedStoryIds');
+    const stored = window.localStorage.getItem('hnews:openedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{
       id: number;
@@ -266,15 +266,15 @@ describe('<Thread>', () => {
     expect(fav).toHaveAccessibleName(/unfavorite/i);
     expect(fav).toHaveAttribute('aria-pressed', 'true');
     expect(
-      window.localStorage.getItem('newshacker:favoriteStoryIds'),
+      window.localStorage.getItem('hnews:favoriteStoryIds'),
     ).toContain('"id":710');
     // Pin is untouched by Favorite
     expect(pin).toHaveAttribute('aria-pressed', 'false');
-    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBeNull();
+    expect(window.localStorage.getItem('hnews:pinnedStoryIds')).toBeNull();
 
     await userEvent.click(fav);
     expect(fav).toHaveAttribute('aria-pressed', 'false');
-    expect(window.localStorage.getItem('newshacker:favoriteStoryIds')).toBe(
+    expect(window.localStorage.getItem('hnews:favoriteStoryIds')).toBe(
       '[]',
     );
   });
@@ -297,13 +297,13 @@ describe('<Thread>', () => {
     expect(pin).toHaveAccessibleName(/unpin/i);
     expect(pin).toHaveAttribute('aria-pressed', 'true');
     expect(
-      window.localStorage.getItem('newshacker:pinnedStoryIds'),
+      window.localStorage.getItem('hnews:pinnedStoryIds'),
     ).toContain('"id":700');
 
     await userEvent.click(pin);
     expect(pin).toHaveAttribute('aria-pressed', 'false');
     expect(pin).toHaveAccessibleName(/^pin$/i);
-    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe(
+    expect(window.localStorage.getItem('hnews:pinnedStoryIds')).toBe(
       '[]',
     );
   });

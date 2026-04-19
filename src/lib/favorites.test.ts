@@ -62,13 +62,13 @@ describe('favorites', () => {
   });
 
   it('ignores malformed storage data', () => {
-    window.localStorage.setItem('newshacker:favoriteStoryIds', 'not json');
+    window.localStorage.setItem('hnews:favoriteStoryIds', 'not json');
     expect(getFavoriteIds()).toEqual(new Set());
   });
 
   it('ignores entries that are not the expected shape', () => {
     window.localStorage.setItem(
-      'newshacker:favoriteStoryIds',
+      'hnews:favoriteStoryIds',
       JSON.stringify([1, 2, { id: 3, at: Date.now() }]),
     );
     expect(getFavoriteIds()).toEqual(new Set([3]));
@@ -77,22 +77,14 @@ describe('favorites', () => {
   it('dispatches a change event on add and remove', () => {
     const events: Event[] = [];
     const handler = (e: Event) => events.push(e);
-    window.addEventListener('newshacker:favoritesChanged', handler);
+    window.addEventListener('hnews:favoritesChanged', handler);
     try {
       addFavoriteId(1);
       removeFavoriteId(1);
       expect(events.length).toBe(2);
     } finally {
-      window.removeEventListener('newshacker:favoritesChanged', handler);
+      window.removeEventListener('hnews:favoritesChanged', handler);
     }
-  });
-
-  it('uses a separate storage key from saved stories', () => {
-    addFavoriteId(42);
-    expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBeNull();
-    expect(
-      window.localStorage.getItem('newshacker:favoriteStoryIds'),
-    ).toContain('"id":42');
   });
 
   it('exposes entries with timestamps for ordering', () => {

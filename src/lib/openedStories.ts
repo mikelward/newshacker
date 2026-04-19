@@ -1,6 +1,6 @@
-const STORAGE_KEY = 'newshacker:openedStoryIds';
+const STORAGE_KEY = 'hnews:openedStoryIds';
 export const OPENED_STORIES_CHANGE_EVENT =
-  'newshacker:openedStoriesChanged';
+  'hnews:openedStoriesChanged';
 export const OPENED_STORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type OpenedKind = 'article' | 'comments';

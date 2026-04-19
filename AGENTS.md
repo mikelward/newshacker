@@ -4,7 +4,7 @@ Instructions for AI coding agents (Claude Code, etc.) working in this repo.
 
 ## Project at a glance
 
-- **Newshacker** — an unofficial mobile-friendly reader *for* Hacker News. Not affiliated with Y Combinator. Primary domain `newshacker.app`; `hnews.app` 301s to it.
+- **hnews.app** — an unofficial mobile-friendly reader *for* Hacker News. Not affiliated with Y Combinator. Primary domain `hnews.app`; `newshacker.app` 301s to it. The product is referred to as "hnews.app" in all user-facing copy (header, title, About page, etc.).
 - Stack: **React + TypeScript + Vite**, deployed on **Vercel**.
 - Stretch goals (login, voting) use **Vercel serverless functions** under `/api`.
 - Read data comes from the Firebase HN API; write actions scrape HN's web forms.
@@ -22,7 +22,8 @@ Instructions for AI coding agents (Claude Code, etc.) working in this repo.
 6. Don't introduce a backend service or database — HN's API + serverless proxy is enough.
 7. Don't implement flagging, moderation, submitting stories, or submitting comments.
 8. **US English everywhere.** Product copy, identifiers, CSS class names, localStorage keys, and comments all use US spelling (e.g. `favorite`, not `favourite`).
-9. **Pinned ≠ Favorite.** Pinned (📌, on the row) is the active reading list — explicit pin, explicit unpin, no auto-pruning. Favorite (heart, on the thread page) is the permanent keepsake — never swept, never expired. Keep the two stores, hooks, and UI paths independent. localStorage keys: `newshacker:pinnedStoryIds`, `newshacker:favoriteStoryIds`.
+9. **Pinned ≠ Favorite.** Pinned (📌, on the row) is the active reading list — explicit pin, explicit unpin, no auto-pruning. Favorite (heart, on the thread page) is the permanent keepsake — never swept, never expired. Keep the two stores, hooks, and UI paths independent. localStorage keys: `hnews:pinnedStoryIds`, `hnews:favoriteStoryIds`.
+10. **All storage keys + DOM events use the `hnews:` prefix.** Stick to it for any new client-side persistence so the namespace stays consistent.
 
 ## Commands
 

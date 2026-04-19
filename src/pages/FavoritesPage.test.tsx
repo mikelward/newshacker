@@ -56,7 +56,7 @@ describe('<FavoritesPage>', () => {
       expect(screen.queryByText('Five')).toBeNull();
     });
 
-    expect(window.localStorage.getItem('newshacker:favoriteStoryIds')).toBe(
+    expect(window.localStorage.getItem('hnews:favoriteStoryIds')).toBe(
       '[]',
     );
   });

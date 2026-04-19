@@ -15,7 +15,7 @@ const story: HNItem = {
 
 describe('buildSharePayload', () => {
   it('uses the article url when present', () => {
-    const p = buildSharePayload(story, 'https://newshacker.app/');
+    const p = buildSharePayload(story, 'https://hnews.app/');
     expect(p.url).toBe('https://example.com/post');
     expect(p.title).toBe('A story');
   });
@@ -23,9 +23,9 @@ describe('buildSharePayload', () => {
   it('falls back to the thread url for self-posts', () => {
     const p = buildSharePayload(
       { ...story, url: undefined },
-      'https://newshacker.app',
+      'https://hnews.app',
     );
-    expect(p.url).toBe('https://newshacker.app/item/42');
+    expect(p.url).toBe('https://hnews.app/item/42');
   });
 });
 

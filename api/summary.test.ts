@@ -5,13 +5,13 @@ import {
   __clearCacheForTests,
 } from './summary';
 
-const ALLOWED_REFERER = 'https://newshacker.app/item/1';
+const ALLOWED_REFERER = 'https://hnews.app/item/1';
 
 function makeRequest(
   url: string | null,
   opts: { referer?: string | null } = {},
 ) {
-  const base = 'https://newshacker.app/api/summary';
+  const base = 'https://hnews.app/api/summary';
   const full = url === null ? base : `${base}?url=${encodeURIComponent(url)}`;
   const headers = new Headers();
   const referer = opts.referer === undefined ? ALLOWED_REFERER : opts.referer;
@@ -108,7 +108,7 @@ describe('handleSummaryRequest', () => {
     __clearCacheForTests();
     const r2 = await handleSummaryRequest(
       makeRequest('https://example.com/a', {
-        referer: 'https://newshacker-preview-abc.vercel.app/item/1',
+        referer: 'https://hnews-preview-abc.vercel.app/item/1',
       }),
       {
         createClient: () => createFakeClient([{ text: 'ok' }]),
@@ -126,7 +126,7 @@ describe('handleSummaryRequest', () => {
       process.env.SUMMARY_REFERER_ALLOWLIST = 'example.org';
       expect(isAllowedReferer('https://example.org/foo')).toBe(true);
       expect(isAllowedReferer('https://sub.example.org/foo')).toBe(true);
-      expect(isAllowedReferer('https://newshacker.app/foo')).toBe(false);
+      expect(isAllowedReferer('https://hnews.app/foo')).toBe(false);
     } finally {
       if (orig === undefined) delete process.env.SUMMARY_REFERER_ALLOWLIST;
       else process.env.SUMMARY_REFERER_ALLOWLIST = orig;

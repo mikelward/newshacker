@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#ff6600" />
-    <title>Newshacker — a reader for Hacker News</title>
+    <title>hnews.app — a reader for Hacker News</title>
     <meta name="description" content="A mobile-friendly, unofficial reader for Hacker News." />
     <script>
       // Apply a stored theme before first paint to avoid a flash.
       (function () {
         try {
-          var t = localStorage.getItem('newshacker:theme');
+          var t = localStorage.getItem('hnews:theme');
           if (t === 'dark' || t === 'light') {
             document.documentElement.setAttribute('data-theme', t);
           }
