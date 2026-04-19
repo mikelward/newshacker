@@ -189,7 +189,8 @@
   margin-bottom: 12px;
 }
 
-.thread__author {
+.thread__author,
+.thread__domain {
   color: inherit;
   font-weight: 600;
   text-decoration: none;
@@ -197,7 +198,8 @@
 }
 
 @media (hover: hover) {
-  .thread__author:hover {
+  .thread__author:hover,
+  .thread__domain:hover {
     text-decoration: underline;
   }
 }

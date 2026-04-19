@@ -278,7 +278,19 @@ export function Thread({ id }: Props) {
         </div>
         <div className="thread__meta" data-testid="thread-meta">
           {hasExternalUrl ? (
-            domain ? `${domain} · ` : ''
+            domain ? (
+              <>
+                <a
+                  href={`https://${domain}/`}
+                  className="thread__domain"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {domain}
+                </a>
+                {' · '}
+              </>
+            ) : null
           ) : item.by ? (
             <>
               <Link to={`/user/${item.by}`} className="thread__author">

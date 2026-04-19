@@ -418,6 +418,16 @@ describe('<Thread>', () => {
     expect(meta).toHaveTextContent(/example\.com · 42 points · 7 comments/);
     // Author link is not in the meta for link posts.
     expect(meta.querySelector('.thread__author')).toBeNull();
+
+    const domainLink = meta.querySelector('.thread__domain');
+    expect(domainLink).not.toBeNull();
+    expect(domainLink).toHaveTextContent('example.com');
+    expect(domainLink).toHaveAttribute('href', 'https://example.com/');
+    expect(domainLink).toHaveAttribute('target', '_blank');
+    expect(domainLink).toHaveAttribute(
+      'rel',
+      expect.stringContaining('noopener'),
+    );
   });
 
   it('shows author link (not domain) in the meta line for self posts', async () => {
