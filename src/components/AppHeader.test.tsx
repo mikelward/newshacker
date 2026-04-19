@@ -9,10 +9,10 @@ describe('<AppHeader>', () => {
     expect(document.querySelector('.app-header__feed')).toBeNull();
   });
 
-  it('renders exactly one Newshacker brand label', () => {
+  it('renders exactly one hackermo brand label', () => {
     renderWithProviders(<AppHeader />, { route: '/no/such/path' });
     const banner = screen.getByRole('banner');
-    const matches = banner.textContent?.match(/Newshacker/g) ?? [];
+    const matches = banner.textContent?.match(/hackermo/g) ?? [];
     expect(matches).toHaveLength(1);
   });
 
