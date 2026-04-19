@@ -247,7 +247,7 @@ describe('<Thread>', () => {
     );
   });
 
-  it('Summarize button swaps to a summary card after a successful fetch', async () => {
+  it('auto-fetches and displays the summary card on mount', async () => {
     installHNFetchMock({
       items: {
         800: makeStory(800, { title: 'Linky', url: 'https://example.com/800' }),
@@ -260,16 +260,12 @@ describe('<Thread>', () => {
     });
 
     renderWithProviders(<Thread id={800} />);
-    const button = await screen.findByTestId('thread-summarize');
-    expect(button).toHaveTextContent(/summarize/i);
-
-    await userEvent.click(button);
 
     await waitFor(() => {
       expect(screen.getByTestId('thread-summary-card')).toBeInTheDocument();
     });
     expect(
-      screen.getByText('A concise one-sentence summary.'),
+      await screen.findByText('A concise one-sentence summary.'),
     ).toBeInTheDocument();
     expect(screen.queryByTestId('thread-summarize')).toBeNull();
   });
@@ -285,8 +281,6 @@ describe('<Thread>', () => {
     });
 
     renderWithProviders(<Thread id={810} />);
-    const button = await screen.findByTestId('thread-summarize');
-    await userEvent.click(button);
 
     await waitFor(() => {
       expect(screen.getByText(/could not summarize/i)).toBeInTheDocument();
@@ -296,7 +290,7 @@ describe('<Thread>', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not render the Summarize button for self-posts without a url', async () => {
+  it('does not render a summary card for self-posts without a url', async () => {
     installHNFetchMock({
       items: {
         850: makeStory(850, {
@@ -312,7 +306,7 @@ describe('<Thread>', () => {
       expect(screen.getByText('Ask HN: no url')).toBeInTheDocument();
     });
 
-    expect(screen.queryByTestId('thread-summarize')).toBeNull();
+    expect(screen.queryByTestId('thread-summary-card')).toBeNull();
   });
 
   it('paginates top-level comments (only renders first page)', async () => {

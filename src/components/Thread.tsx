@@ -1,11 +1,13 @@
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useSavedStories } from '../hooks/useSavedStories';
 import { useSummary } from '../hooks/useSummary';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
+import { prefetchSavedStory } from '../lib/savedStoryPrefetch';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
@@ -18,25 +20,8 @@ interface Props {
 
 export const TOP_LEVEL_PAGE_SIZE = 20;
 
-function SummarizeCard({ url }: { url: string }) {
-  const [requested, setRequested] = useState(false);
-  const { data, isFetching, isError, error, refetch } = useSummary(
-    url,
-    requested,
-  );
-
-  if (!requested) {
-    return (
-      <button
-        type="button"
-        className="thread__summarize-btn"
-        data-testid="thread-summarize"
-        onClick={() => setRequested(true)}
-      >
-        Summarize
-      </button>
-    );
-  }
+function SummaryCard({ url }: { url: string }) {
+  const { data, isFetching, isError, error, refetch } = useSummary(url, true);
 
   return (
     <div
@@ -79,13 +64,19 @@ function SummarizeCard({ url }: { url: string }) {
 
 export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
+  const queryClient = useQueryClient();
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
   const { isSaved, save, unsave } = useSavedStories();
   const saved = isSaved(id);
+  const item = data?.item;
   const handleToggleSaved = useCallback(() => {
-    if (saved) unsave(id);
-    else save(id);
-  }, [saved, id, save, unsave]);
+    if (saved) {
+      unsave(id);
+    } else {
+      save(id);
+      if (item) prefetchSavedStory(queryClient, item);
+    }
+  }, [saved, id, save, unsave, item, queryClient]);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
@@ -106,11 +97,9 @@ export function Thread({ id }: Props) {
   if (isError) {
     return <ErrorState message="Could not load thread." onRetry={() => refetch()} />;
   }
-  if (!data) {
+  if (!data || !item) {
     return <EmptyState message="Item not found." />;
   }
-
-  const { item } = data;
 
   if (item.deleted || item.dead) {
     return (
@@ -132,7 +121,7 @@ export function Thread({ id }: Props) {
     <article className="thread">
       <header className="thread__header">
         <h1 className="thread__title">{item.title ?? '[untitled]'}</h1>
-        {item.url ? <SummarizeCard url={item.url} /> : null}
+        {item.url ? <SummaryCard url={item.url} /> : null}
         {item.url ? (
           <a
             className="thread__read-article"

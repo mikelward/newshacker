@@ -9,8 +9,12 @@ import './styles/global.css';
 
 // Bump when the shape of cached data changes in a way that would break
 // hydrated readers — it busts all persisted queries in one go.
-const CACHE_BUSTER = '1';
+const CACHE_BUSTER = '2';
 const ONE_HOUR = 60 * 60 * 1000;
+// Saved stories prefetch their item data and AI summary at save-time; we
+// want those to stay usable when the user comes back to /saved days later,
+// so the persisted cache lives as long as the saved-story TTL.
+const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,7 +40,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister, maxAge: ONE_HOUR, buster: CACHE_BUSTER }}
+      persistOptions={{ persister, maxAge: SEVEN_DAYS, buster: CACHE_BUSTER }}
     >
       <BrowserRouter>
         <App />

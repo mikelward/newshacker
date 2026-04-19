@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
+export const SUMMARY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface SummaryResult {
   summary: string;
   cached?: boolean;
@@ -20,14 +22,24 @@ async function fetchSummary(url: string, signal?: AbortSignal): Promise<SummaryR
   return (await res.json()) as SummaryResult;
 }
 
+export function summaryQueryKey(url: string) {
+  return ['summary', url] as const;
+}
+
+export function summaryQueryOptions(url: string) {
+  return {
+    queryKey: summaryQueryKey(url),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => fetchSummary(url, signal),
+    retry: false,
+    staleTime: SUMMARY_CACHE_TTL_MS,
+    gcTime: SUMMARY_CACHE_TTL_MS,
+  } as const;
+}
+
 export function useSummary(url: string | undefined, enabled: boolean) {
   return useQuery({
-    queryKey: ['summary', url],
-    queryFn: ({ signal }) => fetchSummary(url as string, signal),
+    ...summaryQueryOptions(url ?? ''),
     enabled: enabled && typeof url === 'string' && url.length > 0,
-    retry: false,
-    staleTime: 60 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
   });
 }
 
