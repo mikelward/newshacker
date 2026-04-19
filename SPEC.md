@@ -314,9 +314,11 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.
 
 ### Pin/Favorite offline prefetch
-- Pinning a story calls `prefetchPinnedStory` (existing) — stores the item root + AI summary in the persisted cache at pin time.
-- Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline.
-- The full comment tree is **not** pre-fetched at pin/favorite time (would burst 50–500 Firebase requests per action). Comments become available offline only for threads that were opened online at least once, where each comment's `useCommentItem` query is then in both caches.
+- Pinning a story calls `prefetchPinnedStory` — stores the item root, the AI summary, **and the first 30 top-level comments** in the persisted cache at pin time.
+- Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline with real discussion.
+- Top-level comments are fetched in a single `/api/items?ids=…&fields=full` batch (our edge-cached proxy), not per-comment against Firebase. This means one extra HTTP request per pin, ~30-60 KB typical. HN ranks `kids` roughly best-first, so slicing to 30 is a "top voted by HN's ranking" proxy for mega-threads.
+- Nested replies are **not** pre-fetched. They are cached individually via `useCommentItem` as the user opens/expands them online, so the more a pinned thread is read online, the deeper it remains readable offline.
+- When new comments arrive upstream after the pin, old cached comments are **not** invalidated — each comment lives under its own cache key. SWR surfaces the cached copy offline; next online visit refreshes silently.
 
 ### Offline UX
 - `useOnlineStatus` hook (reads `navigator.onLine`, listens to `online`/`offline` events) drives:

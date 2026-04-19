@@ -57,6 +57,72 @@ describe('prefetchPinnedStory', () => {
     expect(calls.some((u) => u.includes('/api/summary'))).toBe(true);
   });
 
+  it('batches top-level comments via /api/items so offline pinned threads have real discussion', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/500')) {
+        return new Response(
+          JSON.stringify({
+            id: 500,
+            type: 'story',
+            title: 'With comments',
+            url: 'https://example.com/with-comments',
+            kids: [501, 502, 503],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/items')) {
+        const parsed = new URL(url, 'http://localhost');
+        expect(parsed.searchParams.get('fields')).toBe('full');
+        const ids = (parsed.searchParams.get('ids') ?? '')
+          .split(',')
+          .map(Number);
+        const body = ids.map((id) => ({
+          id,
+          type: 'comment',
+          by: 'alice',
+          text: `body ${id}`,
+          time: 1,
+          kids: [],
+        }));
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchPinnedStory(client, {
+      id: 500,
+      url: 'https://example.com/with-comments',
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['comment', 501])).toMatchObject({ id: 501 });
+      expect(client.getQueryData(['comment', 502])).toMatchObject({ id: 502 });
+      expect(client.getQueryData(['comment', 503])).toMatchObject({ id: 503 });
+    });
+
+    const itemsCalls = fetchMock.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : c[0].toString()))
+      .filter((u) => u.includes('/api/items'));
+    // Single batch request, not one request per comment.
+    expect(itemsCalls).toHaveLength(1);
+  });
+
   it('skips the summary prefetch for self-posts without a url', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();

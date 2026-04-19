@@ -50,6 +50,63 @@ describe('prefetchFavoriteStory', () => {
     });
   });
 
+  it('also batches top-level comments via /api/items so offline /favorites has discussion', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/88')) {
+        return new Response(
+          JSON.stringify({
+            id: 88,
+            type: 'story',
+            title: 'Fav',
+            url: 'https://example.com/fav',
+            kids: [881, 882],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/items')) {
+        const parsed = new URL(url, 'http://localhost');
+        expect(parsed.searchParams.get('fields')).toBe('full');
+        const ids = (parsed.searchParams.get('ids') ?? '')
+          .split(',')
+          .map(Number);
+        return new Response(
+          JSON.stringify(
+            ids.map((id) => ({
+              id,
+              type: 'comment',
+              by: 'alice',
+              text: `body ${id}`,
+              time: 1,
+              kids: [],
+            })),
+          ),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchFavoriteStory(client, { id: 88, url: 'https://example.com/fav' });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['comment', 881])).toMatchObject({ id: 881 });
+      expect(client.getQueryData(['comment', 882])).toMatchObject({ id: 882 });
+    });
+  });
+
   it('skips the summary prefetch for self-posts without a url', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();

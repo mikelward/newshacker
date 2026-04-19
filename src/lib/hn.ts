@@ -54,20 +54,29 @@ export function getUser(id: string, signal?: AbortSignal): Promise<HNUser | null
 // benefit from the shared edge cache.
 export const ITEMS_BATCH_SIZE = 30;
 
+export interface GetItemsOptions {
+  // 'full' keeps the `kids` array so comment-prefetch can still render
+  // "N replies" indicators offline even when the replies themselves
+  // aren't cached. Feed rendering uses the default (thinned) response
+  // to keep payloads small.
+  fields?: 'feed' | 'full';
+}
+
 export async function getItems(
   ids: number[],
   signal?: AbortSignal,
+  options: GetItemsOptions = {},
 ): Promise<Array<HNItem | null>> {
   if (ids.length === 0) return [];
   if (ids.length <= ITEMS_BATCH_SIZE) {
-    return fetchItemsBatch(ids, signal);
+    return fetchItemsBatch(ids, signal, options);
   }
   const chunks: number[][] = [];
   for (let i = 0; i < ids.length; i += ITEMS_BATCH_SIZE) {
     chunks.push(ids.slice(i, i + ITEMS_BATCH_SIZE));
   }
   const pages = await Promise.all(
-    chunks.map((chunk) => fetchItemsBatch(chunk, signal)),
+    chunks.map((chunk) => fetchItemsBatch(chunk, signal, options)),
   );
   return pages.flat();
 }
@@ -75,8 +84,11 @@ export async function getItems(
 async function fetchItemsBatch(
   ids: number[],
   signal?: AbortSignal,
+  options: GetItemsOptions = {},
 ): Promise<Array<HNItem | null>> {
-  const res = await fetch(`/api/items?ids=${ids.join(',')}`, { signal });
+  const qs = new URLSearchParams({ ids: ids.join(',') });
+  if (options.fields === 'full') qs.set('fields', 'full');
+  const res = await fetch(`/api/items?${qs.toString()}`, { signal });
   if (!res.ok) {
     throw new Error(`items API ${res.status}`);
   }

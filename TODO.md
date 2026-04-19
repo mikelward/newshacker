@@ -39,9 +39,9 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   because the browser's native pull-to-refresh disappears in
   `display: standalone`.
 - **Explicit "save thread for offline" action** on the thread page that
-  fetches the whole comment tree into cache in one burst. Currently
-  comment offline-availability only covers threads the user has
-  already scrolled through.
+  fetches the whole comment tree (or a deeper slice than the 30
+  top-level prefetch) into cache in one burst. Useful for mega-threads
+  a user wants to read offline in full.
 - **Icon polish.** The generated `nh` wordmark is a placeholder; replace
   with a real logo (re-run `scripts/generate-icons.mjs` after swapping
   the SVG, or replace the PNGs directly).

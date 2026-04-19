@@ -38,6 +38,13 @@ function thinForFeed(item: HNItem | null): HNItem | null {
   return { id, type, by, time, title, url, text, score, descendants, dead, deleted };
 }
 
+// Comment-prefetch callers need `kids` so the offline UI can still tell a
+// user "this comment has 3 replies" even when those replies haven't been
+// individually cached yet. Request it via ?fields=full.
+function isFullFields(raw: string | null): boolean {
+  return raw === 'full';
+}
+
 export function parseIds(raw: string | null): number[] | null {
   if (!raw) return null;
   const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
@@ -69,13 +76,15 @@ export async function handleItemsRequest(
   if (!ids) {
     return json({ error: 'Invalid ids parameter' }, 400);
   }
+  const full = isFullFields(searchParams.get('fields'));
 
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
 
   const items = await Promise.all(
     ids.map(async (id) => {
       try {
-        return thinForFeed(await fetchItem(id, request.signal));
+        const item = await fetchItem(id, request.signal);
+        return full ? item : thinForFeed(item);
       } catch {
         return null;
       }
