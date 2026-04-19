@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import {
-  prefetchTopLevelComments,
-  TOP_LEVEL_COMMENT_PREFETCH_LIMIT,
+  prefetchCommentBatch,
+  COMMENT_BATCH_LIMIT,
 } from './commentPrefetch';
 import type { HNItem } from './hn';
 
@@ -23,12 +23,12 @@ function newClient() {
   });
 }
 
-describe('prefetchTopLevelComments', () => {
+describe('prefetchCommentBatch', () => {
   it('writes each fetched comment to the ["comment", id] key so useCommentItem hydrates from cache', async () => {
     const fetcher = vi.fn(async (ids: number[]) => ids.map(makeComment));
     const client = newClient();
 
-    await prefetchTopLevelComments(client, [10, 20, 30], fetcher);
+    await prefetchCommentBatch(client, [10, 20, 30], fetcher);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledWith([10, 20, 30], undefined, {
@@ -44,14 +44,14 @@ describe('prefetchTopLevelComments', () => {
     const fetcher = vi.fn(async (ids: number[]) => ids.map(makeComment));
     const client = newClient();
 
-    await prefetchTopLevelComments(client, many, fetcher);
+    await prefetchCommentBatch(client, many, fetcher);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     const requestedIds = fetcher.mock.calls[0][0] as number[];
-    expect(requestedIds).toHaveLength(TOP_LEVEL_COMMENT_PREFETCH_LIMIT);
+    expect(requestedIds).toHaveLength(COMMENT_BATCH_LIMIT);
     expect(requestedIds[0]).toBe(1);
     expect(requestedIds[requestedIds.length - 1]).toBe(
-      TOP_LEVEL_COMMENT_PREFETCH_LIMIT,
+      COMMENT_BATCH_LIMIT,
     );
   });
 
@@ -59,7 +59,7 @@ describe('prefetchTopLevelComments', () => {
     const fetcher = vi.fn(async () => []);
     const client = newClient();
 
-    await prefetchTopLevelComments(client, [], fetcher);
+    await prefetchCommentBatch(client, [], fetcher);
 
     expect(fetcher).not.toHaveBeenCalled();
     expect(client.getQueryCache().findAll()).toHaveLength(0);
@@ -71,7 +71,7 @@ describe('prefetchTopLevelComments', () => {
     );
     const client = newClient();
 
-    await prefetchTopLevelComments(client, [1, 2, 3], fetcher);
+    await prefetchCommentBatch(client, [1, 2, 3], fetcher);
 
     expect(client.getQueryData(['comment', 1])).toMatchObject({ id: 1 });
     expect(client.getQueryData(['comment', 2])).toBeUndefined();
@@ -85,7 +85,7 @@ describe('prefetchTopLevelComments', () => {
     const client = newClient();
 
     await expect(
-      prefetchTopLevelComments(client, [1, 2, 3], fetcher),
+      prefetchCommentBatch(client, [1, 2, 3], fetcher),
     ).resolves.toBeUndefined();
     expect(client.getQueryData(['comment', 1])).toBeUndefined();
   });
@@ -102,7 +102,7 @@ describe('prefetchTopLevelComments', () => {
       }));
     const client = newClient();
 
-    await prefetchTopLevelComments(client, [5], fetcher);
+    await prefetchCommentBatch(client, [5], fetcher);
 
     const cached = client.getQueryData<HNItem>(['comment', 5]);
     expect(cached?.kids).toEqual([50, 51]);

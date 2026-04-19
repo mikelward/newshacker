@@ -313,11 +313,20 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 
 The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.
 
+### Comment batching
+Comments use `src/lib/commentPrefetch.ts`'s `prefetchCommentBatch` helper everywhere we know a set of ids we're about to need. One helper, three callers:
+
+- **Thread load** (`useItemTree`): when the root item resolves, warm the first 30 top-level kids via one `/api/items?fields=full` call. A 20-comment thread drops from 21 requests (1 root + 20 items) to 2 (1 root + 1 batch).
+- **Infinite scroll** (`Thread.tsx` `onLoadMore`): each new page of 20 top-level comments fires another batch for the ids that aren't already cached. Mega-threads stay fast all the way down.
+- **Comment expand** (`Comment.tsx` toggle): clicking a collapsed comment first batches its children, then flips `isExpanded`. Recursively-rendered `<Comment>` observers hydrate from cache instead of each firing a Firebase fetch. Re-expanding is free (cached ids are filtered out before the batch runs).
+
+The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time) the per-comment `useCommentItem` falls back to individual Firebase fetches, so nothing breaks visibly.
+
 ### Pin/Favorite offline prefetch
-- Pinning a story calls `prefetchPinnedStory` — stores the item root, the AI summary, **and the first 30 top-level comments** in the persisted cache at pin time.
+- Pinning a story calls `prefetchPinnedStory` — stores the item root, the AI summary, **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time.
 - Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline with real discussion.
 - Top-level comments are fetched in a single `/api/items?ids=…&fields=full` batch (our edge-cached proxy), not per-comment against Firebase. This means one extra HTTP request per pin, ~30-60 KB typical. HN ranks `kids` roughly best-first, so slicing to 30 is a "top voted by HN's ranking" proxy for mega-threads.
-- Nested replies are **not** pre-fetched. They are cached individually via `useCommentItem` as the user opens/expands them online, so the more a pinned thread is read online, the deeper it remains readable offline.
+- Nested replies are pre-fetched opportunistically on expand (see *Comment batching* above), not at pin/favorite time. Pinned-and-never-opened threads still have all their top-level comments offline; nested subthreads become available as the user has expanded them online at least once.
 - When new comments arrive upstream after the pin, old cached comments are **not** invalidated — each comment lives under its own cache key. SWR surfaces the cached copy offline; next online visit refreshes silently.
 
 ### Offline UX

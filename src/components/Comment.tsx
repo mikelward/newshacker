@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCommentItem } from '../hooks/useItemTree';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
+import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { formatTimeAgo, pluralize } from '../lib/format';
+import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import './Comment.css';
 
@@ -17,6 +20,7 @@ export function Comment({ id, depth }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
+  const queryClient = useQueryClient();
 
   const indent = Math.min(depth, MAX_INDENT);
   const indentStyle = { marginLeft: `${indent * 12}px` };
@@ -43,7 +47,30 @@ export function Comment({ id, depth }: Props) {
   const age = item.time ? formatTimeAgo(item.time) : '';
   const kids = item.kids ?? [];
   const hasReplies = kids.length > 0;
-  const toggle = () => setIsExpanded((v) => !v);
+  // On expand, warm this comment's children in one /api/items batch
+  // before rendering them, so the recursive <Comment> observers find
+  // cache hits instead of each firing their own Firebase fetch. Ids
+  // already cached (e.g. re-expand) skip the network entirely.
+  const toggle = () => {
+    if (isExpanded) {
+      setIsExpanded(false);
+      return;
+    }
+    if (kids.length === 0) {
+      setIsExpanded(true);
+      return;
+    }
+    const uncached = kids.filter(
+      (kid) => !queryClient.getQueryData(['comment', kid]),
+    );
+    if (uncached.length === 0) {
+      setIsExpanded(true);
+      return;
+    }
+    prefetchCommentBatch(queryClient, uncached, getItems).finally(() => {
+      setIsExpanded(true);
+    });
+  };
 
   const metaParts: string[] = [];
   if (age) metaParts.push(age);

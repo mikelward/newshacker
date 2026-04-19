@@ -2,12 +2,12 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { HNItem } from './hn';
 import { SUMMARY_CACHE_TTL_MS } from '../hooks/useSummary';
 
-// Cap on top-level comments we eagerly cache when a story is pinned or
-// favorited. HN ranks `kids` roughly best-first, so slicing is a
-// reasonable "top N" proxy. 30 is one /api/items batch — a single HTTP
-// request — and covers the first visible page of most threads without
-// blowing out cellular data or the persisted-cache quota.
-export const TOP_LEVEL_COMMENT_PREFETCH_LIMIT = 30;
+// Cap on comments we batch in a single request. 30 matches the
+// /api/items proxy's MAX_IDS and is one HTTP round-trip. For top-level
+// kids of a story, HN ranks them roughly best-first, so slicing is a
+// reasonable "top N" proxy; for a comment's children the same batch
+// bound keeps an expand-click cheap even on huge subthreads.
+export const COMMENT_BATCH_LIMIT = 30;
 
 type BatchFetcher = (
   ids: number[],
@@ -15,19 +15,20 @@ type BatchFetcher = (
   options?: { fields?: 'feed' | 'full' },
 ) => Promise<Array<HNItem | null>>;
 
-// Warm the top-level comment cache for a pinned/favorited story so an
-// offline reader sees real discussion, not "Loading…". We write each
-// comment under the same ['comment', id] key useCommentItem consumes,
-// with the 7-day stale/gc window so the persister keeps these alive
-// alongside the item root and AI summary.
+// Warm the comment cache for a batch of ids — top-level kids of a story,
+// or children of a comment the user just expanded. We write each item
+// under the same ['comment', id] key useCommentItem consumes, with the
+// 7-day stale/gc window so the persister keeps these alive alongside
+// the item root and AI summary.
 //
-// Best-effort: any failure is swallowed. Pinning must not depend on a
-// successful comment prefetch.
-export async function prefetchTopLevelComments(
+// Best-effort: any failure is swallowed. Callers must not depend on a
+// successful prefetch (per-comment useCommentItem falls back to
+// individual Firebase fetches).
+export async function prefetchCommentBatch(
   client: QueryClient,
   kidIds: readonly number[],
   fetcher: BatchFetcher,
-  limit: number = TOP_LEVEL_COMMENT_PREFETCH_LIMIT,
+  limit: number = COMMENT_BATCH_LIMIT,
 ): Promise<void> {
   if (kidIds.length === 0) return;
   const slice = kidIds.slice(0, limit);

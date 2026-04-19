@@ -10,8 +10,10 @@ import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useSummary } from '../hooks/useSummary';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
+import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
+import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
@@ -206,7 +208,23 @@ export function Thread({ id }: Props) {
 
   const sentinelRef = useInfiniteScroll<HTMLDivElement>({
     enabled: hasMore,
-    onLoadMore: () => setVisibleCount((n) => n + TOP_LEVEL_PAGE_SIZE),
+    onLoadMore: () => {
+      setVisibleCount((prev) => {
+        const next = prev + TOP_LEVEL_PAGE_SIZE;
+        // Warm the newly-visible slice in one /api/items batch so the
+        // ~20 Comment observers that are about to mount hydrate from
+        // cache instead of each firing their own Firebase fetch.
+        // Filter out ids already in cache (e.g. from the first-page
+        // batch or a recent visit) to avoid a redundant round-trip.
+        const uncached = kidIds
+          .slice(prev, next)
+          .filter((kid) => !queryClient.getQueryData(['comment', kid]));
+        if (uncached.length > 0) {
+          prefetchCommentBatch(queryClient, uncached, getItems);
+        }
+        return next;
+      });
+    },
   });
 
   if (isLoading) {

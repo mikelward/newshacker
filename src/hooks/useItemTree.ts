@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { getItem, getItems, type HNItem } from '../lib/hn';
-import { prefetchTopLevelComments } from '../lib/commentPrefetch';
+import { prefetchCommentBatch } from '../lib/commentPrefetch';
 
 export interface ItemRoot {
   item: HNItem;
@@ -21,7 +21,7 @@ async function loadRoot(
   // own Firebase round-trip. Best-effort — pin/favorite flows already
   // rely on the same helper, and its failures are non-fatal.
   if (client && kidIds.length > 0) {
-    await prefetchTopLevelComments(client, kidIds, getItems);
+    await prefetchCommentBatch(client, kidIds, getItems);
   }
   return { item, kidIds };
 }
