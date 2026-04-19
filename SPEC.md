@@ -210,7 +210,7 @@ Comments match the "fewer tap targets" rule: the whole row is one tap zone that 
 Collapsed state (default):
 
 - Body clamped to 3 lines (CSS `-webkit-line-clamp: 3`), 15px to match the AI summary card.
-- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The meta row hugs the body above it (small `margin-top`, ~2px) so it reads as belonging to the comment it follows, not the one below.
+- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The meta row hugs the body above it (no `margin-top`; the toggle button's own 4px top padding is the only gap) so it reads as belonging to the comment it follows, not the one below. The comment's 6px bottom padding sits between the meta and the next comment's top border.
 - No action row, no children.
 - Cursor is `pointer`.
 
