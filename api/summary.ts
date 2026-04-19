@@ -3,13 +3,16 @@ import { GoogleGenAI } from '@google/genai';
 const MODEL = 'gemini-2.5-flash';
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_URL_LEN = 2048;
-const FETCH_TIMEOUT_MS = 8000;
 const MAX_CONTENT_CHARS = 200_000;
 
-// A realistic desktop User-Agent. Some publishers (e.g. theverge.com) serve
-// a bot-blocked page to bare UAs, which is why Gemini's urlContext sometimes
-// reports no access — we look more like a regular browser here.
-const FETCH_USER_AGENT =
+const JINA_ENDPOINT = 'https://r.jina.ai/';
+const JINA_TIMEOUT_MS = 15_000;
+
+const RAW_FETCH_TIMEOUT_MS = 8_000;
+// A realistic desktop User-Agent for the raw-fetch fallback. Some publishers
+// serve a bot-blocked page to bare UAs; this isn't a spoof, it's just polite
+// defaults that match what any real browser sends.
+const RAW_FETCH_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -60,11 +63,7 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
-function buildUrlContextPrompt(articleUrl: string): string {
-  return `Summarize this in a single, concise sentence without using bullet points or introductory text: ${articleUrl}`;
-}
-
-function buildInlineContentPrompt(articleUrl: string, content: string): string {
+function buildPrompt(articleUrl: string, content: string): string {
   return (
     `Summarize the article below in a single, concise sentence without using bullet points or introductory text. ` +
     `The article was fetched from ${articleUrl}. Ignore navigation, boilerplate, and markup; focus on the main body.\n\n` +
@@ -85,18 +84,8 @@ interface GenerateRequest {
   config?: { tools?: unknown[] };
 }
 
-interface UrlMetadataEntry {
-  retrievedUrl?: string;
-  urlRetrievalStatus?: string;
-}
-
 interface GenerateResponse {
   text?: string | null;
-  candidates?: Array<{
-    urlContextMetadata?: {
-      urlMetadata?: UrlMetadataEntry[];
-    };
-  }>;
 }
 
 export interface SummaryClient {
@@ -109,35 +98,64 @@ export interface SummaryDeps {
   createClient?: (apiKey: string) => SummaryClient;
   now?: () => number;
   fetchImpl?: typeof fetch;
+  jinaApiKey?: string;
 }
 
-// Returns true if every URL Gemini tried to retrieve came back as anything
-// other than SUCCESS. When this is the case the model's "summary" is usually
-// an apology — we'd rather fall back to fetching the page ourselves.
-function urlContextFailed(response: GenerateResponse): boolean {
-  const entries = response.candidates?.[0]?.urlContextMetadata?.urlMetadata;
-  if (!entries || entries.length === 0) return false;
-  return entries.every(
-    (m) =>
-      (m.urlRetrievalStatus ?? '').toUpperCase() !==
-      'URL_RETRIEVAL_STATUS_SUCCESS',
-  );
+function clampContent(body: string): string | null {
+  const trimmed =
+    body.length > MAX_CONTENT_CHARS ? body.slice(0, MAX_CONTENT_CHARS) : body;
+  const clean = trimmed.trim();
+  return clean || null;
 }
 
-async function fetchArticleContent(
+// Jina's Reader API (r.jina.ai) handles JS-rendered pages, paywalls, and
+// bot-blocked sites that our raw fetch can't reach. Returns clean markdown
+// that we can feed to Gemini directly. Free tier via API key is generous.
+async function fetchViaJina(
+  articleUrl: string,
+  jinaApiKey: string,
+  deps: SummaryDeps,
+): Promise<string | null> {
+  const fetchFn = deps.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), JINA_TIMEOUT_MS);
+  try {
+    const res = await fetchFn(`${JINA_ENDPOINT}${articleUrl}`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        authorization: `Bearer ${jinaApiKey}`,
+        accept: 'text/plain',
+        'x-return-format': 'markdown',
+      },
+    });
+    if (!res.ok) return null;
+    return clampContent(await res.text());
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Last-ditch fallback: fetch the article ourselves with a browser-like UA.
+// Only catches the subset of sites that return usable HTML to a plain GET,
+// which is a strict subset of what Jina handles — but it costs nothing and
+// keeps things working if Jina is down or unconfigured.
+async function fetchRawHtml(
   articleUrl: string,
   deps: SummaryDeps,
 ): Promise<string | null> {
   const fetchFn = deps.fetchImpl ?? fetch;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), RAW_FETCH_TIMEOUT_MS);
   try {
     const res = await fetchFn(articleUrl, {
       method: 'GET',
       redirect: 'follow',
       signal: controller.signal,
       headers: {
-        'user-agent': FETCH_USER_AGENT,
+        'user-agent': RAW_FETCH_USER_AGENT,
         accept:
           'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'accept-language': 'en-US,en;q=0.9',
@@ -152,11 +170,7 @@ async function fetchArticleContent(
     ) {
       return null;
     }
-    const body = await res.text();
-    const trimmed = body.length > MAX_CONTENT_CHARS
-      ? body.slice(0, MAX_CONTENT_CHARS)
-      : body;
-    return trimmed.trim() || null;
+    return clampContent(await res.text());
   } catch {
     return null;
   } finally {
@@ -190,46 +204,35 @@ export async function handleSummaryRequest(
     return json({ error: 'Summary is not configured' }, 503);
   }
 
+  const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
+  let content: string | null = null;
+  if (jinaApiKey) {
+    content = await fetchViaJina(articleUrl, jinaApiKey, deps);
+  }
+  if (!content) {
+    content = await fetchRawHtml(articleUrl, deps);
+  }
+  if (!content) {
+    return json({ error: 'Could not access the article' }, 502);
+  }
+
   const client: SummaryClient = deps.createClient
     ? deps.createClient(apiKey)
     : (new GoogleGenAI({ apiKey }) as unknown as SummaryClient);
 
   let summary = '';
-  let urlContextWorked = true;
   try {
     const response = await client.models.generateContent({
       model: MODEL,
-      contents: buildUrlContextPrompt(articleUrl),
-      config: { tools: [{ urlContext: {} }] },
+      contents: buildPrompt(articleUrl, content),
     });
-    urlContextWorked = !urlContextFailed(response);
-    if (urlContextWorked) {
-      summary = (response.text ?? '').trim();
-    }
+    summary = (response.text ?? '').trim();
   } catch {
-    urlContextWorked = false;
+    // falls through to the 502 below
   }
 
   if (!summary) {
-    const content = await fetchArticleContent(articleUrl, deps);
-    if (content) {
-      try {
-        const fallback = await client.models.generateContent({
-          model: MODEL,
-          contents: buildInlineContentPrompt(articleUrl, content),
-        });
-        summary = (fallback.text ?? '').trim();
-      } catch {
-        // fall through to the shared error path below
-      }
-    }
-  }
-
-  if (!summary) {
-    const errorMessage = urlContextWorked
-      ? 'Summarization failed'
-      : 'Could not access the article';
-    return json({ error: errorMessage }, 502);
+    return json({ error: 'Summarization failed' }, 502);
   }
 
   cache.set(articleUrl, { summary, ts: now() });
