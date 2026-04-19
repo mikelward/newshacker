@@ -75,6 +75,9 @@
 
 .thread__summary-card {
   margin-bottom: 12px;
+  /* Matches the loading state (label + 6-line skeleton) so the card
+     doesn't shrink once a shorter summary arrives. */
+  min-height: 156px;
 }
 
 .thread__summary-loading {
