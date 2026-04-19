@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
@@ -10,6 +11,7 @@ import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
+import { prefetchSavedStory } from '../lib/savedStoryPrefetch';
 import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
 
@@ -19,6 +21,7 @@ interface Props {
 
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
+  const queryClient = useQueryClient();
   const { dismissedIds, dismiss, undismiss } = useDismissedStories();
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { savedIds, save, unsave } = useSavedStories();
@@ -27,6 +30,15 @@ export function StoryList({ feed }: Props) {
 
   const { items, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
+
+  const handleSave = useCallback(
+    (id: number) => {
+      save(id);
+      const story = items.find((it): it is NonNullable<typeof it> => it?.id === id);
+      if (story) prefetchSavedStory(queryClient, story);
+    },
+    [save, items, queryClient],
+  );
 
   const sentinelRef = useInfiniteScroll<HTMLDivElement>({
     enabled: hasMore && !isFetchingMore,
@@ -115,7 +127,7 @@ export function StoryList({ feed }: Props) {
               saved={savedIds.has(story.id)}
               dismissed={dismissedIds.has(story.id)}
               onDismiss={dismiss}
-              onSave={save}
+              onSave={handleSave}
               onUnsave={unsave}
               onShare={shareStory}
               onOpenThread={handleOpenThread}
