@@ -19,92 +19,63 @@ function makeRequest(
   return new Request(full, { headers });
 }
 
-interface FakeResponse {
-  text: string | null;
-  candidates?: Array<{
-    urlContextMetadata?: {
-      urlMetadata?: Array<{
-        retrievedUrl?: string;
-        urlRetrievalStatus?: string;
-      }>;
-    };
-  }>;
-}
-
 interface GenerateRequest {
   model: string;
   contents: string;
   config?: { tools?: unknown[] };
 }
 
-function createFakeClient(
-  responses: Array<FakeResponse | Error>,
-) {
+interface FakeResponse {
+  text: string | null;
+}
+
+function createFakeClient(responses: Array<FakeResponse | Error>) {
   const queue = [...responses];
   const generateContent = vi.fn(async (_req: GenerateRequest) => {
     const next = queue.shift();
-    if (!next) throw new Error('unexpected call');
+    if (!next) throw new Error('unexpected generateContent call');
     if (next instanceof Error) throw next;
     return next;
   });
   return { models: { generateContent } };
 }
 
-function successResponse(text: string): FakeResponse {
-  return {
-    text,
-    candidates: [
-      {
-        urlContextMetadata: {
-          urlMetadata: [
-            { urlRetrievalStatus: 'URL_RETRIEVAL_STATUS_SUCCESS' },
-          ],
-        },
-      },
-    ],
-  };
+interface FakeFetchResult {
+  body?: string;
+  status?: number;
+  contentType?: string;
+  throws?: Error;
 }
 
-function retrievalFailedResponse(
-  text = 'I do not have access to that URL.',
-): FakeResponse {
-  return {
-    text,
-    candidates: [
-      {
-        urlContextMetadata: {
-          urlMetadata: [{ urlRetrievalStatus: 'URL_RETRIEVAL_STATUS_ERROR' }],
-        },
+function createFakeFetch(routes: Record<string, FakeFetchResult>) {
+  return vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+    const key = typeof url === 'string' ? url : url.toString();
+    const route = routes[key];
+    if (!route) throw new Error(`unexpected fetch: ${key}`);
+    if (route.throws) throw route.throws;
+    return new Response(route.body ?? '', {
+      status: route.status ?? 200,
+      headers: {
+        'content-type': route.contentType ?? 'text/html; charset=utf-8',
       },
-    ],
-  };
-}
-
-function makeHtmlFetch(
-  html: string,
-  opts: { ok?: boolean; contentType?: string } = {},
-) {
-  return vi.fn(
-    async (_url: RequestInfo | URL, _init?: RequestInit) =>
-      new Response(html, {
-        status: opts.ok === false ? 500 : 200,
-        headers: {
-          'content-type': opts.contentType ?? 'text/html; charset=utf-8',
-        },
-      }),
-  );
+    });
+  });
 }
 
 describe('handleSummaryRequest', () => {
-  const origKey = process.env.GOOGLE_API_KEY;
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
 
   beforeEach(() => {
     __clearCacheForTests();
     process.env.GOOGLE_API_KEY = 'test-key';
+    delete process.env.JINA_API_KEY;
   });
   afterEach(() => {
-    if (origKey === undefined) delete process.env.GOOGLE_API_KEY;
-    else process.env.GOOGLE_API_KEY = origKey;
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
   });
 
   it('returns 403 when the Referer header is missing', async () => {
@@ -122,12 +93,15 @@ describe('handleSummaryRequest', () => {
   });
 
   it('accepts Referers from localhost and vercel.app previews', async () => {
-    const client = createFakeClient([successResponse('ok')]);
+    const fetchImpl = createFakeFetch({
+      'https://example.com/a': { body: '<article>hi</article>' },
+    });
+    const client = createFakeClient([{ text: 'ok' }]);
     const r1 = await handleSummaryRequest(
       makeRequest('https://example.com/a', {
         referer: 'http://localhost:5173/item/1',
       }),
-      { createClient: () => client },
+      { createClient: () => client, fetchImpl },
     );
     expect(r1.status).toBe(200);
 
@@ -136,7 +110,12 @@ describe('handleSummaryRequest', () => {
       makeRequest('https://example.com/a', {
         referer: 'https://newshacker-preview-abc.vercel.app/item/1',
       }),
-      { createClient: () => createFakeClient([successResponse('ok')]) },
+      {
+        createClient: () => createFakeClient([{ text: 'ok' }]),
+        fetchImpl: createFakeFetch({
+          'https://example.com/a': { body: '<article>hi</article>' },
+        }),
+      },
     );
     expect(r2.status).toBe(200);
   });
@@ -179,107 +158,154 @@ describe('handleSummaryRequest', () => {
     expect(res.status).toBe(503);
   });
 
-  it('returns the model output as a summary', async () => {
-    const client = createFakeClient([
-      successResponse('A concise one-sentence summary.'),
-    ]);
-    const res = await handleSummaryRequest(
-      makeRequest('https://example.com/a'),
-      { createClient: () => client },
-    );
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      summary: 'A concise one-sentence summary.',
+  it('fetches via Jina when JINA_API_KEY is set and summarizes the result', async () => {
+    process.env.JINA_API_KEY = 'jina-test-key';
+    const fetchImpl = createFakeFetch({
+      'https://r.jina.ai/https://www.theverge.com/foo': {
+        body: '# Article\n\nMain body text.',
+        contentType: 'text/plain; charset=utf-8',
+      },
     });
-    expect(client.models.generateContent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'gemini-2.5-flash',
-        contents: expect.stringContaining('https://example.com/a'),
-        config: { tools: [{ urlContext: {} }] },
-      }),
-    );
-  });
-
-  it('returns 502 when the model returns an empty string and fetch fallback yields no content', async () => {
-    const client = createFakeClient([successResponse('   ')]);
-    const fetchImpl = makeHtmlFetch('', { ok: false });
-    const res = await handleSummaryRequest(
-      makeRequest('https://example.com/b'),
-      { createClient: () => client, fetchImpl },
-    );
-    expect(res.status).toBe(502);
-  });
-
-  it('returns 502 when the model throws and fallback fetch also fails', async () => {
-    const client = createFakeClient([new Error('boom'), new Error('boom2')]);
-    const fetchImpl = vi.fn(async () => {
-      throw new Error('network');
-    });
-    const res = await handleSummaryRequest(
-      makeRequest('https://example.com/c'),
-      { createClient: () => client, fetchImpl },
-    );
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({
-      error: 'Could not access the article',
-    });
-  });
-
-  it('falls back to fetching the article when urlContext reports no access', async () => {
-    const client = createFakeClient([
-      retrievalFailedResponse(),
-      successResponse('Fallback summary from article body.'),
-    ]);
-    const fetchImpl = makeHtmlFetch(
-      '<html><body><article>Real article text.</article></body></html>',
-    );
+    const client = createFakeClient([{ text: 'A one-sentence summary.' }]);
     const res = await handleSummaryRequest(
       makeRequest('https://www.theverge.com/foo'),
       { createClient: () => client, fetchImpl },
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      summary: 'Fallback summary from article body.',
-    });
+    expect(await res.json()).toEqual({ summary: 'A one-sentence summary.' });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const fetchCall = fetchImpl.mock.calls[0]!;
-    expect(fetchCall[0]).toBe('https://www.theverge.com/foo');
-    const headers = (fetchCall[1]!.headers ?? {}) as Record<string, string>;
-    expect(headers['user-agent']).toMatch(/Mozilla/);
-    expect(client.models.generateContent).toHaveBeenCalledTimes(2);
-    const secondCall = client.models.generateContent.mock.calls[1]![0];
-    expect(secondCall.config).toBeUndefined();
-    expect(secondCall.contents).toContain('Real article text.');
-    expect(secondCall.contents).toContain('https://www.theverge.com/foo');
+    const [jinaUrl, jinaInit] = fetchImpl.mock.calls[0]!;
+    expect(jinaUrl).toBe('https://r.jina.ai/https://www.theverge.com/foo');
+    const headers = (jinaInit!.headers ?? {}) as Record<string, string>;
+    expect(headers.authorization).toBe('Bearer jina-test-key');
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    const call = client.models.generateContent.mock.calls[0]![0];
+    expect(call.contents).toContain('Main body text.');
+    expect(call.contents).toContain('https://www.theverge.com/foo');
+    expect(call.config).toBeUndefined();
   });
 
-  it('returns a descriptive error when urlContext fails and fallback fetch returns non-html', async () => {
-    const client = createFakeClient([retrievalFailedResponse()]);
-    const fetchImpl = makeHtmlFetch('{"not":"html"}', {
-      contentType: 'application/json',
+  it('falls back to raw fetch when Jina fails, then summarizes', async () => {
+    process.env.JINA_API_KEY = 'jina-test-key';
+    const articleUrl = 'https://example.com/a';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { status: 503 },
+      [articleUrl]: {
+        body: '<html><body><article>Plain HTML body.</article></body></html>',
+      },
     });
-    const res = await handleSummaryRequest(
-      makeRequest('https://example.com/api'),
-      { createClient: () => client, fetchImpl },
-    );
+    const client = createFakeClient([{ text: 'Raw-fetch summary.' }]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ summary: 'Raw-fetch summary.' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const rawInit = fetchImpl.mock.calls[1]![1]!;
+    const rawHeaders = (rawInit.headers ?? {}) as Record<string, string>;
+    expect(rawHeaders['user-agent']).toMatch(/Mozilla/);
+  });
+
+  it('skips Jina entirely when no JINA_API_KEY is configured', async () => {
+    const articleUrl = 'https://example.com/plain';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>Raw HTML.</article>' },
+    });
+    const client = createFakeClient([{ text: 'Plain summary.' }]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ summary: 'Plain summary.' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]![0]).toBe(articleUrl);
+  });
+
+  it('returns 502 with a descriptive message when both Jina and raw fetch fail', async () => {
+    process.env.JINA_API_KEY = 'jina-test-key';
+    const articleUrl = 'https://paywalled.example.com/story';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { status: 500 },
+      [articleUrl]: { status: 403 },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
       error: 'Could not access the article',
     });
-    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 when the model returns an empty string', async () => {
+    const articleUrl = 'https://example.com/b';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const client = createFakeClient([{ text: '   ' }]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'Summarization failed' });
+  });
+
+  it('returns 502 when the model throws', async () => {
+    const articleUrl = 'https://example.com/c';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const client = createFakeClient([new Error('boom')]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'Summarization failed' });
+  });
+
+  it('accepts jinaApiKey passed explicitly via deps', async () => {
+    const articleUrl = 'https://example.com/via-deps';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: {
+        body: 'Article text.',
+        contentType: 'text/plain',
+      },
+    });
+    const client = createFakeClient([{ text: 'Deps summary.' }]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+      jinaApiKey: 'deps-key',
+    });
+    expect(res.status).toBe(200);
+    const jinaInit = fetchImpl.mock.calls[0]![1]!;
+    const headers = (jinaInit.headers ?? {}) as Record<string, string>;
+    expect(headers.authorization).toBe('Bearer deps-key');
   });
 
   it('serves a cached summary on a repeat request', async () => {
-    const client = createFakeClient([successResponse('first-summary')]);
     const url = 'https://example.com/cached';
+    const fetchImpl = createFakeFetch({
+      [url]: { body: '<article>first</article>' },
+    });
+    const client = createFakeClient([{ text: 'first-summary' }]);
     const res1 = await handleSummaryRequest(makeRequest(url), {
       createClient: () => client,
+      fetchImpl,
     });
     expect(await res1.json()).toEqual({ summary: 'first-summary' });
 
-    const client2 = createFakeClient([successResponse('would-be-second')]);
+    const client2 = createFakeClient([{ text: 'would-be-second' }]);
     const res2 = await handleSummaryRequest(makeRequest(url), {
       createClient: () => client2,
+      fetchImpl,
     });
     expect(await res2.json()).toEqual({
       summary: 'first-summary',
@@ -291,16 +317,24 @@ describe('handleSummaryRequest', () => {
   it('re-fetches after the cache ttl expires', async () => {
     const url = 'https://example.com/expire';
     let now = 1_000_000;
-    const client = createFakeClient([successResponse('v1')]);
+    const fetchImpl = createFakeFetch({
+      [url]: { body: '<article>body</article>' },
+    });
+    const client = createFakeClient([{ text: 'v1' }]);
     await handleSummaryRequest(makeRequest(url), {
       createClient: () => client,
+      fetchImpl,
       now: () => now,
     });
 
     now += 60 * 60 * 1000 + 1;
-    const client2 = createFakeClient([successResponse('v2')]);
+    const client2 = createFakeClient([{ text: 'v2' }]);
+    const fetchImpl2 = createFakeFetch({
+      [url]: { body: '<article>body</article>' },
+    });
     const res2 = await handleSummaryRequest(makeRequest(url), {
       createClient: () => client2,
+      fetchImpl: fetchImpl2,
       now: () => now,
     });
     expect(await res2.json()).toEqual({ summary: 'v2' });
