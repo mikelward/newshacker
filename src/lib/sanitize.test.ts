@@ -90,4 +90,29 @@ describe('sanitizeCommentHtml', () => {
     );
     expect(result).toContain('href="https://news.ycombinator.com/item?id=abc"');
   });
+
+  it('wraps leading raw text in a <p> so HN comments render as uniform paragraphs', () => {
+    // HN stores the first paragraph as bare text and uses <p> as a separator
+    // before each subsequent paragraph. Without normalization the first block
+    // has no margin and ends up flush against the second block.
+    const result = sanitizeCommentHtml('First para.<p>Second para.<p>Third para.');
+    expect(result).toBe('<p>First para.</p><p>Second para.</p><p>Third para.</p>');
+  });
+
+  it('wraps a comment with no <p> separators at all in a single <p>', () => {
+    const result = sanitizeCommentHtml('Just one paragraph.');
+    expect(result).toBe('<p>Just one paragraph.</p>');
+  });
+
+  it('strips empty <p> elements so double separators don\'t leave gaps', () => {
+    // HN sometimes produces <p><p> (an empty paragraph) when users hit enter
+    // extra times. Render as a single paragraph break, not a blank line.
+    const result = sanitizeCommentHtml('A<p><p>B');
+    expect(result).toBe('<p>A</p><p>B</p>');
+  });
+
+  it('leaves content alone when it already starts with <p>', () => {
+    const result = sanitizeCommentHtml('<p>One<p>Two');
+    expect(result).toBe('<p>One</p><p>Two</p>');
+  });
 });
