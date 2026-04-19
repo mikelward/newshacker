@@ -19,15 +19,80 @@ function makeRequest(
   return new Request(full, { headers });
 }
 
-function createFakeClient(text: string | null, throwErr = false) {
+interface FakeResponse {
+  text: string | null;
+  candidates?: Array<{
+    urlContextMetadata?: {
+      urlMetadata?: Array<{
+        retrievedUrl?: string;
+        urlRetrievalStatus?: string;
+      }>;
+    };
+  }>;
+}
+
+interface GenerateRequest {
+  model: string;
+  contents: string;
+  config?: { tools?: unknown[] };
+}
+
+function createFakeClient(
+  responses: Array<FakeResponse | Error>,
+) {
+  const queue = [...responses];
+  const generateContent = vi.fn(async (_req: GenerateRequest) => {
+    const next = queue.shift();
+    if (!next) throw new Error('unexpected call');
+    if (next instanceof Error) throw next;
+    return next;
+  });
+  return { models: { generateContent } };
+}
+
+function successResponse(text: string): FakeResponse {
   return {
-    models: {
-      generateContent: vi.fn(async () => {
-        if (throwErr) throw new Error('boom');
-        return { text } as { text: string | null };
-      }),
-    },
+    text,
+    candidates: [
+      {
+        urlContextMetadata: {
+          urlMetadata: [
+            { urlRetrievalStatus: 'URL_RETRIEVAL_STATUS_SUCCESS' },
+          ],
+        },
+      },
+    ],
   };
+}
+
+function retrievalFailedResponse(
+  text = 'I do not have access to that URL.',
+): FakeResponse {
+  return {
+    text,
+    candidates: [
+      {
+        urlContextMetadata: {
+          urlMetadata: [{ urlRetrievalStatus: 'URL_RETRIEVAL_STATUS_ERROR' }],
+        },
+      },
+    ],
+  };
+}
+
+function makeHtmlFetch(
+  html: string,
+  opts: { ok?: boolean; contentType?: string } = {},
+) {
+  return vi.fn(
+    async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(html, {
+        status: opts.ok === false ? 500 : 200,
+        headers: {
+          'content-type': opts.contentType ?? 'text/html; charset=utf-8',
+        },
+      }),
+  );
 }
 
 describe('handleSummaryRequest', () => {
@@ -57,7 +122,7 @@ describe('handleSummaryRequest', () => {
   });
 
   it('accepts Referers from localhost and vercel.app previews', async () => {
-    const client = createFakeClient('ok');
+    const client = createFakeClient([successResponse('ok')]);
     const r1 = await handleSummaryRequest(
       makeRequest('https://example.com/a', {
         referer: 'http://localhost:5173/item/1',
@@ -71,7 +136,7 @@ describe('handleSummaryRequest', () => {
       makeRequest('https://example.com/a', {
         referer: 'https://newshacker-preview-abc.vercel.app/item/1',
       }),
-      { createClient: () => createFakeClient('ok') },
+      { createClient: () => createFakeClient([successResponse('ok')]) },
     );
     expect(r2.status).toBe(200);
   });
@@ -115,7 +180,9 @@ describe('handleSummaryRequest', () => {
   });
 
   it('returns the model output as a summary', async () => {
-    const client = createFakeClient('A concise one-sentence summary.');
+    const client = createFakeClient([
+      successResponse('A concise one-sentence summary.'),
+    ]);
     const res = await handleSummaryRequest(
       makeRequest('https://example.com/a'),
       { createClient: () => client },
@@ -133,33 +200,84 @@ describe('handleSummaryRequest', () => {
     );
   });
 
-  it('returns 502 when the model returns an empty string', async () => {
-    const client = createFakeClient('   ');
+  it('returns 502 when the model returns an empty string and fetch fallback yields no content', async () => {
+    const client = createFakeClient([successResponse('   ')]);
+    const fetchImpl = makeHtmlFetch('', { ok: false });
     const res = await handleSummaryRequest(
       makeRequest('https://example.com/b'),
-      { createClient: () => client },
+      { createClient: () => client, fetchImpl },
     );
     expect(res.status).toBe(502);
   });
 
-  it('returns 502 when the model throws', async () => {
-    const client = createFakeClient(null, true);
+  it('returns 502 when the model throws and fallback fetch also fails', async () => {
+    const client = createFakeClient([new Error('boom'), new Error('boom2')]);
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('network');
+    });
     const res = await handleSummaryRequest(
       makeRequest('https://example.com/c'),
-      { createClient: () => client },
+      { createClient: () => client, fetchImpl },
     );
     expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'Could not access the article',
+    });
+  });
+
+  it('falls back to fetching the article when urlContext reports no access', async () => {
+    const client = createFakeClient([
+      retrievalFailedResponse(),
+      successResponse('Fallback summary from article body.'),
+    ]);
+    const fetchImpl = makeHtmlFetch(
+      '<html><body><article>Real article text.</article></body></html>',
+    );
+    const res = await handleSummaryRequest(
+      makeRequest('https://www.theverge.com/foo'),
+      { createClient: () => client, fetchImpl },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      summary: 'Fallback summary from article body.',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const fetchCall = fetchImpl.mock.calls[0]!;
+    expect(fetchCall[0]).toBe('https://www.theverge.com/foo');
+    const headers = (fetchCall[1]!.headers ?? {}) as Record<string, string>;
+    expect(headers['user-agent']).toMatch(/Mozilla/);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(2);
+    const secondCall = client.models.generateContent.mock.calls[1]![0];
+    expect(secondCall.config).toBeUndefined();
+    expect(secondCall.contents).toContain('Real article text.');
+    expect(secondCall.contents).toContain('https://www.theverge.com/foo');
+  });
+
+  it('returns a descriptive error when urlContext fails and fallback fetch returns non-html', async () => {
+    const client = createFakeClient([retrievalFailedResponse()]);
+    const fetchImpl = makeHtmlFetch('{"not":"html"}', {
+      contentType: 'application/json',
+    });
+    const res = await handleSummaryRequest(
+      makeRequest('https://example.com/api'),
+      { createClient: () => client, fetchImpl },
+    );
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'Could not access the article',
+    });
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
   });
 
   it('serves a cached summary on a repeat request', async () => {
-    const client = createFakeClient('first-summary');
+    const client = createFakeClient([successResponse('first-summary')]);
     const url = 'https://example.com/cached';
     const res1 = await handleSummaryRequest(makeRequest(url), {
       createClient: () => client,
     });
     expect(await res1.json()).toEqual({ summary: 'first-summary' });
 
-    const client2 = createFakeClient('would-be-second');
+    const client2 = createFakeClient([successResponse('would-be-second')]);
     const res2 = await handleSummaryRequest(makeRequest(url), {
       createClient: () => client2,
     });
@@ -173,14 +291,14 @@ describe('handleSummaryRequest', () => {
   it('re-fetches after the cache ttl expires', async () => {
     const url = 'https://example.com/expire';
     let now = 1_000_000;
-    const client = createFakeClient('v1');
+    const client = createFakeClient([successResponse('v1')]);
     await handleSummaryRequest(makeRequest(url), {
       createClient: () => client,
       now: () => now,
     });
 
     now += 60 * 60 * 1000 + 1;
-    const client2 = createFakeClient('v2');
+    const client2 = createFakeClient([successResponse('v2')]);
     const res2 = await handleSummaryRequest(makeRequest(url), {
       createClient: () => client2,
       now: () => now,
