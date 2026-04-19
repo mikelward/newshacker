@@ -56,21 +56,18 @@ export function HelpPage() {
           every unpinned story on screen at once.
         </li>
       </ul>
-
-      <h2 className="about-page__heading">Peeking at dismissed stories</h2>
       <p>
-        Tap the <strong>eye</strong> in the top bar to toggle dismissed
-        stories on and off. When they&rsquo;re shown, they appear
-        muted inline; tapping one opens the thread and un-dismisses it.
-        Dismissed stories also live in <Link to="/ignored">Ignored</Link>,
-        and dismissals expire after seven days.
+        Dismissed stories live in <Link to="/ignored">Ignored</Link> in
+        the menu, and dismissals expire after seven days.
       </p>
 
       <h2 className="about-page__heading">Undoing a dismiss</h2>
       <p>
-        Tap the <strong>undo</strong> icon in the top bar to bring back
-        the stories you most recently dismissed — whether you swiped
-        them away one at a time or swept them all at once.
+        Changed your mind? Tap the <strong>undo</strong> icon in the top
+        bar to bring back the stories you most recently dismissed —
+        whether you swiped them away one at a time or swept them all at
+        once. Undo only remembers your most recent dismiss, so use it
+        right away.
       </p>
 
       <h2 className="about-page__heading">The story actions menu</h2>
