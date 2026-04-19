@@ -1,10 +1,5 @@
 .comment {
-  /* Smaller bottom than top: the next comment's top padding + border adds
-     most of the vertical gap, so keeping bottom modest avoids a visible
-     dead zone between the meta row and the next divider — and stops the
-     last nested reply's bottom padding from stacking too heavily with its
-     parent's before the next top-level comment. */
-  padding: 10px 12px 6px;
+  padding: 10px 12px;
   border-top: 1px solid var(--hn-border);
   background: var(--hn-bg-card);
   color: var(--hn-text);
@@ -101,9 +96,12 @@
 }
 
 .comment__children {
-  list-style: none;
-  margin: 0;
+  /* Compensate for the parent card's padding-bottom not applying above
+     nested replies, so the gap before a child's border matches the gap
+     between sibling comments. */
+  margin: 10px 0 0;
   padding: 0;
+  list-style: none;
 }
 
 .comment--loading .comment__header {
