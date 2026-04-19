@@ -125,6 +125,7 @@ Shipped:
 - [ ] **Rate limiting.** Even with login gating, add a simple per-user or per-IP rate limit in Vercel KV (e.g., 30 summaries / 10 minutes) to blunt burst abuse.
 - [ ] **Per-item-id lookup.** Take an `item_id` param instead of a raw URL; fetch the HN item server-side and derive the URL. Stops anyone from pointing the endpoint at arbitrary URLs.
 - [ ] **Observability.** Log aggregate request count, cache hit rate, and error classes to a cheap sink (Vercel logs + periodic dashboard). Flag if cache hit rate collapses (spend spike).
+- [ ] **Summary length metric + cap.** Log summary character/line length so we can size the loading skeleton against real-world data instead of a hand-picked line count. Once we know the distribution, cap the response (prompt tweak or hard truncate) so the skeleton stays close to the median and reflow on arrival is minimised.
 - [ ] **Optional: default-on summaries.** Once costs + caching are proven safe, consider auto-fetching the summary on story page load (keyed by item id) so it appears without a click.
 
 ## Cross-cutting
