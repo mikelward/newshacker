@@ -40,7 +40,7 @@ We achieve that by:
 - Flagging stories or comments.
 - Moderation features (hide, mark as dupe, etc.).
 - Push notifications.
-- Native app shell (PWA installability is a nice-to-have, not required).
+- Background sync of offline votes/comments.
 
 ## Users
 
@@ -289,6 +289,44 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 - Integration: MSW to mock Firebase responses; test the story list and thread view end-to-end.
 - Serverless: Vitest with `supertest`-style calls against the handler functions; mock `fetch` for HN.
 - Smoke: one Playwright test that loads the homepage against a preview deploy (stretch).
+
+## PWA & Offline
+
+newshacker is installable as a Progressive Web App on desktop and mobile, and supports offline reading of previously-seen content.
+
+### Install identity
+- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /top`.
+- Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. Icons are an orange "nh" wordmark on cream — never the HN `Y` logo.
+- `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
+
+### Service worker
+- Registered with `registerType: 'prompt'`: a new build downloads in the background, then we surface a non-blocking "New version available — Reload" toast (via the existing `ToastProvider`). The user picks when to reload; no forced reloads.
+- Disabled in `npm run dev` (devOptions.enabled: false) so iteration is unaffected. Active in `npm run build && npm run preview` and in production.
+
+### Caching strategy
+- **App shell**: precached at build time so the app boots offline. Navigation falls back to precached `index.html`; React Router takes over client-side.
+- **HN items** (`/item/:id.json`): StaleWhileRevalidate, 7-day TTL, 500 entries.
+- **Feed lists** (`topstories`, `newstories`, etc.): NetworkFirst with 3s timeout, 1-day TTL, 10 entries.
+- **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries.
+- **Items batch proxy** (`/api/items`): StaleWhileRevalidate, 1-day TTL, 50 entries.
+- **HN write endpoints** (`news.ycombinator.com`): never cached — votes and login must never reuse a stale response.
+
+The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.
+
+### Pin/Favorite offline prefetch
+- Pinning a story calls `prefetchPinnedStory` (existing) — stores the item root + AI summary in the persisted cache at pin time.
+- Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline.
+- The full comment tree is **not** pre-fetched at pin/favorite time (would burst 50–500 Firebase requests per action). Comments become available offline only for threads that were opened online at least once, where each comment's `useCommentItem` query is then in both caches.
+
+### Offline UX
+- `useOnlineStatus` hook (reads `navigator.onLine`, listens to `online`/`offline` events) drives:
+  - A small "Offline" pill in the header.
+  - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline.
+  - An offline-specific message in the AI summary card when no cached summary exists.
+- Write actions (vote, login — once implemented) check `navigator.onLine` and show a toast instead of issuing a request that's guaranteed to fail.
+
+### Planned (not in this change)
+- Pull-to-refresh gesture on feed and thread pages that invalidates the relevant React Query keys (and thus the SW caches via SWR). Replaces the browser's native PTR, which disappears in standalone mode.
 
 ## Deployment
 

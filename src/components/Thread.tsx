@@ -5,11 +5,13 @@ import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useFavorites } from '../hooks/useFavorites';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useSummary } from '../hooks/useSummary';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
+import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
@@ -108,7 +110,9 @@ function HeartFilledIcon() {
 
 function SummaryCard({ url }: { url: string }) {
   const { data, isFetching, isError, error, refetch } = useSummary(url, true);
+  const online = useOnlineStatus();
   const loading = isFetching && !data;
+  const offlineWithoutCache = !online && !data && !loading;
 
   return (
     <div
@@ -137,7 +141,12 @@ function SummaryCard({ url }: { url: string }) {
         </div>
       ) : null}
       {data ? <p className="thread__summary-body">{data.summary}</p> : null}
-      {isError && !isFetching ? (
+      {offlineWithoutCache ? (
+        <div className="thread__summary-error" data-testid="summary-offline">
+          <p>Summary not available offline. Pin this story while online to keep a copy.</p>
+        </div>
+      ) : null}
+      {isError && !isFetching && !offlineWithoutCache ? (
         <div className="thread__summary-error">
           <p>
             Could not summarize.
@@ -166,6 +175,7 @@ function SummaryCard({ url }: { url: string }) {
 export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
   const queryClient = useQueryClient();
+  const online = useOnlineStatus();
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
   const { isPinned, pin, unpin } = usePinnedStories();
   const pinned = isPinned(id);
@@ -181,9 +191,13 @@ export function Thread({ id }: Props) {
   const { isFavorite, favorite, unfavorite } = useFavorites();
   const favorited = isFavorite(id);
   const handleToggleFavorite = useCallback(() => {
-    if (favorited) unfavorite(id);
-    else favorite(id);
-  }, [favorited, id, favorite, unfavorite]);
+    if (favorited) {
+      unfavorite(id);
+    } else {
+      favorite(id);
+      if (item) prefetchFavoriteStory(queryClient, item);
+    }
+  }, [favorited, id, favorite, unfavorite, item, queryClient]);
   const handleLinkClick = useInternalLinkClick();
 
   const kidIds = data?.kidIds ?? [];
@@ -203,7 +217,10 @@ export function Thread({ id }: Props) {
     );
   }
   if (isError) {
-    return <ErrorState message="Could not load thread." onRetry={() => refetch()} />;
+    const message = online
+      ? 'Could not load thread.'
+      : 'This story is not available offline. Pin it while online to keep a copy.';
+    return <ErrorState message={message} onRetry={online ? () => refetch() : undefined} />;
   }
   if (!data || !item) {
     return <EmptyState message="Item not found." />;

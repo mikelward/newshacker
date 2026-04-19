@@ -109,3 +109,23 @@
   cursor: default;
   color: rgba(255, 255, 255, 0.45);
 }
+
+.app-header__offline {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.app-header__actions .app-header__offline {
+  margin-left: 0;
+  margin-right: 4px;
+}
