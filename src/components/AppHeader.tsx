@@ -70,6 +70,8 @@ export function AppHeader() {
   } = useFeedBar();
 
   const onFeedPage = useIsFeedPage();
+  // sweepCount is > 0 iff there are fully-visible, unsaved rows to dismiss;
+  // the number itself is never surfaced to users.
   const canSweep = !!sweep && sweepCount > 0;
 
   return (
@@ -119,11 +121,7 @@ export function AppHeader() {
               data-testid="sweep-btn"
               onClick={canSweep ? sweep : undefined}
               disabled={!canSweep}
-              aria-label={
-                canSweep
-                  ? `Dismiss ${sweepCount} unstarred`
-                  : 'Nothing to dismiss'
-              }
+              aria-label={canSweep ? 'Dismiss unstarred' : 'Nothing to dismiss'}
               title={canSweep ? 'Dismiss unstarred' : 'Nothing to dismiss'}
             >
               <SweepIcon />

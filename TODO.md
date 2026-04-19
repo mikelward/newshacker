@@ -27,3 +27,18 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   persister caches the whole client; for item bodies specifically we
   could tier the persistence so they survive longer (days) than the
   ID lists (minutes), since titles/urls rarely change.
+
+## Sweep edge cases
+
+- **Row taller than the visible viewport.** Sweep currently dismisses
+  only rows whose bounding box is fully inside the viewport minus the
+  app header. A very long wrapped title on a narrow phone could, in
+  theory, make a row taller than that clipped area — it would then be
+  un-sweepable. If this bites in practice, either truncate titles to
+  N lines or relax the "fully visible" check (e.g. "fully visible OR
+  row height > viewport height").
+- **Header height changes mid-session.** The sweep observer measures
+  the `.app-header` height on mount and on `window resize`. If we ever
+  add a banner or a state that grows/shrinks the header without a
+  resize (e.g. a toast docking into the header), we'll want a
+  `ResizeObserver` on the header so the rootMargin stays correct.

@@ -1,19 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { StoryList } from './StoryList';
 import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addSavedId } from '../lib/savedStories';
+import {
+  installIntersectionObserverMock,
+  setVisibilityForTest,
+  uninstallIntersectionObserverMock,
+} from '../test/intersectionObserver';
 
 describe('<StoryList> star (save) and sweep', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    installIntersectionObserverMock();
   });
   afterEach(() => {
     window.localStorage.clear();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    uninstallIntersectionObserverMock();
   });
 
   it('tapping a star saves (and untaps unsaves) without firing a toast', async () => {
@@ -75,8 +82,10 @@ describe('<StoryList> star (save) and sweep', () => {
     });
 
     const sweep = screen.getByTestId('sweep-btn');
-    expect(sweep).toHaveAccessibleName(/dismiss 3 unstarred/i);
-    expect(sweep).not.toBeDisabled();
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    expect(sweep).toHaveAccessibleName(/dismiss unstarred/i);
 
     fireEvent.click(sweep);
 
@@ -88,6 +97,78 @@ describe('<StoryList> star (save) and sweep', () => {
     expect(screen.getByText('Story 2')).toBeInTheDocument();
     // Once nothing is left to sweep, the button stays put but disables.
     expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+  });
+
+  it('sweep only dismisses rows fully in the viewport', async () => {
+    const ids = [1, 2, 3];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    // Simulate scrolling so Story 3 is only partially visible (behind the
+    // app header, below the fold, whatever) — its intersectionRatio drops
+    // below the "fully visible" threshold.
+    const rows = screen.getAllByTestId('story-row');
+    const partialRow = rows.find((r) => r.textContent?.includes('Story 3'))!;
+    const partialLi = partialRow.closest('li')!;
+    act(() => {
+      setVisibilityForTest(partialLi, 0.4);
+    });
+
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+
+    fireEvent.click(sweep);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Story 1')).toBeNull();
+      expect(screen.queryByText('Story 2')).toBeNull();
+    });
+    // The partially-visible row must stick around.
+    expect(screen.getByText('Story 3')).toBeInTheDocument();
+  });
+
+  it('disables sweep when no row is fully visible', async () => {
+    const ids = [1, 2];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(2);
+    });
+
+    act(() => {
+      for (const row of screen.getAllByTestId('story-row')) {
+        setVisibilityForTest(row.closest('li')!, 0.5);
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+    });
   });
 
   it('disables the sweep button when the whole list is empty', async () => {
