@@ -30,11 +30,11 @@ function measureHeaderInset(): number {
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
   const queryClient = useQueryClient();
-  const { dismissedIds, dismiss, undismiss } = useDismissedStories();
+  const { dismissedIds, dismiss } = useDismissedStories();
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { savedIds, save, unsave } = useSavedStories();
   const shareStory = useShareStory();
-  const { setSweep, showDismissed } = useFeedBar();
+  const { setSweep, recordDismiss } = useFeedBar();
 
   const { items, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
@@ -46,6 +46,14 @@ export function StoryList({ feed }: Props) {
       if (story) prefetchSavedStory(queryClient, story);
     },
     [save, items, queryClient],
+  );
+
+  const handleDismissOne = useCallback(
+    (id: number) => {
+      dismiss(id);
+      recordDismiss([id]);
+    },
+    [dismiss, recordDismiss],
   );
 
   const sentinelRef = useInfiniteScroll<HTMLDivElement>({
@@ -64,9 +72,9 @@ export function StoryList({ feed }: Props) {
           it != null &&
           !it.deleted &&
           !it.dead &&
-          (showDismissed || !dismissedIds.has(it.id)),
+          !dismissedIds.has(it.id),
       ),
-    [items, dismissedIds, showDismissed],
+    [items, dismissedIds],
   );
 
   // Sweep only applies to rows the user can actually see *right now*, not
@@ -160,20 +168,17 @@ export function StoryList({ feed }: Props) {
   const handleSweep = useCallback(() => {
     if (sweepableIds.length === 0) return;
     for (const id of sweepableIds) dismiss(id);
-  }, [sweepableIds, dismiss]);
+    recordDismiss(sweepableIds);
+  }, [sweepableIds, dismiss, recordDismiss]);
 
   useEffect(() => {
     setSweep(handleSweep, sweepableIds.length);
     return () => setSweep(null, 0);
   }, [setSweep, handleSweep, sweepableIds.length]);
 
-  const handleOpenThread = useCallback(
-    (id: number) => {
-      markCommentsOpenedId(id);
-      if (dismissedIds.has(id)) undismiss(id);
-    },
-    [dismissedIds, undismiss],
-  );
+  const handleOpenThread = useCallback((id: number) => {
+    markCommentsOpenedId(id);
+  }, []);
 
   const hasAnyItems = items.length > 0;
   if (!hasAnyItems && feedItems.isLoading) {
@@ -215,7 +220,7 @@ export function StoryList({ feed }: Props) {
               commentsOpened={commentsOpenedIds.has(story.id)}
               saved={savedIds.has(story.id)}
               dismissed={dismissedIds.has(story.id)}
-              onDismiss={dismiss}
+              onDismiss={handleDismissOne}
               onSave={handleSave}
               onUnsave={unsave}
               onShare={shareStory}

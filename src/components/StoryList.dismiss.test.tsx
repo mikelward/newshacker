@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { StoryList } from './StoryList';
+import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addDismissedId } from '../lib/dismissedStories';
@@ -104,5 +105,55 @@ describe('<StoryList> dismissed-story handling', () => {
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number; at: number }>;
     expect(parsed.map((e) => e.id)).toContain(20);
+  });
+
+  it('undo restores the single story dismissed by a swipe', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const ids = [10, 20, 30];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+      { route: '/top' },
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+
+    const target = screen.getAllByTestId('story-row')[1]; // Story 20
+
+    dispatchPointer(target, 'pointerdown', 20, 50);
+    dispatchPointer(target, 'pointermove', 180, 50);
+    dispatchPointer(target, 'pointerup', 180, 50);
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Story 20')).toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
+    });
+
+    fireEvent.click(screen.getByTestId('undo-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Story 20')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const parsed = stored ? (JSON.parse(stored) as Array<{ id: number }>) : [];
+    expect(parsed.map((e) => e.id)).not.toContain(20);
   });
 });

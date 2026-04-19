@@ -206,16 +206,12 @@ describe('<StoryList> star (save) and sweep', () => {
     expect(screen.getByTestId('sweep-btn')).toBeDisabled();
   });
 
-  it('toggling Show Dismissed reveals dismissed rows inline, marked dismissed', async () => {
+  it('undo button is disabled on load and enabled after a sweep; clicking it restores the batch', async () => {
     const ids = [1, 2, 3];
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
     );
     installHNFetchMock({ feeds: { topstories: ids }, items });
-    window.localStorage.setItem(
-      'newshacker:dismissedStoryIds',
-      JSON.stringify([{ id: 2, at: Date.now() }]),
-    );
 
     renderWithProviders(
       <>
@@ -223,66 +219,38 @@ describe('<StoryList> star (save) and sweep', () => {
         <StoryList feed="top" />
       </>,
     );
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(2);
-    });
-    expect(screen.queryByText('Story 2')).toBeNull();
-
-    const toggle = screen.getByTestId('show-dismissed-btn');
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
 
-    const rows = screen.getAllByTestId('story-row');
-    const dismissedRow = rows.find((r) =>
-      r.textContent?.includes('Story 2'),
-    )!;
-    expect(dismissedRow.className).toContain('story-row--dismissed');
-  });
+    const undo = screen.getByTestId('undo-btn');
+    expect(undo).toBeDisabled();
+    expect(undo).toHaveAccessibleName(/nothing to undo/i);
 
-  it('tapping a dismissed row (when shown) un-dismisses it', async () => {
-    const ids = [1, 2];
-    const items = Object.fromEntries(
-      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
-    );
-    installHNFetchMock({ feeds: { topstories: ids }, items });
-    window.localStorage.setItem(
-      'newshacker:dismissedStoryIds',
-      JSON.stringify([{ id: 2, at: Date.now() }]),
-    );
-
-    renderWithProviders(
-      <>
-        <AppHeader />
-        <StoryList feed="top" />
-      </>,
-    );
-
-    fireEvent.click(screen.getByTestId('show-dismissed-btn'));
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    fireEvent.click(sweep);
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(2);
+      expect(screen.queryByTestId('story-row')).toBeNull();
     });
-
-    const rows = screen.getAllByTestId('story-row');
-    const dismissedRow = rows.find((r) =>
-      r.textContent?.includes('Story 2'),
-    )!;
-    fireEvent.click(within(dismissedRow).getByTestId('story-title'));
 
     await waitFor(() => {
-      const stored = window.localStorage.getItem(
-        'newshacker:dismissedStoryIds',
-      );
-      const parsed = stored
-        ? (JSON.parse(stored) as Array<{ id: number }>)
-        : [];
-      expect(parsed.map((e) => e.id)).not.toContain(2);
+      expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
     });
+    expect(screen.getByTestId('undo-btn')).toHaveAccessibleName(/undo dismiss/i);
+
+    fireEvent.click(screen.getByTestId('undo-btn'));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const parsed = stored ? (JSON.parse(stored) as Array<{ id: number }>) : [];
+    expect(parsed).toHaveLength(0);
   });
 });
