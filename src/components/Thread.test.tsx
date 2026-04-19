@@ -63,7 +63,7 @@ describe('<Thread>', () => {
     expect(screen.queryByText(/deep/)).toBeNull();
   });
 
-  it('expands a collapsed subtree on click and lazy-loads children', async () => {
+  it('expands a collapsed subtree via the meta toggle and lazy-loads children', async () => {
     installHNFetchMock({
       items: {
         200: makeStory(200, { kids: [201], descendants: 2 }),
@@ -92,93 +92,101 @@ describe('<Thread>', () => {
     });
     expect(screen.queryByText(/child comment/)).toBeNull();
 
-    const expander = screen.getByRole('button', { name: /show 1 reply/i });
+    const expander = screen.getByRole('button', { name: /expand comment/i });
     await userEvent.click(expander);
 
     await waitFor(() => {
       expect(screen.getByText(/child comment/)).toBeInTheDocument();
     });
 
-    const collapser = screen.getByRole('button', { name: /hide 1 reply/i });
+    const collapser = screen.getByRole('button', { name: /collapse comment/i });
     await userEvent.click(collapser);
     expect(screen.queryByText(/child comment/)).toBeNull();
   });
 
-  it('shows a replies button at the bottom of a collapsed comment that expands it', async () => {
+  it('clamps comment body by default and removes the clamp when expanded', async () => {
     installHNFetchMock({
       items: {
-        400: makeStory(400, { kids: [401], descendants: 3 }),
+        400: makeStory(400, { kids: [401], descendants: 1 }),
         401: {
           id: 401,
           type: 'comment',
           by: 'x',
-          text: 'top comment',
-          kids: [402, 403],
+          text: 'a long enough comment body',
           time: 1,
-        },
-        402: {
-          id: 402,
-          type: 'comment',
-          by: 'y',
-          text: 'child a',
-          time: 2,
-        },
-        403: {
-          id: 403,
-          type: 'comment',
-          by: 'z',
-          text: 'child b',
-          time: 3,
         },
       },
     });
 
     renderWithProviders(<Thread id={400} />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/top comment/)).toBeInTheDocument();
-    });
-    expect(screen.queryByText(/child a/)).toBeNull();
+    const body = await screen.findByText(/a long enough comment body/);
+    expect(body).toHaveClass('comment__body--clamped');
 
-    const replies = screen.getByRole('button', { name: '2 replies' });
-    expect(replies).toBeInTheDocument();
+    await userEvent.click(body);
+    expect(body).not.toHaveClass('comment__body--clamped');
 
-    await userEvent.click(replies);
-    await waitFor(() => {
-      expect(screen.getByText(/child a/)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/child b/)).toBeInTheDocument();
+    await userEvent.click(body);
+    expect(body).toHaveClass('comment__body--clamped');
   });
 
-  it('uses singular "reply" on the bottom button when there is exactly one reply', async () => {
+  it('shows a "Reply on HN" link on expanded comments, hidden when collapsed', async () => {
     installHNFetchMock({
       items: {
-        600: makeStory(600, { kids: [601], descendants: 2 }),
-        601: {
-          id: 601,
+        450: makeStory(450, { kids: [451], descendants: 1 }),
+        451: {
+          id: 451,
           type: 'comment',
-          by: 'a',
-          text: 'parent',
-          kids: [602],
+          by: 'x',
+          text: 'comment body',
           time: 1,
-        },
-        602: {
-          id: 602,
-          type: 'comment',
-          by: 'b',
-          text: 'only child',
-          time: 2,
         },
       },
     });
 
-    renderWithProviders(<Thread id={600} />);
+    renderWithProviders(<Thread id={450} />);
+    await screen.findByText(/comment body/);
 
-    await waitFor(() => {
-      expect(screen.getByText(/parent/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /reply on hn/i })).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /expand comment/i }),
+    );
+
+    const reply = screen.getByRole('link', { name: /reply on hn/i });
+    expect(reply).toHaveAttribute(
+      'href',
+      'https://news.ycombinator.com/reply?id=451',
+    );
+    expect(reply).toHaveAttribute('target', '_blank');
+    expect(reply).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('filters out deleted, dead, and empty comments from a thread', async () => {
+    installHNFetchMock({
+      items: {
+        900: makeStory(900, { kids: [901, 902, 903, 904], descendants: 4 }),
+        901: {
+          id: 901,
+          type: 'comment',
+          by: 'alice',
+          text: 'visible comment',
+          time: 1,
+        },
+        902: { id: 902, type: 'comment', deleted: true, time: 2 },
+        903: { id: 903, type: 'comment', dead: true, by: 'bob', text: 'x', time: 3 },
+        904: { id: 904, type: 'comment', by: 'carol', time: 4 },
+      },
     });
 
-    expect(screen.getByRole('button', { name: '1 reply' })).toBeInTheDocument();
+    renderWithProviders(<Thread id={900} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/visible comment/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('[deleted]')).toBeNull();
+    expect(screen.queryByText('[dead]')).toBeNull();
+    expect(screen.queryByText('carol')).toBeNull();
   });
 
   it('shows placeholder for deleted items without crashing', async () => {
