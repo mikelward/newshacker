@@ -76,12 +76,12 @@ export function AppHeader() {
         <Link
           to="/top"
           className="app-header__home"
-          aria-label="Newshacker home"
+          aria-label="Hackermo home"
         >
           <span className="app-header__brand" aria-hidden="true">
-            N
+            h
           </span>
-          <span className="app-header__title">Newshacker</span>
+          <span className="app-header__title">Hackermo</span>
         </Link>
         {onFeedPage ? (
           <div className="app-header__actions">
