@@ -71,6 +71,18 @@
   border-radius: 4px;
 }
 
+.comment__body p {
+  margin: 0 0 8px;
+}
+
+.comment__body p:first-child {
+  margin-top: 0;
+}
+
+.comment__body p:last-child {
+  margin-bottom: 0;
+}
+
 .comment__action {
   color: var(--hn-meta);
   text-decoration: none;
