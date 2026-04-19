@@ -379,6 +379,50 @@ describe('<Thread>', () => {
     expect(screen.queryByTestId('thread-summary-card')).toBeNull();
   });
 
+  it('shows domain (not author) in the meta line for link posts', async () => {
+    installHNFetchMock({
+      items: {
+        600: makeStory(600, {
+          title: 'A link post',
+          url: 'https://example.com/600',
+          by: 'alice',
+          score: 42,
+          descendants: 7,
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={600} />);
+
+    const meta = await screen.findByTestId('thread-meta');
+    expect(meta).toHaveTextContent(/example\.com · 42 points · 7 comments/);
+    // Author link is not in the meta for link posts.
+    expect(meta.querySelector('.thread__author')).toBeNull();
+  });
+
+  it('shows author link (not domain) in the meta line for self posts', async () => {
+    installHNFetchMock({
+      items: {
+        610: makeStory(610, {
+          title: 'Ask HN',
+          url: undefined,
+          by: 'bob',
+          score: 5,
+          descendants: 0,
+          text: 'a self post',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={610} />);
+
+    const meta = await screen.findByTestId('thread-meta');
+    const author = meta.querySelector('.thread__author');
+    expect(author).not.toBeNull();
+    expect(author).toHaveTextContent('bob');
+    expect(meta).toHaveTextContent(/bob · 5 points · 0 comments/);
+  });
+
   it('paginates top-level comments (only renders first page)', async () => {
     const totalKids = TOP_LEVEL_PAGE_SIZE + 5;
     const kidIds = Array.from({ length: totalKids }, (_, i) => 1000 + i);

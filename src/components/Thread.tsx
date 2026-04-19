@@ -6,7 +6,7 @@ import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useFavorites } from '../hooks/useFavorites';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useSummary } from '../hooks/useSummary';
-import { formatTimeAgo, pluralize } from '../lib/format';
+import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { sanitizeCommentHtml } from '../lib/sanitize';
@@ -222,6 +222,8 @@ export function Thread({ id }: Props) {
   const age = item.time ? formatTimeAgo(item.time) : '';
   const points = item.score ?? 0;
   const commentCount = item.descendants ?? 0;
+  const domain = extractDomain(item.url);
+  const hasExternalUrl = !!item.url;
 
   return (
     <article className="thread">
@@ -272,28 +274,20 @@ export function Thread({ id }: Props) {
             </span>
           </button>
         </div>
-        <div className="thread__meta">
-          <span>
-            {points} {pluralize(points, 'point')}
-          </span>
-          {item.by ? (
+        <div className="thread__meta" data-testid="thread-meta">
+          {hasExternalUrl ? (
+            domain ? `${domain} · ` : ''
+          ) : item.by ? (
             <>
-              <span aria-hidden="true"> · </span>
               <Link to={`/user/${item.by}`} className="thread__author">
                 {item.by}
               </Link>
+              {' · '}
             </>
           ) : null}
-          {age ? (
-            <>
-              <span aria-hidden="true"> · </span>
-              <span>{age}</span>
-            </>
-          ) : null}
-          <span aria-hidden="true"> · </span>
-          <span>
-            {commentCount} {pluralize(commentCount, 'comment')}
-          </span>
+          {points} {pluralize(points, 'point')} · {commentCount}{' '}
+          {pluralize(commentCount, 'comment')}
+          {age ? ` · ${age}` : ''}
         </div>
         {item.text ? (
           <div
