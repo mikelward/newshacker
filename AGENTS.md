@@ -4,7 +4,7 @@ Instructions for AI coding agents (Claude Code, etc.) working in this repo.
 
 ## Project at a glance
 
-- **Newshacker** — an unofficial mobile-friendly reader *for* Hacker News. Not affiliated with Y Combinator. Primary domain `newshacker.app`; `hnews.app` 301s to it.
+- **hnews.app** — an unofficial mobile-friendly reader *for* Hacker News. Not affiliated with Y Combinator. Primary domain `hnews.app`; `newshacker.app` 301s to it. The product is referred to as "hnews.app" in all user-facing copy (header, title, About page, etc.).
 - Stack: **React + TypeScript + Vite**, deployed on **Vercel**.
 - Stretch goals (login, voting) use **Vercel serverless functions** under `/api`.
 - Read data comes from the Firebase HN API; write actions scrape HN's web forms.
@@ -23,6 +23,7 @@ Instructions for AI coding agents (Claude Code, etc.) working in this repo.
 7. Don't implement flagging, moderation, submitting stories, or submitting comments.
 8. **US English everywhere.** Product copy, identifiers, CSS class names, localStorage keys, and comments all use US spelling (e.g. `favorite`, not `favourite`).
 9. **Pinned ≠ Favorite.** Pinned (📌, on the row) is the active reading list — explicit pin, explicit unpin, no auto-pruning. Favorite (heart, on the thread page) is the permanent keepsake — never swept, never expired. Keep the two stores, hooks, and UI paths independent. localStorage keys: `newshacker:pinnedStoryIds`, `newshacker:favoriteStoryIds`.
+10. **Storage keys keep the legacy `newshacker:` prefix.** The product has been renamed to hnews.app, but localStorage keys and DOM `CustomEvent` names still use the `newshacker:` namespace so existing readers don't lose their pinned/favorite/ignored/opened lists across the rebrand. Do not rename them without a migration story. New keys may use either prefix as long as they're consistent within their module.
 
 ## Commands
 

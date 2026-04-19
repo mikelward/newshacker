@@ -104,7 +104,7 @@ export function HelpPage() {
         <li>
           Expanded comments pick up a muted{' '}
           <strong>Reply on HN ↗</strong> link on the meta row.
-          Newshacker doesn&rsquo;t submit comments itself, so that link
+          hnews.app doesn&rsquo;t submit comments itself, so that link
           hands you off to Hacker News to write the reply there.
         </li>
       </ul>

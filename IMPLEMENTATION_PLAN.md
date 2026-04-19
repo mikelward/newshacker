@@ -148,7 +148,7 @@ Shipped:
 - `api/summary.ts` serverless function calling Gemini 2.5 Flash with the `urlContext` tool.
 - `useSummary` hook + `SummarizeCard` component (button swaps to a card with loading → summary → error states).
 - Per-instance in-memory cache with a 1-hour TTL.
-- Referer allowlist as a first-line defense (`SUMMARY_REFERER_ALLOWLIST` env var, plus hardcoded localhost / `*.vercel.app` / `newshacker.app` / `hnews.app`).
+- Referer allowlist as a first-line defense (`SUMMARY_REFERER_ALLOWLIST` env var, plus hardcoded localhost / `*.vercel.app` / `hnews.app` / `newshacker.app`).
 - Requires `GOOGLE_API_KEY` in Vercel project env.
 
 ### TODOs

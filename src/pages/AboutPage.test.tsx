@@ -7,7 +7,7 @@ describe('<AboutPage>', () => {
   it('renders the title and unofficial-client disclaimer', () => {
     renderWithProviders(<AboutPage />, { route: '/about' });
     expect(
-      screen.getByRole('heading', { level: 1, name: /about newshacker/i }),
+      screen.getByRole('heading', { level: 1, name: /about hnews\.app/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/not affiliated with, endorsed by, or sponsored by/i),

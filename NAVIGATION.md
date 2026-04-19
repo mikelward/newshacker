@@ -1,11 +1,11 @@
 # Navigation, Opened & Pinned
 
-How Newshacker feels to use — moving between screens, and what happens
+How hnews.app feels to use — moving between screens, and what happens
 to a story after you've tapped it.
 
 ## Getting around
 
-Newshacker opens on the **Top** feed. The "N" logo in the header always
+hnews.app opens on the **Top** feed. The "h" logo in the header always
 takes you back there.
 
 The menu button (top-left) slides out a drawer with two groups:
@@ -60,13 +60,13 @@ in. Tapping again collapses back.
 
 Tapping the author name still goes to their profile, and an expanded
 comment picks up a muted **Reply on HN ↗** link at the bottom that
-hands you off to Hacker News itself — Newshacker doesn't submit
+hands you off to Hacker News itself — hnews.app doesn't submit
 comments. Deleted and empty comments are hidden from the thread
 entirely.
 
 ## Opened
 
-A story is "opened" the moment you tap it. Newshacker tracks the two
+A story is "opened" the moment you tap it. hnews.app tracks the two
 halves of a story separately:
 
 - Tapping the **row** opens the thread — the row dims.
