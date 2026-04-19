@@ -57,6 +57,22 @@ If any of the above fails, fix it — don't disable the check.
 - Keep components small (< ~150 lines). Extract hooks for data fetching.
 - No comments that just restate the code. Comments should explain *why*.
 
+## CSS gotchas
+
+- **Sticky `:hover` on touch devices.** On phones and tablets, tapping a
+  button leaves the `:hover` style "stuck" on it until the user taps
+  somewhere else — a touch has no corresponding "leave" event, so the
+  browser keeps the hovered state active. The symptom is an unwanted
+  background (or color/shadow) lingering on a button after the tap
+  completes. **Fix:** wrap any `:hover` rule that changes the painted
+  appearance of the element in `@media (hover: hover) { … }` so it
+  only applies on devices with a true pointer. Keep the matching
+  `:active` rule **outside** the media query so the pressed-state
+  darkening still fires on touch. Reference pattern: `.story-row__body`
+  in `src/components/StoryListItem.css` — `:hover` inside the media
+  query, `:active` outside. Every new tappable (button, link, icon
+  button) should follow the same shape.
+
 ## Architecture notes
 
 - **Read path:** client → Firebase HN API directly (`https://hacker-news.firebaseio.com/v0`). No server involvement.
