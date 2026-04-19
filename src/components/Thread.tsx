@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useFavorites } from '../hooks/useFavorites';
+import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useSummary } from '../hooks/useSummary';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
@@ -183,6 +184,7 @@ export function Thread({ id }: Props) {
     if (favorited) unfavorite(id);
     else favorite(id);
   }, [favorited, id, favorite, unfavorite]);
+  const handleLinkClick = useInternalLinkClick();
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
@@ -292,6 +294,7 @@ export function Thread({ id }: Props) {
         {item.text ? (
           <div
             className="thread__text"
+            onClick={handleLinkClick}
             dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
           />
         ) : null}
