@@ -49,9 +49,36 @@ export function getUser(id: string, signal?: AbortSignal): Promise<HNUser | null
   return getJson<HNUser | null>(`${HN_API_BASE}/user/${encodeURIComponent(id)}.json`, signal);
 }
 
+// Keep in sync with api/items.ts MAX_IDS. Anything larger gets chunked
+// into multiple proxy calls so we stay inside the per-request cap and
+// benefit from the shared edge cache.
+export const ITEMS_BATCH_SIZE = 30;
+
 export async function getItems(
   ids: number[],
   signal?: AbortSignal,
 ): Promise<Array<HNItem | null>> {
-  return Promise.all(ids.map((id) => getItem(id, signal)));
+  if (ids.length === 0) return [];
+  if (ids.length <= ITEMS_BATCH_SIZE) {
+    return fetchItemsBatch(ids, signal);
+  }
+  const chunks: number[][] = [];
+  for (let i = 0; i < ids.length; i += ITEMS_BATCH_SIZE) {
+    chunks.push(ids.slice(i, i + ITEMS_BATCH_SIZE));
+  }
+  const pages = await Promise.all(
+    chunks.map((chunk) => fetchItemsBatch(chunk, signal)),
+  );
+  return pages.flat();
+}
+
+async function fetchItemsBatch(
+  ids: number[],
+  signal?: AbortSignal,
+): Promise<Array<HNItem | null>> {
+  const res = await fetch(`/api/items?ids=${ids.join(',')}`, { signal });
+  if (!res.ok) {
+    throw new Error(`items API ${res.status}`);
+  }
+  return (await res.json()) as Array<HNItem | null>;
 }
