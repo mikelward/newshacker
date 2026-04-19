@@ -57,4 +57,63 @@ describe('<HelpPage>', () => {
       '/ignored',
     );
   });
+
+  it('describes favoriting via the heart on the thread page', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /favoriting stories/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/heart/i, { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /favorites/i })).toHaveAttribute(
+      'href',
+      '/favorites',
+    );
+  });
+
+  it('covers the long-press story actions menu including share', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /story actions menu/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/long-press/i)).toBeInTheDocument();
+    expect(screen.getByText(/share/i, { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('describes the undo control in the top bar', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /undoing a dismiss/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/undo/i, { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('explains AI article summaries on the thread page', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /article summaries/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/gemini/i)).toBeInTheDocument();
+    expect(screen.getByText(/may be inaccurate/i)).toBeInTheDocument();
+  });
+
+  it('describes the Recently Opened library', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /recently opened/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /opened/i })).toHaveAttribute(
+      'href',
+      '/opened',
+    );
+  });
+
+  it('explains switching theme with three options', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /switching theme/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/light/i, { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByText(/dark/i, { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByText(/system/i, { selector: 'strong' })).toBeInTheDocument();
+  });
 });
