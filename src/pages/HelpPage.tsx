@@ -98,15 +98,14 @@ export function HelpPage() {
           Tap the comment again to collapse it back.
         </li>
         <li>
-          Tapping the <strong>author name</strong> opens their profile
-          — karma, account age, and bio. Tapping a link inside a
-          comment opens the link — neither one toggles the comment.
+          Tapping a link inside a comment opens the link — it
+          doesn&rsquo;t toggle the comment.
         </li>
         <li>
           Expanded comments pick up a muted{' '}
-          <strong>Reply on HN ↗</strong> link at the bottom. Newshacker
-          doesn&rsquo;t submit comments itself, so that link hands you
-          off to Hacker News to write the reply there.
+          <strong>Reply on HN ↗</strong> link on the meta row.
+          Newshacker doesn&rsquo;t submit comments itself, so that link
+          hands you off to Hacker News to write the reply there.
         </li>
       </ul>
 

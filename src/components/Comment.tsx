@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useCommentItem } from '../hooks/useItemTree';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
@@ -50,7 +49,7 @@ export function Comment({ id, depth }: Props) {
       `${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`,
     );
   }
-  const metaSuffix = metaParts.length ? ` · ${metaParts.join(' · ')}` : '';
+  const metaText = metaParts.join(' · ');
 
   return (
     <div
@@ -64,12 +63,11 @@ export function Comment({ id, depth }: Props) {
         toggle();
       }}
     >
+      <div
+        className={`comment__body${isExpanded ? '' : ' comment__body--clamped'}`}
+        dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
+      />
       <div className="comment__header">
-        {item.by ? (
-          <Link to={`/user/${item.by}`} className="comment__author">
-            {item.by}
-          </Link>
-        ) : null}
         <button
           type="button"
           className="comment__toggle"
@@ -77,15 +75,9 @@ export function Comment({ id, depth }: Props) {
           aria-label={isExpanded ? 'Collapse comment' : 'Expand comment'}
           onClick={toggle}
         >
-          {metaSuffix}
+          {metaText}
         </button>
-      </div>
-      <div
-        className={`comment__body${isExpanded ? '' : ' comment__body--clamped'}`}
-        dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
-      />
-      {isExpanded ? (
-        <div className="comment__actions">
+        {isExpanded ? (
           <a
             className="comment__action"
             href={`https://news.ycombinator.com/reply?id=${id}`}
@@ -94,8 +86,8 @@ export function Comment({ id, depth }: Props) {
           >
             Reply on HN ↗
           </a>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {hasReplies && isExpanded ? (
         <ol className="comment__children">
           {kids.map((kidId) => (
