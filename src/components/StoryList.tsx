@@ -5,13 +5,13 @@ import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
-import { useSavedStories } from '../hooks/useSavedStories';
+import { usePinnedStories } from '../hooks/usePinnedStories';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
-import { prefetchSavedStory } from '../lib/savedStoryPrefetch';
+import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
 
@@ -32,20 +32,20 @@ export function StoryList({ feed }: Props) {
   const queryClient = useQueryClient();
   const { dismissedIds, dismiss } = useDismissedStories();
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
-  const { savedIds, save, unsave } = useSavedStories();
+  const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
   const { setSweep, recordDismiss } = useFeedBar();
 
   const { items, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
 
-  const handleSave = useCallback(
+  const handlePin = useCallback(
     (id: number) => {
-      save(id);
+      pin(id);
       const story = items.find((it): it is NonNullable<typeof it> => it?.id === id);
-      if (story) prefetchSavedStory(queryClient, story);
+      if (story) prefetchPinnedStory(queryClient, story);
     },
-    [save, items, queryClient],
+    [pin, items, queryClient],
   );
 
   const handleDismissOne = useCallback(
@@ -159,10 +159,10 @@ export function StoryList({ feed }: Props) {
         .filter(
           (id) =>
             inViewIds.has(id) &&
-            !savedIds.has(id) &&
+            !pinnedIds.has(id) &&
             !dismissedIds.has(id),
         ),
-    [visibleStories, inViewIds, savedIds, dismissedIds],
+    [visibleStories, inViewIds, pinnedIds, dismissedIds],
   );
 
   const handleSweep = useCallback(() => {
@@ -218,11 +218,11 @@ export function StoryList({ feed }: Props) {
               rank={idx + 1}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
-              saved={savedIds.has(story.id)}
+              pinned={pinnedIds.has(story.id)}
               dismissed={dismissedIds.has(story.id)}
               onDismiss={handleDismissOne}
-              onSave={handleSave}
-              onUnsave={unsave}
+              onPin={handlePin}
+              onUnpin={unpin}
               onShare={shareStory}
               onOpenThread={handleOpenThread}
             />

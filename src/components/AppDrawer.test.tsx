@@ -29,9 +29,13 @@ describe('<AppDrawer>', () => {
       'href',
       '/new',
     );
-    expect(screen.getByRole('link', { name: 'Saved' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Favorites' })).toHaveAttribute(
       'href',
-      '/saved',
+      '/favorites',
+    );
+    expect(screen.getByRole('link', { name: 'Pinned' })).toHaveAttribute(
+      'href',
+      '/pinned',
     );
     expect(screen.getByRole('link', { name: 'Opened' })).toHaveAttribute(
       'href',

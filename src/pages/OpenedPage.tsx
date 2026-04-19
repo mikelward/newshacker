@@ -4,7 +4,7 @@ import {
   clearOpenedIds,
   getOpenedEntries,
 } from '../lib/openedStories';
-import { SavedStoryList } from '../components/SavedStoryList';
+import { LibraryStoryList } from '../components/LibraryStoryList';
 import './HistoryToolbar.css';
 
 function readIdsNewestFirst(): number[] {
@@ -50,7 +50,7 @@ export function OpenedPage() {
           </button>
         </div>
       ) : null}
-      <SavedStoryList
+      <LibraryStoryList
         queryKey="opened"
         ids={ids}
         emptyMessage="You haven't opened any stories yet."

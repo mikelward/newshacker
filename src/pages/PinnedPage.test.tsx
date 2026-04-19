@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
-import { SavedPage } from './SavedPage';
+import { PinnedPage } from './PinnedPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
-import { addSavedId } from '../lib/savedStories';
+import { addPinnedId } from '../lib/pinnedStories';
 
-describe('<SavedPage>', () => {
+describe('<PinnedPage>', () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -13,23 +13,23 @@ describe('<SavedPage>', () => {
     window.localStorage.clear();
   });
 
-  it('shows an empty state when nothing is saved', () => {
+  it('shows an empty state when nothing is pinned', () => {
     installHNFetchMock({ items: {} });
-    renderWithProviders(<SavedPage />);
-    expect(screen.getByText(/Nothing saved yet/i)).toBeInTheDocument();
+    renderWithProviders(<PinnedPage />);
+    expect(screen.getByText(/Nothing pinned yet/i)).toBeInTheDocument();
   });
 
-  it('shows saved stories', async () => {
+  it('shows pinned stories', async () => {
     installHNFetchMock({
       items: {
         1: makeStory(1, { title: 'Alpha' }),
         2: makeStory(2, { title: 'Beta' }),
       },
     });
-    addSavedId(1);
-    addSavedId(2);
+    addPinnedId(1);
+    addPinnedId(2);
 
-    renderWithProviders(<SavedPage />);
+    renderWithProviders(<PinnedPage />);
 
     await waitFor(() => {
       expect(screen.getByText('Alpha')).toBeInTheDocument();
@@ -37,31 +37,31 @@ describe('<SavedPage>', () => {
     });
   });
 
-  it('unsave removes the row and its saved record', async () => {
+  it('tapping the pin button unpins and removes the row', async () => {
     installHNFetchMock({
       items: { 5: makeStory(5, { title: 'Five' }) },
     });
-    addSavedId(5);
+    addPinnedId(5);
 
-    renderWithProviders(<SavedPage />);
+    renderWithProviders(<PinnedPage />);
     await waitFor(() => {
       expect(screen.getByText('Five')).toBeInTheDocument();
     });
 
     act(() => {
-      fireEvent.click(screen.getByTestId('star-btn'));
+      fireEvent.click(screen.getByTestId('pin-btn'));
     });
 
     await waitFor(() => {
       expect(screen.queryByText('Five')).toBeNull();
     });
 
-    expect(window.localStorage.getItem('newshacker:savedStoryIds')).toBe(
+    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe(
       '[]',
     );
   });
 
-  it('orders saved stories newest first by save time', async () => {
+  it('orders pinned stories newest first by pin time', async () => {
     installHNFetchMock({
       items: {
         1: makeStory(1, { title: 'One' }),
@@ -69,10 +69,10 @@ describe('<SavedPage>', () => {
       },
     });
     const now = Date.now();
-    addSavedId(1, now - 2000);
-    addSavedId(2, now - 1000);
+    addPinnedId(1, now - 2000);
+    addPinnedId(2, now - 1000);
 
-    renderWithProviders(<SavedPage />);
+    renderWithProviders(<PinnedPage />);
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(2);
     });

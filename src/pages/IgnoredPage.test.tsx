@@ -126,13 +126,13 @@ describe('<IgnoredPage>', () => {
     expect(screen.getByText('Alpha')).toBeInTheDocument();
   });
 
-  it('Forget all does not touch saved stories', async () => {
+  it('Forget all does not touch pinned stories', async () => {
     installHNFetchMock({
       items: { 1: makeStory(1, { title: 'Alpha' }) },
     });
     addDismissedId(1);
     window.localStorage.setItem(
-      'newshacker:savedStoryIds',
+      'newshacker:pinnedStoryIds',
       JSON.stringify([{ id: 99, at: Date.now() }]),
     );
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -151,9 +151,9 @@ describe('<IgnoredPage>', () => {
     await waitFor(() => {
       expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
     });
-    const saved = window.localStorage.getItem('newshacker:savedStoryIds');
-    expect(saved).not.toBeNull();
-    expect(JSON.parse(saved as string)).toHaveLength(1);
+    const pinned = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    expect(pinned).not.toBeNull();
+    expect(JSON.parse(pinned as string)).toHaveLength(1);
   });
 
   it('orders ignored stories newest first by dismissal time', async () => {

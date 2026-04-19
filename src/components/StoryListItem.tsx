@@ -12,11 +12,11 @@ interface Props {
   isLoggedIn?: boolean;
   articleOpened?: boolean;
   commentsOpened?: boolean;
-  saved?: boolean;
+  pinned?: boolean;
   dismissed?: boolean;
   onDismiss?: (id: number) => void;
-  onSave?: (id: number) => void;
-  onUnsave?: (id: number) => void;
+  onPin?: (id: number) => void;
+  onUnpin?: (id: number) => void;
   onShare?: (story: HNItem) => void;
   onOpenThread?: (id: number) => void;
 }
@@ -26,11 +26,11 @@ export function StoryListItem({
   isLoggedIn = false,
   articleOpened = false,
   commentsOpened = false,
-  saved = false,
+  pinned = false,
   dismissed = false,
   onDismiss,
-  onSave,
-  onUnsave,
+  onPin,
+  onUnpin,
   onShare,
   onOpenThread,
 }: Props) {
@@ -49,13 +49,13 @@ export function StoryListItem({
     onDismiss?.(story.id);
   }, [onDismiss, story.id]);
 
-  const handleSave = useCallback(() => {
-    onSave?.(story.id);
-  }, [onSave, story.id]);
+  const handlePin = useCallback(() => {
+    onPin?.(story.id);
+  }, [onPin, story.id]);
 
-  const handleUnsave = useCallback(() => {
-    onUnsave?.(story.id);
-  }, [onUnsave, story.id]);
+  const handleUnpin = useCallback(() => {
+    onUnpin?.(story.id);
+  }, [onUnpin, story.id]);
 
   const handleShare = useCallback(() => {
     onShare?.(story);
@@ -68,14 +68,14 @@ export function StoryListItem({
     onOpenThread?.(story.id);
   }, [onOpenThread, story.id]);
 
-  const handleToggleStar = useCallback(() => {
-    if (saved) onUnsave?.(story.id);
-    else onSave?.(story.id);
-  }, [saved, onSave, onUnsave, story.id]);
+  const handleTogglePin = useCallback(() => {
+    if (pinned) onUnpin?.(story.id);
+    else onPin?.(story.id);
+  }, [pinned, onPin, onUnpin, story.id]);
 
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
     onSwipeRight: onDismiss ? handleDismiss : undefined,
-    onSwipeLeft: onSave ? handleSave : undefined,
+    onSwipeLeft: onPin ? handlePin : undefined,
     onLongPress: openMenu,
   });
 
@@ -90,10 +90,10 @@ export function StoryListItem({
 
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
     const items: StoryRowMenuItem[] = [];
-    if (saved && onUnsave) {
-      items.push({ key: 'unsave', label: 'Unsave', onSelect: handleUnsave });
-    } else if (!saved && onSave) {
-      items.push({ key: 'save', label: 'Save', onSelect: handleSave });
+    if (pinned && onUnpin) {
+      items.push({ key: 'unpin', label: 'Unpin', onSelect: handleUnpin });
+    } else if (!pinned && onPin) {
+      items.push({ key: 'pin', label: 'Pin', onSelect: handlePin });
     }
     if (onDismiss) {
       items.push({ key: 'ignore', label: 'Ignore', onSelect: handleDismiss });
@@ -103,18 +103,18 @@ export function StoryListItem({
     }
     return items;
   }, [
-    saved,
-    onSave,
-    onUnsave,
+    pinned,
+    onPin,
+    onUnpin,
     onDismiss,
     onShare,
-    handleSave,
-    handleUnsave,
+    handlePin,
+    handleUnpin,
     handleDismiss,
     handleShare,
   ]);
 
-  const starLabel = saved ? `Unsave ${title}` : `Save ${title}`;
+  const pinLabel = pinned ? `Unpin ${title}` : `Pin ${title}`;
 
   return (
     <article
@@ -151,28 +151,28 @@ export function StoryListItem({
 
       <button
         type="button"
-        className={'star-btn' + (saved ? ' star-btn--active' : '')}
-        data-testid="star-btn"
-        aria-pressed={saved}
-        aria-label={starLabel}
-        title={saved ? 'Saved' : 'Save'}
-        onClick={handleToggleStar}
+        className={'pin-btn' + (pinned ? ' pin-btn--active' : '')}
+        data-testid="pin-btn"
+        aria-pressed={pinned}
+        aria-label={pinLabel}
+        title={pinned ? 'Unpin' : 'Pin'}
+        onClick={handleTogglePin}
       >
         <svg
-          className="star-btn__icon"
+          className="pin-btn__icon"
           viewBox="0 0 24 24"
           width="22"
           height="22"
+          fill="currentColor"
           aria-hidden="true"
           focusable="false"
         >
-          <path
-            fill={saved ? 'currentColor' : 'none'}
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-            d="M12 3.6l2.6 5.3 5.9.9-4.3 4.2 1 5.8L12 17l-5.2 2.8 1-5.8L3.5 9.8l5.9-.9z"
-          />
+          {/* Material Icons push_pin — Apache 2.0, Google. */}
+          {pinned ? (
+            <path d="M16 9V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z" />
+          ) : (
+            <path d="M14 4v5c0 1.12.37 2.16 1 3H9c.65-.86 1-1.9 1-3V4h4m3-2H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1z" />
+          )}
         </svg>
       </button>
 

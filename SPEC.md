@@ -8,16 +8,20 @@ Primary domain: **newshacker.app**. `hnews.app` is also owned and redirects (301
 
 "Hacker News" and "Y Combinator" are trademarks of Y Combinator; Newshacker is an unofficial third-party client and is not affiliated with or endorsed by YC. The app is always described as a *reader for Hacker News*, never as "Hacker News" itself, and does not use HN's logo as its own.
 
+## Language & spelling
+
+All user-visible copy, identifiers, comments, and documentation use **US English** (e.g. *favorite*, not *favourite*; *color*, not *colour*). This applies to code (variable and component names, localStorage keys, CSS class names) as well as to product text.
+
 ## Primary design problem
 
 The existing HN mobile site crams many small, adjacent tappable elements onto each row (title, domain, author, "hide", "past", "web", flag, comments count). On a 6" phone that produces frequent mis-taps. The UX goal of Newshacker is to **reduce the number of tap targets per row and give the ones that remain plenty of room**, while keeping the HN look.
 
 We achieve that by:
 
-1. **At most three tap zones per row**, always in the same positions: optional upvote on the left, the row body (title + meta) as a single stretched link, and a star button on the right. No hide, no past, no web, no flag, no inline author link, no rank number, no separate comments button.
+1. **At most three tap zones per row**, always in the same positions: optional upvote on the left, the row body (title + meta) as a single stretched link, and a pin button on the right. No hide, no past, no web, no flag, no inline author link, no rank number, no separate comments button.
 2. **Large, well-spaced hit areas.** Minimum 48×48px per tappable, ≥8px dead space between adjacent targets.
-3. **Metadata is display-only.** Domain, points, comment count, and age are plain text inside the row's stretched link; only the explicit upvote arrow, row body, and star button are distinct tap targets.
-4. **The star button is a real icon button** on the right, not an inline text link — visually obvious and easy to aim for.
+3. **Metadata is display-only.** Domain, points, comment count, and age are plain text inside the row's stretched link; only the explicit upvote arrow, row body, and pin button are distinct tap targets.
+4. **The pin button is a real icon button** on the right, not an inline text link — visually obvious and easy to aim for.
 5. **Obvious zones, not clever ones.** A reader should be able to glance at the row and know, without reading, what each tap will do.
 
 ## Goals
@@ -44,6 +48,28 @@ We achieve that by:
 - Logged-in HN users who want to read and upvote from mobile.
 
 ## Feature List
+
+### Pinned vs. Favorite — two intents, two buckets
+
+"Pin" and "Favorite" are deliberately separate so a single row-level action
+doesn't have to do double duty.
+
+- **Pinned (📌)** is your **active reading list**. You pin from a story row
+  (pin button, swipe-left, or long-press → Pin). Pins stay until you remove
+  them — explicit in, explicit out. The verb pair "Pin / Unpin" makes the
+  intent obvious in both directions, which "Star / Unstar" never quite did.
+- **Favorite (heart)** is a **permanent keepsake**. You favorite from the
+  **article comments view** (thread page), not from the row — a row-level
+  heart would add a fourth tap target and undo the whole "fewer, larger tap
+  zones" rule. Favorites never auto-expire and are not swept. The intent is
+  "I loved this and want to remember it", not "I want to come back to this
+  soon".
+
+The two lists live side by side in the drawer ("Favorites" above "Pinned")
+and each has its own localStorage key (`newshacker:favoriteStoryIds`,
+`newshacker:pinnedStoryIds`) so one is never silently interpreted as the
+other. The pinned-stories module performs a one-shot rename of the legacy
+`newshacker:savedStoryIds` key so existing readers don't lose their list.
 
 ### MVP (read-only)
 
@@ -138,15 +164,15 @@ This is the single most important UI decision in the app, so it is specified in 
 └──────────────────────────────────────────────────────────┘
    ^     ^                                                    ^
    |     |                                                    |
-  Vote  Row tap → thread (/item/:id)                        Star toggle:
-  (opt) (title + meta share one stretched link)            save / unsave
+  Vote  Row tap → thread (/item/:id)                         Pin toggle:
+  (opt) (title + meta share one stretched link)             pin / unpin
 ```
 
 Tap zones — there are never more than these three:
 
 - **▲ Upvote** (only when logged in; when logged out, the column collapses and the title shifts left). Min 48×48px. Stretch feature; see *Architecture*.
 - **Row body** — the title and meta line share a single stretched `<Link to="/item/:id">`, so a tap anywhere on the row opens the thread. The article itself is opened from a prominent "Read article" button on the thread page. Self-posts behave the same way (they've never had an external article to begin with).
-- **Star button** — a real icon button on the right, not an inline text link. Tapping toggles saved state. Has its own 48×48px hit area and ≥8px horizontal gap from the row body.
+- **Pin button** — a real icon button on the right, not an inline text link. Tapping toggles pinned state. Has its own 48×48px hit area and ≥8px horizontal gap from the row body.
 
 Everything else is display-only:
 
@@ -173,13 +199,13 @@ Thread page mirrors the same discipline: a single, full-width "Read article" but
 On feed pages the sticky orange header carries two feed-scoped action icons on the right. Both icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.
 
 - **Undo** (Material Symbols `undo`) — restores the most recent dismiss action: either the last swipe-to-dismiss, the last menu "Ignore", or the last sweep (the whole batch at once). One level of undo only; recording a new dismiss replaces the stored batch. Disabled when there is nothing to undo. Not persisted across reloads.
-- **Sweep unstarred** (Material Symbols `sweep`) — dismisses every visible unstarred story in one shot. Disabled when there are no unstarred stories to dismiss.
+- **Sweep unpinned** (Material Symbols `sweep`) — dismisses every visible unpinned story in one shot. Disabled when there are no unpinned stories to dismiss.
 
 Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols, outlined weight, viewBox `0 -960 960 960`, drawn with `fill="currentColor"`). No icon font, CSS, or web request is used to load them at runtime.
 
-On non-feed pages (thread, `/saved`, `/ignored`, etc.) these icons do not render at all.
+On non-feed pages (thread, `/pinned`, `/ignored`, etc.) these icons do not render at all.
 
-No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is always deliberate (swipe right, broom, or menu Ignore) — scroll-past does not auto-dismiss. Save/unsave don't toast either; the star button's pressed state is the single source of truth for saved state.
+No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is always deliberate (swipe right, broom, or menu Ignore) — scroll-past does not auto-dismiss. Pin/unpin don't toast either; the pin button's pressed state is the single source of truth for pinned state.
 
 ## Visual Design
 
@@ -188,7 +214,7 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 - Text: `#000` primary, `#828282` metadata.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
 - **Tap targets: ≥48×48px, ≥8px spacing between any two distinct targets.**
-- **At most 2 tappable zones per story row** (3 when logged in, counting the vote arrow): the stretched row link and the star button. Anything else is display-only.
+- **At most 2 tappable zones per story row** (3 when logged in, counting the vote arrow): the stretched row link and the pin button. Anything else is display-only.
 - Layout: single column, max-width ~720px, centered on desktop.
 - Active/pressed state on every tappable zone (subtle background darkening) so the user sees which region received their tap.
 
@@ -200,6 +226,10 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 | `/:feed` | story list (`feed` ∈ top, new, best, ask, show, jobs) |
 | `/item/:id` | story + comments |
 | `/user/:id` | user profile |
+| `/favorites` | favorite stories (permanent) |
+| `/pinned` | pinned stories (active reading list) |
+| `/opened` | recently opened stories (7-day history) |
+| `/ignored` | recently dismissed stories (7-day history) |
 | `/login` | login form (stretch) |
 
 ## Accessibility

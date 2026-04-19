@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getItems } from '../lib/hn';
 import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
-import { useSavedStories } from '../hooks/useSavedStories';
+import { usePinnedStories } from '../hooks/usePinnedStories';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
@@ -20,7 +20,7 @@ interface Props {
   };
 }
 
-export function SavedStoryList({
+export function LibraryStoryList({
   queryKey,
   ids,
   emptyMessage,
@@ -28,12 +28,12 @@ export function SavedStoryList({
 }: Props) {
   const { dismiss } = useDismissedStories();
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
-  const { savedIds, save, unsave } = useSavedStories();
+  const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
 
   const items = useQuery({
     queryKey: [
-      'savedStoryItems',
+      'libraryStoryItems',
       queryKey,
       ids.length,
       ids[0] ?? null,
@@ -89,10 +89,10 @@ export function SavedStoryList({
             rank={idx + 1}
             articleOpened={articleOpenedIds.has(story.id)}
             commentsOpened={commentsOpenedIds.has(story.id)}
-            saved={savedIds.has(story.id)}
+            pinned={pinnedIds.has(story.id)}
             onDismiss={dismiss}
-            onSave={save}
-            onUnsave={unsave}
+            onPin={pin}
+            onUnpin={unpin}
             onShare={shareStory}
             onOpenThread={markCommentsOpenedId}
           />

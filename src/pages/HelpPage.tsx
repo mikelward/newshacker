@@ -6,23 +6,23 @@ export function HelpPage() {
     <article className="about-page">
       <h1 className="about-page__title">Help</h1>
 
-      <h2 className="about-page__heading">Starring stories</h2>
+      <h2 className="about-page__heading">Pinning stories</h2>
       <p>
-        Star a story to keep it in your reading list. Use it as a
-        to-read list: star the ones you want to read, then sweep the rest.
+        Pin a story to keep it in your reading list. Use it as a
+        to-read list: pin the ones you want to read, then sweep the rest.
       </p>
       <ul>
         <li>
-          Tap the <strong>☆ star</strong> on the right of any row to
-          star it. Tap again to unstar.
+          Tap the <strong>📌 pin</strong> on the right of any row to
+          pin it. Tap again to unpin.
         </li>
         <li>
           <strong>Swipe a story left</strong> for the same toggle.
         </li>
       </ul>
       <p>
-        Starred stories live in <Link to="/saved">Saved</Link> in the
-        menu. They stay on your device until you unstar them.
+        Pinned stories live in <Link to="/pinned">Pinned</Link> in the
+        menu. They stay on your device until you unpin them.
       </p>
 
       <h2 className="about-page__heading">Dismissing stories</h2>
@@ -35,7 +35,7 @@ export function HelpPage() {
         </li>
         <li>
           Tap the <strong>sweep</strong> icon in the top bar to dismiss
-          every unstarred story on screen at once.
+          every unpinned story on screen at once.
         </li>
       </ul>
 
@@ -48,12 +48,12 @@ export function HelpPage() {
         and dismissals expire after seven days.
       </p>
 
-      <h2 className="about-page__heading">Starring vs. dismissing</h2>
+      <h2 className="about-page__heading">Pinning vs. dismissing</h2>
       <p>
-        <strong>Star</strong> keeps a story in your list.{' '}
+        <strong>Pin</strong> keeps a story in your list.{' '}
         <strong>Dismiss</strong> hides a story from the feed. You can
-        star and dismiss the same story — it stays on your starred
-        list even though it&rsquo;s gone from the feed.
+        pin and dismiss the same story — it stays on your pinned list
+        even though it&rsquo;s gone from the feed.
       </p>
 
       <p className="about-page__back">

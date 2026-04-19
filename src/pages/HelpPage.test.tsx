@@ -4,15 +4,15 @@ import { HelpPage } from './HelpPage';
 import { renderWithProviders } from '../test/renderUtils';
 
 describe('<HelpPage>', () => {
-  it('describes starring with both tap and swipe methods', () => {
+  it('describes pinning with both tap and swipe methods', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(
       screen.getByRole('heading', { level: 1, name: /help/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { level: 2, name: /starring stories/i }),
+      screen.getByRole('heading', { level: 2, name: /pinning stories/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/☆ star/i)).toBeInTheDocument();
+    expect(screen.getByText(/📌 pin/i)).toBeInTheDocument();
     expect(screen.getByText(/swipe a story left/i)).toBeInTheDocument();
   });
 
@@ -36,11 +36,11 @@ describe('<HelpPage>', () => {
     expect(screen.getByText(/eye/i, { selector: 'strong' })).toBeInTheDocument();
   });
 
-  it('links to the Saved and Ignored pages', () => {
+  it('links to the Pinned and Ignored pages', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
-    expect(screen.getByRole('link', { name: /saved/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /pinned/i })).toHaveAttribute(
       'href',
-      '/saved',
+      '/pinned',
     );
     expect(screen.getByRole('link', { name: /ignored/i })).toHaveAttribute(
       'href',

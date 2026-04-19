@@ -106,7 +106,7 @@ describe('<OpenedPage>', () => {
     expect(screen.getByText('Seven')).toBeInTheDocument();
   });
 
-  it('Forget all does not touch dismissed or saved stores', async () => {
+  it('Forget all does not touch dismissed or pinned stores', async () => {
     installHNFetchMock({
       items: { 7: makeStory(7, { title: 'Seven' }) },
     });
@@ -116,7 +116,7 @@ describe('<OpenedPage>', () => {
       JSON.stringify([{ id: 88, at: Date.now() }]),
     );
     window.localStorage.setItem(
-      'newshacker:savedStoryIds',
+      'newshacker:pinnedStoryIds',
       JSON.stringify([{ id: 99, at: Date.now() }]),
     );
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -140,9 +140,9 @@ describe('<OpenedPage>', () => {
     const dismissed = window.localStorage.getItem(
       'newshacker:dismissedStoryIds',
     );
-    const saved = window.localStorage.getItem('newshacker:savedStoryIds');
+    const pinned = window.localStorage.getItem('newshacker:pinnedStoryIds');
     expect(JSON.parse(dismissed as string)).toHaveLength(1);
-    expect(JSON.parse(saved as string)).toHaveLength(1);
+    expect(JSON.parse(pinned as string)).toHaveLength(1);
   });
 
   it('renders opened rows with the opened modifier class', async () => {

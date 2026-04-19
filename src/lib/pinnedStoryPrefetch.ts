@@ -3,11 +3,11 @@ import type { HNItem } from './hn';
 import { getItem } from './hn';
 import { summaryQueryOptions, SUMMARY_CACHE_TTL_MS } from '../hooks/useSummary';
 
-// When a user saves a story we try to make everything they'll need on the
-// saved page available without a second network trip: the item itself (for
+// When a user pins a story we try to make everything they'll need on the
+// pinned page available without a second network trip: the item itself (for
 // the title/domain/points row) and the AI summary. Both ride the same 7-day
-// persisted cache TTL as the saved-ids list.
-export function prefetchSavedStory(
+// persisted cache TTL as the pinned-ids list.
+export function prefetchPinnedStory(
   client: QueryClient,
   story: Pick<HNItem, 'id' | 'url'>,
 ): void {

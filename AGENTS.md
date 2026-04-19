@@ -17,9 +17,12 @@ Instructions for AI coding agents (Claude Code, etc.) working in this repo.
 2. **Always run tests automatically.** Before reporting a task as done, run `npm test` (and `npm run lint`, `npm run build` when relevant) and make them pass. Don't hand work back with red tests.
 3. Prefer editing existing files to creating new ones. Don't create docs/README files unless asked.
 4. Keep the UI mobile-first and the palette HN orange (`#ff6600` / `#f6f6ef`).
-5. **Fewer, larger tap targets.** A story row has exactly three possible tap zones — upvote (logged-in only), title, and the "N comments" button — in that left-to-right order. No inline text links in metadata rows. Min 48×48px per target, ≥8px between adjacent targets (≥12px between title column and the comments button). See *Story row layout* in `SPEC.md`; if a change would add another tappable element to a row, push back or flag it.
+5. **Fewer, larger tap targets.** A story row has exactly three possible tap zones — upvote (logged-in only), the row body (title + meta as a stretched link), and the pin button — in that left-to-right order. No inline text links in metadata rows. Min 48×48px per target, ≥8px between adjacent targets (≥12px between the title column and the pin button). See *Story row layout* in `SPEC.md`; if a change would add another tappable element to a row, push back or flag it.
+   - Corollary: per-story actions that don't already have a row zone (e.g. Favorite) live on the thread/comments page, not on the row.
 6. Don't introduce a backend service or database — HN's API + serverless proxy is enough.
 7. Don't implement flagging, moderation, submitting stories, or submitting comments.
+8. **US English everywhere.** Product copy, identifiers, CSS class names, localStorage keys, and comments all use US spelling (e.g. `favorite`, not `favourite`).
+9. **Pinned ≠ Favorite.** Pinned (📌, on the row) is the active reading list — explicit pin, explicit unpin, no auto-pruning. Favorite (heart, on the thread page) is the permanent keepsake — never swept, never expired. Keep the two stores, hooks, and UI paths independent. localStorage keys: `newshacker:pinnedStoryIds`, `newshacker:favoriteStoryIds`.
 
 ## Commands
 

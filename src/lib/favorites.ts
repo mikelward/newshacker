@@ -1,7 +1,7 @@
-const STORAGE_KEY = 'newshacker:savedStoryIds';
-export const SAVED_STORIES_CHANGE_EVENT = 'newshacker:savedStoriesChanged';
+const STORAGE_KEY = 'newshacker:favoriteStoryIds';
+export const FAVORITES_CHANGE_EVENT = 'newshacker:favoritesChanged';
 
-interface SavedEntry {
+interface FavoriteEntry {
   id: number;
   at: number;
 }
@@ -10,16 +10,16 @@ function hasWindow(): boolean {
   return typeof window !== 'undefined';
 }
 
-function isEntry(x: unknown): x is SavedEntry {
+function isEntry(x: unknown): x is FavoriteEntry {
   return (
     typeof x === 'object' &&
     x !== null &&
-    typeof (x as SavedEntry).id === 'number' &&
-    typeof (x as SavedEntry).at === 'number'
+    typeof (x as FavoriteEntry).id === 'number' &&
+    typeof (x as FavoriteEntry).at === 'number'
   );
 }
 
-function readEntries(): SavedEntry[] {
+function readEntries(): FavoriteEntry[] {
   if (!hasWindow()) return [];
   let raw: string | null;
   try {
@@ -38,37 +38,37 @@ function readEntries(): SavedEntry[] {
   return parsed.filter(isEntry);
 }
 
-function writeEntries(entries: SavedEntry[]): void {
+function writeEntries(entries: FavoriteEntry[]): void {
   if (!hasWindow()) return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch {
     // quota or privacy-mode failures are non-fatal
   }
-  window.dispatchEvent(new CustomEvent(SAVED_STORIES_CHANGE_EVENT));
+  window.dispatchEvent(new CustomEvent(FAVORITES_CHANGE_EVENT));
 }
 
-export function getSavedIds(): Set<number> {
+export function getFavoriteIds(): Set<number> {
   return new Set(readEntries().map((e) => e.id));
 }
 
-export function getSavedEntries(): Array<{ id: number; at: number }> {
+export function getFavoriteEntries(): Array<{ id: number; at: number }> {
   return readEntries().map((e) => ({ ...e }));
 }
 
-export function addSavedId(id: number, now: number = Date.now()): void {
+export function addFavoriteId(id: number, now: number = Date.now()): void {
   const entries = readEntries().filter((e) => e.id !== id);
   entries.push({ id, at: now });
   writeEntries(entries);
 }
 
-export function removeSavedId(id: number): void {
+export function removeFavoriteId(id: number): void {
   const before = readEntries();
   const after = before.filter((e) => e.id !== id);
   if (after.length === before.length) return;
   writeEntries(after);
 }
 
-export function clearSavedIds(): void {
+export function clearFavoriteIds(): void {
   writeEntries([]);
 }

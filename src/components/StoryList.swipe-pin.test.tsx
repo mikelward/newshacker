@@ -24,7 +24,7 @@ function dispatchPointer(
   });
 }
 
-describe('<StoryList> save-on-left-swipe', () => {
+describe('<StoryList> pin-on-left-swipe', () => {
   beforeEach(() => {
     window.localStorage.clear();
     Object.defineProperty(Element.prototype, 'setPointerCapture', {
@@ -51,7 +51,7 @@ describe('<StoryList> save-on-left-swipe', () => {
     vi.useRealTimers();
   });
 
-  it('saves a story after a left swipe past the threshold and persists the id', async () => {
+  it('pins a story after a left swipe past the threshold and persists the id', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const ids = [10, 20, 30];
     const items = Object.fromEntries(
@@ -77,7 +77,7 @@ describe('<StoryList> save-on-left-swipe', () => {
       vi.advanceTimersByTime(300);
     });
 
-    const stored = window.localStorage.getItem('newshacker:savedStoryIds');
+    const stored = window.localStorage.getItem('newshacker:pinnedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{
       id: number;
@@ -85,18 +85,18 @@ describe('<StoryList> save-on-left-swipe', () => {
     }>;
     expect(parsed.map((e) => e.id)).toContain(20);
 
-    // Unlike dismiss, save should NOT remove the row from the feed.
+    // Unlike dismiss, pin should NOT remove the row from the feed.
     expect(screen.getAllByTestId('story-row')).toHaveLength(3);
 
-    // The starred row's star button reflects saved state — no toast fires.
+    // The pinned row's pin button reflects pinned state — no toast fires.
     const toastHost = screen.queryByTestId('toast-host');
     if (toastHost) {
-      expect(within(toastHost).queryByText('Saved')).toBeNull();
+      expect(within(toastHost).queryByText(/pinned/i)).toBeNull();
     }
-    const savedRow = screen
+    const pinnedRow = screen
       .getAllByTestId('story-row')
       .find((r) => r.textContent?.includes('Story 20'))!;
-    expect(within(savedRow).getByTestId('star-btn')).toHaveAttribute(
+    expect(within(pinnedRow).getByTestId('pin-btn')).toHaveAttribute(
       'aria-pressed',
       'true',
     );

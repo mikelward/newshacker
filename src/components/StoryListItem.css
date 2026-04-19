@@ -114,7 +114,7 @@
   text-overflow: ellipsis;
 }
 
-.star-btn {
+.pin-btn {
   position: relative;
   z-index: 2;
   flex-shrink: 0;
@@ -133,19 +133,19 @@
   margin-left: 4px;
 }
 
-.star-btn:hover {
+.pin-btn:hover {
   background: var(--hn-pressed);
   color: var(--hn-orange);
 }
 
-.star-btn:active {
+.pin-btn:active {
   background: var(--hn-border);
 }
 
-.star-btn--active {
+.pin-btn--active {
   color: var(--hn-orange);
 }
 
-.star-btn__icon {
+.pin-btn__icon {
   display: block;
 }
