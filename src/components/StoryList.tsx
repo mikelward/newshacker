@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
@@ -17,6 +17,14 @@ import './StoryList.css';
 
 interface Props {
   feed: Feed;
+}
+
+function measureHeaderInset(): number {
+  if (typeof document === 'undefined') return 0;
+  const header = document.querySelector('.app-header');
+  if (!header) return 0;
+  const rect = header.getBoundingClientRect();
+  return Math.max(0, Math.ceil(rect.bottom));
 }
 
 export function StoryList({ feed }: Props) {
@@ -61,12 +69,92 @@ export function StoryList({ feed }: Props) {
     [items, dismissedIds, showDismissed],
   );
 
+  // Sweep only applies to rows the user can actually see *right now*, not
+  // the whole rendered list. A row counts as "in view" iff its bounding
+  // box sits entirely inside the viewport minus the sticky app header.
+  // We track that via a shared IntersectionObserver whose rootMargin
+  // shrinks the top of the viewport by the current header height.
+  const [inViewIds, setInViewIds] = useState<Set<number>>(() => new Set());
+  const rowEls = useRef<Map<number, HTMLLIElement>>(new Map());
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const [headerInset, setHeaderInset] = useState<number>(() =>
+    measureHeaderInset(),
+  );
+
+  useEffect(() => {
+    const update = () => setHeaderInset(measureHeaderInset());
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        setInViewIds((prev) => {
+          const next = new Set(prev);
+          for (const entry of entries) {
+            const el = entry.target as HTMLElement;
+            const id = Number(el.dataset.storyId);
+            if (!id) continue;
+            // "Fully visible" — intersectionRatio can round to just under 1
+            // for sub-pixel layouts, so treat very close to 1 as fully in.
+            if (entry.intersectionRatio >= 0.999) next.add(id);
+            else next.delete(id);
+          }
+          return next;
+        });
+      },
+      { threshold: [0, 1], rootMargin: `-${headerInset}px 0px 0px 0px` },
+    );
+    observerRef.current = io;
+    for (const el of rowEls.current.values()) io.observe(el);
+    return () => {
+      io.disconnect();
+      observerRef.current = null;
+    };
+  }, [headerInset]);
+
+  const rowRefCache = useRef<
+    Map<number, (el: HTMLLIElement | null) => void>
+  >(new Map());
+  const getRowRef = useCallback((id: number) => {
+    const cached = rowRefCache.current.get(id);
+    if (cached) return cached;
+    const setRef = (el: HTMLLIElement | null) => {
+      const io = observerRef.current;
+      const prev = rowEls.current.get(id);
+      if (prev && prev !== el) {
+        io?.unobserve(prev);
+        rowEls.current.delete(id);
+        setInViewIds((s) => {
+          if (!s.has(id)) return s;
+          const next = new Set(s);
+          next.delete(id);
+          return next;
+        });
+      }
+      if (el) {
+        rowEls.current.set(id, el);
+        io?.observe(el);
+      }
+    };
+    rowRefCache.current.set(id, setRef);
+    return setRef;
+  }, []);
+
   const sweepableIds = useMemo(
     () =>
       visibleStories
         .map((s) => s.id)
-        .filter((id) => !savedIds.has(id) && !dismissedIds.has(id)),
-    [visibleStories, savedIds, dismissedIds],
+        .filter(
+          (id) =>
+            inViewIds.has(id) &&
+            !savedIds.has(id) &&
+            !dismissedIds.has(id),
+        ),
+    [visibleStories, inViewIds, savedIds, dismissedIds],
   );
 
   const handleSweep = useCallback(() => {
@@ -116,6 +204,7 @@ export function StoryList({ feed }: Props) {
         {visibleStories.map((story, idx) => (
           <li
             key={story.id}
+            ref={getRowRef(story.id)}
             className="story-list__item"
             data-story-id={story.id}
           >
