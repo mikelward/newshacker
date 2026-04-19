@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import { Thread } from '../components/Thread';
+import { Thread, TOP_LEVEL_PAGE_SIZE } from '../components/Thread';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+import {
+  installIntersectionObserverMock,
+  uninstallIntersectionObserverMock,
+} from '../test/intersectionObserver';
 import type { HNItem } from '../lib/hn';
 
 function comment(id: number, overrides: Partial<HNItem> = {}): HNItem {
@@ -20,9 +24,11 @@ function comment(id: number, overrides: Partial<HNItem> = {}): HNItem {
 describe('useItemTree batching', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    installIntersectionObserverMock();
   });
   afterEach(() => {
     window.localStorage.clear();
+    uninstallIntersectionObserverMock();
   });
 
   it('loads the first page of top-level comments via a single /api/items batch', async () => {
@@ -91,5 +97,49 @@ describe('useItemTree batching', () => {
       expect(screen.getByText('body 2001')).toBeInTheDocument();
       expect(screen.getByText('body 2003')).toBeInTheDocument();
     });
+  });
+
+  it('fires another /api/items batch when the reader scrolls past the first page', async () => {
+    // 40 kids = 2 full pages. The mock IntersectionObserver fires
+    // ratio=1 on observe, so the sentinel triggers onLoadMore as soon
+    // as it mounts — exercising the same pagination path a real scroll
+    // would. We expect exactly two batches: the initial useItemTree
+    // prefetch, plus the pagination batch for the uncached second page.
+    const total = TOP_LEVEL_PAGE_SIZE * 2;
+    const kids = Array.from({ length: total }, (_, i) => 3000 + i);
+    const items: Record<number, HNItem> = {
+      42: makeStory(42, { kids, descendants: total }),
+    };
+    for (const id of kids) items[id] = comment(id);
+
+    const fetchMock = installHNFetchMock({ items });
+
+    renderWithProviders(<Thread id={42} />, { route: '/item/42' });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(`body ${kids[TOP_LEVEL_PAGE_SIZE]}`),
+      ).toBeInTheDocument();
+    });
+
+    const batchCalls = fetchMock.mock.calls
+      .map((c) => (typeof c[0] === 'string' ? c[0] : c[0].toString()))
+      .filter((u) => u.includes('/api/items'));
+    expect(batchCalls).toHaveLength(2);
+
+    const firstIds = new URL(batchCalls[0], 'http://localhost').searchParams
+      .get('ids')
+      ?.split(',')
+      .map(Number);
+    const secondIds = new URL(batchCalls[1], 'http://localhost').searchParams
+      .get('ids')
+      ?.split(',')
+      .map(Number);
+    // Initial batch covers up to the shared 30-item cap (kids 0..29).
+    // Pagination's slice(20, 40) runs through the "already cached?"
+    // filter, so the second batch only carries the ids missing from
+    // the first batch — kids 30..39.
+    expect(firstIds).toEqual(kids.slice(0, 30));
+    expect(secondIds).toEqual(kids.slice(30, 40));
   });
 });
