@@ -89,6 +89,25 @@ describe('handleItemsRequest', () => {
     expect(item?.url).toBe('https://example.com/1');
   });
 
+  it('preserves kids when fields=full (comment-prefetch needs reply counts)', async () => {
+    const fetchItem = async (id: number) => story(id);
+    const res = await handleItemsRequest(makeRequest('ids=1&fields=full'), {
+      fetchItem,
+    });
+    const [item] = (await res.json()) as Array<HNItem | null>;
+    expect(item).not.toBeNull();
+    expect(item?.kids).toEqual([1001, 2001]);
+  });
+
+  it('ignores unknown fields= values and falls back to thin output', async () => {
+    const fetchItem = async (id: number) => story(id);
+    const res = await handleItemsRequest(makeRequest('ids=1&fields=junk'), {
+      fetchItem,
+    });
+    const [item] = (await res.json()) as Array<HNItem | null>;
+    expect(item).not.toHaveProperty('kids');
+  });
+
   it('returns null for ids that Firebase resolves to null (deleted / unknown)', async () => {
     const fetchItem = async (id: number) => (id === 2 ? null : story(id));
     const res = await handleItemsRequest(makeRequest('ids=1,2,3'), {
