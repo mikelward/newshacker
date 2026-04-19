@@ -75,20 +75,13 @@
 
 .thread__summary-card {
   margin-bottom: 12px;
-  padding: 12px 14px;
-  background: var(--hn-bg-card);
-  border: 1px solid var(--hn-border);
-  border-left: 3px solid var(--hn-orange);
-  border-radius: 8px;
 }
 
-.thread__summary-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--hn-orange);
-  margin-bottom: 6px;
+.thread__summary-loading {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--hn-meta);
 }
 
 .thread__summary-body {
