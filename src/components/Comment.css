@@ -15,6 +15,7 @@
   display: flex;
   align-items: baseline;
   margin-top: 6px;
+  padding-left: 1px;
   font-size: 13px;
   color: var(--hn-meta);
 }

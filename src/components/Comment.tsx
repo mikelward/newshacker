@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useCommentItem } from '../hooks/useItemTree';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { formatTimeAgo, pluralize } from '../lib/format';
@@ -51,7 +52,7 @@ export function Comment({ id, depth }: Props) {
       `${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`,
     );
   }
-  const metaText = metaParts.join(' · ');
+  const metaSuffix = metaParts.length ? ` · ${metaParts.join(' · ')}` : '';
 
   return (
     <div
@@ -71,6 +72,11 @@ export function Comment({ id, depth }: Props) {
         dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
       />
       <div className="comment__header">
+        {item.by ? (
+          <Link to={`/user/${item.by}`} className="comment__author">
+            {item.by}
+          </Link>
+        ) : null}
         <button
           type="button"
           className="comment__toggle"
@@ -78,7 +84,7 @@ export function Comment({ id, depth }: Props) {
           aria-label={isExpanded ? 'Collapse comment' : 'Expand comment'}
           onClick={toggle}
         >
-          {metaText}
+          {metaSuffix}
         </button>
         {isExpanded ? (
           <a

@@ -130,6 +130,26 @@ describe('<Thread>', () => {
     expect(body).toHaveClass('comment__body--clamped');
   });
 
+  it('renders the comment author as an internal link to /user/<by>', async () => {
+    installHNFetchMock({
+      items: {
+        500: makeStory(500, { kids: [501], descendants: 1 }),
+        501: {
+          id: 501,
+          type: 'comment',
+          by: 'alice',
+          text: 'comment body',
+          time: 1,
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={500} />);
+
+    const author = await screen.findByRole('link', { name: 'alice' });
+    expect(author).toHaveAttribute('href', '/user/alice');
+  });
+
   it('shows a "Reply on HN" link on expanded comments, hidden when collapsed', async () => {
     installHNFetchMock({
       items: {
