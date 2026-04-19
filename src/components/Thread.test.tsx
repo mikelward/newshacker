@@ -222,6 +222,74 @@ describe('<Thread>', () => {
     );
   });
 
+  it('Summarize button swaps to a summary card after a successful fetch', async () => {
+    installHNFetchMock({
+      items: {
+        800: makeStory(800, { title: 'Linky', url: 'https://example.com/800' }),
+      },
+      summaries: {
+        'https://example.com/800': {
+          summary: 'A concise one-sentence summary.',
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={800} />);
+    const button = await screen.findByTestId('thread-summarize');
+    expect(button).toHaveTextContent(/summarize/i);
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-summary-card')).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText('A concise one-sentence summary.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('thread-summarize')).toBeNull();
+  });
+
+  it('shows an error + Retry in the summary card when the api fails', async () => {
+    installHNFetchMock({
+      items: {
+        810: makeStory(810, { title: 'Flaky', url: 'https://example.com/810' }),
+      },
+      summaries: {
+        'https://example.com/810': { error: 'Summarization failed', status: 502 },
+      },
+    });
+
+    renderWithProviders(<Thread id={810} />);
+    const button = await screen.findByTestId('thread-summarize');
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not summarize/i)).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole('button', { name: /retry/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not render the Summarize button for self-posts without a url', async () => {
+    installHNFetchMock({
+      items: {
+        850: makeStory(850, {
+          title: 'Ask HN: no url',
+          url: undefined,
+          text: 'a self post',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={850} />);
+    await waitFor(() => {
+      expect(screen.getByText('Ask HN: no url')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('thread-summarize')).toBeNull();
+  });
+
   it('paginates top-level comments (only renders first page)', async () => {
     const totalKids = TOP_LEVEL_PAGE_SIZE + 5;
     const kidIds = Array.from({ length: totalKids }, (_, i) => 1000 + i);
