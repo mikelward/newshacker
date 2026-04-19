@@ -22,6 +22,7 @@ export const TOP_LEVEL_PAGE_SIZE = 20;
 
 function SummaryCard({ url }: { url: string }) {
   const { data, isFetching, isError, error, refetch } = useSummary(url, true);
+  const loading = isFetching && !data;
 
   return (
     <div
@@ -30,12 +31,24 @@ function SummaryCard({ url }: { url: string }) {
       role="region"
       aria-label="AI summary"
       aria-live="polite"
+      aria-busy={loading}
     >
       <div className="thread__summary-label">AI summary</div>
-      {isFetching && !data ? (
-        <p className="thread__summary-body thread__summary-body--muted">
-          Summarizing…
-        </p>
+      {loading ? (
+        <div
+          className="thread__summary-skeleton"
+          data-testid="thread-summary-skeleton"
+          aria-hidden="true"
+        >
+          <span className="thread__summary-skeleton-line" />
+          <span className="thread__summary-skeleton-line" />
+          <span className="thread__summary-skeleton-line" />
+          <span className="thread__summary-skeleton-line" />
+          <span className="thread__summary-skeleton-line thread__summary-skeleton-line--short" />
+        </div>
+      ) : null}
+      {loading ? (
+        <span className="visually-hidden">Summarizing…</span>
       ) : null}
       {data ? <p className="thread__summary-body">{data.summary}</p> : null}
       {isError && !isFetching ? (
