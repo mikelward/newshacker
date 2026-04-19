@@ -18,6 +18,22 @@ export function installHNFetchMock(fixtures: Fixtures) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
 
+    if (url.includes('/api/items')) {
+      const parsed = new URL(url, 'http://localhost');
+      const raw = parsed.searchParams.get('ids') ?? '';
+      const ids = raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map(Number)
+        .filter((n) => Number.isFinite(n));
+      const body = ids.map((id) => fixtures.items?.[id] ?? null);
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
     if (url.includes('/api/summary')) {
       const parsed = new URL(url, 'http://localhost');
       const articleUrl = parsed.searchParams.get('url') ?? '';
