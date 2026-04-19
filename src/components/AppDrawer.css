@@ -20,7 +20,7 @@
   z-index: 1;
   width: min(80vw, 320px);
   height: 100%;
-  background: var(--hn-bg, #f6f6ef);
+  background: var(--hn-cream);
   border-right: 1px solid var(--hn-border);
   overflow-y: auto;
   padding: 16px 12px;
