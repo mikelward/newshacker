@@ -82,7 +82,7 @@ other. The pinned-stories module performs a one-shot rename of the legacy
 
 2. **Thread view**
    - Story header (title, link, points, author, age, text if self-post).
-   - Nested comments with collapse/expand.
+   - Nested comments, each collapsed by default with a 3-line body preview. See *Comment row layout*.
    - Deep-linkable: `/item/:id`.
 
 3. **User view (minimal)**
@@ -192,7 +192,39 @@ Spacing / sizing:
 - Min dead space between adjacent tap zones: 8px.
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
 
-Thread page mirrors the same discipline: a single, full-width "Read article" button at the top of a story view (hidden for self-posts); comment collapse/expand and user links are each their own clearly-demarcated zones.
+Thread page mirrors the same discipline: a single, full-width "Read article" button at the top of a story view (hidden for self-posts), and a single primary tap target per comment row. See *Comment row layout* below.
+
+## Comment row layout
+
+Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, the **Reply on HN** link on expanded comments, and any future upvote/downvote buttons) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ alice · 4m · 12 replies                                  │
+│ First three lines of the comment body are shown here     │
+│ as a preview, clipped with an ellipsis if longer than    │
+│ three lines…                                             │
+└──────────────────────────────────────────────────────────┘
+```
+
+Collapsed state (default):
+
+- Meta row: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px.
+- Body clamped to 3 lines (CSS `-webkit-line-clamp: 3`), 15px to match the AI summary card.
+- No action row, no children.
+- Cursor is `pointer`.
+
+Expanded state:
+
+- Background tints to `--hn-pressed` so the active node stands out in a long thread.
+- Body shows in full.
+- A bottom **action row** appears holding a muted `Reply on HN ↗` link (`news.ycombinator.com/reply?id=:id`, opens in a new tab). The row is laid out as a flex row with a gap so upvote/downvote buttons can slot in alongside later.
+- Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
+- Cursor reverts to `default` (reading state).
+
+A real `<button>` inside the meta row carries `aria-expanded` and the keyboard-accessible `Expand comment` / `Collapse comment` label, even though on-screen it just reads as the plain meta text.
+
+Deleted, dead, and empty comments are not rendered at all — including their subtrees — so a thread never shows "[deleted]" placeholder rows.
 
 ## Top bar controls
 
@@ -248,7 +280,7 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 ## Error Handling
 
 - Network/Firebase errors: inline retry button.
-- Missing/dead/deleted items: show `[deleted]` / `[dead]` placeholder, don't 500.
+- Missing/dead/deleted stories: show `[deleted]` / `[dead]` placeholder, don't 500. Deleted, dead, and empty *comments* are filtered out of the thread entirely.
 - Vote/login failures (stretch): toast with HN's returned message when possible.
 
 ## Testing

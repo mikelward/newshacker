@@ -13,7 +13,7 @@ interface Props {
 const MAX_INDENT = 6;
 
 export function Comment({ id, depth }: Props) {
-  const [repliesCollapsed, setRepliesCollapsed] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const { data: item, isLoading } = useCommentItem(id);
 
   const indent = Math.min(depth, MAX_INDENT);
@@ -28,75 +28,75 @@ export function Comment({ id, depth }: Props) {
         aria-busy="true"
       >
         <div className="comment__header">
-          <div className="comment__meta">
-            <span className="comment__author">…</span>
-          </div>
+          <span className="comment__author">…</span>
         </div>
       </div>
     );
   }
 
-  const isDead = item.deleted || item.dead;
+  if (item.deleted || item.dead || !item.text) {
+    return null;
+  }
+
   const age = item.time ? formatTimeAgo(item.time) : '';
   const kids = item.kids ?? [];
   const hasReplies = kids.length > 0;
-  const repliesLabel = `${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`;
+  const toggle = () => setIsExpanded((v) => !v);
+
+  const metaParts: string[] = [];
+  if (age) metaParts.push(age);
+  if (hasReplies) {
+    metaParts.push(
+      `${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`,
+    );
+  }
+  const metaSuffix = metaParts.length ? ` · ${metaParts.join(' · ')}` : '';
 
   return (
     <div
-      className={`comment${repliesCollapsed ? ' is-collapsed' : ''}`}
+      className={`comment${isExpanded ? ' is-expanded' : ''}`}
       data-depth={indent}
       style={indentStyle}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('a, button')) return;
+        e.stopPropagation();
+        toggle();
+      }}
     >
       <div className="comment__header">
-        {hasReplies ? (
-          <button
-            type="button"
-            className="comment__toggle"
-            aria-expanded={!repliesCollapsed}
-            aria-label={
-              repliesCollapsed ? `Show ${repliesLabel}` : `Hide ${repliesLabel}`
-            }
-            onClick={() => setRepliesCollapsed((c) => !c)}
-          >
-            {repliesCollapsed ? '+' : '−'}
-          </button>
+        {item.by ? (
+          <Link to={`/user/${item.by}`} className="comment__author">
+            {item.by}
+          </Link>
         ) : null}
-        <div className="comment__meta">
-          {item.by && !isDead ? (
-            <Link to={`/user/${item.by}`} className="comment__author">
-              {item.by}
-            </Link>
-          ) : (
-            <span className="comment__author">
-              {item.deleted ? '[deleted]' : item.dead ? '[dead]' : ''}
-            </span>
-          )}
-          {age ? <span className="comment__age"> · {age}</span> : null}
-          {hasReplies && repliesCollapsed ? (
-            <span className="comment__count">
-              {' '}
-              · {repliesLabel}
-            </span>
-          ) : null}
-        </div>
-      </div>
-      {!isDead && item.text ? (
-        <div
-          className="comment__body"
-          dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
-        />
-      ) : null}
-      {hasReplies && repliesCollapsed ? (
         <button
           type="button"
-          className="comment__replies"
-          onClick={() => setRepliesCollapsed(false)}
+          className="comment__toggle"
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? 'Collapse comment' : 'Expand comment'}
+          onClick={toggle}
         >
-          {repliesLabel}
+          {metaSuffix}
         </button>
+      </div>
+      <div
+        className={`comment__body${isExpanded ? '' : ' comment__body--clamped'}`}
+        dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
+      />
+      {isExpanded ? (
+        <div className="comment__actions">
+          <a
+            className="comment__action"
+            href={`https://news.ycombinator.com/reply?id=${id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Reply on HN ↗
+          </a>
+        </div>
       ) : null}
-      {hasReplies && !repliesCollapsed ? (
+      {hasReplies && isExpanded ? (
         <ol className="comment__children">
           {kids.map((kidId) => (
             <li key={kidId}>

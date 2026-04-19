@@ -49,6 +49,21 @@ is plain text inside the meta line. Long-pressing a row still opens a
 small menu with Pin/Unpin, Ignore and Share; swiping does the same
 triage without the menu (left = pin, right = ignore).
 
+## A comment row
+
+Comments on the thread page follow the same "one tap zone" rule. Each
+comment starts collapsed, showing the author, age, reply count, and
+the first three lines of the body. Tapping anywhere on the row
+expands it: the full body appears, and its immediate replies show up
+below — each itself a three-line preview that you can tap to drill
+in. Tapping again collapses back.
+
+Tapping the author name still goes to their profile, and an expanded
+comment picks up a muted **Reply on HN ↗** link at the bottom that
+hands you off to Hacker News itself — Newshacker doesn't submit
+comments. Deleted and empty comments are hidden from the thread
+entirely.
+
 ## Opened
 
 A story is "opened" the moment you tap it. Newshacker tracks the two

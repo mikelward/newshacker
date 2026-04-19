@@ -36,6 +36,16 @@ describe('<HelpPage>', () => {
     expect(screen.getByText(/eye/i, { selector: 'strong' })).toBeInTheDocument();
   });
 
+  it('explains that comments start collapsed and tap expands them', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /reading comments/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/three lines/i)).toBeInTheDocument();
+    expect(screen.getByText(/tap a comment/i)).toBeInTheDocument();
+    expect(screen.getByText(/reply on hn/i)).toBeInTheDocument();
+  });
+
   it('links to the Pinned and Ignored pages', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(screen.getByRole('link', { name: /pinned/i })).toHaveAttribute(

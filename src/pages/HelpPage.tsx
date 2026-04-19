@@ -48,6 +48,34 @@ export function HelpPage() {
         and dismissals expire after seven days.
       </p>
 
+      <h2 className="about-page__heading">Reading comments</h2>
+      <p>
+        Open a thread and every comment starts <strong>collapsed</strong>
+        {' '}— you see the author, age, reply count, and the first three
+        lines of the body.
+      </p>
+      <ul>
+        <li>
+          <strong>Tap a comment</strong> to expand it. The full body
+          appears, and its direct replies show up below as their own
+          three-line previews. Tap any of those to drill in.
+        </li>
+        <li>
+          Tap the comment again to collapse it back.
+        </li>
+        <li>
+          Tapping the <strong>author name</strong> opens their profile.
+          Tapping a link inside a comment opens the link — neither one
+          toggles the comment.
+        </li>
+        <li>
+          Expanded comments pick up a muted{' '}
+          <strong>Reply on HN ↗</strong> link at the bottom. Newshacker
+          doesn&rsquo;t submit comments itself, so that link hands you
+          off to Hacker News to write the reply there.
+        </li>
+      </ul>
+
       <h2 className="about-page__heading">Pinning vs. dismissing</h2>
       <p>
         <strong>Pin</strong> keeps a story in your list.{' '}
