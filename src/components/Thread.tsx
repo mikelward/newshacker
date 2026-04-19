@@ -4,12 +4,12 @@ import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useSavedStories } from '../hooks/useSavedStories';
 import { useSummary } from '../hooks/useSummary';
-import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
+import { formatTimeAgo, pluralize } from '../lib/format';
+import { markArticleOpenedId } from '../lib/openedStories';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
-import { useToast } from '../hooks/useToast';
 import './Thread.css';
 
 interface Props {
@@ -82,16 +82,10 @@ export function Thread({ id }: Props) {
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
   const { isSaved, save, unsave } = useSavedStories();
   const saved = isSaved(id);
-  const { showToast } = useToast();
   const handleToggleSaved = useCallback(() => {
-    if (saved) {
-      unsave(id);
-      showToast({ message: 'Unsaved' });
-    } else {
-      save(id);
-      showToast({ message: 'Saved' });
-    }
-  }, [saved, id, save, unsave, showToast]);
+    if (saved) unsave(id);
+    else save(id);
+  }, [saved, id, save, unsave]);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
@@ -130,7 +124,6 @@ export function Thread({ id }: Props) {
     );
   }
 
-  const domain = extractDomain(item.url);
   const age = item.time ? formatTimeAgo(item.time) : '';
   const points = item.score ?? 0;
   const commentCount = item.descendants ?? 0;
@@ -146,8 +139,9 @@ export function Thread({ id }: Props) {
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => markArticleOpenedId(item.id)}
           >
-            Read article{domain ? ` · ${domain}` : ''}
+            Read article
           </a>
         ) : null}
         <button

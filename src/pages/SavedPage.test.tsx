@@ -49,7 +49,7 @@ describe('<SavedPage>', () => {
     });
 
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: /unsave/i }));
+      fireEvent.click(screen.getByTestId('star-btn'));
     });
 
     await waitFor(() => {

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import { StoryList } from './StoryList';
-import { ToastProvider } from './Toast';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addDismissedId } from '../lib/dismissedStories';
@@ -105,51 +104,5 @@ describe('<StoryList> dismissed-story handling', () => {
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number; at: number }>;
     expect(parsed.map((e) => e.id)).toContain(20);
-  });
-
-  it('batches rapid swipes into the same undo toast as scroll-dismiss', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const ids = [10, 20, 30, 40];
-    const items = Object.fromEntries(
-      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
-    );
-    installHNFetchMock({ feeds: { topstories: ids }, items });
-
-    renderWithProviders(
-      <ToastProvider>
-        <StoryList feed="top" />
-      </ToastProvider>,
-    );
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(4);
-    });
-
-    const swipeRowByText = async (title: string) => {
-      const row = screen
-        .getAllByTestId('story-row')
-        .find((el) => el.textContent?.includes(title));
-      if (!row) throw new Error(`row "${title}" not found`);
-      dispatchPointer(row, 'pointerdown', 20, 50);
-      dispatchPointer(row, 'pointermove', 180, 50);
-      dispatchPointer(row, 'pointerup', 180, 50);
-      await act(async () => {
-        vi.advanceTimersByTime(300);
-      });
-    };
-
-    await swipeRowByText('Story 10');
-    await waitFor(() => expect(screen.queryByText('Story 10')).toBeNull());
-    await swipeRowByText('Story 20');
-    await waitFor(() => expect(screen.queryByText('Story 20')).toBeNull());
-
-    expect(screen.getByText('Dismissed 2')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /undo/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Story 10')).toBeInTheDocument();
-      expect(screen.getByText('Story 20')).toBeInTheDocument();
-    });
   });
 });

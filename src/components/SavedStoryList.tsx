@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getItems } from '../lib/hn';
 import { useDismissedStories } from '../hooks/useDismissedStories';
@@ -7,8 +6,8 @@ import { useSavedStories } from '../hooks/useSavedStories';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
-import { useToast } from '../hooks/useToast';
 import { useShareStory } from '../hooks/useShareStory';
+import { markCommentsOpenedId } from '../lib/openedStories';
 import './StoryList.css';
 
 interface Props {
@@ -28,23 +27,9 @@ export function SavedStoryList({
   recover,
 }: Props) {
   const { dismiss } = useDismissedStories();
-  const { articleOpenedIds, commentsOpenedIds, markOpened } =
-    useOpenedStories();
+  const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { savedIds, save, unsave } = useSavedStories();
-  const { showToast } = useToast();
   const shareStory = useShareStory();
-
-  const handleUnsave = useCallback(
-    (id: number) => {
-      unsave(id);
-      showToast({
-        message: 'Unsaved',
-        actionLabel: 'Undo',
-        onAction: () => save(id),
-      });
-    },
-    [save, unsave, showToast],
-  );
 
   const items = useQuery({
     queryKey: [
@@ -106,9 +91,10 @@ export function SavedStoryList({
             commentsOpened={commentsOpenedIds.has(story.id)}
             saved={savedIds.has(story.id)}
             onDismiss={dismiss}
-            onUnsave={handleUnsave}
+            onSave={save}
+            onUnsave={unsave}
             onShare={shareStory}
-            onMarkOpened={markOpened}
+            onOpenThread={markCommentsOpenedId}
           />
           {recover ? (
             <div className="story-list__recover">

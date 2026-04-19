@@ -16,15 +16,14 @@ const baseStory: HNItem = {
 };
 
 describe('StoryListItem', () => {
-  it('links the title to the external article in a new tab for URL stories', () => {
+  it('links the row to /item/:id for URL stories (article opens from the thread page)', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
     const title = screen.getByTestId('story-title');
-    expect(title).toHaveAttribute('href', 'https://example.com/post');
-    expect(title).toHaveAttribute('target', '_blank');
-    expect(title).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(title).toHaveAttribute('href', '/item/1');
+    expect(title).not.toHaveAttribute('target');
   });
 
-  it('links the title to /item/:id for self-posts (no url)', () => {
+  it('links the row to /item/:id for self-posts (no url)', () => {
     const selfPost: HNItem = { ...baseStory, url: undefined };
     renderWithProviders(<StoryListItem story={selfPost} />);
     const title = screen.getByTestId('story-title');
@@ -38,22 +37,50 @@ describe('StoryListItem', () => {
     expect(screen.getByTestId('story-row')).toHaveTextContent(/self post/i);
   });
 
-  it('renders the domain outside the title link so the title tap zone does not wrap the domain', () => {
+  it('shows the domain in the meta row for URL stories', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
-    const title = screen.getByTestId('story-title');
-    expect(title).not.toHaveTextContent(/example\.com/);
-    const row = screen.getByTestId('story-row');
-    expect(row).toHaveTextContent(/example\.com/);
+    expect(screen.getByTestId('story-meta')).toHaveTextContent(/example\.com/);
   });
 
-  it('renders the comments button as a real button-like link to /item/:id', () => {
+  it('renders the comment count in the meta row (no separate comments button)', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
-    const btn = screen.getByTestId('comments-btn');
-    expect(btn).toHaveAttribute('href', '/item/1');
-    expect(btn).toHaveTextContent('7');
-    expect(btn).toHaveAccessibleName('7 comments');
-    // Not pointed at external url
-    expect(btn.getAttribute('href')).not.toContain('example.com');
+    expect(screen.getByTestId('story-meta')).toHaveTextContent(/7 comments/);
+    expect(screen.queryByTestId('comments-btn')).toBeNull();
+  });
+
+  it('renders a star button that toggles saved state via onSave / onUnsave', () => {
+    const onSave = vi.fn();
+    const onUnsave = vi.fn();
+    const { unmount } = renderWithProviders(
+      <StoryListItem
+        story={baseStory}
+        saved={false}
+        onSave={onSave}
+        onUnsave={onUnsave}
+      />,
+    );
+    const star = screen.getByTestId('star-btn');
+    expect(star).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(star);
+    expect(onSave).toHaveBeenCalledWith(baseStory.id);
+    expect(onUnsave).not.toHaveBeenCalled();
+    unmount();
+
+    onSave.mockReset();
+    onUnsave.mockReset();
+    renderWithProviders(
+      <StoryListItem
+        story={baseStory}
+        saved={true}
+        onSave={onSave}
+        onUnsave={onUnsave}
+      />,
+    );
+    const starAfter = screen.getByTestId('star-btn');
+    expect(starAfter).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(starAfter);
+    expect(onUnsave).toHaveBeenCalledWith(baseStory.id);
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it('does not render rank, hide, past, web, flag, via, or inline author links', () => {
@@ -94,87 +121,63 @@ describe('StoryListItem', () => {
     expect(screen.getByTestId('story-title')).toHaveTextContent('[untitled]');
   });
 
-  it('marks the article opened when the title of a URL story is clicked', () => {
-    const onMarkOpened = vi.fn();
+  it('marks the thread opened when the row is clicked', () => {
+    const onOpenThread = vi.fn();
     renderWithProviders(
-      <StoryListItem story={baseStory} onMarkOpened={onMarkOpened} />,
+      <StoryListItem story={baseStory} onOpenThread={onOpenThread} />,
     );
     fireEvent.click(screen.getByTestId('story-title'));
-    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id, 'article');
+    expect(onOpenThread).toHaveBeenCalledWith(baseStory.id);
   });
 
-  it('marks comments opened when the title of a self-post is clicked', () => {
-    const selfPost: HNItem = { ...baseStory, url: undefined };
-    const onMarkOpened = vi.fn();
+  it('does not fire onOpenThread when the star button is tapped', () => {
+    const onOpenThread = vi.fn();
     renderWithProviders(
-      <StoryListItem story={selfPost} onMarkOpened={onMarkOpened} />,
+      <StoryListItem
+        story={baseStory}
+        onOpenThread={onOpenThread}
+        onSave={vi.fn()}
+      />,
     );
-    fireEvent.click(screen.getByTestId('story-title'));
-    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id, 'comments');
+    fireEvent.click(screen.getByTestId('star-btn'));
+    expect(onOpenThread).not.toHaveBeenCalled();
   });
 
-  it('marks comments opened when the comments button is clicked', () => {
-    const onMarkOpened = vi.fn();
-    renderWithProviders(
-      <StoryListItem story={baseStory} onMarkOpened={onMarkOpened} />,
-    );
-    fireEvent.click(screen.getByTestId('comments-btn'));
-    expect(onMarkOpened).toHaveBeenCalledWith(baseStory.id, 'comments');
-  });
-
-  it('dims only the title when just the article has been opened', () => {
-    renderWithProviders(
-      <StoryListItem story={baseStory} articleOpened={true} />,
-    );
-    const row = screen.getByTestId('story-row');
-    expect(row.className).toContain('story-row--title-opened');
-    expect(row.className).not.toContain('story-row--comments-opened');
-  });
-
-  it('dims only the comments button when just the comments have been opened', () => {
+  it('dims the row when the comments have been opened', () => {
     renderWithProviders(
       <StoryListItem story={baseStory} commentsOpened={true} />,
     );
     const row = screen.getByTestId('story-row');
-    expect(row.className).toContain('story-row--comments-opened');
-    expect(row.className).not.toContain('story-row--title-opened');
+    expect(row.className).toContain('story-row--opened');
   });
 
-  it('dims the title for a self-post when the comments have been opened', () => {
-    const selfPost: HNItem = { ...baseStory, url: undefined };
+  it('dims the row when the article has been opened', () => {
     renderWithProviders(
-      <StoryListItem story={selfPost} commentsOpened={true} />,
+      <StoryListItem story={baseStory} articleOpened={true} />,
     );
     const row = screen.getByTestId('story-row');
-    expect(row.className).toContain('story-row--title-opened');
-    expect(row.className).toContain('story-row--comments-opened');
+    expect(row.className).toContain('story-row--opened');
   });
 
   it('leaves the row unmodified when nothing has been opened', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
     const row = screen.getByTestId('story-row');
-    expect(row.className).not.toContain('story-row--title-opened');
-    expect(row.className).not.toContain('story-row--comments-opened');
+    expect(row.className).not.toContain('story-row--opened');
   });
 
-  it('shows a non-interactive "Saved" badge in the meta row when saved=true', () => {
+  it('does not render a separate "Saved" meta badge — the star button shows saved state', () => {
     renderWithProviders(<StoryListItem story={baseStory} saved={true} />);
-    const badge = screen.getByTestId('saved-badge');
-    expect(badge).toBeInTheDocument();
-    // Badge lives inside the meta span (not its own link/button)
-    expect(badge.tagName.toLowerCase()).toBe('span');
-    expect(screen.getByTestId('story-meta')).toContainElement(badge);
-  });
-
-  it('does not show the saved badge when saved=false', () => {
-    renderWithProviders(<StoryListItem story={baseStory} saved={false} />);
     expect(screen.queryByTestId('saved-badge')).toBeNull();
+    expect(screen.getByTestId('star-btn')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
-  it('marks the title link as a stretched link so taps anywhere on the row open it', () => {
+  it('marks the row link as a stretched link so taps anywhere on the row open it', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
     expect(screen.getByTestId('story-title').className).toContain(
-      'story-row__title--stretched',
+      'story-row__body--stretched',
     );
   });
 });
@@ -277,14 +280,14 @@ describe('StoryListItem long-press menu', () => {
     expect(onShare).toHaveBeenCalledWith(baseStory);
   });
 
-  it('does not navigate to the article on the click that follows a long-press', () => {
+  it('does not navigate to the thread on the click that follows a long-press', () => {
     vi.useFakeTimers();
-    const onMarkOpened = vi.fn();
+    const onOpenThread = vi.fn();
     renderWithProviders(
       <StoryListItem
         story={baseStory}
         onSave={vi.fn()}
-        onMarkOpened={onMarkOpened}
+        onOpenThread={onOpenThread}
       />,
     );
     const row = screen.getByTestId('story-row');
@@ -295,6 +298,6 @@ describe('StoryListItem long-press menu', () => {
     });
     dispatch(row, 'pointerup', 100, 100);
     fireEvent.click(title);
-    expect(onMarkOpened).not.toHaveBeenCalled();
+    expect(onOpenThread).not.toHaveBeenCalled();
   });
 });
