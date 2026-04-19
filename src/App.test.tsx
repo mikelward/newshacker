@@ -7,10 +7,10 @@ import { installHNFetchMock } from './test/mockFetch';
 describe('<App> routing', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('renders the header with the Hackermo brand', () => {
+  it('renders the header with the hackermo brand', () => {
     installHNFetchMock({ feeds: { topstories: [] } });
     renderWithProviders(<App />, { route: '/top' });
-    expect(screen.getByRole('banner')).toHaveTextContent('Hackermo');
+    expect(screen.getByRole('banner')).toHaveTextContent('hackermo');
   });
 
   it('redirects / to /top', async () => {
