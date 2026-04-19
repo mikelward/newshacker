@@ -1,7 +1,16 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { getItems, getStoryIds, type HNItem } from '../lib/hn';
 import type { Feed } from '../lib/feeds';
+
+// Fields we render in the feed. Stripping everything else (notably the
+// `kids` comment-tree array, which can be large) keeps the persisted
+// React Query cache small.
+function thinForFeed(item: HNItem | null): HNItem | null {
+  if (!item) return null;
+  const { id, type, by, time, title, url, text, score, descendants, dead, deleted } = item;
+  return { id, type, by, time, title, url, text, score, descendants, dead, deleted };
+}
 
 export const PAGE_SIZE = 30;
 
@@ -57,7 +66,8 @@ export function useFeedItems(feed: Feed): FeedItemsState {
       const { start, take } = pageRange(pageParam as number);
       const slice = (allIds ?? []).slice(start, start + take);
       if (slice.length === 0) return [];
-      return getItems(slice, signal);
+      const fetched = await getItems(slice, signal);
+      return fetched.map(thinForFeed);
     },
     getNextPageParam: (_last, allPages) => {
       const loaded = itemsLoadedAfter(allPages.length);
@@ -82,6 +92,17 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     idsRefetch();
     pagesRefetch();
   }, [idsRefetch, pagesRefetch]);
+
+  // Prefetch page 2 once page 1 has landed so the next scroll doesn't
+  // block on a network round-trip. Fires once per feed mount.
+  const prefetchedRef = useRef(false);
+  const pageCount = pages.data?.pages.length ?? 0;
+  useEffect(() => {
+    if (prefetchedRef.current) return;
+    if (pageCount < 1 || !hasNextPage || isFetchingNextPage) return;
+    prefetchedRef.current = true;
+    fetchNextPage();
+  }, [pageCount, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return {
     items,

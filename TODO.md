@@ -10,17 +10,21 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   localStorage entry once per swept story, firing a storage change
   event each time. Batch the write so a sweep of 30 rows is one
   write + one event.
-- **Prefetch the next page** while the user is still reading the current
-  one. With `useInfiniteQuery` in place, each page is now a cheap 30-item
-  fetch, but the sentinel still only fires when the user scrolls near
-  the bottom — we could trigger the next page earlier or in the
-  background so it's warm on arrival.
-- **Batch the item fetch.** Firebase's HN API is one-HTTP-request-per-
-  item. Algolia's HN Search API returns multiple stories in a single
-  request — a drop-in for the feed view would turn 30 requests into 1,
-  especially useful for users with many dismissed stories who need
-  several pages just to fill a screen.
-- **Persist item cache to localStorage.** React Query's in-memory cache
-  doesn't survive a reload. A small, bounded IndexedDB/localStorage
-  cache of item bodies would make repeat visits instant for the common
-  set of top stories.
+- **Batch item fetch via a serverless proxy.** Firebase's HN API is
+  one-HTTP-request-per-item. A `/api/items?ids=…` handler on our
+  existing Vercel backend would fan out to Firebase in parallel and
+  return a single JSON body. Setting `Cache-Control: public, max-age=60,
+  stale-while-revalidate=300` lets the Vercel edge cache serve repeat
+  requests (for the `top` feed, same ~30 IDs across most users →
+  massive hit rate). Biggest single lever left for first-visit latency.
+- **Widen the sentinel `rootMargin`** (currently 400px). With the
+  prefetch of page 2 in place, the sentinel mostly handles page 3+ —
+  firing earlier (say 1200px) would keep scroll ahead of the network.
+- **Experiment with Algolia HN Search** as an alternative data source.
+  One request returns a page of items with the fields we need; tags
+  map to most of our feeds (`top`→`front_page`, `ask`→`ask_hn`,
+  `show`→`show_hn`, `jobs`→`job`, `new`→`search_by_date&tags=story`).
+  `best` has no direct equivalent — may need a different definition
+  (e.g. "highest-voted story in the last 24h" via numericFilters).
+  Worth prototyping a side-by-side to see if the order / content
+  differs meaningfully from Firebase's `topstories` etc.
