@@ -23,6 +23,7 @@ Instructions for AI coding agents (Claude Code, etc.) working in this repo.
 7. Don't implement flagging, moderation, submitting stories, or submitting comments.
 8. **US English everywhere.** Product copy, identifiers, CSS class names, localStorage keys, and comments all use US spelling (e.g. `favorite`, not `favourite`).
 9. **Pinned ≠ Favorite.** Pinned (📌, on the row) is the active reading list — explicit pin, explicit unpin, no auto-pruning. Favorite (heart, on the thread page) is the permanent keepsake — never swept, never expired. Keep the two stores, hooks, and UI paths independent. localStorage keys: `newshacker:pinnedStoryIds`, `newshacker:favoriteStoryIds`.
+10. **Keep `SPEC.md` in sync with reality.** Whenever a change reverses or modifies an existing documented decision in `SPEC.md`, or introduces a non-trivial change (new user-visible behavior, new tap target, new storage key, layout reorder, route, etc.), update `SPEC.md` in the same commit. Don't let the spec and the code drift.
 
 ## Commands
 

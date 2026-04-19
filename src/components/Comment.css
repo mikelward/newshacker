@@ -14,7 +14,7 @@
 .comment__header {
   display: flex;
   align-items: baseline;
-  margin-top: 6px;
+  margin-top: 2px;
   padding-left: 1px;
   font-size: 13px;
   color: var(--hn-meta);
