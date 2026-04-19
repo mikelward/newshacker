@@ -8,6 +8,7 @@
 .user-page__id {
   margin: 0 0 12px;
   font-size: 22px;
+  font-weight: 700;
 }
 
 .user-page__stats {

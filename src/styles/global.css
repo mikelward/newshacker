@@ -49,24 +49,81 @@
   color-scheme: dark;
 }
 
-* {
+/* ---------- Reset ----------
+   A small, opinionated reset so component CSS doesn't have to fight UA
+   defaults on every heading, list, button, and image. Anything specific
+   to newshacker (colors, fonts, focus ring) lives in the Base section
+   below. */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html,
-body {
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd {
   margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: transparent;
+  border: 0;
   padding: 0;
-  font-family: var(--font-system);
-  color: var(--hn-text);
-  background: var(--hn-cream);
+  cursor: pointer;
+}
+
+/* ---------- Base ---------- */
+
+html {
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
+  min-height: 100dvh;
+  font-family: var(--font-system);
   font-size: 16px;
   line-height: 1.4;
-  min-height: 100vh;
+  color: var(--hn-text);
+  background: var(--hn-cream);
 }
 
 a {
@@ -74,14 +131,11 @@ a {
   text-decoration: none;
 }
 
-a:hover {
-  text-decoration: underline;
-}
-
-button {
-  font-family: inherit;
-  font-size: inherit;
-  cursor: pointer;
+/* Sticky :hover on touch devices: only underline on true pointers. */
+@media (hover: hover) {
+  a:hover {
+    text-decoration: underline;
+  }
 }
 
 :focus-visible {
@@ -93,6 +147,14 @@ button {
   max-width: 720px;
   margin: 0 auto;
   padding: 0 0 calc(24px + env(safe-area-inset-bottom));
+}
+
+.page-message {
+  padding: 16px;
+}
+
+.page-message p + p {
+  margin-top: 12px;
 }
 
 .retry-btn {
