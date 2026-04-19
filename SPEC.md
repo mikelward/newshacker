@@ -200,17 +200,17 @@ Comments match the "fewer tap targets" rule: the whole row is one tap zone that 
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ alice · 4m · 12 replies                                  │
 │ First three lines of the comment body are shown here     │
 │ as a preview, clipped with an ellipsis if longer than    │
 │ three lines…                                             │
+│ alice · 4m · 12 replies                                  │
 └──────────────────────────────────────────────────────────┘
 ```
 
 Collapsed state (default):
 
-- Meta row: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px.
 - Body clamped to 3 lines (CSS `-webkit-line-clamp: 3`), 15px to match the AI summary card.
+- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The meta row hugs the body above it (small `margin-top`, ~2px) so it reads as belonging to the comment it follows, not the one below.
 - No action row, no children.
 - Cursor is `pointer`.
 
@@ -218,7 +218,7 @@ Expanded state:
 
 - Background tints to `--hn-pressed` so the active node stands out in a long thread.
 - Body shows in full.
-- A bottom **action row** appears holding a muted `Reply on HN ↗` link (`news.ycombinator.com/reply?id=:id`, opens in a new tab). The row is laid out as a flex row with a gap so upvote/downvote buttons can slot in alongside later.
+- The meta row gains a muted `Reply on HN ↗` link (`news.ycombinator.com/reply?id=:id`, opens in a new tab) inline at its right-hand end, so the meta row doubles as the action row. The row is laid out as a flex row so upvote/downvote buttons can slot in alongside later.
 - Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
 - Cursor reverts to `default` (reading state).
 
