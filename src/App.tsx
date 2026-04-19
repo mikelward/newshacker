@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
+import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { ToastProvider } from './components/Toast';
@@ -17,6 +18,7 @@ export default function App() {
   return (
     <ToastProvider>
       <FeedBarProvider>
+        <BootPrefetch />
         <ScrollToTop />
         <AppHeader />
         <main className="app-main">
