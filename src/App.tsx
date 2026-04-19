@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
 import { BootPrefetch } from './components/BootPrefetch';
+import { PwaUpdateToast } from './components/PwaUpdateToast';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { ToastProvider } from './components/Toast';
@@ -18,6 +19,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 export default function App() {
   return (
     <ToastProvider>
+      <PwaUpdateToast />
       <FeedBarProvider>
         <BootPrefetch />
         <ScrollToTop />

@@ -1,9 +1,20 @@
-import { describe, it, expect } from 'vitest';
-import { fireEvent, screen } from '@testing-library/react';
+import { afterEach, describe, it, expect } from 'vitest';
+import { act, fireEvent, screen } from '@testing-library/react';
 import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 
+function setOnline(value: boolean) {
+  Object.defineProperty(window.navigator, 'onLine', {
+    configurable: true,
+    value,
+  });
+}
+
 describe('<AppHeader>', () => {
+  afterEach(() => {
+    setOnline(true);
+  });
+
   it('does not render a top-right page-title label', () => {
     renderWithProviders(<AppHeader />, { route: '/top' });
     expect(document.querySelector('.app-header__feed')).toBeNull();
@@ -26,5 +37,27 @@ describe('<AppHeader>', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('hides the offline pill when the browser reports online', () => {
+    setOnline(true);
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    expect(screen.queryByTestId('offline-indicator')).toBeNull();
+  });
+
+  it('shows an offline pill when the browser goes offline', () => {
+    setOnline(true);
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    act(() => {
+      setOnline(false);
+      window.dispatchEvent(new Event('offline'));
+    });
+    expect(screen.getByTestId('offline-indicator')).toBeInTheDocument();
+  });
+
+  it('shows the offline pill on non-feed routes too', () => {
+    setOnline(false);
+    renderWithProviders(<AppHeader />, { route: '/pinned' });
+    expect(screen.getByTestId('offline-indicator')).toBeInTheDocument();
   });
 });

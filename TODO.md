@@ -28,6 +28,24 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   could tier the persistence so they survive longer (days) than the
   ID lists (minutes), since titles/urls rarely change.
 
+## PWA / offline
+
+- **Pull-to-refresh gesture** on feed and thread pages. Intercept
+  `touchstart`/`touchmove` at `scrollTop === 0`, show a pull indicator,
+  and on release past the threshold call
+  `queryClient.invalidateQueries({ queryKey: ['storyIds', feed] })` for
+  feeds or `['itemRoot', id]` + visible comment keys for threads. Pairs
+  with the SW's StaleWhileRevalidate so both caches refresh. Important
+  because the browser's native pull-to-refresh disappears in
+  `display: standalone`.
+- **Explicit "save thread for offline" action** on the thread page that
+  fetches the whole comment tree into cache in one burst. Currently
+  comment offline-availability only covers threads the user has
+  already scrolled through.
+- **Icon polish.** The generated `nh` wordmark is a placeholder; replace
+  with a real logo (re-run `scripts/generate-icons.mjs` after swapping
+  the SVG, or replace the PNGs directly).
+
 ## Sweep edge cases
 
 - **Row taller than the visible viewport.** Sweep currently dismisses

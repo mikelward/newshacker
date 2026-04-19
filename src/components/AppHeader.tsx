@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { AppDrawer } from './AppDrawer';
 import { isFeed } from '../lib/feeds';
 import { useFeedBar } from '../hooks/useFeedBar';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import './AppHeader.css';
 
 function useIsFeedPage(): boolean {
@@ -53,11 +54,23 @@ export function AppHeader() {
     canUndo,
     undo,
   } = useFeedBar();
+  const online = useOnlineStatus();
 
   const onFeedPage = useIsFeedPage();
   // sweepCount is > 0 iff there are fully-visible, unpinned rows to dismiss;
   // the number itself is never surfaced to users.
   const canSweep = !!sweep && sweepCount > 0;
+  const offlinePill = !online ? (
+    <span
+      className="app-header__offline"
+      data-testid="offline-indicator"
+      role="status"
+      aria-live="polite"
+      title="You are offline. Pinned and recently viewed stories remain available."
+    >
+      Offline
+    </span>
+  ) : null;
 
   return (
     <>
@@ -85,6 +98,7 @@ export function AppHeader() {
         </Link>
         {onFeedPage ? (
           <div className="app-header__actions">
+            {offlinePill}
             <button
               type="button"
               className="app-header__icon-btn"
@@ -108,7 +122,9 @@ export function AppHeader() {
               <SweepIcon />
             </button>
           </div>
-        ) : null}
+        ) : (
+          offlinePill
+        )}
       </header>
       <AppDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </>
