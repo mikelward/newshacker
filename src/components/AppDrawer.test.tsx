@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { AppDrawer } from './AppDrawer';
@@ -113,5 +115,17 @@ describe('<AppDrawer>', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'System' }));
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+
+  it('panel background follows the theme variable, not a hardcoded light color', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/components/AppDrawer.css'),
+      'utf8',
+    );
+    const panelRule = css.match(/\.app-drawer__panel\s*\{[^}]*\}/);
+    expect(panelRule, 'expected .app-drawer__panel rule').not.toBeNull();
+    const block = panelRule![0];
+    expect(block).toMatch(/background:\s*var\(--hn-cream\)/);
+    expect(block).not.toMatch(/#f6f6ef/i);
   });
 });
