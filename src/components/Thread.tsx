@@ -131,6 +131,7 @@ function SummaryCard({ url }: { url: string }) {
           <span className="thread__summary-skeleton-line" />
           <span className="thread__summary-skeleton-line" />
           <span className="thread__summary-skeleton-line" />
+          <span className="thread__summary-skeleton-line" />
           <span className="thread__summary-skeleton-line thread__summary-skeleton-line--short" />
         </div>
       ) : null}
