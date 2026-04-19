@@ -4,7 +4,7 @@ Instructions for AI coding agents (Claude Code, etc.) working in this repo.
 
 ## Project at a glance
 
-- **Newshacker** — an unofficial mobile-friendly reader *for* Hacker News. Not affiliated with Y Combinator. Primary domain `newshacker.app`; `hnews.app` 301s to it.
+- **newshacker** — an unofficial mobile-friendly reader *for* Hacker News. Not affiliated with Y Combinator. Primary domain `newshacker.app`; `hnews.app` 301s to it.
 - Stack: **React + TypeScript + Vite**, deployed on **Vercel**.
 - Stretch goals (login, voting) use **Vercel serverless functions** under `/api`.
 - Read data comes from the Firebase HN API; write actions scrape HN's web forms.
