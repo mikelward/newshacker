@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useCommentItem } from '../hooks/useItemTree';
+import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import './Comment.css';
@@ -14,6 +15,7 @@ const MAX_INDENT = 6;
 export function Comment({ id, depth }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { data: item, isLoading } = useCommentItem(id);
+  const handleLinkClick = useInternalLinkClick();
 
   const indent = Math.min(depth, MAX_INDENT);
   const indentStyle = { marginLeft: `${indent * 12}px` };
@@ -65,6 +67,7 @@ export function Comment({ id, depth }: Props) {
     >
       <div
         className={`comment__body${isExpanded ? '' : ' comment__body--clamped'}`}
+        onClick={handleLinkClick}
         dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
       />
       <div className="comment__header">
