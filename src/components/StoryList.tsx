@@ -31,6 +31,10 @@ export function StoryList({ feed }: Props) {
   const sentinelRef = useInfiniteScroll<HTMLDivElement>({
     enabled: hasMore && !isFetchingMore,
     onLoadMore: loadMore,
+    // Fire well before the bottom of the list enters the viewport so
+    // scroll-driven "load more" overlaps with the user's reading of the
+    // current page, rather than showing a visible loading gap.
+    rootMargin: '1200px 0px',
   });
 
   const visibleStories = useMemo(

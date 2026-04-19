@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { FEEDS, feedLabel } from '../lib/feeds';
+import { getStoryIds } from '../lib/hn';
 import { useTheme } from '../hooks/useTheme';
 import type { Theme } from '../lib/theme';
 import './AppDrawer.css';
@@ -20,6 +22,7 @@ export function AppDrawer({ open, onClose }: Props) {
   const location = useLocation();
   const lastLocationRef = useRef(location.key);
   const { theme, setTheme } = useTheme();
+  const client = useQueryClient();
 
   useEffect(() => {
     if (!open) return;
@@ -29,6 +32,20 @@ export function AppDrawer({ open, onClose }: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // When the user opens the drawer, warm up the id list for every feed
+  // so a tap on Top / New / Ask / … renders instantly. The id lists are
+  // small (one request each) and the drawer open is a strong signal
+  // that a feed switch is imminent.
+  useEffect(() => {
+    if (!open) return;
+    for (const feed of FEEDS) {
+      client.prefetchQuery({
+        queryKey: ['storyIds', feed],
+        queryFn: ({ signal }) => getStoryIds(feed, signal),
+      });
+    }
+  }, [open, client]);
 
   useEffect(() => {
     if (open && location.key !== lastLocationRef.current) {
