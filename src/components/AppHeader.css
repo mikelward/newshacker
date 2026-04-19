@@ -27,12 +27,13 @@
   cursor: pointer;
 }
 
-.app-header__menu-btn:hover {
-  background: rgba(0, 0, 0, 0.1);
+.app-header__menu-btn:focus {
+  outline: none;
 }
 
-.app-header__menu-btn:active {
-  background: rgba(0, 0, 0, 0.2);
+.app-header__menu-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -4px;
 }
 
 .app-header__menu-icon {
@@ -69,4 +70,41 @@
 .app-header__title {
   font-weight: 700;
   font-size: 17px;
+}
+
+.app-header__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.app-header__icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  background: transparent;
+  border: none;
+  color: #fff;
+  padding: 0 6px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.app-header__icon-btn:focus {
+  outline: none;
+}
+
+.app-header__icon-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -4px;
+}
+
+.app-header__icon-btn:disabled {
+  cursor: default;
+  color: rgba(255, 255, 255, 0.45);
 }

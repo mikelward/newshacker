@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { FeedBarProvider } from '../components/FeedBarContext';
 
 interface Options extends Omit<RenderOptions, 'wrapper'> {
   route?: string;
@@ -10,7 +11,7 @@ interface Options extends Omit<RenderOptions, 'wrapper'> {
 
 export function renderWithProviders(ui: ReactElement, options: Options = {}) {
   const {
-    route = '/',
+    route = '/top',
     client = new QueryClient({
       defaultOptions: {
         queries: { retry: false, gcTime: 0, staleTime: 0 },
@@ -23,7 +24,9 @@ export function renderWithProviders(ui: ReactElement, options: Options = {}) {
     client,
     ...render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+        <MemoryRouter initialEntries={[route]}>
+          <FeedBarProvider>{ui}</FeedBarProvider>
+        </MemoryRouter>
       </QueryClientProvider>,
       rest,
     ),

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
-import type { OpenedKind } from '../lib/openedStories';
 import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
@@ -14,11 +13,12 @@ interface Props {
   articleOpened?: boolean;
   commentsOpened?: boolean;
   saved?: boolean;
+  dismissed?: boolean;
   onDismiss?: (id: number) => void;
   onSave?: (id: number) => void;
   onUnsave?: (id: number) => void;
   onShare?: (story: HNItem) => void;
-  onMarkOpened?: (id: number, kind: OpenedKind) => void;
+  onOpenThread?: (id: number) => void;
 }
 
 export function StoryListItem({
@@ -27,11 +27,12 @@ export function StoryListItem({
   articleOpened = false,
   commentsOpened = false,
   saved = false,
+  dismissed = false,
   onDismiss,
   onSave,
   onUnsave,
   onShare,
-  onMarkOpened,
+  onOpenThread,
 }: Props) {
   const hasExternalUrl = !!story.url;
   const domain = extractDomain(story.url);
@@ -63,17 +64,14 @@ export function StoryListItem({
   const openMenu = useCallback(() => setMenuOpen(true), []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
-  // For URL stories the title opens the article; for self-posts it opens
-  // the thread, so a title tap is really a comments tap in that case.
-  const titleKind: OpenedKind = hasExternalUrl ? 'article' : 'comments';
+  const handleOpenThread = useCallback(() => {
+    onOpenThread?.(story.id);
+  }, [onOpenThread, story.id]);
 
-  const handleOpenTitle = useCallback(() => {
-    onMarkOpened?.(story.id, titleKind);
-  }, [onMarkOpened, story.id, titleKind]);
-
-  const handleOpenComments = useCallback(() => {
-    onMarkOpened?.(story.id, 'comments');
-  }, [onMarkOpened, story.id]);
+  const handleToggleStar = useCallback(() => {
+    if (saved) onUnsave?.(story.id);
+    else onSave?.(story.id);
+  }, [saved, onSave, onUnsave, story.id]);
 
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
     onSwipeRight: onDismiss ? handleDismiss : undefined,
@@ -81,17 +79,14 @@ export function StoryListItem({
     onLongPress: openMenu,
   });
 
-  const titleInner = <span className="story-row__title-text">{title}</span>;
-
-  const titleLooksOpened =
-    titleKind === 'article' ? articleOpened : commentsOpened;
+  const rowOpened = articleOpened || commentsOpened;
 
   const rowClass =
     'story-row' +
     (dragging ? ' story-row--dragging' : '') +
     (isDismissing ? ' story-row--dismissing' : '') +
-    (titleLooksOpened ? ' story-row--title-opened' : '') +
-    (commentsOpened ? ' story-row--comments-opened' : '');
+    (rowOpened ? ' story-row--opened' : '') +
+    (dismissed ? ' story-row--dismissed' : '');
 
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
     const items: StoryRowMenuItem[] = [];
@@ -119,6 +114,8 @@ export function StoryListItem({
     handleShare,
   ]);
 
+  const starLabel = saved ? `Unsave ${title}` : `Save ${title}`;
+
   return (
     <article
       className={rowClass}
@@ -138,73 +135,46 @@ export function StoryListItem({
         </div>
       ) : null}
 
-      <div className="story-row__body">
-        {hasExternalUrl ? (
-          <a
-            className="story-row__title story-row__title--stretched"
-            data-testid="story-title"
-            href={story.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={handleOpenTitle}
-          >
-            {titleInner}
-          </a>
-        ) : (
-          <Link
-            className="story-row__title story-row__title--stretched"
-            data-testid="story-title"
-            to={`/item/${story.id}`}
-            onClick={handleOpenTitle}
-          >
-            {titleInner}
-          </Link>
-        )}
-
-        <span className="story-row__meta" data-testid="story-meta">
-          {saved ? (
-            <>
-              <span
-                className="story-row__saved-badge"
-                data-testid="saved-badge"
-                aria-label="Saved"
-                title="Saved"
-              >
-                <span aria-hidden="true">★</span> Saved
-              </span>
-              {' · '}
-            </>
-          ) : null}
-          {domainLabel ? `${domainLabel} · ` : ''}
-          {points} {pluralize(points, 'point')} · {age}
-        </span>
-      </div>
-
       <Link
         to={`/item/${story.id}`}
-        className="comments-btn"
-        data-testid="comments-btn"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleOpenComments();
-        }}
-        aria-label={`${commentCount} ${pluralize(commentCount, 'comment')}`}
+        className="story-row__body story-row__body--stretched"
+        data-testid="story-title"
+        onClick={handleOpenThread}
       >
-        <span className="comments-btn__count">{commentCount}</span>
+        <span className="story-row__title-text">{title}</span>
+        <span className="story-row__meta" data-testid="story-meta">
+          {domainLabel ? `${domainLabel} · ` : ''}
+          {points} {pluralize(points, 'point')} · {commentCount}{' '}
+          {pluralize(commentCount, 'comment')} · {age}
+        </span>
+      </Link>
+
+      <button
+        type="button"
+        className={'star-btn' + (saved ? ' star-btn--active' : '')}
+        data-testid="star-btn"
+        aria-pressed={saved}
+        aria-label={starLabel}
+        title={saved ? 'Saved' : 'Save'}
+        onClick={handleToggleStar}
+      >
         <svg
-          className="comments-btn__icon"
+          className="star-btn__icon"
           viewBox="0 0 24 24"
-          width="16"
-          height="16"
+          width="22"
+          height="22"
           aria-hidden="true"
           focusable="false"
         >
           <path
-            fill="currentColor"
-            d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2z"
+            fill={saved ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            d="M12 3.6l2.6 5.3 5.9.9-4.3 4.2 1 5.8L12 17l-5.2 2.8 1-5.8L3.5 9.8l5.9-.9z"
           />
         </svg>
-      </Link>
+      </button>
 
       {menuItems.length > 0 ? (
         <StoryRowMenu

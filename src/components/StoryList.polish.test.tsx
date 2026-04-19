@@ -57,7 +57,8 @@ describe('<StoryList> polish states', () => {
   });
 
   it('advances pages via the infinite-scroll sentinel', async () => {
-    const ids = Array.from({ length: 45 }, (_, i) => i + 1);
+    // First fetch grabs 90 items; sentinel triggers one more page of 30.
+    const ids = Array.from({ length: 120 }, (_, i) => i + 1);
     const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
     installHNFetchMock({ feeds: { topstories: ids }, items });
 
@@ -77,7 +78,7 @@ describe('<StoryList> polish states', () => {
     renderWithProviders(<StoryList feed="top" />);
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(30);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(90);
     });
 
     // Trigger the sentinel intersection.
@@ -87,7 +88,7 @@ describe('<StoryList> polish states', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(45);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(120);
     });
   });
 });

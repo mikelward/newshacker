@@ -156,7 +156,6 @@ describe('<OpenedPage>', () => {
       expect(screen.getByTestId('story-row')).toBeInTheDocument();
     });
     const className = screen.getByTestId('story-row').className;
-    expect(className).toContain('story-row--title-opened');
-    expect(className).toContain('story-row--comments-opened');
+    expect(className).toContain('story-row--opened');
   });
 });

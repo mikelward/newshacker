@@ -1,145 +1,78 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import type { Feed } from '../lib/feeds';
-import { PAGE_SIZE, useStoryPage } from '../hooks/useStoryList';
+import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { useSavedStories } from '../hooks/useSavedStories';
-import { useAutoDismissOnScroll } from '../hooks/useAutoDismissOnScroll';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
-import { useToast } from '../hooks/useToast';
 import { useShareStory } from '../hooks/useShareStory';
+import { markCommentsOpenedId } from '../lib/openedStories';
+import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
-
-// Dismisses (swipe, scroll-past, menu "Ignore") within this window of
-// each other share a single undo toast. The toast's deadline extends
-// with each new dismiss, so the user gets the full window of grace
-// time after the most recent action — but only relative to what was
-// already dismissed, never relative to when Undo was tapped.
-export const DISMISS_BATCH_WINDOW_MS = 2000;
-const DISMISS_TOAST_GROUP = 'dismiss-batch';
 
 interface Props {
   feed: Feed;
 }
 
 export function StoryList({ feed }: Props) {
-  const [page, setPage] = useState(0);
-  const { ids, items, slice, totalIds } = useStoryPage(feed, page);
+  const feedItems = useFeedItems(feed);
   const { dismissedIds, dismiss, undismiss } = useDismissedStories();
-  const { articleOpenedIds, commentsOpenedIds, markOpened } =
-    useOpenedStories();
+  const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { savedIds, save, unsave } = useSavedStories();
-  const { showToast } = useToast();
   const shareStory = useShareStory();
+  const { setSweep, showDismissed } = useFeedBar();
 
-  const handleMenuUnsave = useCallback(
-    (id: number) => {
-      unsave(id);
-      showToast({
-        message: 'Unsaved',
-        actionLabel: 'Undo',
-        onAction: () => save(id),
-      });
-    },
-    [save, unsave, showToast],
-  );
-
-  const handleSwipeSave = useCallback(
-    (id: number) => {
-      save(id);
-      showToast({
-        message: 'Saved',
-        actionLabel: 'Undo',
-        onAction: () => unsave(id),
-      });
-    },
-    [save, unsave, showToast],
-  );
-
-  const dismissBatchRef = useRef<{ ids: number[]; lastAt: number }>({
-    ids: [],
-    lastAt: 0,
-  });
-  const [revealIdAfterUndo, setRevealIdAfterUndo] = useState<number | null>(
-    null,
-  );
-
-  const handleBatchedDismiss = useCallback(
-    (id: number) => {
-      dismiss(id);
-      const now = Date.now();
-      const batch = dismissBatchRef.current;
-      const ids =
-        now - batch.lastAt < DISMISS_BATCH_WINDOW_MS
-          ? [...batch.ids, id]
-          : [id];
-      dismissBatchRef.current = { ids, lastAt: now };
-
-      showToast({
-        message: ids.length === 1 ? 'Dismissed' : `Dismissed ${ids.length}`,
-        actionLabel: 'Undo',
-        onAction: () => {
-          const firstId = ids[0];
-          for (const storyId of ids) undismiss(storyId);
-          dismissBatchRef.current = { ids: [], lastAt: 0 };
-          setRevealIdAfterUndo(firstId);
-        },
-        durationMs: DISMISS_BATCH_WINDOW_MS,
-        groupKey: DISMISS_TOAST_GROUP,
-      });
-    },
-    [dismiss, undismiss, showToast],
-  );
-
-  const canLoadMore = slice.length < totalIds;
-  const isFetching = items.isFetching || ids.isFetching;
-
-  const handleLoadMore = useCallback(() => {
-    if (!isFetching && canLoadMore) setPage((p) => p + 1);
-  }, [isFetching, canLoadMore]);
+  const { items, hasMore, isFetchingMore, loadMore, refetch, isError } =
+    feedItems;
 
   const sentinelRef = useInfiniteScroll<HTMLDivElement>({
-    enabled: canLoadMore && !isFetching,
-    onLoadMore: handleLoadMore,
+    enabled: hasMore && !isFetchingMore,
+    onLoadMore: loadMore,
   });
 
-  const [headerOffset, setHeaderOffset] = useState(0);
+  const visibleStories = useMemo(
+    () =>
+      items.filter(
+        (it): it is NonNullable<typeof it> =>
+          it != null &&
+          !it.deleted &&
+          !it.dead &&
+          (showDismissed || !dismissedIds.has(it.id)),
+      ),
+    [items, dismissedIds, showDismissed],
+  );
+
+  const sweepableIds = useMemo(
+    () =>
+      visibleStories
+        .map((s) => s.id)
+        .filter((id) => !savedIds.has(id) && !dismissedIds.has(id)),
+    [visibleStories, savedIds, dismissedIds],
+  );
+
+  const handleSweep = useCallback(() => {
+    if (sweepableIds.length === 0) return;
+    for (const id of sweepableIds) dismiss(id);
+  }, [sweepableIds, dismiss]);
+
   useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const measure = () => {
-      const header = document.querySelector<HTMLElement>('.app-header');
-      setHeaderOffset(header?.getBoundingClientRect().height ?? 0);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
+    setSweep(handleSweep, sweepableIds.length);
+    return () => setSweep(null, 0);
+  }, [setSweep, handleSweep, sweepableIds.length]);
 
-  const { observe } = useAutoDismissOnScroll({
-    onScrolledPast: handleBatchedDismiss,
-    topOffset: headerOffset,
-  });
+  const handleOpenThread = useCallback(
+    (id: number) => {
+      markCommentsOpenedId(id);
+      if (dismissedIds.has(id)) undismiss(id);
+    },
+    [dismissedIds, undismiss],
+  );
 
-  // After Undo, if the first restored row is above the sticky header,
-  // scroll the page so that row sits just below the header. Rows that
-  // are already in view stay put.
-  useEffect(() => {
-    if (revealIdAfterUndo == null) return;
-    setRevealIdAfterUndo(null);
-    const el = document.querySelector<HTMLElement>(
-      `.story-list__item[data-story-id="${revealIdAfterUndo}"]`,
-    );
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    if (rect.top >= headerOffset) return;
-    const top = window.scrollY + rect.top - headerOffset - 8;
-    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-  }, [revealIdAfterUndo, headerOffset]);
-
-  if (ids.isLoading || (items.isLoading && slice.length > 0)) {
+  const hasAnyItems = items.length > 0;
+  if (!hasAnyItems && feedItems.isLoading) {
     return (
       <ol className="story-list" aria-busy="true" aria-label="Loading stories">
         {Array.from({ length: 6 }).map((_, i) => (
@@ -151,36 +84,24 @@ export function StoryList({ feed }: Props) {
     );
   }
 
-  if (ids.isError || items.isError) {
+  if (isError) {
     return (
-      <ErrorState
-        message="Could not load stories."
-        onRetry={() => {
-          ids.refetch();
-          items.refetch();
-        }}
-      />
+      <ErrorState message="Could not load stories." onRetry={refetch} />
     );
   }
 
-  const stories = (items.data ?? []).filter(
-    (it): it is NonNullable<typeof it> =>
-      it != null && !it.deleted && !it.dead && !dismissedIds.has(it.id),
-  );
-
-  if (stories.length === 0 && !canLoadMore) {
+  if (visibleStories.length === 0 && !hasMore) {
     return <EmptyState message="No stories yet." />;
   }
 
   return (
     <>
       <ol className="story-list">
-        {stories.map((story, idx) => (
+        {visibleStories.map((story, idx) => (
           <li
             key={story.id}
             className="story-list__item"
             data-story-id={story.id}
-            ref={(el) => observe(story.id, el)}
           >
             <StoryListItem
               story={story}
@@ -188,16 +109,17 @@ export function StoryList({ feed }: Props) {
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               saved={savedIds.has(story.id)}
-              onDismiss={handleBatchedDismiss}
-              onSave={handleSwipeSave}
-              onUnsave={handleMenuUnsave}
+              dismissed={dismissedIds.has(story.id)}
+              onDismiss={dismiss}
+              onSave={save}
+              onUnsave={unsave}
               onShare={shareStory}
-              onMarkOpened={markOpened}
+              onOpenThread={handleOpenThread}
             />
           </li>
         ))}
       </ol>
-      {canLoadMore ? (
+      {hasMore ? (
         <div className="story-list__more">
           <div
             ref={sentinelRef}
@@ -207,10 +129,10 @@ export function StoryList({ feed }: Props) {
           <button
             type="button"
             className="load-more-btn"
-            onClick={handleLoadMore}
-            disabled={isFetching}
+            onClick={loadMore}
+            disabled={isFetchingMore}
           >
-            {isFetching ? 'Loading…' : 'Load more'}
+            {isFetchingMore ? 'Loading…' : 'Load more'}
           </button>
         </div>
       ) : null}

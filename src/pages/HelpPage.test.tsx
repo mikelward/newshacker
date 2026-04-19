@@ -4,28 +4,36 @@ import { HelpPage } from './HelpPage';
 import { renderWithProviders } from '../test/renderUtils';
 
 describe('<HelpPage>', () => {
-  it('describes saving with both swipe and button methods', () => {
+  it('describes starring with both tap and swipe methods', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(
       screen.getByRole('heading', { level: 1, name: /help/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { level: 2, name: /saving stories/i }),
+      screen.getByRole('heading', { level: 2, name: /starring stories/i }),
     ).toBeInTheDocument();
+    expect(screen.getByText(/☆ star/i)).toBeInTheDocument();
     expect(screen.getByText(/swipe a story left/i)).toBeInTheDocument();
-    // The "Save" instruction mentions the button and how to unsave
-    expect(
-      screen.getByText(/tap again to unsave/i),
-    ).toBeInTheDocument();
   });
 
-  it('describes dismissing (swipe right / scroll past)', () => {
+  it('describes dismissing (swipe right / sweep)', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(
       screen.getByRole('heading', { level: 2, name: /dismissing stories/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/swipe a story right/i)).toBeInTheDocument();
-    expect(screen.getByText(/scrolling past/i)).toBeInTheDocument();
+    expect(screen.getByText(/sweep/i, { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('describes the peek-at-dismissed eye toggle', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', {
+        level: 2,
+        name: /peeking at dismissed stories/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/eye/i, { selector: 'strong' })).toBeInTheDocument();
   });
 
   it('links to the Saved and Ignored pages', () => {

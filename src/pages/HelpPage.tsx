@@ -6,24 +6,23 @@ export function HelpPage() {
     <article className="about-page">
       <h1 className="about-page__title">Help</h1>
 
-      <h2 className="about-page__heading">Saving stories</h2>
+      <h2 className="about-page__heading">Starring stories</h2>
       <p>
-        Save a story to read it later or keep it around for reference:
+        Star a story to keep it in your reading list. Use it as a
+        to-read list: star the ones you want to read, then sweep the rest.
       </p>
       <ul>
         <li>
-          <strong>Swipe a story left</strong> in any feed to save it.
+          Tap the <strong>☆ star</strong> on the right of any row to
+          star it. Tap again to unstar.
         </li>
         <li>
-          Open the story page and tap <strong>Save</strong>. Tap again to
-          unsave.
+          <strong>Swipe a story left</strong> for the same toggle.
         </li>
       </ul>
       <p>
-        Saved stories live in{' '}
-        <Link to="/saved">Saved</Link> in the menu. From there you can tap{' '}
-        <strong>Unsave</strong> on any row to remove it. Saved stories stay
-        on your device and are kept until you unsave them.
+        Starred stories live in <Link to="/saved">Saved</Link> in the
+        menu. They stay on your device until you unstar them.
       </p>
 
       <h2 className="about-page__heading">Dismissing stories</h2>
@@ -35,23 +34,26 @@ export function HelpPage() {
           <strong>Swipe a story right</strong> in any feed to dismiss it.
         </li>
         <li>
-          Scrolling past a story without opening it also dismisses it, so
-          your feeds only show things you haven&rsquo;t considered yet.
+          Tap the <strong>sweep</strong> icon in the top bar to dismiss
+          every unstarred story on screen at once.
         </li>
       </ul>
+
+      <h2 className="about-page__heading">Peeking at dismissed stories</h2>
       <p>
-        Dismissed stories appear under{' '}
-        <Link to="/ignored">Ignored</Link> in the menu, where you can tap{' '}
-        <strong>Un-ignore</strong> to bring one back. Dismissals expire
-        after seven days.
+        Tap the <strong>eye</strong> in the top bar to toggle dismissed
+        stories on and off. When they&rsquo;re shown, they appear
+        muted inline; tapping one opens the thread and un-dismisses it.
+        Dismissed stories also live in <Link to="/ignored">Ignored</Link>,
+        and dismissals expire after seven days.
       </p>
 
-      <h2 className="about-page__heading">Saving vs. dismissing</h2>
+      <h2 className="about-page__heading">Starring vs. dismissing</h2>
       <p>
-        <strong>Save</strong> keeps a story for later &mdash; it also still
-        shows in the feed. <strong>Dismiss</strong> hides a story from the
-        feed. You can do both to save something and clear it from the feed
-        at the same time.
+        <strong>Star</strong> keeps a story in your list.{' '}
+        <strong>Dismiss</strong> hides a story from the feed. You can
+        star and dismiss the same story — it stays on your starred
+        list even though it&rsquo;s gone from the feed.
       </p>
 
       <p className="about-page__back">

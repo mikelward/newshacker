@@ -13,22 +13,22 @@ describe('<StoryList>', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the first page of 30 items and supports Load more', async () => {
-    const ids = Array.from({ length: 60 }, (_, i) => i + 1);
+  it('renders the first batch of 90 items and supports Load more in 30s', async () => {
+    const ids = Array.from({ length: 120 }, (_, i) => i + 1);
     const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
     installHNFetchMock({ feeds: { topstories: ids }, items });
 
     renderWithProviders(<StoryList feed="top" />);
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(30);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(90);
     });
 
     const loadMore = screen.getByRole('button', { name: /load more/i });
     await userEvent.click(loadMore);
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(60);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(120);
     });
   });
 

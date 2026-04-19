@@ -50,10 +50,10 @@ describe('<Thread>', () => {
     await waitFor(() => {
       expect(screen.getByText('Parent')).toBeInTheDocument();
     });
-    expect(screen.getByRole('link', { name: /read article/i })).toHaveAttribute(
-      'href',
-      'https://example.com/100',
-    );
+    const readArticle = screen.getByRole('link', { name: /read article/i });
+    expect(readArticle).toHaveAttribute('href', 'https://example.com/100');
+    expect(readArticle).toHaveTextContent(/^\s*Read article\s*$/);
+    expect(readArticle).not.toHaveTextContent(/example\.com/);
     // Top-level comment body visible
     await waitFor(() => {
       expect(screen.getByText(/hello/)).toBeInTheDocument();
@@ -192,6 +192,31 @@ describe('<Thread>', () => {
     await waitFor(() => {
       expect(screen.getByText('[deleted]')).toBeInTheDocument();
     });
+  });
+
+  it('marks the article as opened when the Read article link is clicked', async () => {
+    installHNFetchMock({
+      items: { 720: makeStory(720, { title: 'Readable' }) },
+    });
+
+    renderWithProviders(<Thread id={720} />);
+    await waitFor(() => {
+      expect(screen.getByText('Readable')).toBeInTheDocument();
+    });
+
+    const link = screen.getByRole('link', { name: /read article/i });
+    // jsdom follows hrefs — cancel navigation so the click handler still runs.
+    link.addEventListener('click', (e) => e.preventDefault());
+    await userEvent.click(link);
+
+    const stored = window.localStorage.getItem('newshacker:openedStoryIds');
+    expect(stored).toBeTruthy();
+    const parsed = JSON.parse(stored as string) as Array<{
+      id: number;
+      articleAt?: number;
+    }>;
+    const entry = parsed.find((e) => e.id === 720);
+    expect(entry?.articleAt).toBeTruthy();
   });
 
   it('toggles saved state via the Save button in the header', async () => {

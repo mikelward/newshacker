@@ -14,10 +14,10 @@ The existing HN mobile site crams many small, adjacent tappable elements onto ea
 
 We achieve that by:
 
-1. **At most three tap zones per row**, and they are always in the same positions: optional upvote on the left, title, and a "N comments" button. No hide, no past, no web, no flag, no inline author link, no rank number.
+1. **At most three tap zones per row**, always in the same positions: optional upvote on the left, the row body (title + meta) as a single stretched link, and a star button on the right. No hide, no past, no web, no flag, no inline author link, no rank number, no separate comments button.
 2. **Large, well-spaced hit areas.** Minimum 48×48px per tappable, ≥8px dead space between adjacent targets.
-3. **Metadata is display-only.** Points and age are plain text; only the explicit upvote arrow, title, and "N comments" button are tappable.
-4. **The comments button is a real button**, padded and outlined, not an inline text link — so it's visually obvious and easy to aim for.
+3. **Metadata is display-only.** Domain, points, comment count, and age are plain text inside the row's stretched link; only the explicit upvote arrow, row body, and star button are distinct tap targets.
+4. **The star button is a real icon button** on the right, not an inline text link — visually obvious and easy to aim for.
 5. **Obvious zones, not clever ones.** A reader should be able to glance at the row and know, without reading, what each tap will do.
 
 ## Goals
@@ -132,30 +132,26 @@ This is the single most important UI decision in the app, so it is specified in 
 ┌──────────────────────────────────────────────────────────┐
 │                                                          │
 │   ▲     Story title goes here, wrapping to two lines     │
-│         if needed.                                       │
-│         example.com                                      │
-│                                        ┌──────────────┐  │
-│         412 points · 3h                │ 128 comments │  │
-│                                        └──────────────┘  │
+│         if needed.                                       │   ☆
+│         example.com · 412 points · 128 comments · 3h     │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-   ^     ^                                      ^
-   |     |                                      |
-  Vote  Title tap → external article         Dedicated button,
-  (opt) (for self-posts, → thread)           clearly separated,
-                                             opens comments thread.
+   ^     ^                                                    ^
+   |     |                                                    |
+  Vote  Row tap → thread (/item/:id)                        Star toggle:
+  (opt) (title + meta share one stretched link)            save / unsave
 ```
 
 Tap zones — there are never more than these three:
 
 - **▲ Upvote** (only when logged in; when logged out, the column collapses and the title shifts left). Min 48×48px. Stretch feature; see *Architecture*.
-- **Title** (title + domain as visual children). Tapping opens the external URL. For self-posts (Ask HN / Show HN / text posts / jobs with no URL) it opens the thread instead, since there is no article. `target="_blank" rel="noopener noreferrer"` for external.
-- **"N comments" button** — a real padded, outlined button on the right, not an inline text link. Tapping opens `/item/:id`. Has its own 48×48px hit area and ≥12px horizontal gap from the title column. `stopPropagation` on tap.
+- **Row body** — the title and meta line share a single stretched `<Link to="/item/:id">`, so a tap anywhere on the row opens the thread. The article itself is opened from a prominent "Read article" button on the thread page. Self-posts behave the same way (they've never had an external article to begin with).
+- **Star button** — a real icon button on the right, not an inline text link. Tapping toggles saved state. Has its own 48×48px hit area and ≥8px horizontal gap from the row body.
 
 Everything else is display-only:
 
-- Points, age — plain text in the metadata row.
-- Domain — plain text under the title, not a link. (We intentionally do not let users tap a domain to filter by site; that's a power-user feature incompatible with the "few targets" goal.)
+- Points, age, comment count — plain text inline in the metadata row inside the row link.
+- Domain — plain text in the metadata row, not a link. (We intentionally do not let users tap a domain to filter by site; that's a power-user feature incompatible with the "few targets" goal.)
 
 What is deliberately **not** rendered:
 
@@ -167,10 +163,23 @@ Spacing / sizing:
 
 - Row vertical padding: 16px top and bottom. Min row height: 72px.
 - Min hit area per tap zone: 48×48px.
-- Min dead space between adjacent tap zones: 8px; between title column and the comments button, ≥12px.
+- Min dead space between adjacent tap zones: 8px.
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
 
 Thread page mirrors the same discipline: a single, full-width "Read article" button at the top of a story view (hidden for self-posts); comment collapse/expand and user links are each their own clearly-demarcated zones.
+
+## Top bar controls
+
+On feed pages the sticky orange header carries two feed-scoped action icons on the right. Both icons stay in place (never shift) so the layout doesn't jump; the sweep button is disabled when there's nothing to dismiss.
+
+- **Show dismissed** (Material Symbols `visibility` / `visibility_off`) — toggle. Default is off. When on, dismissed stories appear inline in the current feed, muted so they're visibly deprioritised but still legible; tapping one opens the thread and un-dismisses it in one go. Not persisted across reloads.
+- **Sweep unstarred** (Material Symbols `sweep`) — dismisses every visible unstarred story in one shot. Disabled when there are no unstarred stories to dismiss.
+
+Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols). No icon font loaded at runtime.
+
+On non-feed pages (thread, `/saved`, `/ignored`, etc.) these icons do not render at all.
+
+No dismiss/sweep toast and no header Undo: the Show-dismissed toggle is the recovery path. Dismissing is always deliberate (swipe right, broom, or menu Ignore) — scroll-past no longer auto-dismisses. Save/unsave don't toast either; the star button's pressed state is the single source of truth for saved state.
 
 ## Visual Design
 
@@ -179,7 +188,7 @@ Thread page mirrors the same discipline: a single, full-width "Read article" but
 - Text: `#000` primary, `#828282` metadata.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
 - **Tap targets: ≥48×48px, ≥8px spacing between any two distinct targets.**
-- **At most 2 tappable zones per story row** (3 when logged in, counting the vote arrow). Anything else is display-only.
+- **At most 2 tappable zones per story row** (3 when logged in, counting the vote arrow): the stretched row link and the star button. Anything else is display-only.
 - Layout: single column, max-width ~720px, centered on desktop.
 - Active/pressed state on every tappable zone (subtle background darkening) so the user sees which region received their tap.
 
