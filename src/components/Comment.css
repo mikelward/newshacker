@@ -7,13 +7,14 @@
 }
 
 .comment.is-expanded {
-  background: var(--hn-pressed);
+  box-shadow: inset 3px 0 0 0 var(--hn-orange);
   cursor: default;
 }
 
 .comment__header {
   display: flex;
   align-items: baseline;
+  margin-top: 6px;
   font-size: 13px;
   color: var(--hn-meta);
 }
@@ -67,15 +68,6 @@
   background: var(--hn-bg-code);
   padding: 8px;
   border-radius: 4px;
-}
-
-.comment__actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--hn-meta);
 }
 
 .comment__action {
