@@ -44,6 +44,20 @@ function buildOldPrompt(title, transcript) {
   );
 }
 
+function buildNewPrompt(title, transcript) {
+  const header = title ? `Article title: ${title}\n\n` : '';
+  return (
+    `${header}Below are the top comments from a Hacker News discussion. ` +
+    `Extract up to 5 of the most useful insights from the conversation — points ` +
+    `of agreement, notable dissents, corrections, or interesting additions. ` +
+    `Only include genuinely useful points. If the discussion is thin, ` +
+    `return fewer insights rather than padding with filler.\n\n` +
+    `Return one insight per line, each a single short sentence under 15 words. ` +
+    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
+    `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
+  );
+}
+
 function buildClaimPrompt(title, transcript) {
   const header = title ? `Article title: ${title}\n\n` : '';
   return (
@@ -55,30 +69,6 @@ function buildClaimPrompt(title, transcript) {
     `not just name the topic. Only include genuinely useful points; if the ` +
     `discussion is thin, return fewer insights rather than padding with ` +
     `filler. Return no more than 5 insights — do not exceed 5.\n\n` +
-    `Return one insight per line, each a single short sentence under 15 words. ` +
-    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
-    `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
-  );
-}
-
-function buildTweakPrompt(title, transcript) {
-  const header = title ? `Article title: ${title}\n\n` : '';
-  return (
-    `${header}Below are the top comments from a Hacker News discussion. ` +
-    `Extract up to 5 of the most useful insights from the conversation — points ` +
-    `of agreement, notable dissents, corrections, or interesting additions. ` +
-    `Combine related points into a single insight rather than listing them ` +
-    `separately. Only include genuinely useful points; if the discussion is ` +
-    `thin, return fewer insights rather than padding with filler. Return no ` +
-    `more than 5 insights — do not exceed 5.\n\n` +
-    `Each insight must state a specific claim about the subject matter. ` +
-    `State it directly, as an assertion — not a meta-description of what the ` +
-    `article or commenters are doing. Do not use phrases like "the article ` +
-    `suggests", "is framed as", "commenters think", "the manifesto ` +
-    `reflects", or "the comment highlights". Make the claim itself.\n\n` +
-    `State each insight in the strongest form actually argued in the ` +
-    `comments, not a diluted or hedged version. If commenters disagreed, ` +
-    `the strongest version of each side is a valid insight.\n\n` +
     `Return one insight per line, each a single short sentence under 15 words. ` +
     `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
@@ -296,8 +286,8 @@ async function main() {
 
   const client = new GoogleGenAI({ apiKey });
   const oldRuns = [];
+  const newRuns = [];
   const claimRuns = [];
-  const tweakRuns = [];
   const hopeRuns = [];
   const simpleRuns = [];
 
@@ -319,18 +309,18 @@ async function main() {
         transcript.transcript,
       );
       await sleep(INTER_CALL_DELAY_MS);
-      const claimRun = await runVariant(
+      const newRun = await runVariant(
         client,
-        'claim',
-        buildClaimPrompt,
+        'new',
+        buildNewPrompt,
         transcript.title,
         transcript.transcript,
       );
       await sleep(INTER_CALL_DELAY_MS);
-      const tweakRun = await runVariant(
+      const claimRun = await runVariant(
         client,
-        'tweak',
-        buildTweakPrompt,
+        'claim',
+        buildClaimPrompt,
         transcript.title,
         transcript.transcript,
       );
@@ -351,34 +341,34 @@ async function main() {
         transcript.transcript,
       );
       oldRuns.push(oldRun);
+      newRuns.push(newRun);
       claimRuns.push(claimRun);
-      tweakRuns.push(tweakRun);
       hopeRuns.push(hopeRun);
       simpleRuns.push(simpleRun);
       console.log(
         `old=${oldRun.latencyMs}ms/${oldRun.insights.length}` +
+          ` new=${newRun.latencyMs}ms/${newRun.insights.length}` +
           ` claim=${claimRun.latencyMs}ms/${claimRun.insights.length}` +
-          ` tweak=${tweakRun.latencyMs}ms/${tweakRun.insights.length}` +
           ` hope=${hopeRun.latencyMs}ms/${hopeRun.insights.length}` +
           ` simple=${simpleRun.latencyMs}ms/${simpleRun.insights.length}`,
       );
       console.log(`  title: ${transcript.title}`);
       const max = Math.max(
         oldRun.insights.length,
+        newRun.insights.length,
         claimRun.insights.length,
-        tweakRun.insights.length,
         hopeRun.insights.length,
         simpleRun.insights.length,
       );
       for (let i = 0; i < max; i++) {
         const o = oldRun.insights[i] ?? '(—)';
+        const n = newRun.insights[i] ?? '(—)';
         const c = claimRun.insights[i] ?? '(—)';
-        const t = tweakRun.insights[i] ?? '(—)';
         const h = hopeRun.insights[i] ?? '(—)';
         const s = simpleRun.insights[i] ?? '(—)';
         console.log(`  old   [${i}]: ${o}`);
+        console.log(`  new   [${i}]: ${n}`);
         console.log(`  claim [${i}]: ${c}`);
-        console.log(`  tweak [${i}]: ${t}`);
         console.log(`  hope  [${i}]: ${h}`);
         console.log(`  simple[${i}]: ${s}`);
       }
@@ -388,13 +378,10 @@ async function main() {
   }
 
   summarize('OLD prompt (3–5 × 25 words)', oldRuns);
+  summarize('NEW prompt (up to 5 × 15 words)', newRuns);
   summarize('CLAIM prompt (≤5 × 15 words, combine, claim not topic)', claimRuns);
   summarize(
-    'TWEAK prompt (CLAIM + anti-meta + strongest-form)',
-    tweakRuns,
-  );
-  summarize(
-    'HOPE prompt (TWEAK + simpler-when-equivalent + fewer-is-fine)',
+    'HOPE prompt (CLAIM + anti-meta + strongest-form + simpler-when-equivalent + fewer-is-fine)',
     hopeRuns,
   );
   summarize(
