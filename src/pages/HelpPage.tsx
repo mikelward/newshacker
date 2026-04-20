@@ -57,13 +57,13 @@ export function HelpPage() {
         </li>
       </ul>
 
-      <h2 className="about-page__heading">Peeking at dismissed stories</h2>
+      <h2 className="about-page__heading">Reviewing dismissed stories</h2>
       <p>
-        Tap the <strong>eye</strong> in the top bar to toggle dismissed
-        stories on and off. When they&rsquo;re shown, they appear
-        muted inline; tapping one opens the thread and un-dismisses it.
-        Dismissed stories also live in <Link to="/ignored">Ignored</Link>,
-        and dismissals expire after seven days.
+        Dismissed stories live in <Link to="/ignored">Ignored</Link> in
+        the menu, newest first. Tap <strong>Un-ignore</strong> on any
+        row to bring it back to your feeds, or{' '}
+        <strong>Forget all ignored</strong> at the top of the list to
+        clear it. Dismissals expire on their own after seven days.
       </p>
 
       <h2 className="about-page__heading">Undoing a dismiss</h2>
