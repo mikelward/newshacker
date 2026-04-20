@@ -58,6 +58,23 @@ function buildNewPrompt(title, transcript) {
   );
 }
 
+function buildClaimPrompt(title, transcript) {
+  const header = title ? `Article title: ${title}\n\n` : '';
+  return (
+    `${header}Below are the top comments from a Hacker News discussion. ` +
+    `Extract up to 5 of the most useful insights from the conversation — points ` +
+    `of agreement, notable dissents, corrections, or interesting additions. ` +
+    `Combine related points into a single insight rather than listing them ` +
+    `separately. Each insight must state a specific claim or observation, ` +
+    `not just name the topic. Only include genuinely useful points; if the ` +
+    `discussion is thin, return fewer insights rather than padding with ` +
+    `filler. Return no more than 5 insights — do not exceed 5.\n\n` +
+    `Return one insight per line, each a single short sentence under 15 words. ` +
+    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
+    `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
+  );
+}
+
 function htmlToPlainText(input) {
   if (!input) return '';
   return input
@@ -180,6 +197,7 @@ async function main() {
   const client = new GoogleGenAI({ apiKey });
   const oldRuns = [];
   const newRuns = [];
+  const claimRuns = [];
 
   for (const id of storyIds) {
     process.stdout.write(`story ${id} ... `);
@@ -205,18 +223,34 @@ async function main() {
         transcript.title,
         transcript.transcript,
       );
+      const claimRun = await runVariant(
+        client,
+        'claim',
+        buildClaimPrompt,
+        transcript.title,
+        transcript.transcript,
+      );
       oldRuns.push(oldRun);
       newRuns.push(newRun);
+      claimRuns.push(claimRun);
       console.log(
-        `old=${oldRun.latencyMs}ms/${oldRun.insights.length} new=${newRun.latencyMs}ms/${newRun.insights.length}`,
+        `old=${oldRun.latencyMs}ms/${oldRun.insights.length}` +
+          ` new=${newRun.latencyMs}ms/${newRun.insights.length}` +
+          ` claim=${claimRun.latencyMs}ms/${claimRun.insights.length}`,
       );
       console.log(`  title: ${transcript.title}`);
-      const pair = Math.max(oldRun.insights.length, newRun.insights.length);
-      for (let i = 0; i < pair; i++) {
+      const max = Math.max(
+        oldRun.insights.length,
+        newRun.insights.length,
+        claimRun.insights.length,
+      );
+      for (let i = 0; i < max; i++) {
         const o = oldRun.insights[i] ?? '(—)';
         const n = newRun.insights[i] ?? '(—)';
-        console.log(`  old[${i}]: ${o}`);
-        console.log(`  new[${i}]: ${n}`);
+        const c = claimRun.insights[i] ?? '(—)';
+        console.log(`  old  [${i}]: ${o}`);
+        console.log(`  new  [${i}]: ${n}`);
+        console.log(`  claim[${i}]: ${c}`);
       }
     } catch (err) {
       console.log(`error (${err.message})`);
@@ -225,6 +259,7 @@ async function main() {
 
   summarize('OLD prompt (3–5 × 25 words)', oldRuns);
   summarize('NEW prompt (up to 5 × 15 words)', newRuns);
+  summarize('CLAIM prompt (≤5 × 15 words, combine, claim not topic)', claimRuns);
 }
 
 main().catch((err) => {
