@@ -58,23 +58,6 @@ function buildNewPrompt(title, transcript) {
   );
 }
 
-function buildClaimPrompt(title, transcript) {
-  const header = title ? `Article title: ${title}\n\n` : '';
-  return (
-    `${header}Below are the top comments from a Hacker News discussion. ` +
-    `Extract up to 5 of the most useful insights from the conversation — points ` +
-    `of agreement, notable dissents, corrections, or interesting additions. ` +
-    `Combine related points into a single insight rather than listing them ` +
-    `separately. Each insight must state a specific claim or observation, ` +
-    `not just name the topic. Only include genuinely useful points; if the ` +
-    `discussion is thin, return fewer insights rather than padding with ` +
-    `filler. Return no more than 5 insights — do not exceed 5.\n\n` +
-    `Return one insight per line, each a single short sentence under 15 words. ` +
-    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
-    `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
-  );
-}
-
 function buildHopePrompt(title, transcript) {
   const header = title ? `Article title: ${title}\n\n` : '';
   return (
@@ -104,7 +87,12 @@ function buildHopePrompt(title, transcript) {
   );
 }
 
-function buildSimplePrompt(title, transcript) {
+// WORDS = HOPE + active-voice rule + tighter word cap (15 → 12).
+// The conjecture: HOPE's strongest-form instruction packs information
+// into long sentences, some of which overflow the 85-char tablet line
+// threshold even while staying under the 15-word cap. Cutting the cap
+// to 12 should drive the max char count back under 85.
+function buildWordsPrompt(title, transcript) {
   const header = title ? `Article title: ${title}\n\n` : '';
   return (
     `${header}Below are the top comments from a Hacker News discussion. ` +
@@ -123,10 +111,51 @@ function buildSimplePrompt(title, transcript) {
     `State each insight in the strongest form actually argued in the ` +
     `comments, not a diluted or hedged version. If commenters disagreed, ` +
     `the strongest version of each side is a valid insight.\n\n` +
-    `Phrase things simply and directly, but keep domain terminology and ` +
-    `precision. Prefer "is" over "functions as", "part of" over "a ` +
-    `component of", "uses" over "utilizes".\n\n` +
-    `Return one insight per line, each a single short sentence under 15 words. ` +
+    `When there are two equivalent ways to say something, prefer the ` +
+    `simpler and more direct one: "is" over "functions as", "part of" over ` +
+    `"a component of", "uses" over "utilizes", "helps" over "facilitates". ` +
+    `Keep technical terms only where they are the precise word.\n\n` +
+    `Use active voice with a concrete subject. Prefer "Phones with X are ` +
+    `exempt" over "The regulation exempts phones with X"; "X drives Y" ` +
+    `over "Y is driven by X".\n\n` +
+    `Return one insight per line, each a single short sentence under 12 words. ` +
+    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
+    `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
+  );
+}
+
+// CHARS = HOPE + active-voice rule + char cap (instead of word cap).
+// Swaps the "under 15 words" ceiling for "under 85 characters" to
+// target the layout constraint (tablet line width) directly. Models
+// count chars less precisely than words, so in practice this becomes
+// a loose target; we'll see whether it's tighter than the word cap.
+function buildCharsPrompt(title, transcript) {
+  const header = title ? `Article title: ${title}\n\n` : '';
+  return (
+    `${header}Below are the top comments from a Hacker News discussion. ` +
+    `Extract up to 5 of the most useful insights from the conversation — points ` +
+    `of agreement, notable dissents, corrections, or interesting additions. ` +
+    `Combine related points into a single insight rather than listing them ` +
+    `separately. Only include genuinely useful points; if the discussion is ` +
+    `thin, return fewer insights rather than padding with filler — returning ` +
+    `3 or 4 is fine and preferable to inventing a fifth. Return no more than ` +
+    `5 insights — do not exceed 5.\n\n` +
+    `Each insight must state a specific claim about the subject matter. ` +
+    `State it directly, as an assertion — not a meta-description of what the ` +
+    `article or commenters are doing. Do not use phrases like "the article ` +
+    `suggests", "is framed as", "commenters think", "the manifesto ` +
+    `reflects", or "the comment highlights". Make the claim itself.\n\n` +
+    `State each insight in the strongest form actually argued in the ` +
+    `comments, not a diluted or hedged version. If commenters disagreed, ` +
+    `the strongest version of each side is a valid insight.\n\n` +
+    `When there are two equivalent ways to say something, prefer the ` +
+    `simpler and more direct one: "is" over "functions as", "part of" over ` +
+    `"a component of", "uses" over "utilizes", "helps" over "facilitates". ` +
+    `Keep technical terms only where they are the precise word.\n\n` +
+    `Use active voice with a concrete subject. Prefer "Phones with X are ` +
+    `exempt" over "The regulation exempts phones with X"; "X drives Y" ` +
+    `over "Y is driven by X".\n\n` +
+    `Return one insight per line, each a single short sentence under 85 characters. ` +
     `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
   );
@@ -287,9 +316,9 @@ async function main() {
   const client = new GoogleGenAI({ apiKey });
   const oldRuns = [];
   const newRuns = [];
-  const claimRuns = [];
   const hopeRuns = [];
-  const simpleRuns = [];
+  const wordsRuns = [];
+  const charsRuns = [];
 
   for (const id of storyIds) {
     process.stdout.write(`story ${id} ... `);
@@ -317,14 +346,6 @@ async function main() {
         transcript.transcript,
       );
       await sleep(INTER_CALL_DELAY_MS);
-      const claimRun = await runVariant(
-        client,
-        'claim',
-        buildClaimPrompt,
-        transcript.title,
-        transcript.transcript,
-      );
-      await sleep(INTER_CALL_DELAY_MS);
       const hopeRun = await runVariant(
         client,
         'hope',
@@ -333,44 +354,52 @@ async function main() {
         transcript.transcript,
       );
       await sleep(INTER_CALL_DELAY_MS);
-      const simpleRun = await runVariant(
+      const wordsRun = await runVariant(
         client,
-        'simple',
-        buildSimplePrompt,
+        'words',
+        buildWordsPrompt,
+        transcript.title,
+        transcript.transcript,
+      );
+      await sleep(INTER_CALL_DELAY_MS);
+      const charsRun = await runVariant(
+        client,
+        'chars',
+        buildCharsPrompt,
         transcript.title,
         transcript.transcript,
       );
       oldRuns.push(oldRun);
       newRuns.push(newRun);
-      claimRuns.push(claimRun);
       hopeRuns.push(hopeRun);
-      simpleRuns.push(simpleRun);
+      wordsRuns.push(wordsRun);
+      charsRuns.push(charsRun);
       console.log(
         `old=${oldRun.latencyMs}ms/${oldRun.insights.length}` +
           ` new=${newRun.latencyMs}ms/${newRun.insights.length}` +
-          ` claim=${claimRun.latencyMs}ms/${claimRun.insights.length}` +
           ` hope=${hopeRun.latencyMs}ms/${hopeRun.insights.length}` +
-          ` simple=${simpleRun.latencyMs}ms/${simpleRun.insights.length}`,
+          ` words=${wordsRun.latencyMs}ms/${wordsRun.insights.length}` +
+          ` chars=${charsRun.latencyMs}ms/${charsRun.insights.length}`,
       );
       console.log(`  title: ${transcript.title}`);
       const max = Math.max(
         oldRun.insights.length,
         newRun.insights.length,
-        claimRun.insights.length,
         hopeRun.insights.length,
-        simpleRun.insights.length,
+        wordsRun.insights.length,
+        charsRun.insights.length,
       );
       for (let i = 0; i < max; i++) {
         const o = oldRun.insights[i] ?? '(—)';
         const n = newRun.insights[i] ?? '(—)';
-        const c = claimRun.insights[i] ?? '(—)';
         const h = hopeRun.insights[i] ?? '(—)';
-        const s = simpleRun.insights[i] ?? '(—)';
-        console.log(`  old   [${i}]: ${o}`);
-        console.log(`  new   [${i}]: ${n}`);
-        console.log(`  claim [${i}]: ${c}`);
-        console.log(`  hope  [${i}]: ${h}`);
-        console.log(`  simple[${i}]: ${s}`);
+        const w = wordsRun.insights[i] ?? '(—)';
+        const c = charsRun.insights[i] ?? '(—)';
+        console.log(`  old  [${i}]: ${o}`);
+        console.log(`  new  [${i}]: ${n}`);
+        console.log(`  hope [${i}]: ${h}`);
+        console.log(`  words[${i}]: ${w}`);
+        console.log(`  chars[${i}]: ${c}`);
       }
     } catch (err) {
       console.log(`error (${err.message})`);
@@ -379,14 +408,17 @@ async function main() {
 
   summarize('OLD prompt (3–5 × 25 words)', oldRuns);
   summarize('NEW prompt (up to 5 × 15 words)', newRuns);
-  summarize('CLAIM prompt (≤5 × 15 words, combine, claim not topic)', claimRuns);
   summarize(
-    'HOPE prompt (CLAIM + anti-meta + strongest-form + simpler-when-equivalent + fewer-is-fine)',
+    'HOPE prompt (full stack, 15-word cap)',
     hopeRuns,
   );
   summarize(
-    'SIMPLE prompt (HOPE with trimmed simple-and-direct rule)',
-    simpleRuns,
+    'WORDS prompt (HOPE + active voice + 12-word cap)',
+    wordsRuns,
+  );
+  summarize(
+    'CHARS prompt (HOPE + active voice + 85-char cap)',
+    charsRuns,
   );
 }
 
