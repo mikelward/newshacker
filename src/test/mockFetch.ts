@@ -18,7 +18,7 @@ interface Fixtures {
   feeds?: Partial<Record<string, number[]>>;
   items?: Record<number, HNItem | null>;
   users?: Record<string, HNUser | null>;
-  summaries?: Record<string, SummaryFixture>;
+  summaries?: Record<number, SummaryFixture>;
   commentsSummaries?: Record<number, CommentsSummaryFixture>;
 }
 
@@ -69,8 +69,11 @@ export function installHNFetchMock(fixtures: Fixtures) {
 
     if (url.includes('/api/summary')) {
       const parsed = new URL(url, 'http://localhost');
-      const articleUrl = parsed.searchParams.get('url') ?? '';
-      const fixture = fixtures.summaries?.[articleUrl];
+      const idRaw = parsed.searchParams.get('id');
+      const id = idRaw ? Number(idRaw) : NaN;
+      const fixture = Number.isFinite(id)
+        ? fixtures.summaries?.[id]
+        : undefined;
       if (fixture?.summary !== undefined) {
         return new Response(JSON.stringify({ summary: fixture.summary }), {
           status: 200,

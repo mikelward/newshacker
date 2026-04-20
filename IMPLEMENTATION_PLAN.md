@@ -172,13 +172,16 @@ Next up:
 
 ### TODOs
 
-- [ ] **Cross-instance cache.** The current `Map`-based cache is per serverless instance. Move to Vercel KV (or Upstash Redis) keyed by article URL so warm summaries are shared across invocations and survive deploys. Keep the 1-hour TTL; consider longer if abuse guards prevent cache poisoning.
+Shipped:
+- [x] **Cross-instance cache.** Done via Vercel edge CDN (`Cache-Control: public, s-maxage=3600, stale-while-revalidate=86400`) rather than a KV/Redis store — Vercel's CDN is included with the plan and serves cache hits without re-invoking the function. Per-instance `Map` is retained as a hot-path second layer. See SPEC.md "Shared server-side cache (Vercel edge CDN)".
+- [x] **Default-on summaries.** `<SummaryCard>` auto-fetches on thread mount (`useSummary(storyId, true)`) whenever the story has a URL. No click required.
+- [x] **Per-item-id lookup.** `/api/summary` now takes `?id=<storyId>` and fetches the HN item server-side to derive the article URL. Closes the abuse vector where any caller could spoof Referer and point the endpoint at arbitrary URLs. Cache key is now the story id (not the article URL), and the legacy `?url=` parameter is rejected with 400.
+
+Open:
 - [ ] **Require a logged-in account.** Once Phase 5a (login) ships, gate `/api/summary` on a valid session cookie. Return 401 when unauthenticated. Optionally rate-limit per-user (e.g., N summaries/hour) to keep spend predictable.
-- [ ] **Rate limiting.** Even with login gating, add a simple per-user or per-IP rate limit in Vercel KV (e.g., 30 summaries / 10 minutes) to blunt burst abuse.
-- [ ] **Per-item-id lookup.** Take an `item_id` param instead of a raw URL; fetch the HN item server-side and derive the URL. Stops anyone from pointing the endpoint at arbitrary URLs.
+- [ ] **Rate limiting.** Even with login gating, add a simple per-user or per-IP rate limit (e.g., 30 summaries / 10 minutes) to blunt burst abuse. Will need a shared store (Vercel KV or similar) — the edge CDN cache replaces the KV cache need but doesn't help with rate limiting.
 - [ ] **Observability.** Log aggregate request count, cache hit rate, and error classes to a cheap sink (Vercel logs + periodic dashboard). Flag if cache hit rate collapses (spend spike).
 - [ ] **Summary length metric + cap.** Log summary character/line length so we can size the loading skeleton against real-world data instead of a hand-picked line count. Once we know the distribution, cap the response (prompt tweak or hard truncate) so the skeleton stays close to the median and reflow on arrival is minimised.
-- [ ] **Optional: default-on summaries.** Once costs + caching are proven safe, consider auto-fetching the summary on story page load (keyed by item id) so it appears without a click.
 
 ## Cross-cutting
 

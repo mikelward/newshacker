@@ -315,7 +315,7 @@ describe('<Thread>', () => {
         800: makeStory(800, { title: 'Linky', url: 'https://example.com/800' }),
       },
       summaries: {
-        'https://example.com/800': {
+        800: {
           summary: 'A concise one-sentence summary.',
         },
       },
@@ -338,7 +338,7 @@ describe('<Thread>', () => {
         820: makeStory(820, { title: 'Slow', url: 'https://example.com/820' }),
       },
       summaries: {
-        'https://example.com/820': { summary: 'Eventually here.' },
+        820: { summary: 'Eventually here.' },
       },
     });
 
@@ -367,7 +367,7 @@ describe('<Thread>', () => {
         810: makeStory(810, { title: 'Flaky', url: 'https://example.com/810' }),
       },
       summaries: {
-        'https://example.com/810': { error: 'Summarization failed', status: 502 },
+        810: { error: 'Summarization failed', status: 502 },
       },
     });
 
@@ -387,7 +387,7 @@ describe('<Thread>', () => {
         811: makeStory(811, { title: 'Hugged', url: 'https://example.com/811' }),
       },
       summaries: {
-        'https://example.com/811': {
+        811: {
           error: "The article site didn't respond in time",
           reason: 'source_timeout',
           status: 504,
@@ -413,7 +413,7 @@ describe('<Thread>', () => {
         812: makeStory(812, { title: 'Blocked', url: 'https://example.com/812' }),
       },
       summaries: {
-        'https://example.com/812': {
+        812: {
           error: 'Could not access the article',
           reason: 'source_unreachable',
           status: 502,

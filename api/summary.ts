@@ -62,11 +62,43 @@ export function isAllowedReferer(referer: string | null): boolean {
   );
 }
 
-type CacheEntry = { summary: string; ts: number };
+// Inlined from api/items.ts. Vercel's per-file function bundler has been
+// flaky about tracing shared modules outside `api/`, and this helper is
+// short enough not to be worth its own file.
+interface HNItem {
+  id?: number;
+  type?: string;
+  title?: string;
+  url?: string;
+  dead?: boolean;
+  deleted?: boolean;
+}
 
-// Per-instance in-memory cache. Vercel may run multiple instances, so this is
-// best-effort — not a correctness boundary. It just trims obvious repeats.
-const cache = new Map<string, CacheEntry>();
+const HN_ITEM_URL = (id: number) =>
+  `https://hacker-news.firebaseio.com/v0/item/${id}.json`;
+
+async function defaultFetchItem(
+  id: number,
+  signal?: AbortSignal,
+): Promise<HNItem | null> {
+  const res = await fetch(HN_ITEM_URL(id), { signal });
+  if (!res.ok) return null;
+  return (await res.json()) as HNItem | null;
+}
+
+function parseStoryId(raw: string | null): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n <= 0) return null;
+  return n;
+}
+
+// Cache keyed by HN story id, not article URL. Two HN posts pointing at
+// the same external URL pay independently — accepted trade for not
+// letting any caller pin arbitrary cache keys (and burn Gemini/Jina
+// spend) via a `?url=` of their choosing.
+type CacheEntry = { summary: string; ts: number };
+const cache = new Map<number, CacheEntry>();
 
 function isValidHttpUrl(value: string): boolean {
   if (value.length > MAX_URL_LEN) return false;
@@ -127,6 +159,7 @@ export interface SummaryDeps {
   createClient?: (apiKey: string) => SummaryClient;
   now?: () => number;
   fetchImpl?: typeof fetch;
+  fetchItem?: (id: number, signal?: AbortSignal) => Promise<HNItem | null>;
   jinaApiKey?: string;
 }
 
@@ -236,17 +269,37 @@ export async function handleSummaryRequest(
   }
 
   const { searchParams } = new URL(request.url);
-  const articleUrl = searchParams.get('url');
-
-  if (!articleUrl || !isValidHttpUrl(articleUrl)) {
-    return json({ error: 'Invalid url parameter' }, 400);
+  const storyId = parseStoryId(searchParams.get('id'));
+  if (storyId === null) {
+    return json({ error: 'Invalid id parameter' }, 400);
   }
 
   const now = deps.now ?? Date.now;
-  const cached = cache.get(articleUrl);
+  const cached = cache.get(storyId);
   if (cached && now() - cached.ts < CACHE_TTL_MS) {
     return json({ summary: cached.summary, cached: true });
   }
+
+  const fetchItem = deps.fetchItem ?? defaultFetchItem;
+  let story: HNItem | null;
+  try {
+    story = await fetchItem(storyId, request.signal);
+  } catch {
+    return json(
+      { error: 'Could not load story', reason: 'story_unreachable' },
+      502,
+    );
+  }
+  if (!story || story.deleted || story.dead) {
+    return json({ error: 'Story not available' }, 404);
+  }
+  if (!story.url || !isValidHttpUrl(story.url)) {
+    return json(
+      { error: 'Story has no article to summarize', reason: 'no_article' },
+      400,
+    );
+  }
+  const articleUrl = story.url;
 
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
@@ -316,7 +369,7 @@ export async function handleSummaryRequest(
     );
   }
 
-  cache.set(articleUrl, { summary, ts: now() });
+  cache.set(storyId, { summary, ts: now() });
   return json({ summary });
 }
 
