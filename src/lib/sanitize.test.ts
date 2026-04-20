@@ -115,4 +115,45 @@ describe('sanitizeCommentHtml', () => {
     const result = sanitizeCommentHtml('<p>One<p>Two');
     expect(result).toBe('<p>One</p><p>Two</p>');
   });
+
+  it('drops a single leading quoted paragraph so the reply shows first', () => {
+    // HN encodes "> quoted" as a paragraph starting with "&gt; ". Showing it
+    // in the preview is noise — the parent comment is right above.
+    const result = sanitizeCommentHtml('&gt; quoted parent<p>my actual reply');
+    expect(result).toBe('<p>my actual reply</p>');
+  });
+
+  it('drops multiple consecutive leading quote paragraphs', () => {
+    const result = sanitizeCommentHtml(
+      '&gt; line one<p>&gt; line two<p>the reply',
+    );
+    expect(result).toBe('<p>the reply</p>');
+  });
+
+  it('stops stripping at the first non-quote paragraph', () => {
+    const result = sanitizeCommentHtml(
+      '&gt; quoted<p>reply text<p>&gt; later quote<p>more reply',
+    );
+    expect(result).toBe(
+      '<p>reply text</p><p>&gt; later quote</p><p>more reply</p>',
+    );
+  });
+
+  it('leaves the comment alone when every paragraph is a quote', () => {
+    // Pathological case: don't render an empty body.
+    const result = sanitizeCommentHtml('&gt; only<p>&gt; quotes');
+    expect(result).toBe('<p>&gt; only</p><p>&gt; quotes</p>');
+  });
+
+  it('does not strip paragraphs that merely contain ">" mid-text', () => {
+    const result = sanitizeCommentHtml('a > b is true<p>next');
+    expect(result).toBe('<p>a &gt; b is true</p><p>next</p>');
+  });
+
+  it('strips a leading quote paragraph that contains inline formatting', () => {
+    const result = sanitizeCommentHtml(
+      '&gt; <i>quoted</i> bit<p>the reply',
+    );
+    expect(result).toBe('<p>the reply</p>');
+  });
 });

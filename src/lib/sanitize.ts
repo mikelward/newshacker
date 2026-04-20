@@ -51,7 +51,7 @@ export function sanitizeCommentHtml(input: string): string {
       },
     },
   });
-  return normalizeParagraphs(clean);
+  return stripLeadingQuoteParagraphs(normalizeParagraphs(clean));
 }
 
 // HN stores multi-paragraph comments as raw text for the first paragraph and
@@ -74,4 +74,29 @@ function normalizeParagraphs(html: string): string {
     }
   }
   return out;
+}
+
+// A comment that opens by re-quoting its parent ("> ...") wastes the reader's
+// first line on text they already see directly above. Drop leading paragraphs
+// whose visible text starts with "> " (encoded as &gt; in HN's HTML) so the
+// reply's own content shows first. If the comment is nothing but quote
+// paragraphs, leave it alone rather than render an empty body.
+function stripLeadingQuoteParagraphs(html: string): string {
+  const paragraphs = html.match(/<p>[\s\S]*?<\/p>/g);
+  if (!paragraphs) return html;
+
+  let firstNonQuote = 0;
+  while (firstNonQuote < paragraphs.length) {
+    const inner = paragraphs[firstNonQuote].slice(3, -4);
+    const text = inner.replace(/<[^>]+>/g, '').trim();
+    if (/^(?:&gt;|>)\s/.test(text)) {
+      firstNonQuote++;
+    } else {
+      break;
+    }
+  }
+
+  if (firstNonQuote === 0) return html;
+  if (firstNonQuote === paragraphs.length) return html;
+  return paragraphs.slice(firstNonQuote).join('');
 }
