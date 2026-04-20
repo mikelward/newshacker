@@ -209,14 +209,43 @@ function parseInsights(raw) {
     .filter((line) => line.length > 0);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Gemini returns 503 / UNAVAILABLE / RESOURCE_EXHAUSTED / 429 when demand
+// spikes. Retry a handful of times with exponential backoff so a hot
+// period doesn't wreck a whole benchmark run.
+function isRetryableError(err) {
+  const msg = String(err?.message ?? err);
+  return (
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('503') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('429')
+  );
+}
+
 async function runVariant(client, label, buildPrompt, title, transcript) {
   const prompt = buildPrompt(title, transcript);
   const t0 = performance.now();
-  const response = await client.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: { thinkingConfig: { thinkingBudget: 0 } },
-  });
+  let response;
+  let delay = 1000;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      response = await client.models.generateContent({
+        model: MODEL,
+        contents: prompt,
+        config: { thinkingConfig: { thinkingBudget: 0 } },
+      });
+      break;
+    } catch (err) {
+      if (attempt >= 4 || !isRetryableError(err)) throw err;
+      process.stdout.write(`(${label} retry ${attempt + 1}) `);
+      await sleep(delay);
+      delay *= 2;
+    }
+  }
   const t1 = performance.now();
   const text = (response.text ?? '').trim();
   const insights = parseInsights(text);
@@ -228,6 +257,10 @@ async function runVariant(client, label, buildPrompt, title, transcript) {
     wordsPerInsight: insights.map((s) => s.split(/\s+/).filter(Boolean).length),
   };
 }
+
+// Small gap between successive Gemini calls within a story to stay under
+// the free-tier QPS ceiling when the model is under demand.
+const INTER_CALL_DELAY_MS = 200;
 
 function percentile(values, p) {
   if (values.length === 0) return 0;
@@ -300,6 +333,7 @@ async function main() {
         transcript.title,
         transcript.transcript,
       );
+      await sleep(INTER_CALL_DELAY_MS);
       const newRun = await runVariant(
         client,
         'new',
@@ -307,6 +341,7 @@ async function main() {
         transcript.title,
         transcript.transcript,
       );
+      await sleep(INTER_CALL_DELAY_MS);
       const claimRun = await runVariant(
         client,
         'claim',
@@ -314,6 +349,7 @@ async function main() {
         transcript.title,
         transcript.transcript,
       );
+      await sleep(INTER_CALL_DELAY_MS);
       const tweakRun = await runVariant(
         client,
         'tweak',
@@ -321,6 +357,7 @@ async function main() {
         transcript.title,
         transcript.transcript,
       );
+      await sleep(INTER_CALL_DELAY_MS);
       const hopeRun = await runVariant(
         client,
         'hope',
@@ -328,6 +365,7 @@ async function main() {
         transcript.title,
         transcript.transcript,
       );
+      await sleep(INTER_CALL_DELAY_MS);
       const simpleRun = await runVariant(
         client,
         'simple',
