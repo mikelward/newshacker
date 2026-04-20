@@ -1,7 +1,7 @@
-// Regenerate the PWA icon set from an inline "nh" SVG. This is a one-shot
-// dev script; the output PNGs are committed to public/ so production builds
-// don't need sharp. Re-run it after editing the SVG below (e.g. when we
-// replace the placeholder wordmark with a real logo).
+// Regenerate the PWA icon set from an inline "n-in-a-circle" SVG.
+// This is a one-shot dev script; the output PNGs are committed to
+// public/ so production builds don't need sharp. Re-run it after
+// editing the SVG below.
 //
 //   node scripts/generate-icons.mjs
 //
@@ -9,7 +9,7 @@
 //   favicon.svg             — the source SVG, copied verbatim
 //   icon-192.png            — 192x192 PWA icon (any purpose)
 //   icon-512.png            — 512x512 PWA icon (any purpose)
-//   icon-512-maskable.png   — 512x512 with ~80% safe zone for mask/adaptive
+//   icon-512-maskable.png   — 512x512 with ~80% safe zone for adaptive masks
 //   apple-touch-icon.png    — 180x180 iOS home-screen icon
 //   favicon-32.png          — small favicon fallback for legacy browsers
 
@@ -18,31 +18,28 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import sharp from 'sharp';
 
-const BG = '#f6f6ef';
-const FG = '#ff6600';
+const BG = '#ff6600';
+const FG = '#ffffff';
 
-// "nh" wordmark at viewBox 0 0 512 512. The non-maskable version uses the
-// full frame; the maskable version centers the same glyph inside a ~78%
-// safe zone so it survives Android's circular/rounded masks.
+// Circle-n mark at viewBox 0 0 512 512. The non-maskable version fills the
+// frame; the maskable version shrinks the ring + glyph into an 80% safe
+// zone so nothing is clipped by Android's adaptive icon masks.
 function svg({ maskable = false } = {}) {
-  // Keep the type face chunky enough to read at 48px. The letter path is
-  // drawn as text via <text> so we don't ship a font file — we use a
-  // system-ish stack with a solid fallback order, then rasterize here with
-  // sharp (which uses librsvg/resvg — both render a reasonable default
-  // font for "sans-serif"). The final PNG is platform-independent.
-  const safe = maskable ? 0.78 : 1;
-  const fontSize = Math.round(340 * safe);
+  const safe = maskable ? 0.84 : 1;
+  const ringRadius = Math.round(200 * safe);
+  const ringStroke = Math.max(10, Math.round(16 * safe));
+  const fontSize = Math.round(280 * safe);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <rect width="512" height="512" fill="${BG}"/>
+  <circle cx="256" cy="256" r="${ringRadius}" fill="none" stroke="${FG}" stroke-width="${ringStroke}"/>
   <text x="50%" y="50%"
         text-anchor="middle"
         dominant-baseline="central"
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
-        font-weight="800"
+        font-weight="700"
         font-size="${fontSize}"
-        fill="${FG}"
-        letter-spacing="-20">nh</text>
+        fill="${FG}">n</text>
 </svg>`;
 }
 
@@ -55,11 +52,14 @@ async function main() {
   const maskable = Buffer.from(svg({ maskable: true }));
 
   await writeFile(path.join(publicDir, 'favicon.svg'), regular);
-  await sharp(regular).resize(32, 32).png().toFile(path.join(publicDir, 'favicon-32.png'));
-  await sharp(regular).resize(180, 180).png().toFile(path.join(publicDir, 'apple-touch-icon.png'));
-  await sharp(regular).resize(192, 192).png().toFile(path.join(publicDir, 'icon-192.png'));
-  await sharp(regular).resize(512, 512).png().toFile(path.join(publicDir, 'icon-512.png'));
-  await sharp(maskable).resize(512, 512).png().toFile(path.join(publicDir, 'icon-512-maskable.png'));
+  // density bumps librsvg's text rendering density so the glyph stays crisp
+  // when downscaled to 32px.
+  const rasterize = (src) => sharp(src, { density: 384 });
+  await rasterize(regular).resize(32, 32).png().toFile(path.join(publicDir, 'favicon-32.png'));
+  await rasterize(regular).resize(180, 180).png().toFile(path.join(publicDir, 'apple-touch-icon.png'));
+  await rasterize(regular).resize(192, 192).png().toFile(path.join(publicDir, 'icon-192.png'));
+  await rasterize(regular).resize(512, 512).png().toFile(path.join(publicDir, 'icon-512.png'));
+  await rasterize(maskable).resize(512, 512).png().toFile(path.join(publicDir, 'icon-512-maskable.png'));
 
   console.log('Wrote icons to', publicDir);
 }
