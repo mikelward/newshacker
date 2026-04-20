@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useItemTree } from '../hooks/useItemTree';
@@ -9,6 +9,8 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { SummaryError, useSummary } from '../hooks/useSummary';
 import { useCommentsSummary } from '../hooks/useCommentsSummary';
+import { useContentWidth } from '../hooks/useContentWidth';
+import { recordSample } from '../hooks/useLayoutDebug';
 import { extractDomain, formatStoryMetaTail } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
@@ -16,6 +18,7 @@ import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
 import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
+import { estimateWrappedLines } from '../lib/skeletonSize';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
@@ -130,20 +133,109 @@ function summaryErrorDetail(error: unknown): string {
   return '';
 }
 
+// Canvas font shorthand for the summary body text — kept in sync with
+// .thread__summary-body / .thread__summary-list in Thread.css. Used only to
+// estimate wrapped-line counts for the loading skeletons; a small drift from
+// the real computed font is fine because the goal is a ballpark reservation,
+// not pixel-perfect matching. overflow-anchor: none on the card absorbs the
+// residual shift when real content replaces the skeleton.
+const SUMMARY_FONT =
+  "400 15px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+// Typical article summary is "a single, concise sentence" per the Gemini
+// prompt. Measured on device (Pixel 10, Lenovo tablet): summaries cluster
+// around 100–210 chars with occasional excursions to ~240. Reserving for
+// 230 chars covers the long-tail case on narrow mobile widths without
+// growing on arrival; on tablets it still resolves to 3 lines for typical
+// output.
+const ARTICLE_SUMMARY_EXPECTED_CHARS = 230;
+
+// Each insight is capped at ~25 words in the prompt, but the Flash-Lite
+// output (without username tails) lands around 55–85 chars in practice.
+// 85 gives one line per insight on tablet and two on phone, matching
+// what the real list renders.
+const INSIGHT_EXPECTED_CHARS = 85;
+
+// The prompt requests 3–5 insights; 4 is the p50 so we neither systematically
+// over-reserve (5) nor under-reserve (3).
+const EXPECTED_INSIGHT_COUNT = 4;
+
+// The insight list has padding-left for bullet indentation — subtract so
+// the skeleton lines align with where the real insight text will render.
+const INSIGHT_LIST_INDENT_PX = 20;
+
+// Pixel dimensions of the skeleton state, used to compute a min-height for
+// the card so a shorter real summary never causes the card to shrink on
+// load. Kept in TS (not CSS) because the line count is runtime-computed.
+const SKELETON_LINE_HEIGHT_PX = 14;
+const SKELETON_LINE_GAP_PX = 8;
+const SKELETON_PADDING_Y_PX = 6; // 3px top + 3px bottom on .thread__summary-skeleton
+const SUMMARY_LABEL_HEIGHT_PX = 24; // "Summarizing…" font-size 13 + 8px margin-bottom, rounded up
+const INSIGHT_BLOCK_GAP_PX = 12;
+const INSIGHT_LINE_GAP_PX = 6;
+
+function skeletonBlockHeightPx(lines: number): number {
+  if (lines <= 0) return 0;
+  return (
+    lines * SKELETON_LINE_HEIGHT_PX +
+    Math.max(0, lines - 1) * SKELETON_LINE_GAP_PX
+  );
+}
+
 function SummaryCard({ url }: { url: string }) {
   const { data, isFetching, isError, error, refetch } = useSummary(url, true);
   const online = useOnlineStatus();
   const loading = isFetching && !data;
   const offlineWithoutCache = !online && !data && !loading;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLParagraphElement>(null);
+  const width = useContentWidth(cardRef);
+  const lines = estimateWrappedLines(
+    ARTICLE_SUMMARY_EXPECTED_CHARS,
+    width,
+    SUMMARY_FONT,
+  );
+  useEffect(() => {
+    if (!data) return;
+    const body = bodyRef.current;
+    const card = cardRef.current;
+    if (!body || !card) return;
+    const lineHeight = parseFloat(window.getComputedStyle(body).lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
+    const actualLines = Math.round(
+      body.getBoundingClientRect().height / lineHeight,
+    );
+    recordSample({
+      kind: 'article',
+      url,
+      chars: data.summary.length,
+      cardWidthPx: card.clientWidth,
+      estimatedLines: lines,
+      actualLines,
+      timestamp: Date.now(),
+    });
+  }, [data, lines, url]);
+  // Pin the card to at least its loading-state height so a shorter real
+  // summary doesn't shrink it on arrival. Only applied once the width has
+  // been measured — otherwise the initial 0-width render reserves 1 line
+  // of space and locks the card too small.
+  const cardMinHeight =
+    width > 0
+      ? SUMMARY_LABEL_HEIGHT_PX +
+        SKELETON_PADDING_Y_PX +
+        skeletonBlockHeightPx(lines)
+      : undefined;
 
   return (
     <div
+      ref={cardRef}
       className="thread__summary-card"
       data-testid="thread-summary-card"
       role="region"
       aria-label="AI summary"
       aria-live="polite"
       aria-busy={loading}
+      style={cardMinHeight !== undefined ? { minHeight: cardMinHeight } : undefined}
     >
       {loading ? (
         <span className="thread__summary-loading">Summarizing…</span>
@@ -154,15 +246,24 @@ function SummaryCard({ url }: { url: string }) {
           data-testid="thread-summary-skeleton"
           aria-hidden="true"
         >
-          <span className="thread__summary-skeleton-line" />
-          <span className="thread__summary-skeleton-line" />
-          <span className="thread__summary-skeleton-line" />
-          <span className="thread__summary-skeleton-line" />
-          <span className="thread__summary-skeleton-line" />
-          <span className="thread__summary-skeleton-line thread__summary-skeleton-line--short" />
+          {Array.from({ length: lines }, (_, i) => (
+            <span
+              key={i}
+              className={
+                'thread__summary-skeleton-line' +
+                (i === lines - 1
+                  ? ' thread__summary-skeleton-line--short'
+                  : '')
+              }
+            />
+          ))}
         </div>
       ) : null}
-      {data ? <p className="thread__summary-body">{data.summary}</p> : null}
+      {data ? (
+        <p ref={bodyRef} className="thread__summary-body">
+          {data.summary}
+        </p>
+      ) : null}
       {offlineWithoutCache ? (
         <div className="thread__summary-error" data-testid="summary-offline">
           <p>Summary not available offline. Pin this story while online to keep a copy.</p>
@@ -188,7 +289,7 @@ function SummaryCard({ url }: { url: string }) {
       ) : null}
       {data ? (
         <div className="thread__summary-footer">
-          Generated by Gemini — may be inaccurate.
+          Article summary generated by Gemini
         </div>
       ) : null}
     </div>
@@ -203,32 +304,89 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
   const online = useOnlineStatus();
   const loading = isFetching && !data;
   const offlineWithoutCache = !online && !data && !loading;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const width = useContentWidth(cardRef);
+  const insightTextWidth = Math.max(0, width - INSIGHT_LIST_INDENT_PX);
+  const linesPerInsight = estimateWrappedLines(
+    INSIGHT_EXPECTED_CHARS,
+    insightTextWidth,
+    SUMMARY_FONT,
+  );
+  useEffect(() => {
+    if (!data) return;
+    const list = listRef.current;
+    const card = cardRef.current;
+    if (!list || !card) return;
+    const lineHeight = parseFloat(window.getComputedStyle(list).lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
+    const items = Array.from(list.querySelectorAll('li'));
+    const actualLinesPerInsight = items.map((li) =>
+      Math.round(li.getBoundingClientRect().height / lineHeight),
+    );
+    recordSample({
+      kind: 'comments',
+      storyId,
+      insightCount: data.insights.length,
+      charsPerInsight: data.insights.map((s) => s.length),
+      cardWidthPx: card.clientWidth,
+      estimatedLinesPerInsight: linesPerInsight,
+      actualLinesPerInsight,
+      timestamp: Date.now(),
+    });
+  }, [data, linesPerInsight, storyId]);
+  // Lock the card to its loading-state height so a comments summary with
+  // only 3 insights (vs. the 4 we reserve) doesn't shrink on arrival.
+  const perInsightPx =
+    linesPerInsight * SKELETON_LINE_HEIGHT_PX +
+    Math.max(0, linesPerInsight - 1) * INSIGHT_LINE_GAP_PX;
+  const insightsBlockPx =
+    EXPECTED_INSIGHT_COUNT * perInsightPx +
+    Math.max(0, EXPECTED_INSIGHT_COUNT - 1) * INSIGHT_BLOCK_GAP_PX;
+  const cardMinHeight =
+    width > 0
+      ? SUMMARY_LABEL_HEIGHT_PX + SKELETON_PADDING_Y_PX + insightsBlockPx
+      : undefined;
 
   return (
     <div
+      ref={cardRef}
       className="thread__summary-card thread__summary-card--comments"
       data-testid="thread-comments-summary-card"
       role="region"
       aria-label="AI summary of comments"
       aria-live="polite"
       aria-busy={loading}
+      style={cardMinHeight !== undefined ? { minHeight: cardMinHeight } : undefined}
     >
       {loading ? (
         <span className="thread__summary-loading">Summarizing comments…</span>
       ) : null}
       {loading ? (
         <div
-          className="thread__summary-skeleton"
+          className="thread__summary-skeleton thread__summary-skeleton--insights"
           data-testid="thread-comments-summary-skeleton"
           aria-hidden="true"
         >
-          <span className="thread__summary-skeleton-line" />
-          <span className="thread__summary-skeleton-line" />
-          <span className="thread__summary-skeleton-line thread__summary-skeleton-line--short" />
+          {Array.from({ length: EXPECTED_INSIGHT_COUNT }, (_, i) => (
+            <div key={i} className="thread__summary-skeleton-insight">
+              {Array.from({ length: linesPerInsight }, (_, j) => (
+                <span
+                  key={j}
+                  className={
+                    'thread__summary-skeleton-line' +
+                    (j === linesPerInsight - 1
+                      ? ' thread__summary-skeleton-line--short'
+                      : '')
+                  }
+                />
+              ))}
+            </div>
+          ))}
         </div>
       ) : null}
       {data ? (
-        <ul className="thread__summary-list">
+        <ul ref={listRef} className="thread__summary-list">
           {data.insights.map((insight, i) => (
             <li key={i}>{insight}</li>
           ))}
@@ -264,8 +422,7 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
       ) : null}
       {data ? (
         <div className="thread__summary-footer">
-          Top insights from the first ~20 comments. Generated by Gemini —
-          may be inaccurate.
+          Comment summary generated by Gemini
         </div>
       ) : null}
     </div>

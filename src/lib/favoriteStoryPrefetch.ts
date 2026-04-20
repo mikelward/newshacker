@@ -10,8 +10,7 @@ import { prefetchCommentBatch } from './commentPrefetch';
 // row, both AI summaries (article + comments), and the first page of
 // top-level comments are available on /favorites even days later when the
 // user is offline, so we lock everything into the same 7-day persisted
-// cache at favorite-time. All prefetches fire in parallel at the top level;
-// see prefetchPinnedStory for the rationale.
+// cache at favorite-time.
 export function prefetchFavoriteStory(
   client: QueryClient,
   story: Pick<HNItem, 'id' | 'url'>,
@@ -23,12 +22,14 @@ export function prefetchFavoriteStory(
       if (!item) return null;
       const kidIds = item.deleted || item.dead ? [] : (item.kids ?? []);
       prefetchCommentBatch(client, kidIds, getItems);
+      if (kidIds.length > 0) {
+        client.prefetchQuery(commentsSummaryQueryOptions(story.id));
+      }
       return { item, kidIds };
     },
     staleTime: SUMMARY_CACHE_TTL_MS,
     gcTime: SUMMARY_CACHE_TTL_MS,
   });
-  client.prefetchQuery(commentsSummaryQueryOptions(story.id));
   if (story.url) {
     client.prefetchQuery(summaryQueryOptions(story.url));
   }
