@@ -21,12 +21,7 @@ describe('useCommentsSummary helpers', () => {
   it('hits /api/comments-summary with the story id and returns the insights', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
       new Response(
-        JSON.stringify({
-          insights: [
-            { text: 'one', authors: ['alice'] },
-            { text: 'two' },
-          ],
-        }),
+        JSON.stringify({ insights: ['one', 'two'] }),
         {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -36,9 +31,7 @@ describe('useCommentsSummary helpers', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await _fetchCommentsSummaryForTests(42);
-    expect(result).toEqual({
-      insights: [{ text: 'one', authors: ['alice'] }, { text: 'two' }],
-    });
+    expect(result).toEqual({ insights: ['one', 'two'] });
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/comments-summary?id=42',
