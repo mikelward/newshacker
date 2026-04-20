@@ -140,7 +140,7 @@ describe('handleItemsRequest', () => {
     const cache = res.headers.get('cache-control') ?? '';
     expect(cache).toMatch(/public/);
     expect(cache).toMatch(/max-age=60/);
-    expect(cache).toMatch(/s-maxage=60/);
-    expect(cache).toMatch(/stale-while-revalidate=300/);
+    expect(cache).toMatch(/s-maxage=600/);
+    expect(cache).toMatch(/stale-while-revalidate=86400/);
   });
 });

@@ -324,10 +324,14 @@ cache-miss pays Gemini/Jina once, not once per instance. The per-instance
 in-memory `Map` in each handler is retained as a best-effort second
 layer for the hot same-instance path. Error responses (4xx/5xx) send
 `Cache-Control: private, no-store` so bad-referer 403s and transient
-failures never get pinned at the edge. TTLs mirror the per-handler
-in-memory TTLs: summary = 1 h, comment summary = 30 min young / 1 h
-older, items batch = 60 s. Cost: $0 — Vercel CDN is included with the
-plan and replaces function invocations on cache hits.
+failures never get pinned at the edge. TTLs: summary = 1 h (24 h SWR),
+comment summary = 30 min young / 1 h older (1 h / 4 h SWR), items
+batch = 10 min fresh, 24 h stale-while-revalidate — titles/URLs never
+change and score drift over 10 min is imperceptible in the feed row,
+so we keep the edge fresh window generous. Browser `max-age=60`
+still lets in-session refetches pick up fresh scores. Cost: $0 —
+Vercel CDN is included with the plan and replaces function invocations
+on cache hits.
 - **HN write endpoints** (`news.ycombinator.com`): never cached — votes and login must never reuse a stale response.
 
 The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.
