@@ -5,6 +5,21 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_URL_LEN = 2048;
 const MAX_CONTENT_CHARS = 200_000;
 
+// Shared-cache layer on Vercel's edge CDN. `s-maxage` is the freshness
+// window for the shared cache (edge instances globally share it), and
+// `stale-while-revalidate` lets the edge serve a stale copy for a day
+// while refreshing in the background. This is the real "shared across
+// all servers" cache — the per-instance Map below is just a tiny
+// belt-and-suspenders layer for the same-instance hot path.
+//
+// Note: the edge may serve a cached response without re-checking the
+// Referer header. That's intentional — the Referer gate protects the
+// expensive Gemini/Jina path, and a cache hit skips that path entirely.
+// Errors set `no-store` so bad-referer 403s never get cached.
+const EDGE_CACHE_HEADER =
+  'public, s-maxage=3600, stale-while-revalidate=86400';
+const NO_STORE_HEADER = 'private, no-store';
+
 const JINA_ENDPOINT = 'https://r.jina.ai/';
 const JINA_TIMEOUT_MS = 15_000;
 
@@ -72,9 +87,15 @@ function buildPrompt(articleUrl: string, content: string): string {
 }
 
 function json(body: unknown, status = 200): Response {
+  const cacheControl = status >= 200 && status < 300
+    ? EDGE_CACHE_HEADER
+    : NO_STORE_HEADER;
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': cacheControl,
+    },
   });
 }
 

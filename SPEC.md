@@ -314,6 +314,20 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries.
 - **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side TTL is freshness-aware — 30 min for stories < 2 h old, 1 h otherwise — so hot front-page threads keep pace with the comment rush. React Query TTL on the client is 1 h.
 - **Items batch proxy** (`/api/items`): StaleWhileRevalidate, 1-day TTL, 50 entries.
+
+**Shared server-side cache (Vercel edge CDN).** `/api/summary`,
+`/api/comments-summary`, and `/api/items` set `Cache-Control: public,
+s-maxage=…, stale-while-revalidate=…` so Vercel's CDN caches the
+response across all serverless instances globally. This is the layer
+that makes cache reuse truly "shared between all servers" — a single
+cache-miss pays Gemini/Jina once, not once per instance. The per-instance
+in-memory `Map` in each handler is retained as a best-effort second
+layer for the hot same-instance path. Error responses (4xx/5xx) send
+`Cache-Control: private, no-store` so bad-referer 403s and transient
+failures never get pinned at the edge. TTLs mirror the per-handler
+in-memory TTLs: summary = 1 h, comment summary = 30 min young / 1 h
+older, items batch = 60 s. Cost: $0 — Vercel CDN is included with the
+plan and replaces function invocations on cache hits.
 - **HN write endpoints** (`news.ycombinator.com`): never cached — votes and login must never reuse a stale response.
 
 The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.

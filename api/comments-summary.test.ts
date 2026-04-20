@@ -545,6 +545,90 @@ describe('handleCommentsSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
+  it('sets the older-story shared-cache header on a successful older-story response', async () => {
+    const fetchItem = fetchItemFrom({
+      1300: {
+        id: 1300,
+        type: 'story',
+        kids: [1301],
+        time: OLD_STORY_TIME,
+      },
+      1301: { id: 1301, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const client = createFakeClient([{ text: '["ok"]' }]);
+    const res = await handleCommentsSummaryRequest(makeRequest('1300'), {
+      fetchItem,
+      createClient: () => client,
+      now: () => 1_700_000_000_000,
+    });
+    const cc = res.headers.get('cache-control') ?? '';
+    expect(cc).toMatch(/public/);
+    expect(cc).toMatch(/s-maxage=3600/);
+    expect(cc).toMatch(/stale-while-revalidate=14400/);
+  });
+
+  it('sets the younger 30-min shared-cache header on young stories', async () => {
+    const now = 1_700_000_000_000;
+    const youngStoryTime = Math.floor(now / 1000) - 30 * 60;
+    const fetchItem = fetchItemFrom({
+      1310: {
+        id: 1310,
+        type: 'story',
+        kids: [1311],
+        time: youngStoryTime,
+      },
+      1311: { id: 1311, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const client = createFakeClient([{ text: '["ok"]' }]);
+    const res = await handleCommentsSummaryRequest(makeRequest('1310'), {
+      fetchItem,
+      createClient: () => client,
+      now: () => now,
+    });
+    const cc = res.headers.get('cache-control') ?? '';
+    expect(cc).toMatch(/s-maxage=1800/);
+    expect(cc).toMatch(/stale-while-revalidate=3600/);
+  });
+
+  it('also sets the shared-cache header when serving from the in-memory cache', async () => {
+    const fetchItem = fetchItemFrom({
+      1320: {
+        id: 1320,
+        type: 'story',
+        kids: [1321],
+        time: OLD_STORY_TIME,
+      },
+      1321: { id: 1321, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const client = createFakeClient([{ text: '["v1"]' }]);
+    let now = 1_700_000_000_000;
+    await handleCommentsSummaryRequest(makeRequest('1320'), {
+      fetchItem,
+      createClient: () => client,
+      now: () => now,
+    });
+    now += 1_000;
+    const res = await handleCommentsSummaryRequest(makeRequest('1320'), {
+      fetchItem,
+      createClient: () => createFakeClient([]),
+      now: () => now,
+    });
+    expect((await res.json()) as { cached?: boolean }).toMatchObject({
+      cached: true,
+    });
+    expect(res.headers.get('cache-control') ?? '').toMatch(/s-maxage=3600/);
+  });
+
+  it('sets no-store on error responses so the edge does not cache them', async () => {
+    const r403 = await handleCommentsSummaryRequest(
+      makeRequest('1', { referer: null }),
+    );
+    expect(r403.headers.get('cache-control') ?? '').toMatch(/no-store/);
+
+    const r400 = await handleCommentsSummaryRequest(makeRequest(null));
+    expect(r400.headers.get('cache-control') ?? '').toMatch(/no-store/);
+  });
+
   it('re-fetches after the older-story 1h TTL expires', async () => {
     const fetchItem = fetchItemFrom({
       1100: {
