@@ -22,7 +22,10 @@ function makeRequest(
 interface GenerateRequest {
   model: string;
   contents: string;
-  config?: { tools?: unknown[] };
+  config?: {
+    tools?: unknown[];
+    thinkingConfig?: { thinkingBudget?: number };
+  };
 }
 
 interface FakeResponse {
@@ -182,7 +185,8 @@ describe('handleSummaryRequest', () => {
     const call = client.models.generateContent.mock.calls[0]![0];
     expect(call.contents).toContain('Main body text.');
     expect(call.contents).toContain('https://www.theverge.com/foo');
-    expect(call.config).toBeUndefined();
+    // Thinking disabled — regression guard for the latency fix.
+    expect(call.config?.thinkingConfig?.thinkingBudget).toBe(0);
   });
 
   it('falls back to raw fetch when Jina fails, then summarizes', async () => {

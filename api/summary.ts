@@ -102,7 +102,10 @@ function json(body: unknown, status = 200): Response {
 interface GenerateRequest {
   model: string;
   contents: string;
-  config?: { tools?: unknown[] };
+  config?: {
+    tools?: unknown[];
+    thinkingConfig?: { thinkingBudget?: number };
+  };
 }
 
 interface GenerateResponse {
@@ -289,6 +292,12 @@ export async function handleSummaryRequest(
     const response = await client.models.generateContent({
       model: MODEL,
       contents: buildPrompt(articleUrl, content),
+      config: {
+        // Gemini 2.5 Flash runs hidden "thinking" tokens by default; the
+        // one-sentence summary task doesn't need them and they dominate
+        // wall-clock latency.
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     });
     summary = (response.text ?? '').trim();
   } catch {

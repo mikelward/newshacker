@@ -38,6 +38,9 @@ function makeRequest(
 interface GenerateRequest {
   model: string;
   contents: string;
+  config?: {
+    thinkingConfig?: { thinkingBudget?: number };
+  };
 }
 
 interface FakeResponse {
@@ -200,6 +203,8 @@ describe('handleCommentsSummaryRequest', () => {
     expect(call.contents).toContain('[#2]');
     expect(call.contents).not.toContain('alice');
     expect(call.contents).not.toContain('bob');
+    // Thinking disabled — regression guard for the latency fix.
+    expect(call.config?.thinkingConfig?.thinkingBudget).toBe(0);
   });
 
   it('strips stray bullet / numbering markers the model may add', async () => {
