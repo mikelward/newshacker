@@ -40,7 +40,7 @@ Put local values in `.env.local` at the repo root (git-ignored). On Vercel, set 
 
 | Name | Required | Applies to | What it's for |
 |---|---|---|---|
-| `GOOGLE_API_KEY` | Yes, for `/api/summary` | Production + Preview (and locally if you use `vercel dev` and want live summaries) | Google AI Studio key used to call Gemini 2.5 Flash from `/api/summary`. Without it, the endpoint returns `503 { "error": "Summary is not configured" }` and the UI shows "Could not summarize. Summary is not configured." |
+| `GOOGLE_API_KEY` | Yes, for `/api/summary` | Production + Preview (and locally if you use `vercel dev` and want live summaries) | Google AI Studio key used to call Gemini 2.5 Flash-Lite from `/api/summary`. Without it, the endpoint returns `503 { "error": "Summary is not configured" }` and the UI shows "Could not summarize. Summary is not configured." |
 | `JINA_API_KEY` | Recommended for `/api/summary` | Production + Preview | Jina Reader (`r.jina.ai`) key. When set, `/api/summary` fetches article text via Jina before summarizing — this handles JS-rendered pages, soft paywalls, and sites that block bare UAs (e.g. theverge.com). If unset, the endpoint falls back to a plain server-side `fetch` with a browser User-Agent, which works for simpler sites but misses the trickier ones. |
 | `SUMMARY_REFERER_ALLOWLIST` | No | Production + Preview | Comma-separated list of hostnames allowed to call `/api/summary`. Overrides the default (`newshacker.app,hnews.app`). `localhost`, `127.0.0.1`, and any `*.vercel.app` subdomain are always allowed. |
 

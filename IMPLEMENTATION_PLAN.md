@@ -145,7 +145,7 @@ Follow-ups (next commits, in order):
 **Goal:** Reader can tap "Summarize" on a story page and get a one-sentence AI summary inline.
 
 Shipped:
-- `api/summary.ts` serverless function calling Gemini 2.5 Flash with the `urlContext` tool.
+- `api/summary.ts` serverless function calling Gemini 2.5 Flash-Lite with the `urlContext` tool.
 - `useSummary` hook + `SummarizeCard` component (button swaps to a card with loading → summary → error states).
 - Per-instance in-memory cache with a 1-hour TTL.
 - Referer allowlist as a first-line defense (`SUMMARY_REFERER_ALLOWLIST` env var, plus hardcoded localhost / `*.vercel.app` / `newshacker.app` / `hnews.app`).
@@ -153,12 +153,22 @@ Shipped:
 
 ### Phase 6b — AI comment summaries (shipped)
 
-- `api/comments-summary.ts` serverless function — same referer allowlist and `GOOGLE_API_KEY` as Phase 6. Fetches the story's first 20 top-level comments via Firebase, strips HTML, feeds them to Gemini 2.5 Flash, and asks for a JSON array of 3–5 short insights.
+- `api/comments-summary.ts` serverless function — same referer allowlist and `GOOGLE_API_KEY` as Phase 6. Fetches the story's first 20 top-level comments via Firebase, strips HTML, feeds them to Gemini 2.5 Flash-Lite, and asks for a JSON array of 3–5 short insights.
 - `useCommentsSummary` hook + `CommentsSummaryCard` inside `Thread.tsx`. Auto-runs on thread load whenever the story has kids — works for self-posts too.
 - Freshness-aware server cache: 30-min TTL for stories < 2 h old, 1-h TTL for older stories. React Query TTL on the client is 1 h.
 - Prefetched on pin and favorite via the shared `prefetchPinnedStory` / `prefetchFavoriteStory` paths so pinned/favorited stories have a cached comment summary available offline.
 - Service Worker runtime cache rule (`ai-comment-summaries`, StaleWhileRevalidate, 7-day, 200 entries) — sibling to the article-summary rule.
 - Shared `api/lib/referer.ts` + `api/lib/hnFetch.ts` helpers so `api/summary.ts`, `api/items.ts`, and `api/comments-summary.ts` don't duplicate the allowlist / Firebase fetch.
+
+### Phase 6c — Summary latency tuning
+
+Shipped:
+- `thinkingConfig: { thinkingBudget: 0 }` on both `/api/summary` and `/api/comments-summary`. Gemini 2.5 runs hidden "thinking" tokens by default; for these extractive tasks they dominate wall-clock latency and are billed as output tokens. Baseline measurements (n=4, preview env) before the fix: comments Gemini ~8.4s, article Gemini ~2.9s, HN fetches <2% of total.
+- Switched both endpoints from `gemini-2.5-flash` to `gemini-2.5-flash-lite`. Side-by-side eyeballing showed slightly faster, slightly less wordy, quality at least as good. Output pricing drops $2.50/M → $0.40/M, input $0.30/M → $0.10/M — roughly 6× cheaper per call.
+
+Next up:
+- [ ] **Scheduled cache warming.** With the edge CDN cache already live (see Phase 6b), a Vercel Cron job that hits `/api/comments-summary` for the top ~30 stories every 1–2h would lift near-100% of real user visits onto cache reads (~30ms at the edge) instead of cold Gemini calls. With Flash-Lite + smart cron cadence this is well under $1/mo.
+- [ ] **Intent-based prefetch.** Warm the summary on story-row `touchstart` (strong intent signal) rather than speculatively on list-page render. Avoids paying for stories the user never opens.
 
 ### TODOs
 
