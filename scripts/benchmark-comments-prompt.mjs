@@ -44,20 +44,6 @@ function buildOldPrompt(title, transcript) {
   );
 }
 
-function buildNewPrompt(title, transcript) {
-  const header = title ? `Article title: ${title}\n\n` : '';
-  return (
-    `${header}Below are the top comments from a Hacker News discussion. ` +
-    `Extract up to 5 of the most useful insights from the conversation — points ` +
-    `of agreement, notable dissents, corrections, or interesting additions. ` +
-    `Only include genuinely useful points. If the discussion is thin, ` +
-    `return fewer insights rather than padding with filler.\n\n` +
-    `Return one insight per line, each a single short sentence under 15 words. ` +
-    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
-    `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
-  );
-}
-
 function buildClaimPrompt(title, transcript) {
   const header = title ? `Article title: ${title}\n\n` : '';
   return (
@@ -310,7 +296,6 @@ async function main() {
 
   const client = new GoogleGenAI({ apiKey });
   const oldRuns = [];
-  const newRuns = [];
   const claimRuns = [];
   const tweakRuns = [];
   const hopeRuns = [];
@@ -330,14 +315,6 @@ async function main() {
         client,
         'old',
         buildOldPrompt,
-        transcript.title,
-        transcript.transcript,
-      );
-      await sleep(INTER_CALL_DELAY_MS);
-      const newRun = await runVariant(
-        client,
-        'new',
-        buildNewPrompt,
         transcript.title,
         transcript.transcript,
       );
@@ -374,14 +351,12 @@ async function main() {
         transcript.transcript,
       );
       oldRuns.push(oldRun);
-      newRuns.push(newRun);
       claimRuns.push(claimRun);
       tweakRuns.push(tweakRun);
       hopeRuns.push(hopeRun);
       simpleRuns.push(simpleRun);
       console.log(
         `old=${oldRun.latencyMs}ms/${oldRun.insights.length}` +
-          ` new=${newRun.latencyMs}ms/${newRun.insights.length}` +
           ` claim=${claimRun.latencyMs}ms/${claimRun.insights.length}` +
           ` tweak=${tweakRun.latencyMs}ms/${tweakRun.insights.length}` +
           ` hope=${hopeRun.latencyMs}ms/${hopeRun.insights.length}` +
@@ -390,7 +365,6 @@ async function main() {
       console.log(`  title: ${transcript.title}`);
       const max = Math.max(
         oldRun.insights.length,
-        newRun.insights.length,
         claimRun.insights.length,
         tweakRun.insights.length,
         hopeRun.insights.length,
@@ -398,13 +372,11 @@ async function main() {
       );
       for (let i = 0; i < max; i++) {
         const o = oldRun.insights[i] ?? '(—)';
-        const n = newRun.insights[i] ?? '(—)';
         const c = claimRun.insights[i] ?? '(—)';
         const t = tweakRun.insights[i] ?? '(—)';
         const h = hopeRun.insights[i] ?? '(—)';
         const s = simpleRun.insights[i] ?? '(—)';
         console.log(`  old   [${i}]: ${o}`);
-        console.log(`  new   [${i}]: ${n}`);
         console.log(`  claim [${i}]: ${c}`);
         console.log(`  tweak [${i}]: ${t}`);
         console.log(`  hope  [${i}]: ${h}`);
@@ -416,7 +388,6 @@ async function main() {
   }
 
   summarize('OLD prompt (3–5 × 25 words)', oldRuns);
-  summarize('NEW prompt (up to 5 × 15 words)', newRuns);
   summarize('CLAIM prompt (≤5 × 15 words, combine, claim not topic)', claimRuns);
   summarize(
     'TWEAK prompt (CLAIM + anti-meta + strongest-form)',
