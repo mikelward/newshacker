@@ -7,7 +7,7 @@ import { useFavorites } from '../hooks/useFavorites';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePinnedStories } from '../hooks/usePinnedStories';
-import { useSummary } from '../hooks/useSummary';
+import { SummaryError, useSummary } from '../hooks/useSummary';
 import { useCommentsSummary } from '../hooks/useCommentsSummary';
 import { extractDomain, formatStoryMetaTail } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
@@ -111,6 +111,25 @@ function HeartFilledIcon() {
   );
 }
 
+function summaryErrorDetail(error: unknown): string {
+  if (error instanceof SummaryError) {
+    switch (error.reason) {
+      case 'source_timeout':
+        return "The article site didn't respond in time — it may be overloaded. Try opening the link directly.";
+      case 'source_unreachable':
+        return "We couldn't reach the article site. It may be down or blocking automated readers. Try opening the link directly.";
+      case 'summarization_failed':
+        return 'Something went wrong summarizing the article. Try again in a moment.';
+      case 'not_configured':
+        return "Summaries aren't available right now.";
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return `${error.message}.`;
+  }
+  return '';
+}
+
 function SummaryCard({ url }: { url: string }) {
   const { data, isFetching, isError, error, refetch } = useSummary(url, true);
   const online = useOnlineStatus();
@@ -153,9 +172,10 @@ function SummaryCard({ url }: { url: string }) {
         <div className="thread__summary-error">
           <p>
             Could not summarize.
-            {error instanceof Error && error.message
-              ? ` ${error.message}.`
-              : ''}
+            {(() => {
+              const detail = summaryErrorDetail(error);
+              return detail ? ` ${detail}` : '';
+            })()}
           </p>
           <button
             type="button"

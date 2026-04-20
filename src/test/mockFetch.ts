@@ -4,6 +4,7 @@ import { HN_API_BASE, type HNItem, type HNUser } from '../lib/hn';
 interface SummaryFixture {
   summary?: string;
   error?: string;
+  reason?: string;
   status?: number;
 }
 
@@ -85,7 +86,9 @@ export function installHNFetchMock(fixtures: Fixtures) {
         });
       }
       if (fixture?.error !== undefined) {
-        return new Response(JSON.stringify({ error: fixture.error }), {
+        const body: Record<string, unknown> = { error: fixture.error };
+        if (fixture.reason !== undefined) body.reason = fixture.reason;
+        return new Response(JSON.stringify(body), {
           status: fixture.status ?? 500,
           headers: { 'content-type': 'application/json' },
         });

@@ -238,8 +238,52 @@ describe('handleSummaryRequest', () => {
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
       error: 'Could not access the article',
+      reason: 'source_unreachable',
     });
     expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('returns 504 with source_timeout when both Jina and raw fetch abort', async () => {
+    process.env.JINA_API_KEY = 'jina-test-key';
+    const articleUrl = 'https://slow.example.com/story';
+    const abortErr = Object.assign(new Error('aborted'), {
+      name: 'AbortError',
+    });
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { throws: abortErr },
+      [articleUrl]: { throws: abortErr },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    expect(res.status).toBe(504);
+    expect(await res.json()).toEqual({
+      error: "The article site didn't respond in time",
+      reason: 'source_timeout',
+    });
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('returns 504 when only the raw fetch times out (no Jina configured)', async () => {
+    const articleUrl = 'https://slow.example.com/only-raw';
+    const abortErr = Object.assign(new Error('aborted'), {
+      name: 'AbortError',
+    });
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { throws: abortErr },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    expect(res.status).toBe(504);
+    expect(await res.json()).toEqual({
+      error: "The article site didn't respond in time",
+      reason: 'source_timeout',
+    });
   });
 
   it('returns 502 when the model returns an empty string', async () => {
@@ -253,7 +297,10 @@ describe('handleSummaryRequest', () => {
       fetchImpl,
     });
     expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: 'Summarization failed' });
+    expect(await res.json()).toEqual({
+      error: 'Summarization failed',
+      reason: 'summarization_failed',
+    });
   });
 
   it('returns 502 when the model throws', async () => {
@@ -267,7 +314,10 @@ describe('handleSummaryRequest', () => {
       fetchImpl,
     });
     expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: 'Summarization failed' });
+    expect(await res.json()).toEqual({
+      error: 'Summarization failed',
+      reason: 'summarization_failed',
+    });
   });
 
   it('accepts jinaApiKey passed explicitly via deps', async () => {
