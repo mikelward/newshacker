@@ -40,6 +40,6 @@ export function prefetchPinnedStory(
   });
   client.prefetchQuery(commentsSummaryQueryOptions(story.id));
   if (story.url) {
-    client.prefetchQuery(summaryQueryOptions(story.url));
+    client.prefetchQuery(summaryQueryOptions(story.id));
   }
 }

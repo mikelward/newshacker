@@ -7,16 +7,41 @@ import {
 
 const ALLOWED_REFERER = 'https://newshacker.app/item/1';
 
+interface HNItemFixture {
+  id?: number;
+  type?: string;
+  title?: string;
+  url?: string;
+  dead?: boolean;
+  deleted?: boolean;
+}
+
 function makeRequest(
-  url: string | null,
+  storyId: number | null,
   opts: { referer?: string | null } = {},
 ) {
   const base = 'https://newshacker.app/api/summary';
-  const full = url === null ? base : `${base}?url=${encodeURIComponent(url)}`;
+  const full = storyId === null ? base : `${base}?id=${storyId}`;
   const headers = new Headers();
   const referer = opts.referer === undefined ? ALLOWED_REFERER : opts.referer;
   if (referer !== null) headers.set('referer', referer);
   return new Request(full, { headers });
+}
+
+function makeRawRequest(
+  query: string | null,
+  opts: { referer?: string | null } = {},
+) {
+  const base = 'https://newshacker.app/api/summary';
+  const full = query === null ? base : `${base}?${query}`;
+  const headers = new Headers();
+  const referer = opts.referer === undefined ? ALLOWED_REFERER : opts.referer;
+  if (referer !== null) headers.set('referer', referer);
+  return new Request(full, { headers });
+}
+
+function fetchItemFor(items: Record<number, HNItemFixture | null>) {
+  return vi.fn(async (id: number) => items[id] ?? null);
 }
 
 interface GenerateRequest {
@@ -83,14 +108,14 @@ describe('handleSummaryRequest', () => {
 
   it('returns 403 when the Referer header is missing', async () => {
     const res = await handleSummaryRequest(
-      makeRequest('https://example.com/a', { referer: null }),
+      makeRequest(1, { referer: null }),
     );
     expect(res.status).toBe(403);
   });
 
   it('returns 403 for a disallowed Referer host', async () => {
     const res = await handleSummaryRequest(
-      makeRequest('https://example.com/a', { referer: 'https://evil.com/' }),
+      makeRequest(1, { referer: 'https://evil.com/' }),
     );
     expect(res.status).toBe(403);
   });
@@ -99,18 +124,19 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       'https://example.com/a': { body: '<article>hi</article>' },
     });
+    const fetchItem = fetchItemFor({
+      1: { id: 1, type: 'story', url: 'https://example.com/a' },
+    });
     const client = createFakeClient([{ text: 'ok' }]);
     const r1 = await handleSummaryRequest(
-      makeRequest('https://example.com/a', {
-        referer: 'http://localhost:5173/item/1',
-      }),
-      { createClient: () => client, fetchImpl },
+      makeRequest(1, { referer: 'http://localhost:5173/item/1' }),
+      { createClient: () => client, fetchImpl, fetchItem },
     );
     expect(r1.status).toBe(200);
 
     __clearCacheForTests();
     const r2 = await handleSummaryRequest(
-      makeRequest('https://example.com/a', {
+      makeRequest(1, {
         referer: 'https://newshacker-preview-abc.vercel.app/item/1',
       }),
       {
@@ -118,6 +144,7 @@ describe('handleSummaryRequest', () => {
         fetchImpl: createFakeFetch({
           'https://example.com/a': { body: '<article>hi</article>' },
         }),
+        fetchItem,
       },
     );
     expect(r2.status).toBe(200);
@@ -136,28 +163,81 @@ describe('handleSummaryRequest', () => {
     }
   });
 
-  it('returns 400 when url is missing', async () => {
+  it('returns 400 when id is missing', async () => {
     const res = await handleSummaryRequest(makeRequest(null));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body).toEqual({ error: 'Invalid url parameter' });
+    expect(body).toEqual({ error: 'Invalid id parameter' });
   });
 
-  it('returns 400 for non-http(s) protocols', async () => {
-    const res = await handleSummaryRequest(makeRequest('javascript:alert(1)'));
+  it('returns 400 for a non-numeric id', async () => {
+    const res = await handleSummaryRequest(makeRawRequest('id=abc'));
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 for malformed urls', async () => {
-    const res = await handleSummaryRequest(makeRequest('not a url'));
+  it('returns 400 for a negative or zero id', async () => {
+    const r1 = await handleSummaryRequest(makeRawRequest('id=0'));
+    expect(r1.status).toBe(400);
+    const r2 = await handleSummaryRequest(makeRawRequest('id=-5'));
+    expect(r2.status).toBe(400);
+  });
+
+  it('rejects the legacy ?url= parameter with 400', async () => {
+    // Regression guard: anyone can spoof Referer, so we must not accept
+    // a caller-supplied URL. Per-item-id lookup is the whole point.
+    const res = await handleSummaryRequest(
+      makeRawRequest('url=' + encodeURIComponent('https://example.com/a')),
+    );
     expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when the story does not exist', async () => {
+    const fetchItem = fetchItemFor({ 99: null });
+    const res = await handleSummaryRequest(makeRequest(99), { fetchItem });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 for a deleted or dead story', async () => {
+    const fetchItem = fetchItemFor({
+      11: { id: 11, type: 'story', deleted: true },
+      12: { id: 12, type: 'story', dead: true },
+    });
+    const r1 = await handleSummaryRequest(makeRequest(11), { fetchItem });
+    expect(r1.status).toBe(404);
+    const r2 = await handleSummaryRequest(makeRequest(12), { fetchItem });
+    expect(r2.status).toBe(404);
+  });
+
+  it('returns 400 with no_article reason for a self-post', async () => {
+    const fetchItem = fetchItemFor({
+      33: { id: 33, type: 'story', title: 'Ask HN' },
+    });
+    const res = await handleSummaryRequest(makeRequest(33), { fetchItem });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Story has no article to summarize',
+      reason: 'no_article',
+    });
+  });
+
+  it('returns 502 with story_unreachable when the HN fetch throws', async () => {
+    const fetchItem = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    const res = await handleSummaryRequest(makeRequest(44), { fetchItem });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'Could not load story',
+      reason: 'story_unreachable',
+    });
   });
 
   it('returns 503 when GOOGLE_API_KEY is unset', async () => {
     delete process.env.GOOGLE_API_KEY;
-    const res = await handleSummaryRequest(
-      makeRequest('https://example.com/a'),
-    );
+    const fetchItem = fetchItemFor({
+      1: { id: 1, type: 'story', url: 'https://example.com/a' },
+    });
+    const res = await handleSummaryRequest(makeRequest(1), { fetchItem });
     expect(res.status).toBe(503);
   });
 
@@ -169,11 +249,15 @@ describe('handleSummaryRequest', () => {
         contentType: 'text/plain; charset=utf-8',
       },
     });
+    const fetchItem = fetchItemFor({
+      55: { id: 55, type: 'story', url: 'https://www.theverge.com/foo' },
+    });
     const client = createFakeClient([{ text: 'A one-sentence summary.' }]);
-    const res = await handleSummaryRequest(
-      makeRequest('https://www.theverge.com/foo'),
-      { createClient: () => client, fetchImpl },
-    );
+    const res = await handleSummaryRequest(makeRequest(55), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+    });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ summary: 'A one-sentence summary.' });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -194,10 +278,14 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
     });
+    const fetchItem = fetchItemFor({
+      66: { id: 66, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([{ text: 'ok' }]);
-    await handleSummaryRequest(makeRequest(articleUrl), {
+    await handleSummaryRequest(makeRequest(66), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     const prompt = client.models.generateContent.mock.calls[0]![0].contents;
     expect(prompt).toMatch(/voice of the author/i);
@@ -213,10 +301,14 @@ describe('handleSummaryRequest', () => {
         body: '<html><body><article>Plain HTML body.</article></body></html>',
       },
     });
+    const fetchItem = fetchItemFor({
+      77: { id: 77, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([{ text: 'Raw-fetch summary.' }]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(77), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ summary: 'Raw-fetch summary.' });
@@ -231,10 +323,14 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>Raw HTML.</article>' },
     });
+    const fetchItem = fetchItemFor({
+      88: { id: 88, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([{ text: 'Plain summary.' }]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(88), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ summary: 'Plain summary.' });
@@ -249,10 +345,14 @@ describe('handleSummaryRequest', () => {
       [`https://r.jina.ai/${articleUrl}`]: { status: 500 },
       [articleUrl]: { status: 403 },
     });
+    const fetchItem = fetchItemFor({
+      111: { id: 111, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(111), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
@@ -272,10 +372,14 @@ describe('handleSummaryRequest', () => {
       [`https://r.jina.ai/${articleUrl}`]: { throws: abortErr },
       [articleUrl]: { throws: abortErr },
     });
+    const fetchItem = fetchItemFor({
+      112: { id: 112, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(112), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({
@@ -293,10 +397,14 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       [articleUrl]: { throws: abortErr },
     });
+    const fetchItem = fetchItemFor({
+      113: { id: 113, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(113), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({
@@ -310,10 +418,14 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
     });
+    const fetchItem = fetchItemFor({
+      120: { id: 120, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([{ text: '   ' }]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(120), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
@@ -327,10 +439,14 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
     });
+    const fetchItem = fetchItemFor({
+      130: { id: 130, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([new Error('boom')]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(130), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
@@ -347,10 +463,14 @@ describe('handleSummaryRequest', () => {
         contentType: 'text/plain',
       },
     });
+    const fetchItem = fetchItemFor({
+      140: { id: 140, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([{ text: 'Deps summary.' }]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(140), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
       jinaApiKey: 'deps-key',
     });
     expect(res.status).toBe(200);
@@ -360,21 +480,26 @@ describe('handleSummaryRequest', () => {
   });
 
   it('serves a cached summary on a repeat request', async () => {
-    const url = 'https://example.com/cached';
+    const articleUrl = 'https://example.com/cached';
     const fetchImpl = createFakeFetch({
-      [url]: { body: '<article>first</article>' },
+      [articleUrl]: { body: '<article>first</article>' },
+    });
+    const fetchItem = fetchItemFor({
+      150: { id: 150, type: 'story', url: articleUrl },
     });
     const client = createFakeClient([{ text: 'first-summary' }]);
-    const res1 = await handleSummaryRequest(makeRequest(url), {
+    const res1 = await handleSummaryRequest(makeRequest(150), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     expect(await res1.json()).toEqual({ summary: 'first-summary' });
 
     const client2 = createFakeClient([{ text: 'would-be-second' }]);
-    const res2 = await handleSummaryRequest(makeRequest(url), {
+    const res2 = await handleSummaryRequest(makeRequest(150), {
       createClient: () => client2,
       fetchImpl,
+      fetchItem,
     });
     expect(await res2.json()).toEqual({
       summary: 'first-summary',
@@ -388,10 +513,14 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
     });
+    const fetchItem = fetchItemFor({
+      160: { id: 160, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([{ text: 'ok' }]);
-    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res = await handleSummaryRequest(makeRequest(160), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
     const cc = res.headers.get('cache-control') ?? '';
     expect(cc).toMatch(/public/);
@@ -404,14 +533,19 @@ describe('handleSummaryRequest', () => {
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
     });
+    const fetchItem = fetchItemFor({
+      170: { id: 170, type: 'story', url: articleUrl },
+    });
     const client = createFakeClient([{ text: 'first' }]);
-    await handleSummaryRequest(makeRequest(articleUrl), {
+    await handleSummaryRequest(makeRequest(170), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
     });
-    const res2 = await handleSummaryRequest(makeRequest(articleUrl), {
+    const res2 = await handleSummaryRequest(makeRequest(170), {
       createClient: () => createFakeClient([]),
       fetchImpl,
+      fetchItem,
     });
     expect((await res2.json()) as { cached?: boolean }).toMatchObject({
       cached: true,
@@ -421,7 +555,7 @@ describe('handleSummaryRequest', () => {
 
   it('sets no-store on error responses so the edge cache does not pin them', async () => {
     const r403 = await handleSummaryRequest(
-      makeRequest('https://example.com/a', { referer: null }),
+      makeRequest(1, { referer: null }),
     );
     expect(r403.headers.get('cache-control') ?? '').toMatch(/no-store/);
 
@@ -430,26 +564,31 @@ describe('handleSummaryRequest', () => {
   });
 
   it('re-fetches after the cache ttl expires', async () => {
-    const url = 'https://example.com/expire';
+    const articleUrl = 'https://example.com/expire';
     let now = 1_000_000;
     const fetchImpl = createFakeFetch({
-      [url]: { body: '<article>body</article>' },
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const fetchItem = fetchItemFor({
+      180: { id: 180, type: 'story', url: articleUrl },
     });
     const client = createFakeClient([{ text: 'v1' }]);
-    await handleSummaryRequest(makeRequest(url), {
+    await handleSummaryRequest(makeRequest(180), {
       createClient: () => client,
       fetchImpl,
+      fetchItem,
       now: () => now,
     });
 
     now += 60 * 60 * 1000 + 1;
     const client2 = createFakeClient([{ text: 'v2' }]);
     const fetchImpl2 = createFakeFetch({
-      [url]: { body: '<article>body</article>' },
+      [articleUrl]: { body: '<article>body</article>' },
     });
-    const res2 = await handleSummaryRequest(makeRequest(url), {
+    const res2 = await handleSummaryRequest(makeRequest(180), {
       createClient: () => client2,
       fetchImpl: fetchImpl2,
+      fetchItem,
       now: () => now,
     });
     expect(await res2.json()).toEqual({ summary: 'v2' });

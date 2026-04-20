@@ -130,8 +130,8 @@ function summaryErrorDetail(error: unknown): string {
   return '';
 }
 
-function SummaryCard({ url }: { url: string }) {
-  const { data, isFetching, isError, error, refetch } = useSummary(url, true);
+function SummaryCard({ storyId }: { storyId: number }) {
+  const { data, isFetching, isError, error, refetch } = useSummary(storyId, true);
   const online = useOnlineStatus();
   const loading = isFetching && !data;
   const offlineWithoutCache = !online && !data && !loading;
@@ -361,7 +361,7 @@ export function Thread({ id }: Props) {
     <article className="thread">
       <header className="thread__header">
         <h1 className="thread__title">{item.title ?? '[untitled]'}</h1>
-        {item.url ? <SummaryCard url={item.url} /> : null}
+        {item.url ? <SummaryCard storyId={id} /> : null}
         <div className="thread__actions">
           {item.url ? (
             <a

@@ -30,6 +30,6 @@ export function prefetchFavoriteStory(
   });
   client.prefetchQuery(commentsSummaryQueryOptions(story.id));
   if (story.url) {
-    client.prefetchQuery(summaryQueryOptions(story.url));
+    client.prefetchQuery(summaryQueryOptions(story.id));
   }
 }

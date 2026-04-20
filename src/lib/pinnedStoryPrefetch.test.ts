@@ -45,9 +45,9 @@ describe('prefetchPinnedStory', () => {
 
     await vi.waitFor(() => {
       expect(client.getQueryData(['itemRoot', 42])).toBeTruthy();
-      expect(
-        client.getQueryData(summaryQueryKey('https://example.com/cached')),
-      ).toEqual({ summary: 'prefetched summary' });
+      expect(client.getQueryData(summaryQueryKey(42))).toEqual({
+        summary: 'prefetched summary',
+      });
     });
 
     // Item fetch went to Firebase, summary went to /api/summary.
