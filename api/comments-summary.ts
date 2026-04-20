@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-2.5-flash-lite';
 
 // Inlined from api/summary.ts (same helper). Kept duplicated across
 // handlers on purpose — Vercel's per-file function bundler has been

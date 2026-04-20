@@ -82,8 +82,8 @@ other. The pinned-stories module performs a one-shot rename of the legacy
 
 2. **Thread view**
    - Story header (title, link, points, author, age, text if self-post).
-   - **Article summary card** (AI, Gemini 2.5 Flash) above the action row, for stories with an external `url`. Auto-runs on load.
-   - **Comment summary card** (AI, Gemini 2.5 Flash) between the meta line and the comment list, for any story with at least one top-level comment — including self-posts (Ask HN, Show HN). Renders 3–5 short insights. Auto-runs on load. Reuses the same card visual as the article summary.
+   - **Article summary card** (AI, Gemini 2.5 Flash-Lite) above the action row, for stories with an external `url`. Auto-runs on load.
+   - **Comment summary card** (AI, Gemini 2.5 Flash-Lite) between the meta line and the comment list, for any story with at least one top-level comment — including self-posts (Ask HN, Show HN). Renders 3–5 short insights. Auto-runs on load. Reuses the same card visual as the article summary.
    - Nested comments, each collapsed by default with a 3-line body preview. See *Comment row layout*.
    - Deep-linkable: `/item/:id`.
 

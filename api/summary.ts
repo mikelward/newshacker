@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-2.5-flash-lite';
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_URL_LEN = 2048;
 const MAX_CONTENT_CHARS = 200_000;
@@ -293,9 +293,9 @@ export async function handleSummaryRequest(
       model: MODEL,
       contents: buildPrompt(articleUrl, content),
       config: {
-        // Gemini 2.5 Flash runs hidden "thinking" tokens by default; the
-        // one-sentence summary task doesn't need them and they dominate
-        // wall-clock latency.
+        // Gemini 2.5 Flash-Lite runs hidden "thinking" tokens by default;
+        // the one-sentence summary task doesn't need them and they
+        // dominate wall-clock latency.
         thinkingConfig: { thinkingBudget: 0 },
       },
     });
