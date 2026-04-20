@@ -6,13 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 // don't trigger an immediate refetch.
 export const COMMENTS_SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
 
-export interface CommentInsight {
-  text: string;
-  authors?: string[];
-}
-
 export interface CommentsSummaryResult {
-  insights: CommentInsight[];
+  insights: string[];
   cached?: boolean;
 }
 

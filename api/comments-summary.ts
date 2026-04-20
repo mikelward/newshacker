@@ -97,16 +97,7 @@ function edgeCacheHeaderForTtl(ttlMs: number): string {
 // are truncated to keep total prompt size bounded and predictable.
 const MAX_COMMENT_CHARS = 2000;
 
-// Attribution is optional per-insight — many insights are syntheses of
-// several comments and have no single author. Authors that the model
-// returns are cross-checked against the input batch (§post-filter) so we
-// never link to a username Gemini hallucinated.
-export interface Insight {
-  text: string;
-  authors?: string[];
-}
-
-type CacheEntry = { insights: Insight[]; expiresAt: number; ttlMs: number };
+type CacheEntry = { insights: string[]; expiresAt: number; ttlMs: number };
 
 // Per-instance in-memory cache. Vercel may run multiple instances, so this is
 // best-effort — not a correctness boundary. It just trims obvious repeats.
@@ -153,98 +144,19 @@ function buildPrompt(title: string | undefined, transcript: string): string {
     `${header}Below are the top comments from a Hacker News discussion. ` +
     `Extract 3 to 5 of the most useful insights from the conversation — points ` +
     `of agreement, notable dissents, corrections, or interesting additions.\n\n` +
-    `Respond with a JSON array of objects. Each object has:\n` +
-    `  - "text": the insight, one short sentence under 25 words, WITHOUT any ` +
-    `usernames or quotes in the text itself.\n` +
-    `  - "authors": an array of 0 to 3 usernames of commenters who actually ` +
-    `made this point, taken verbatim from the "by <username>" tags in the ` +
-    `comments below. Omit or use an empty array for synthesis insights that ` +
-    `combine many commenters. DO NOT invent usernames that are not present ` +
-    `in the comments above.\n\n` +
-    `Do not include markdown. Return only the JSON array.\n\n` +
+    `Return one insight per line, each a short sentence under 25 words. ` +
+    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
   );
 }
 
-// Gemini sometimes wraps JSON in ```json ... ``` fences or prepends an
-// "Here is..." sentence despite instructions. Try strict JSON first,
-// then fall back to finding the first [...] substring, then split-on-lines.
-// Accepts both the preferred object shape (`{text, authors}`) and the
-// bare-string shape (older prompt / loose responses) — bare strings
-// become insights with no authors.
-function parseInsights(raw: string): Insight[] {
-  const trimmed = raw.trim();
-  const attempts: string[] = [trimmed];
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) attempts.push(fenced[1].trim());
-  const bracket = trimmed.match(/\[[\s\S]*\]/);
-  if (bracket) attempts.push(bracket[0]);
-
-  for (const candidate of attempts) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (Array.isArray(parsed)) {
-        const insights = parsed
-          .map((item) => coerceInsight(item))
-          .filter((x): x is Insight => x !== null);
-        if (insights.length > 0) return insights;
-      }
-    } catch {
-      // keep trying
-    }
-  }
-
-  // Last resort: split on newlines / numbered list markers. No author
-  // attribution is possible in this path.
-  return trimmed
+// Split the model's plain-text response into insight lines, stripping any
+// stray bullet/number markers the model added despite instructions.
+function parseInsights(raw: string): string[] {
+  return raw
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
-    .filter((line) => line.length > 0)
-    .map((text) => ({ text }));
-}
-
-function coerceInsight(item: unknown): Insight | null {
-  if (typeof item === 'string') {
-    const text = item.trim();
-    return text ? { text } : null;
-  }
-  if (item && typeof item === 'object') {
-    const obj = item as { text?: unknown; authors?: unknown };
-    const text = typeof obj.text === 'string' ? obj.text.trim() : '';
-    if (!text) return null;
-    const authors = Array.isArray(obj.authors)
-      ? obj.authors
-          .filter((a): a is string => typeof a === 'string')
-          .map((a) => a.trim())
-          .filter((a) => a.length > 0)
-      : [];
-    return authors.length > 0 ? { text, authors } : { text };
-  }
-  return null;
-}
-
-// Allow-list authors against the set of usernames we actually fed the
-// model. Gemini sometimes echoes a plausible but fabricated username —
-// this drops those so we never render a link to `/user/<hallucinated>`.
-// Also dedupes within an insight.
-function filterAuthors(
-  insights: Insight[],
-  knownAuthors: Set<string>,
-): Insight[] {
-  return insights.map((insight) => {
-    if (!insight.authors || insight.authors.length === 0) return insight;
-    const seen = new Set<string>();
-    const filtered: string[] = [];
-    for (const author of insight.authors) {
-      if (!knownAuthors.has(author)) continue;
-      if (seen.has(author)) continue;
-      seen.add(author);
-      filtered.push(author);
-    }
-    return filtered.length > 0
-      ? { text: insight.text, authors: filtered }
-      : { text: insight.text };
-  });
+    .filter((line) => line.length > 0);
 }
 
 function json(
@@ -267,7 +179,6 @@ function json(
 interface GenerateRequest {
   model: string;
   contents: string;
-  config?: { responseMimeType?: string };
 }
 
 interface GenerateResponse {
@@ -352,8 +263,7 @@ export async function handleCommentsSummaryRequest(
   const transcript = usableComments
     .map((comment, index) => {
       const body = htmlToPlainText(comment.text).slice(0, MAX_COMMENT_CHARS);
-      const author = comment.by ?? 'anon';
-      return `[#${index + 1} by ${author}]\n${body}`;
+      return `[#${index + 1}]\n${body}`;
     })
     .join('\n\n');
 
@@ -366,23 +276,16 @@ export async function handleCommentsSummaryRequest(
     const response = await client.models.generateContent({
       model: MODEL,
       contents: buildPrompt(story.title, transcript),
-      config: { responseMimeType: 'application/json' },
     });
     rawResponse = (response.text ?? '').trim();
   } catch {
     return json({ error: 'Summarization failed' }, 502);
   }
 
-  const parsed = parseInsights(rawResponse);
-  if (parsed.length === 0) {
+  const insights = parseInsights(rawResponse);
+  if (insights.length === 0) {
     return json({ error: 'Summarization failed' }, 502);
   }
-  const knownAuthors = new Set(
-    usableComments
-      .map((c) => c.by)
-      .filter((by): by is string => typeof by === 'string' && by.length > 0),
-  );
-  const insights = filterAuthors(parsed, knownAuthors);
 
   const ttlMs = computeTtlMs(story.time, now());
   cache.set(storyId, { insights, expiresAt: now() + ttlMs, ttlMs });

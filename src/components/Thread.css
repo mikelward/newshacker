@@ -122,15 +122,6 @@
   margin-bottom: 0;
 }
 
-.thread__summary-authors {
-  font-size: 13px;
-  color: var(--hn-meta);
-}
-
-.thread__summary-authors .thread__author {
-  padding: 0 2px;
-}
-
 .thread__summary-card--comments {
   margin-top: 8px;
   margin-bottom: 16px;

@@ -7,13 +7,8 @@ interface SummaryFixture {
   status?: number;
 }
 
-interface CommentInsightFixture {
-  text: string;
-  authors?: string[];
-}
-
 interface CommentsSummaryFixture {
-  insights?: Array<string | CommentInsightFixture>;
+  insights?: string[];
   error?: string;
   status?: number;
 }
@@ -54,10 +49,7 @@ export function installHNFetchMock(fixtures: Fixtures) {
         ? fixtures.commentsSummaries?.[id]
         : undefined;
       if (fixture?.insights !== undefined) {
-        const normalized = fixture.insights.map((item) =>
-          typeof item === 'string' ? { text: item } : item,
-        );
-        return new Response(JSON.stringify({ insights: normalized }), {
+        return new Response(JSON.stringify({ insights: fixture.insights }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });

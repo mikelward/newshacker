@@ -38,7 +38,6 @@ function makeRequest(
 interface GenerateRequest {
   model: string;
   contents: string;
-  config?: { responseMimeType?: string };
 }
 
 interface FakeResponse {
@@ -179,12 +178,7 @@ describe('handleCommentsSummaryRequest', () => {
       },
     });
     const client = createFakeClient([
-      {
-        text: JSON.stringify([
-          { text: 'Readers mostly agree.', authors: ['alice'] },
-          { text: 'One caveat raised.', authors: ['bob'] },
-        ]),
-      },
+      { text: 'Readers mostly agree.\nOne caveat raised.' },
     ]);
     const res = await handleCommentsSummaryRequest(makeRequest('100'), {
       fetchItem,
@@ -192,10 +186,7 @@ describe('handleCommentsSummaryRequest', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      insights: [
-        { text: 'Readers mostly agree.', authors: ['alice'] },
-        { text: 'One caveat raised.', authors: ['bob'] },
-      ],
+      insights: ['Readers mostly agree.', 'One caveat raised.'],
     });
 
     const call = client.models.generateContent.mock.calls[0]![0];
@@ -204,14 +195,14 @@ describe('handleCommentsSummaryRequest', () => {
     // HTML stripped; entities decoded
     expect(call.contents).toContain('I agree with the author.');
     expect(call.contents).toContain('counterpoint & caveat');
-    // Authors included
-    expect(call.contents).toContain('[#1 by alice]');
-    expect(call.contents).toContain('[#2 by bob]');
-    // JSON mime requested
-    expect(call.config?.responseMimeType).toBe('application/json');
+    // Comment sections are numbered without usernames
+    expect(call.contents).toContain('[#1]');
+    expect(call.contents).toContain('[#2]');
+    expect(call.contents).not.toContain('alice');
+    expect(call.contents).not.toContain('bob');
   });
 
-  it('accepts insights without authors (synthesis bullets)', async () => {
+  it('strips stray bullet / numbering markers the model may add', async () => {
     const fetchItem = fetchItemFrom({
       105: {
         id: 105,
@@ -228,12 +219,7 @@ describe('handleCommentsSummaryRequest', () => {
       },
     });
     const client = createFakeClient([
-      {
-        text: JSON.stringify([
-          { text: 'Commenters broadly agreed.' },
-          { text: 'A small group dissented.', authors: [] },
-        ]),
-      },
+      { text: '- First.\n* Second.\n1. Third.\n2) Fourth.' },
     ]);
     const res = await handleCommentsSummaryRequest(makeRequest('105'), {
       fetchItem,
@@ -241,82 +227,7 @@ describe('handleCommentsSummaryRequest', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      insights: [
-        { text: 'Commenters broadly agreed.' },
-        { text: 'A small group dissented.' },
-      ],
-    });
-  });
-
-  it('drops hallucinated authors that are not in the input batch', async () => {
-    const fetchItem = fetchItemFrom({
-      107: {
-        id: 107,
-        type: 'story',
-        kids: [108, 109],
-        time: OLD_STORY_TIME,
-      },
-      108: {
-        id: 108,
-        type: 'comment',
-        by: 'alice',
-        text: 'point one',
-        time: 1,
-      },
-      109: {
-        id: 109,
-        type: 'comment',
-        by: 'bob',
-        text: 'point two',
-        time: 2,
-      },
-    });
-    const client = createFakeClient([
-      {
-        text: JSON.stringify([
-          // Mix of real (alice, bob), invented (eve), and duplicated (alice, alice).
-          {
-            text: 'First insight.',
-            authors: ['alice', 'eve', 'alice'],
-          },
-          // Only invented authors → field should drop entirely.
-          { text: 'Second insight.', authors: ['ghostuser'] },
-        ]),
-      },
-    ]);
-    const res = await handleCommentsSummaryRequest(makeRequest('107'), {
-      fetchItem,
-      createClient: () => client,
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      insights: [
-        { text: 'First insight.', authors: ['alice'] },
-        { text: 'Second insight.' },
-      ],
-    });
-  });
-
-  it('wraps legacy bare-string insights into the object shape (no authors)', async () => {
-    const fetchItem = fetchItemFrom({
-      110: {
-        id: 110,
-        type: 'story',
-        kids: [111],
-        time: OLD_STORY_TIME,
-      },
-      111: { id: 111, type: 'comment', by: 'x', text: 'hi', time: 1 },
-    });
-    // Older / looser responses that still return bare strings are still
-    // parsed — they just carry no author attribution.
-    const client = createFakeClient([{ text: '["one", "two"]' }]);
-    const res = await handleCommentsSummaryRequest(makeRequest('110'), {
-      fetchItem,
-      createClient: () => client,
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      insights: [{ text: 'one' }, { text: 'two' }],
+      insights: ['First.', 'Second.', 'Third.', 'Fourth.'],
     });
   });
 
@@ -332,7 +243,7 @@ describe('handleCommentsSummaryRequest', () => {
       202: { id: 202, type: 'comment', deleted: true },
       203: { id: 203, type: 'comment', by: 'c', text: 'real 2', time: 2 },
     });
-    const client = createFakeClient([{ text: '["ok"]' }]);
+    const client = createFakeClient([{ text: 'ok' }]);
     await handleCommentsSummaryRequest(makeRequest('200'), {
       fetchItem,
       createClient: () => client,
@@ -340,7 +251,9 @@ describe('handleCommentsSummaryRequest', () => {
     const contents = client.models.generateContent.mock.calls[0]![0].contents;
     expect(contents).toContain('real 1');
     expect(contents).toContain('real 2');
-    expect(contents).not.toMatch(/\[#2 by \]/);
+    expect(contents).toContain('[#1]');
+    expect(contents).toContain('[#2]');
+    expect(contents).not.toContain('[#3]');
   });
 
   it('caps the sample at the first 20 top-level kids', async () => {
@@ -363,7 +276,7 @@ describe('handleCommentsSummaryRequest', () => {
       };
     }
     const fetchItem = fetchItemFrom(items);
-    const client = createFakeClient([{ text: '["x"]' }]);
+    const client = createFakeClient([{ text: 'x' }]);
     await handleCommentsSummaryRequest(makeRequest('500'), {
       fetchItem,
       createClient: () => client,
@@ -394,85 +307,13 @@ describe('handleCommentsSummaryRequest', () => {
         time: 1,
       },
     });
-    const client = createFakeClient([{ text: '["Takes are taken."]' }]);
+    const client = createFakeClient([{ text: 'Takes are taken.' }]);
     const res = await handleCommentsSummaryRequest(makeRequest('700'), {
       fetchItem,
       createClient: () => client,
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      insights: [{ text: 'Takes are taken.' }],
-    });
-  });
-
-  it('falls back to list-line parsing when the model returns a non-JSON response', async () => {
-    const fetchItem = fetchItemFrom({
-      800: {
-        id: 800,
-        type: 'story',
-        kids: [801],
-        time: OLD_STORY_TIME,
-      },
-      801: {
-        id: 801,
-        type: 'comment',
-        by: 'x',
-        text: 'hi',
-        time: 1,
-      },
-    });
-    const client = createFakeClient([
-      {
-        text:
-          'Here are the insights:\n' +
-          '- First insight.\n' +
-          '- Second insight.\n' +
-          '- Third insight.',
-      },
-    ]);
-    const res = await handleCommentsSummaryRequest(makeRequest('800'), {
-      fetchItem,
-      createClient: () => client,
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      insights: Array<{ text: string; authors?: string[] }>;
-    };
-    expect(body.insights).toEqual([
-      { text: 'Here are the insights:' },
-      { text: 'First insight.' },
-      { text: 'Second insight.' },
-      { text: 'Third insight.' },
-    ]);
-  });
-
-  it('accepts JSON wrapped in a fenced code block', async () => {
-    const fetchItem = fetchItemFrom({
-      810: {
-        id: 810,
-        type: 'story',
-        kids: [811],
-        time: OLD_STORY_TIME,
-      },
-      811: {
-        id: 811,
-        type: 'comment',
-        by: 'x',
-        text: 'hi',
-        time: 1,
-      },
-    });
-    const client = createFakeClient([
-      { text: '```json\n["fenced insight"]\n```' },
-    ]);
-    const res = await handleCommentsSummaryRequest(makeRequest('810'), {
-      fetchItem,
-      createClient: () => client,
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      insights: [{ text: 'fenced insight' }],
-    });
+    expect(await res.json()).toEqual({ insights: ['Takes are taken.'] });
   });
 
   it('returns 502 when the model throws', async () => {
@@ -493,7 +334,7 @@ describe('handleCommentsSummaryRequest', () => {
     expect(res.status).toBe(502);
   });
 
-  it('returns 502 when the model returns an empty / unparseable response', async () => {
+  it('returns 502 when the model returns an empty response', async () => {
     const fetchItem = fetchItemFrom({
       910: {
         id: 910,
@@ -521,25 +362,25 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1001: { id: 1001, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: '["one"]' }]);
+    const client = createFakeClient([{ text: 'one' }]);
     let now = 1_700_000_000_000;
     const r1 = await handleCommentsSummaryRequest(makeRequest('1000'), {
       fetchItem,
       createClient: () => client,
       now: () => now,
     });
-    expect(await r1.json()).toEqual({ insights: [{ text: 'one' }] });
+    expect(await r1.json()).toEqual({ insights: ['one'] });
 
     // 30 min later — within the 1h older-story TTL.
     now += 30 * 60 * 1000;
-    const client2 = createFakeClient([{ text: '["two"]' }]);
+    const client2 = createFakeClient([{ text: 'two' }]);
     const r2 = await handleCommentsSummaryRequest(makeRequest('1000'), {
       fetchItem,
       createClient: () => client2,
       now: () => now,
     });
     expect(await r2.json()).toEqual({
-      insights: [{ text: 'one' }],
+      insights: ['one'],
       cached: true,
     });
     expect(client2.models.generateContent).not.toHaveBeenCalled();
@@ -555,7 +396,7 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1301: { id: 1301, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: '["ok"]' }]);
+    const client = createFakeClient([{ text: 'ok' }]);
     const res = await handleCommentsSummaryRequest(makeRequest('1300'), {
       fetchItem,
       createClient: () => client,
@@ -579,7 +420,7 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1311: { id: 1311, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: '["ok"]' }]);
+    const client = createFakeClient([{ text: 'ok' }]);
     const res = await handleCommentsSummaryRequest(makeRequest('1310'), {
       fetchItem,
       createClient: () => client,
@@ -600,7 +441,7 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1321: { id: 1321, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: '["v1"]' }]);
+    const client = createFakeClient([{ text: 'v1' }]);
     let now = 1_700_000_000_000;
     await handleCommentsSummaryRequest(makeRequest('1320'), {
       fetchItem,
@@ -640,7 +481,7 @@ describe('handleCommentsSummaryRequest', () => {
       1101: { id: 1101, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
     let now = 1_700_000_000_000;
-    const client1 = createFakeClient([{ text: '["v1"]' }]);
+    const client1 = createFakeClient([{ text: 'v1' }]);
     await handleCommentsSummaryRequest(makeRequest('1100'), {
       fetchItem,
       createClient: () => client1,
@@ -648,13 +489,13 @@ describe('handleCommentsSummaryRequest', () => {
     });
 
     now += 60 * 60 * 1000 + 1;
-    const client2 = createFakeClient([{ text: '["v2"]' }]);
+    const client2 = createFakeClient([{ text: 'v2' }]);
     const res = await handleCommentsSummaryRequest(makeRequest('1100'), {
       fetchItem,
       createClient: () => client2,
       now: () => now,
     });
-    expect(await res.json()).toEqual({ insights: [{ text: 'v2' }] });
+    expect(await res.json()).toEqual({ insights: ['v2'] });
   });
 
   it('uses the shorter 30-min TTL for young (< 2h old) stories', async () => {
@@ -671,7 +512,7 @@ describe('handleCommentsSummaryRequest', () => {
     });
 
     // First call populates cache.
-    const client1 = createFakeClient([{ text: '["v1"]' }]);
+    const client1 = createFakeClient([{ text: 'v1' }]);
     await handleCommentsSummaryRequest(makeRequest('1200'), {
       fetchItem,
       createClient: () => client1,
@@ -680,27 +521,27 @@ describe('handleCommentsSummaryRequest', () => {
 
     // 29 min later — still cached (< 30min TTL).
     now += 29 * 60 * 1000;
-    const clientStillCached = createFakeClient([{ text: '["v-noop"]' }]);
+    const clientStillCached = createFakeClient([{ text: 'v-noop' }]);
     const rCached = await handleCommentsSummaryRequest(makeRequest('1200'), {
       fetchItem,
       createClient: () => clientStillCached,
       now: () => now,
     });
     expect(await rCached.json()).toMatchObject({
-      insights: [{ text: 'v1' }],
+      insights: ['v1'],
       cached: true,
     });
     expect(clientStillCached.models.generateContent).not.toHaveBeenCalled();
 
     // Bump past 30 min — should re-run (proving TTL is 30min, not 1h).
     now += 2 * 60 * 1000;
-    const client2 = createFakeClient([{ text: '["v2"]' }]);
+    const client2 = createFakeClient([{ text: 'v2' }]);
     const res = await handleCommentsSummaryRequest(makeRequest('1200'), {
       fetchItem,
       createClient: () => client2,
       now: () => now,
     });
-    expect(await res.json()).toEqual({ insights: [{ text: 'v2' }] });
+    expect(await res.json()).toEqual({ insights: ['v2'] });
     expect(client2.models.generateContent).toHaveBeenCalledTimes(1);
   });
 });

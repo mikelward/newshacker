@@ -210,29 +210,7 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
       {data ? (
         <ul className="thread__summary-list">
           {data.insights.map((insight, i) => (
-            <li key={i}>
-              {insight.text}
-              {insight.authors && insight.authors.length > 0 ? (
-                <>
-                  {' '}
-                  <span className="thread__summary-authors">
-                    (
-                    {insight.authors.map((author, j) => (
-                      <span key={author}>
-                        {j > 0 ? ', ' : ''}
-                        <Link
-                          to={`/user/${author}`}
-                          className="thread__author"
-                        >
-                          {author}
-                        </Link>
-                      </span>
-                    ))}
-                    )
-                  </span>
-                </>
-              ) : null}
-            </li>
+            <li key={i}>{insight}</li>
           ))}
         </ul>
       ) : null}
