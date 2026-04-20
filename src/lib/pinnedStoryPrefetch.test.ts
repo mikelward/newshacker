@@ -184,18 +184,42 @@ describe('prefetchPinnedStory', () => {
     ).toBe(true);
   });
 
-  it('does NOT prefetch the comments summary for stories with no kids', async () => {
+  it('fires the comments-summary prefetch in parallel with the item fetch', async () => {
+    // We prefetch unconditionally rather than waiting on the HN item fetch
+    // to confirm kids exist. Stories with no comments pay a cheap edge 404;
+    // every other story wins ~100ms of head start.
+    //
+    // The invariant we actually care about: /api/comments-summary is in
+    // flight before /item/<id> resolves. Use a delayed item response so a
+    // sequentially-gated prefetch couldn't possibly beat it.
+    let resolveItem!: () => void;
+    const itemBlocker = new Promise<void>((r) => {
+      resolveItem = r;
+    });
+    const completedBefore = {
+      item: false,
+      commentsSummary: false,
+    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('/item/322')) {
+        await itemBlocker;
+        completedBefore.item = true;
         return new Response(
           JSON.stringify({
             id: 322,
             type: 'story',
-            title: 'No comments',
+            title: 'Pinned',
             url: 'https://example.com/322',
-            kids: [],
+            kids: [3221],
           }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/comments-summary')) {
+        completedBefore.commentsSummary = true;
+        return new Response(
+          JSON.stringify({ insights: ['warmed'] }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
       }
@@ -219,15 +243,17 @@ describe('prefetchPinnedStory', () => {
     });
 
     await vi.waitFor(() => {
+      expect(client.getQueryData(commentsSummaryQueryKey(322))).toEqual({
+        insights: ['warmed'],
+      });
+    });
+    expect(completedBefore.commentsSummary).toBe(true);
+    expect(completedBefore.item).toBe(false);
+
+    resolveItem();
+    await vi.waitFor(() => {
       expect(client.getQueryData(['itemRoot', 322])).toBeTruthy();
     });
-
-    const calls = fetchMock.mock.calls.map((c) =>
-      typeof c[0] === 'string' ? c[0] : c[0].toString(),
-    );
-    expect(
-      calls.some((u) => u.includes('/api/comments-summary')),
-    ).toBe(false);
   });
 
   it('skips the summary prefetch for self-posts without a url', async () => {

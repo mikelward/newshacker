@@ -11,6 +11,13 @@ import { prefetchCommentBatch } from './commentPrefetch';
 // first page of top-level comments so offline readers see real discussion,
 // not an empty thread. Everything rides the same 7-day persisted cache TTL
 // as the pinned-ids list.
+//
+// The four prefetches all fire in parallel at the top level — we have
+// `story.id` and `story.url` at pin-time without waiting for anything, so
+// there's no reason for the comments-summary prefetch to sit behind the HN
+// item fetch. Stories that happen to have no comments yet will get a cheap
+// edge 404 from /api/comments-summary, which is a fair trade for removing
+// ~100ms from the common case.
 export function prefetchPinnedStory(
   client: QueryClient,
   story: Pick<HNItem, 'id' | 'url'>,
@@ -23,19 +30,15 @@ export function prefetchPinnedStory(
       const kidIds = item.deleted || item.dead ? [] : (item.kids ?? []);
       // Fire-and-forget: warm the top-level comment cache using the ids
       // we just got from the root. prefetchCommentBatch batches via
-      // /api/items so a 30-comment warm is one HTTP request.
+      // /api/items so a 30-comment warm is one HTTP request. Needs the
+      // kidIds so it stays nested inside the item fetch.
       prefetchCommentBatch(client, kidIds, getItems);
-      if (kidIds.length > 0) {
-        // Only pay for a /api/comments-summary call when there are
-        // actually comments to summarize — otherwise the endpoint returns
-        // 404 and we'd just burn a request.
-        client.prefetchQuery(commentsSummaryQueryOptions(story.id));
-      }
       return { item, kidIds };
     },
     staleTime: SUMMARY_CACHE_TTL_MS,
     gcTime: SUMMARY_CACHE_TTL_MS,
   });
+  client.prefetchQuery(commentsSummaryQueryOptions(story.id));
   if (story.url) {
     client.prefetchQuery(summaryQueryOptions(story.url));
   }
