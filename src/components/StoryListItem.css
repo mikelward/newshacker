@@ -35,9 +35,11 @@
   cursor: pointer;
 }
 
-.vote-btn:hover {
-  background: var(--hn-pressed);
-  color: var(--hn-orange);
+@media (hover: hover) {
+  .vote-btn:hover {
+    background: var(--hn-pressed);
+    color: var(--hn-orange);
+  }
 }
 
 .vote-btn:active {
@@ -92,10 +94,10 @@
     text-decoration: none;
     background: var(--hn-pressed);
   }
+}
 
-  .story-row__body:active {
-    background: var(--hn-border);
-  }
+.story-row__body:active {
+  background: var(--hn-border);
 }
 
 .story-row__title-text {
@@ -141,9 +143,11 @@
   margin-left: 4px;
 }
 
-.pin-btn:hover {
-  background: var(--hn-pressed);
-  color: var(--hn-orange);
+@media (hover: hover) {
+  .pin-btn:hover {
+    background: var(--hn-pressed);
+    color: var(--hn-orange);
+  }
 }
 
 .pin-btn:active {

@@ -80,8 +80,10 @@
   border-radius: 8px;
 }
 
-.story-menu__cancel:hover {
-  background: var(--hn-border);
+@media (hover: hover) {
+  .story-menu__cancel:hover {
+    background: var(--hn-border);
+  }
 }
 
 @keyframes story-menu-fade {

@@ -34,8 +34,10 @@
   min-width: 160px;
 }
 
-.load-more-btn:hover:not(:disabled) {
-  background: var(--hn-pressed);
+@media (hover: hover) {
+  .load-more-btn:hover:not(:disabled) {
+    background: var(--hn-pressed);
+  }
 }
 
 .load-more-btn:active:not(:disabled) {
@@ -65,8 +67,10 @@
   cursor: pointer;
 }
 
-.recover-btn:hover {
-  background: var(--hn-pressed);
+@media (hover: hover) {
+  .recover-btn:hover {
+    background: var(--hn-pressed);
+  }
 }
 
 .recover-btn:active {

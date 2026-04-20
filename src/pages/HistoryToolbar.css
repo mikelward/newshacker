@@ -18,8 +18,10 @@
   cursor: pointer;
 }
 
-.history-toolbar__forget:hover {
-  background: var(--hn-pressed);
+@media (hover: hover) {
+  .history-toolbar__forget:hover {
+    background: var(--hn-pressed);
+  }
 }
 
 .history-toolbar__forget:active {
