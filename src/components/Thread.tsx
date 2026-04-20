@@ -8,7 +8,7 @@ import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useSummary } from '../hooks/useSummary';
-import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
+import { extractDomain, formatStoryMetaTail } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
@@ -256,9 +256,6 @@ export function Thread({ id }: Props) {
     );
   }
 
-  const age = item.time ? formatTimeAgo(item.time) : '';
-  const points = item.score ?? 0;
-  const commentCount = item.descendants ?? 0;
   const domain = extractDomain(item.url);
   const hasExternalUrl = !!item.url;
 
@@ -334,9 +331,7 @@ export function Thread({ id }: Props) {
               {' · '}
             </>
           ) : null}
-          {age ? `${age} · ` : ''}
-          {points} {pluralize(points, 'point')} · {commentCount}{' '}
-          {pluralize(commentCount, 'comment')}
+          {formatStoryMetaTail(item)}
         </div>
         {item.text ? (
           <div

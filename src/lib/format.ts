@@ -43,3 +43,27 @@ export function formatTimeAgo(unixSeconds: number, now: Date = new Date()): stri
 export function pluralize(n: number, singular: string, plural?: string): string {
   return n === 1 ? singular : (plural ?? `${singular}s`);
 }
+
+export interface StoryMetaInput {
+  time?: number;
+  score?: number;
+  descendants?: number;
+}
+
+/**
+ * Formats the trailing segment of a story's metadata line used in
+ * both the list row and the thread header: `"{age} · {N} point(s) · {M}
+ * comment(s)"`. Callers prepend the view-specific prefix (plain-text
+ * domain on the list, author or domain link on the thread) so the
+ * ordering, pluralization, and separator live in one place.
+ */
+export function formatStoryMetaTail(item: StoryMetaInput, now?: Date): string {
+  const parts: string[] = [];
+  const age = item.time ? formatTimeAgo(item.time, now) : '';
+  if (age) parts.push(age);
+  const points = item.score ?? 0;
+  parts.push(`${points} ${pluralize(points, 'point')}`);
+  const comments = item.descendants ?? 0;
+  parts.push(`${comments} ${pluralize(comments, 'comment')}`);
+  return parts.join(' · ');
+}
