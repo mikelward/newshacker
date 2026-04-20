@@ -179,6 +179,9 @@ function json(
 interface GenerateRequest {
   model: string;
   contents: string;
+  config?: {
+    thinkingConfig?: { thinkingBudget?: number };
+  };
 }
 
 interface GenerateResponse {
@@ -276,6 +279,12 @@ export async function handleCommentsSummaryRequest(
     const response = await client.models.generateContent({
       model: MODEL,
       contents: buildPrompt(story.title, transcript),
+      config: {
+        // Gemini 2.5 runs hidden "thinking" tokens by default; for this
+        // extractive task they dominate latency without improving output
+        // quality. Disable.
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     });
     rawResponse = (response.text ?? '').trim();
   } catch {
