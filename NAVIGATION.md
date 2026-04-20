@@ -18,7 +18,9 @@ press Escape to dismiss it without going anywhere.
 
 On any feed page the header picks up two more controls on the right:
 
-- **Show-dismissed** (eye icon) — toggle. See [Ignored](#ignored).
+- **Undo** (arrow icon) — bring back the stories you most recently
+  dismissed, whether you swiped them away one at a time or swept them
+  all at once. Disabled when there's nothing to undo.
 - **Sweep** (broom icon) — dismiss every unpinned story currently on
   screen in one tap. Disabled when there's nothing to sweep.
 
@@ -138,14 +140,14 @@ from your feeds:
 
 Scrolling past is *not* a dismissal — dismissing is always deliberate.
 
-If you dismissed too much, flip the **eye** toggle in the top bar.
-Dismissed stories reappear in the feed, visibly muted, and tapping
-one opens the thread **and un-dismisses it** in the same gesture —
-the "peek at what I swept, rescue the ones I actually wanted" flow.
+If you dismissed too much, hit the **undo** arrow in the top bar to
+bring back the batch you most recently swiped or swept. For anything
+older, open the **Ignored** library and tap **Un-ignore** on the row
+— the "rescue the ones I actually wanted" flow.
 
-Ignored stories live in the **Ignored** library for **7 days**, in
-case you want to go back and look at something you dismissed too
-quickly there instead.
+Ignored stories live in the **Ignored** library for **7 days**, so
+you can go back and rescue something you dismissed too quickly there
+instead.
 
 ## The mental model
 

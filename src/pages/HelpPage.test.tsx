@@ -25,15 +25,21 @@ describe('<HelpPage>', () => {
     expect(screen.getByText(/sweep/i, { selector: 'strong' })).toBeInTheDocument();
   });
 
-  it('describes the peek-at-dismissed eye toggle', () => {
+  it('describes reviewing dismissed stories via the Ignored library', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(
       screen.getByRole('heading', {
         level: 2,
-        name: /peeking at dismissed stories/i,
+        name: /reviewing dismissed stories/i,
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/eye/i, { selector: 'strong' })).toBeInTheDocument();
+    expect(
+      screen.getByText(/un-ignore/i, { selector: 'strong' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/forget all ignored/i, { selector: 'strong' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/dismissals expire/i)).toBeInTheDocument();
   });
 
   it('explains that comments start collapsed and tap expands them', () => {
