@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
-import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
+import { extractDomain, formatStoryMetaTail } from '../lib/format';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 import './StoryListItem.css';
@@ -36,9 +36,6 @@ export function StoryListItem({
 }: Props) {
   const hasExternalUrl = !!story.url;
   const domain = extractDomain(story.url);
-  const commentCount = story.descendants ?? 0;
-  const points = story.score ?? 0;
-  const age = story.time ? formatTimeAgo(story.time) : '';
 
   const title = story.title ?? '[untitled]';
   const domainLabel = hasExternalUrl ? domain : 'self post';
@@ -144,9 +141,7 @@ export function StoryListItem({
         <span className="story-row__title-text">{title}</span>
         <span className="story-row__meta" data-testid="story-meta">
           {domainLabel ? `${domainLabel} · ` : ''}
-          {age ? `${age} · ` : ''}
-          {points} {pluralize(points, 'point')} · {commentCount}{' '}
-          {pluralize(commentCount, 'comment')}
+          {formatStoryMetaTail(story)}
         </span>
       </Link>
 

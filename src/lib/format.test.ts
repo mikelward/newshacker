@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { extractDomain, formatTimeAgo, pluralize } from './format';
+import {
+  extractDomain,
+  formatStoryMetaTail,
+  formatTimeAgo,
+  pluralize,
+} from './format';
 
 describe('extractDomain', () => {
   it('returns hostname without www', () => {
@@ -56,5 +61,37 @@ describe('pluralize', () => {
   it('returns plural form otherwise', () => {
     expect(pluralize(0, 'point')).toBe('points');
     expect(pluralize(2, 'point')).toBe('points');
+  });
+});
+
+describe('formatStoryMetaTail', () => {
+  const now = new Date('2026-04-18T12:00:00Z');
+  const nowS = Math.floor(now.getTime() / 1000);
+
+  it('formats age, points, and comments joined by " · "', () => {
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60 * 3, score: 42, descendants: 7 },
+        now,
+      ),
+    ).toBe('3h · 42 points · 7 comments');
+  });
+
+  it('uses singular forms for 1 point and 1 comment', () => {
+    expect(
+      formatStoryMetaTail({ time: nowS - 60, score: 1, descendants: 1 }, now),
+    ).toBe('1m · 1 point · 1 comment');
+  });
+
+  it('treats missing score and descendants as 0', () => {
+    expect(
+      formatStoryMetaTail({ time: nowS - 60 * 60 * 24 }, now),
+    ).toBe('1d · 0 points · 0 comments');
+  });
+
+  it('omits the age segment when time is missing', () => {
+    expect(formatStoryMetaTail({ score: 5, descendants: 2 }, now)).toBe(
+      '5 points · 2 comments',
+    );
   });
 });
