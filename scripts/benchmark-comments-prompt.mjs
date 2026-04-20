@@ -87,12 +87,11 @@ function buildHopePrompt(title, transcript) {
   );
 }
 
-// WORDS = HOPE + active-voice rule + tighter word cap (15 → 12).
-// The conjecture: HOPE's strongest-form instruction packs information
-// into long sentences, some of which overflow the 85-char tablet line
-// threshold even while staying under the 15-word cap. Cutting the cap
-// to 12 should drive the max char count back under 85.
-function buildWordsPrompt(title, transcript) {
+// WORDS = HOPE + active-voice rule + a per-insight word cap. Parametrized
+// on the cap so we can benchmark several values side by side and see
+// whether richer output at a higher cap still stays under the tablet
+// 1-line budget (~85 chars).
+function buildWordsPromptN(title, transcript, wordCap) {
   const header = title ? `Article title: ${title}\n\n` : '';
   return (
     `${header}Below are the top comments from a Hacker News discussion. ` +
@@ -118,11 +117,18 @@ function buildWordsPrompt(title, transcript) {
     `Use active voice with a concrete subject. Prefer "Phones with X are ` +
     `exempt" over "The regulation exempts phones with X"; "X drives Y" ` +
     `over "Y is driven by X".\n\n` +
-    `Return one insight per line, each a single short sentence under 12 words. ` +
+    `Return one insight per line, each a single short sentence under ${wordCap} words. ` +
     `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
   );
 }
+
+const buildWords12Prompt = (title, transcript) =>
+  buildWordsPromptN(title, transcript, 12);
+const buildWords13Prompt = (title, transcript) =>
+  buildWordsPromptN(title, transcript, 13);
+const buildWords14Prompt = (title, transcript) =>
+  buildWordsPromptN(title, transcript, 14);
 
 // CHARS = HOPE + active-voice rule + char cap (instead of word cap).
 // Swaps the "under 15 words" ceiling for "under 85 characters" to
@@ -314,11 +320,9 @@ async function main() {
     : DEFAULT_STORY_IDS;
 
   const client = new GoogleGenAI({ apiKey });
-  const oldRuns = [];
-  const newRuns = [];
-  const hopeRuns = [];
-  const wordsRuns = [];
-  const charsRuns = [];
+  const words12Runs = [];
+  const words13Runs = [];
+  const words14Runs = [];
 
   for (const id of storyIds) {
     process.stdout.write(`story ${id} ... `);
@@ -330,96 +334,59 @@ async function main() {
       continue;
     }
     try {
-      const oldRun = await runVariant(
+      const w12Run = await runVariant(
         client,
-        'old',
-        buildOldPrompt,
+        'words12',
+        buildWords12Prompt,
         transcript.title,
         transcript.transcript,
       );
       await sleep(INTER_CALL_DELAY_MS);
-      const newRun = await runVariant(
+      const w13Run = await runVariant(
         client,
-        'new',
-        buildNewPrompt,
+        'words13',
+        buildWords13Prompt,
         transcript.title,
         transcript.transcript,
       );
       await sleep(INTER_CALL_DELAY_MS);
-      const hopeRun = await runVariant(
+      const w14Run = await runVariant(
         client,
-        'hope',
-        buildHopePrompt,
+        'words14',
+        buildWords14Prompt,
         transcript.title,
         transcript.transcript,
       );
-      await sleep(INTER_CALL_DELAY_MS);
-      const wordsRun = await runVariant(
-        client,
-        'words',
-        buildWordsPrompt,
-        transcript.title,
-        transcript.transcript,
-      );
-      await sleep(INTER_CALL_DELAY_MS);
-      const charsRun = await runVariant(
-        client,
-        'chars',
-        buildCharsPrompt,
-        transcript.title,
-        transcript.transcript,
-      );
-      oldRuns.push(oldRun);
-      newRuns.push(newRun);
-      hopeRuns.push(hopeRun);
-      wordsRuns.push(wordsRun);
-      charsRuns.push(charsRun);
+      words12Runs.push(w12Run);
+      words13Runs.push(w13Run);
+      words14Runs.push(w14Run);
       console.log(
-        `old=${oldRun.latencyMs}ms/${oldRun.insights.length}` +
-          ` new=${newRun.latencyMs}ms/${newRun.insights.length}` +
-          ` hope=${hopeRun.latencyMs}ms/${hopeRun.insights.length}` +
-          ` words=${wordsRun.latencyMs}ms/${wordsRun.insights.length}` +
-          ` chars=${charsRun.latencyMs}ms/${charsRun.insights.length}`,
+        `words12=${w12Run.latencyMs}ms/${w12Run.insights.length}` +
+          ` words13=${w13Run.latencyMs}ms/${w13Run.insights.length}` +
+          ` words14=${w14Run.latencyMs}ms/${w14Run.insights.length}`,
       );
       console.log(`  title: ${transcript.title}`);
       const max = Math.max(
-        oldRun.insights.length,
-        newRun.insights.length,
-        hopeRun.insights.length,
-        wordsRun.insights.length,
-        charsRun.insights.length,
+        w12Run.insights.length,
+        w13Run.insights.length,
+        w14Run.insights.length,
       );
       for (let i = 0; i < max; i++) {
-        const o = oldRun.insights[i] ?? '(—)';
-        const n = newRun.insights[i] ?? '(—)';
-        const h = hopeRun.insights[i] ?? '(—)';
-        const w = wordsRun.insights[i] ?? '(—)';
-        const c = charsRun.insights[i] ?? '(—)';
-        console.log(`  old  [${i}]: ${o}`);
-        console.log(`  new  [${i}]: ${n}`);
-        console.log(`  hope [${i}]: ${h}`);
-        console.log(`  words[${i}]: ${w}`);
-        console.log(`  chars[${i}]: ${c}`);
+        const a = w12Run.insights[i] ?? '(—)';
+        const b = w13Run.insights[i] ?? '(—)';
+        const c = w14Run.insights[i] ?? '(—)';
+        console.log(`  words12[${i}]: ${a}`);
+        console.log(`  words13[${i}]: ${b}`);
+        console.log(`  words14[${i}]: ${c}`);
       }
     } catch (err) {
       console.log(`error (${err.message})`);
     }
   }
 
-  summarize('OLD prompt (3–5 × 25 words)', oldRuns);
-  summarize('NEW prompt (up to 5 × 15 words)', newRuns);
-  summarize(
-    'HOPE prompt (full stack, 15-word cap)',
-    hopeRuns,
-  );
-  summarize(
-    'WORDS prompt (HOPE + active voice + 12-word cap)',
-    wordsRuns,
-  );
-  summarize(
-    'CHARS prompt (HOPE + active voice + 85-char cap)',
-    charsRuns,
-  );
+  summarize('WORDS12 prompt (12-word cap)', words12Runs);
+  summarize('WORDS13 prompt (13-word cap)', words13Runs);
+  summarize('WORDS14 prompt (14-word cap)', words14Runs);
 }
 
 main().catch((err) => {
