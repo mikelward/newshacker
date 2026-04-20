@@ -109,21 +109,18 @@
   font-style: italic;
 }
 
-.thread__summary-list {
-  margin: 0;
-  padding-left: 20px;
+.thread__summary-insights {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   font-size: 15px;
   line-height: 1.5;
   color: var(--hn-text);
 }
 
-.thread__summary-list li {
-  margin-bottom: 6px;
+.thread__summary-insight {
+  margin: 0;
   word-wrap: break-word;
-}
-
-.thread__summary-list li:last-child {
-  margin-bottom: 0;
 }
 
 .thread__summary-card--comments {
@@ -138,14 +135,12 @@
   padding: 3px 0;
 }
 
-/* Insight skeleton blocks mirror the real <ul> layout: each block is one
-   insight (= one <li> in the final render), with a shorter trailing line
-   and slightly more space between blocks than between lines within a
-   block. padding-left matches the insight list's bullet indent so the
-   shimmer lines sit where the real text will. */
+/* Insight skeleton blocks mirror the real paragraph layout: each block is
+   one insight (= one <p> in the final render), with a shorter trailing
+   line and slightly more space between blocks than between lines within
+   a block. */
 .thread__summary-skeleton--insights {
   gap: 12px;
-  padding-left: 20px;
 }
 
 .thread__summary-skeleton-insight {
@@ -230,14 +225,6 @@
   margin-top: 8px;
   font-size: 11px;
   color: var(--hn-meta);
-}
-
-/* On the comments card, indent the loading label and footer so they line
-   up with the insight text (the <ul> has padding-left: 20px for bullets,
-   and the skeleton matches). */
-.thread__summary-card--comments .thread__summary-loading,
-.thread__summary-card--comments .thread__summary-footer {
-  padding-left: 20px;
 }
 
 .thread__meta {
