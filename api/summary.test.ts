@@ -189,6 +189,21 @@ describe('handleSummaryRequest', () => {
     expect(call.config?.thinkingConfig?.thinkingBudget).toBe(0);
   });
 
+  it('instructs the model to write in the author voice and skip meta-framing', async () => {
+    const articleUrl = 'https://example.com/voice';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const client = createFakeClient([{ text: 'ok' }]);
+    await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    const prompt = client.models.generateContent.mock.calls[0]![0].contents;
+    expect(prompt).toMatch(/voice of the author/i);
+    expect(prompt).toMatch(/The article argues/);
+  });
+
   it('falls back to raw fetch when Jina fails, then summarizes', async () => {
     process.env.JINA_API_KEY = 'jina-test-key';
     const articleUrl = 'https://example.com/a';

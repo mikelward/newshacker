@@ -81,6 +81,11 @@ function isValidHttpUrl(value: string): boolean {
 function buildPrompt(articleUrl: string, content: string): string {
   return (
     `Summarize the article below in a single, concise sentence without using bullet points or introductory text. ` +
+    `Write the sentence as a direct assertion of the article's main point, in the voice of the author — ` +
+    `as if the author (or someone speaking on their behalf) is stating the claim itself. ` +
+    `Do not refer to "the article", "the author", "the piece", "the post", "this story", or similar. ` +
+    `Do not begin with meta-framing such as "The article argues", "The author claims", "This piece explains", ` +
+    `"The post describes", or any variant. Just state the point. ` +
     `The article was fetched from ${articleUrl}. Ignore navigation, boilerplate, and markup; focus on the main body.\n\n` +
     `--- BEGIN ARTICLE ---\n${content}\n--- END ARTICLE ---`
   );
