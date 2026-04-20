@@ -4,6 +4,7 @@
   background: var(--hn-bg-card);
   color: var(--hn-text);
   cursor: pointer;
+  box-shadow: inset 3px 0 0 0 var(--hn-border);
 }
 
 .comment.is-expanded {
@@ -98,7 +99,9 @@
 .comment__children {
   /* Compensate for the parent card's padding-bottom not applying above
      nested replies, so the gap before a child's border matches the gap
-     between sibling comments. */
+     between sibling comments. Visual hierarchy comes from each
+     comment's own left stripe (see .comment box-shadow), so this list
+     adds no left offset of its own. */
   margin: 10px 0 0;
   padding: 0;
   list-style: none;

@@ -34,7 +34,7 @@ describe('<Comment> expand batching', () => {
 
     const fetchMock = installHNFetchMock({ items });
 
-    renderWithProviders(<Comment id={7000} depth={0} />);
+    renderWithProviders(<Comment id={7000} />);
 
     // Collapsed state — child bodies not yet rendered.
     await waitFor(() => {
@@ -81,7 +81,7 @@ describe('<Comment> expand batching', () => {
       items: { 8000: commentFixture(8000, { kids: [] }) },
     });
 
-    renderWithProviders(<Comment id={8000} depth={0} />);
+    renderWithProviders(<Comment id={8000} />);
 
     await waitFor(() => {
       expect(screen.getByText('body 8000')).toBeInTheDocument();

@@ -11,26 +11,18 @@ import './Comment.css';
 
 interface Props {
   id: number;
-  depth: number;
 }
 
-const MAX_INDENT = 6;
-
-export function Comment({ id, depth }: Props) {
+export function Comment({ id }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
   const queryClient = useQueryClient();
 
-  const indent = Math.min(depth, MAX_INDENT);
-  const indentStyle = { marginLeft: `${indent * 12}px` };
-
   if (isLoading || !item) {
     return (
       <div
         className="comment comment--loading"
-        data-depth={indent}
-        style={indentStyle}
         aria-busy="true"
       >
         <div className="comment__header">
@@ -84,8 +76,6 @@ export function Comment({ id, depth }: Props) {
   return (
     <div
       className={`comment${isExpanded ? ' is-expanded' : ''}`}
-      data-depth={indent}
-      style={indentStyle}
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest('a, button')) return;
@@ -128,7 +118,7 @@ export function Comment({ id, depth }: Props) {
         <ol className="comment__children">
           {kids.map((kidId) => (
             <li key={kidId}>
-              <Comment id={kidId} depth={depth + 1} />
+              <Comment id={kidId} />
             </li>
           ))}
         </ol>

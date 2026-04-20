@@ -349,7 +349,7 @@ export function Thread({ id }: Props) {
       <ol className="thread__comments">
         {shown.map((kidId) => (
           <li key={kidId}>
-            <Comment id={kidId} depth={0} />
+            <Comment id={kidId} />
           </li>
         ))}
       </ol>
