@@ -83,8 +83,9 @@ function buildTweakPrompt(title, transcript) {
     `of agreement, notable dissents, corrections, or interesting additions. ` +
     `Combine related points into a single insight rather than listing them ` +
     `separately. Only include genuinely useful points; if the discussion is ` +
-    `thin, return fewer insights rather than padding with filler. Return no ` +
-    `more than 5 insights — do not exceed 5.\n\n` +
+    `thin, return fewer insights rather than padding with filler — returning ` +
+    `3 or 4 is fine and preferable to inventing a fifth. Return no more than ` +
+    `5 insights — do not exceed 5.\n\n` +
     `Each insight must state a specific claim about the subject matter. ` +
     `State it directly, as an assertion — not a meta-description of what the ` +
     `article or commenters are doing. Do not use phrases like "the article ` +
@@ -93,6 +94,10 @@ function buildTweakPrompt(title, transcript) {
     `State each insight in the strongest form actually argued in the ` +
     `comments, not a diluted or hedged version. If commenters disagreed, ` +
     `the strongest version of each side is a valid insight.\n\n` +
+    `Use simple, everyday English. Prefer short common words over formal ` +
+    `or academic ones: "is" over "functions as", "part of" over "a ` +
+    `component of", "uses" over "utilizes", "helps" over "facilitates". ` +
+    `Write the way a knowledgeable friend would, not a policy document.\n\n` +
     `Return one insight per line, each a single short sentence under 15 words. ` +
     `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
