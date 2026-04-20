@@ -105,6 +105,41 @@
   font-style: italic;
 }
 
+.thread__summary-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--hn-text);
+}
+
+.thread__summary-list li {
+  margin-bottom: 6px;
+  word-wrap: break-word;
+}
+
+.thread__summary-list li:last-child {
+  margin-bottom: 0;
+}
+
+.thread__summary-authors {
+  font-size: 13px;
+  color: var(--hn-meta);
+}
+
+.thread__summary-authors .thread__author {
+  padding: 0 2px;
+}
+
+.thread__summary-card--comments {
+  margin-top: 8px;
+  margin-bottom: 16px;
+  /* A 3-5 insight list is much shorter than an article summary's 6-line
+     skeleton, so let this variant size to its content instead of
+     reserving the article card's min-height. */
+  min-height: 0;
+}
+
 .thread__summary-skeleton {
   display: flex;
   flex-direction: column;

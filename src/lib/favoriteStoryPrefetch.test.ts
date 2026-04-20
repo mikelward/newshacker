@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { prefetchFavoriteStory } from './favoriteStoryPrefetch';
 import { summaryQueryKey } from '../hooks/useSummary';
+import { commentsSummaryQueryKey } from '../hooks/useCommentsSummary';
 
 describe('prefetchFavoriteStory', () => {
   beforeEach(() => {
@@ -105,6 +106,97 @@ describe('prefetchFavoriteStory', () => {
       expect(client.getQueryData(['comment', 881])).toMatchObject({ id: 881 });
       expect(client.getQueryData(['comment', 882])).toMatchObject({ id: 882 });
     });
+  });
+
+  it('prefetches the comments summary when the favorited story has kids', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/99')) {
+        return new Response(
+          JSON.stringify({
+            id: 99,
+            type: 'story',
+            title: 'Fav with comments',
+            url: 'https://example.com/99',
+            kids: [991],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/comments-summary')) {
+        return new Response(
+          JSON.stringify({ insights: ['cached insight'] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/items')) {
+        return new Response('[]', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchFavoriteStory(client, { id: 99, url: 'https://example.com/99' });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(commentsSummaryQueryKey(99))).toEqual({
+        insights: ['cached insight'],
+      });
+    });
+  });
+
+  it('does NOT prefetch the comments summary for stories with no kids', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/77')) {
+        return new Response(
+          JSON.stringify({
+            id: 77,
+            type: 'story',
+            title: 'No comments',
+            url: 'https://example.com/77',
+            kids: [],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchFavoriteStory(client, { id: 77, url: 'https://example.com/77' });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 77])).toBeTruthy();
+    });
+
+    const calls = fetchMock.mock.calls.map((c) =>
+      typeof c[0] === 'string' ? c[0] : c[0].toString(),
+    );
+    expect(calls.some((u) => u.includes('/api/comments-summary'))).toBe(false);
   });
 
   it('skips the summary prefetch for self-posts without a url', async () => {

@@ -7,11 +7,23 @@ interface SummaryFixture {
   status?: number;
 }
 
+interface CommentInsightFixture {
+  text: string;
+  authors?: string[];
+}
+
+interface CommentsSummaryFixture {
+  insights?: Array<string | CommentInsightFixture>;
+  error?: string;
+  status?: number;
+}
+
 interface Fixtures {
   feeds?: Partial<Record<string, number[]>>;
   items?: Record<number, HNItem | null>;
   users?: Record<string, HNUser | null>;
   summaries?: Record<string, SummaryFixture>;
+  commentsSummaries?: Record<number, CommentsSummaryFixture>;
 }
 
 export function installHNFetchMock(fixtures: Fixtures) {
@@ -30,6 +42,34 @@ export function installHNFetchMock(fixtures: Fixtures) {
       const body = ids.map((id) => fixtures.items?.[id] ?? null);
       return new Response(JSON.stringify(body), {
         status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url.includes('/api/comments-summary')) {
+      const parsed = new URL(url, 'http://localhost');
+      const idRaw = parsed.searchParams.get('id');
+      const id = idRaw ? Number(idRaw) : NaN;
+      const fixture = Number.isFinite(id)
+        ? fixtures.commentsSummaries?.[id]
+        : undefined;
+      if (fixture?.insights !== undefined) {
+        const normalized = fixture.insights.map((item) =>
+          typeof item === 'string' ? { text: item } : item,
+        );
+        return new Response(JSON.stringify({ insights: normalized }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (fixture?.error !== undefined) {
+        return new Response(JSON.stringify({ error: fixture.error }), {
+          status: fixture.status ?? 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ error: 'not configured' }), {
+        status: 503,
         headers: { 'content-type': 'application/json' },
       });
     }

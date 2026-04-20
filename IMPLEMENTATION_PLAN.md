@@ -151,6 +151,15 @@ Shipped:
 - Referer allowlist as a first-line defense (`SUMMARY_REFERER_ALLOWLIST` env var, plus hardcoded localhost / `*.vercel.app` / `newshacker.app` / `hnews.app`).
 - Requires `GOOGLE_API_KEY` in Vercel project env.
 
+### Phase 6b — AI comment summaries (shipped)
+
+- `api/comments-summary.ts` serverless function — same referer allowlist and `GOOGLE_API_KEY` as Phase 6. Fetches the story's first 20 top-level comments via Firebase, strips HTML, feeds them to Gemini 2.5 Flash, and asks for a JSON array of 3–5 short insights.
+- `useCommentsSummary` hook + `CommentsSummaryCard` inside `Thread.tsx`. Auto-runs on thread load whenever the story has kids — works for self-posts too.
+- Freshness-aware server cache: 30-min TTL for stories < 2 h old, 1-h TTL for older stories. React Query TTL on the client is 1 h.
+- Prefetched on pin and favorite via the shared `prefetchPinnedStory` / `prefetchFavoriteStory` paths so pinned/favorited stories have a cached comment summary available offline.
+- Service Worker runtime cache rule (`ai-comment-summaries`, StaleWhileRevalidate, 7-day, 200 entries) — sibling to the article-summary rule.
+- Shared `api/lib/referer.ts` + `api/lib/hnFetch.ts` helpers so `api/summary.ts`, `api/items.ts`, and `api/comments-summary.ts` don't duplicate the allowlist / Firebase fetch.
+
 ### TODOs
 
 - [ ] **Cross-instance cache.** The current `Map`-based cache is per serverless instance. Move to Vercel KV (or Upstash Redis) keyed by article URL so warm summaries are shared across invocations and survive deploys. Keep the 1-hour TTL; consider longer if abuse guards prevent cache poisoning.

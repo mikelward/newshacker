@@ -82,6 +82,8 @@ other. The pinned-stories module performs a one-shot rename of the legacy
 
 2. **Thread view**
    - Story header (title, link, points, author, age, text if self-post).
+   - **Article summary card** (AI, Gemini 2.5 Flash) above the action row, for stories with an external `url`. Auto-runs on load.
+   - **Comment summary card** (AI, Gemini 2.5 Flash) between the meta line and the comment list, for any story with at least one top-level comment — including self-posts (Ask HN, Show HN). Renders 3–5 short insights. Auto-runs on load. Reuses the same card visual as the article summary.
    - Nested comments, each collapsed by default with a 3-line body preview. See *Comment row layout*.
    - Deep-linkable: `/item/:id`.
 
@@ -310,6 +312,7 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - **HN items** (`/item/:id.json`): StaleWhileRevalidate, 7-day TTL, 500 entries.
 - **Feed lists** (`topstories`, `newstories`, etc.): NetworkFirst with 3s timeout, 1-day TTL, 10 entries.
 - **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries.
+- **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side TTL is freshness-aware — 30 min for stories < 2 h old, 1 h otherwise — so hot front-page threads keep pace with the comment rush. React Query TTL on the client is 1 h.
 - **Items batch proxy** (`/api/items`): StaleWhileRevalidate, 1-day TTL, 50 entries.
 - **HN write endpoints** (`news.ycombinator.com`): never cached — votes and login must never reuse a stale response.
 
@@ -325,8 +328,8 @@ Comments use `src/lib/commentPrefetch.ts`'s `prefetchCommentBatch` helper everyw
 The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time) the per-comment `useCommentItem` falls back to individual Firebase fetches, so nothing breaks visibly.
 
 ### Pin/Favorite offline prefetch
-- Pinning a story calls `prefetchPinnedStory` — stores the item root, the AI summary, **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time.
-- Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline with real discussion.
+- Pinning a story calls `prefetchPinnedStory` — stores the item root, the article AI summary, the AI comment summary (when the story has kids), **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time.
+- Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline with real discussion and both summaries.
 - Top-level comments are fetched in a single `/api/items?ids=…&fields=full` batch (our edge-cached proxy), not per-comment against Firebase. This means one extra HTTP request per pin, ~30-60 KB typical. HN ranks `kids` roughly best-first, so slicing to 30 is a "top voted by HN's ranking" proxy for mega-threads.
 - Nested replies are pre-fetched opportunistically on expand (see *Comment batching* above), not at pin/favorite time. Pinned-and-never-opened threads still have all their top-level comments offline; nested subthreads become available as the user has expanded them online at least once.
 - When new comments arrive upstream after the pin, old cached comments are **not** invalidated — each comment lives under its own cache key. SWR surfaces the cached copy offline; next online visit refreshes silently.
@@ -335,7 +338,7 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 - `useOnlineStatus` hook (reads `navigator.onLine`, listens to `online`/`offline` events) drives:
   - A small "Offline" pill in the header.
   - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline.
-  - An offline-specific message in the AI summary card when no cached summary exists.
+  - An offline-specific message in the AI summary card when no cached summary exists. The same message pattern applies to the AI comment summary card.
 - Write actions (vote, login — once implemented) check `navigator.onLine` and show a toast instead of issuing a request that's guaranteed to fail.
 
 ### Planned (not in this change)

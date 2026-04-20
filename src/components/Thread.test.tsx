@@ -456,6 +456,159 @@ describe('<Thread>', () => {
     expect(meta).toHaveTextContent(/bob · \S+ · 5 points · 0 comments/);
   });
 
+  it('auto-fetches and renders the comments summary card when the story has kids', async () => {
+    installHNFetchMock({
+      items: {
+        950: makeStory(950, {
+          title: 'Lots of discussion',
+          kids: [951],
+          descendants: 1,
+        }),
+        951: {
+          id: 951,
+          type: 'comment',
+          by: 'alice',
+          text: 'great article',
+          time: 1,
+        },
+      },
+      commentsSummaries: {
+        950: { insights: ['Alpha insight.', 'Beta insight.'] },
+      },
+    });
+
+    renderWithProviders(<Thread id={950} />);
+
+    const card = await screen.findByTestId('thread-comments-summary-card');
+    expect(card).toBeInTheDocument();
+    expect(await screen.findByText('Alpha insight.')).toBeInTheDocument();
+    expect(screen.getByText('Beta insight.')).toBeInTheDocument();
+  });
+
+  it('also renders the comments summary card for self-posts (Ask HN) with kids', async () => {
+    installHNFetchMock({
+      items: {
+        960: makeStory(960, {
+          title: 'Ask HN: thoughts?',
+          url: undefined,
+          text: 'what do you think',
+          kids: [961],
+          descendants: 1,
+        }),
+        961: {
+          id: 961,
+          type: 'comment',
+          by: 'bob',
+          text: 'here is a thought',
+          time: 1,
+        },
+      },
+      commentsSummaries: {
+        960: { insights: ['Community thinks carefully.'] },
+      },
+    });
+
+    renderWithProviders(<Thread id={960} />);
+
+    // Article summary card is NOT rendered (no url)
+    await screen.findByText('Ask HN: thoughts?');
+    expect(screen.queryByTestId('thread-summary-card')).toBeNull();
+
+    // But comments summary card IS rendered because there are kids
+    expect(
+      await screen.findByTestId('thread-comments-summary-card'),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText('Community thinks carefully.'),
+    ).toBeInTheDocument();
+  });
+
+  it('does not render the comments summary card for stories without kids', async () => {
+    installHNFetchMock({
+      items: {
+        970: makeStory(970, {
+          title: 'Lonely',
+          kids: [],
+          descendants: 0,
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={970} />);
+
+    await screen.findByText('Lonely');
+    expect(screen.queryByTestId('thread-comments-summary-card')).toBeNull();
+  });
+
+  it('shows a skeleton while the comments summary loads and marks the card busy', async () => {
+    installHNFetchMock({
+      items: {
+        980: makeStory(980, { kids: [981], descendants: 1 }),
+        981: {
+          id: 981,
+          type: 'comment',
+          by: 'x',
+          text: 'body',
+          time: 1,
+        },
+      },
+      commentsSummaries: {
+        980: { insights: ['Eventually here.'] },
+      },
+    });
+
+    renderWithProviders(<Thread id={980} />);
+
+    const skeleton = await screen.findByTestId(
+      'thread-comments-summary-skeleton',
+    );
+    expect(skeleton).toBeInTheDocument();
+    expect(
+      screen.getByTestId('thread-comments-summary-card'),
+    ).toHaveAttribute('aria-busy', 'true');
+
+    expect(await screen.findByText('Eventually here.')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('thread-comments-summary-skeleton'),
+    ).toBeNull();
+    expect(
+      screen.getByTestId('thread-comments-summary-card'),
+    ).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('shows an error with Retry when the comments summary api fails', async () => {
+    installHNFetchMock({
+      items: {
+        // Self-post (no url) so we don't get a second Retry button from
+        // the article summary card, which would make the role query
+        // ambiguous.
+        990: makeStory(990, {
+          kids: [991],
+          descendants: 1,
+          url: undefined,
+          text: 'self',
+        }),
+        991: { id: 991, type: 'comment', by: 'x', text: 'hi', time: 1 },
+      },
+      commentsSummaries: {
+        990: { error: 'Summarization failed', status: 502 },
+      },
+    });
+
+    renderWithProviders(<Thread id={990} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/could not summarize comments/i),
+      ).toBeInTheDocument();
+    });
+    const card = screen.getByTestId('thread-comments-summary-card');
+    expect(
+      screen.getByRole('button', { name: /retry/i }),
+    ).toBeInTheDocument();
+    expect(card).toBeInTheDocument();
+  });
+
   it('paginates top-level comments (only renders first page)', async () => {
     const totalKids = TOP_LEVEL_PAGE_SIZE + 5;
     const kidIds = Array.from({ length: totalKids }, (_, i) => 1000 + i);
