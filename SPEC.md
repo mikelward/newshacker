@@ -300,7 +300,7 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 
 ### Install identity
 - Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /top`.
-- Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. Icons are an orange "nh" wordmark on cream — never the HN `Y` logo.
+- Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. The mark is an orange disc with a white ring and a white "n" centered inside, on a transparent background so the icon reads as circular — never the HN `Y` logo. The maskable variant fills its frame with orange and pulls the ring + glyph into an 80% safe zone so Android adaptive masks don't clip it.
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
 ### Service worker
