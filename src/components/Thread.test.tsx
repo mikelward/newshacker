@@ -381,6 +381,55 @@ describe('<Thread>', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows a timeout-specific message when the source site did not respond', async () => {
+    installHNFetchMock({
+      items: {
+        811: makeStory(811, { title: 'Hugged', url: 'https://example.com/811' }),
+      },
+      summaries: {
+        'https://example.com/811': {
+          error: "The article site didn't respond in time",
+          reason: 'source_timeout',
+          status: 504,
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={811} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/didn't respond in time/i),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/try opening the link directly/i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows an unreachable-specific message when the source site blocks us', async () => {
+    installHNFetchMock({
+      items: {
+        812: makeStory(812, { title: 'Blocked', url: 'https://example.com/812' }),
+      },
+      summaries: {
+        'https://example.com/812': {
+          error: 'Could not access the article',
+          reason: 'source_unreachable',
+          status: 502,
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={812} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/couldn't reach the article site/i),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('does not render a summary card for self-posts without a url', async () => {
     installHNFetchMock({
       items: {

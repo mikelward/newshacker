@@ -129,6 +129,20 @@ function clampContent(body: string): string | null {
   return clean || null;
 }
 
+type FetchFailure = 'timeout' | 'unreachable';
+type FetchOutcome =
+  | { ok: true; content: string }
+  | { ok: false; failure: FetchFailure };
+
+function isAbortError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    (err as { name?: unknown }).name === 'AbortError'
+  );
+}
+
 // Jina's Reader API (r.jina.ai) handles JS-rendered pages, paywalls, and
 // bot-blocked sites that our raw fetch can't reach. Returns clean markdown
 // that we can feed to Gemini directly. Free tier via API key is generous.
@@ -136,7 +150,7 @@ async function fetchViaJina(
   articleUrl: string,
   jinaApiKey: string,
   deps: SummaryDeps,
-): Promise<string | null> {
+): Promise<FetchOutcome> {
   const fetchFn = deps.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), JINA_TIMEOUT_MS);
@@ -150,10 +164,13 @@ async function fetchViaJina(
         'x-return-format': 'markdown',
       },
     });
-    if (!res.ok) return null;
-    return clampContent(await res.text());
-  } catch {
-    return null;
+    if (!res.ok) return { ok: false, failure: 'unreachable' };
+    const content = clampContent(await res.text());
+    return content
+      ? { ok: true, content }
+      : { ok: false, failure: 'unreachable' };
+  } catch (err) {
+    return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
   } finally {
     clearTimeout(timer);
   }
@@ -166,7 +183,7 @@ async function fetchViaJina(
 async function fetchRawHtml(
   articleUrl: string,
   deps: SummaryDeps,
-): Promise<string | null> {
+): Promise<FetchOutcome> {
   const fetchFn = deps.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RAW_FETCH_TIMEOUT_MS);
@@ -182,18 +199,21 @@ async function fetchRawHtml(
         'accept-language': 'en-US,en;q=0.9',
       },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { ok: false, failure: 'unreachable' };
     const contentType = res.headers.get('content-type') ?? '';
     if (
       !contentType.includes('text/html') &&
       !contentType.includes('text/plain') &&
       !contentType.includes('application/xhtml')
     ) {
-      return null;
+      return { ok: false, failure: 'unreachable' };
     }
-    return clampContent(await res.text());
-  } catch {
-    return null;
+    const content = clampContent(await res.text());
+    return content
+      ? { ok: true, content }
+      : { ok: false, failure: 'unreachable' };
+  } catch (err) {
+    return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
   } finally {
     clearTimeout(timer);
   }
@@ -222,19 +242,42 @@ export async function handleSummaryRequest(
 
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
-    return json({ error: 'Summary is not configured' }, 503);
+    return json(
+      { error: 'Summary is not configured', reason: 'not_configured' },
+      503,
+    );
   }
 
   const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
   let content: string | null = null;
+  let sawTimeout = false;
   if (jinaApiKey) {
-    content = await fetchViaJina(articleUrl, jinaApiKey, deps);
+    const result = await fetchViaJina(articleUrl, jinaApiKey, deps);
+    if (result.ok) content = result.content;
+    else if (result.failure === 'timeout') sawTimeout = true;
   }
   if (!content) {
-    content = await fetchRawHtml(articleUrl, deps);
+    const result = await fetchRawHtml(articleUrl, deps);
+    if (result.ok) content = result.content;
+    else if (result.failure === 'timeout') sawTimeout = true;
   }
   if (!content) {
-    return json({ error: 'Could not access the article' }, 502);
+    if (sawTimeout) {
+      return json(
+        {
+          error: "The article site didn't respond in time",
+          reason: 'source_timeout',
+        },
+        504,
+      );
+    }
+    return json(
+      {
+        error: 'Could not access the article',
+        reason: 'source_unreachable',
+      },
+      502,
+    );
   }
 
   const client: SummaryClient = deps.createClient
@@ -253,7 +296,10 @@ export async function handleSummaryRequest(
   }
 
   if (!summary) {
-    return json({ error: 'Summarization failed' }, 502);
+    return json(
+      { error: 'Summarization failed', reason: 'summarization_failed' },
+      502,
+    );
   }
 
   cache.set(articleUrl, { summary, ts: now() });
