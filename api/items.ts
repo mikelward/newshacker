@@ -95,11 +95,16 @@ export async function handleItemsRequest(
     status: 200,
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      // Short browser TTL, longer shared TTL at the Vercel edge. The
-      // stale-while-revalidate window lets the edge serve a cached
-      // batch instantly while refreshing in the background.
+      // Short browser TTL so a user's in-session refetch still picks up
+      // fresh scores, paired with a longer shared TTL at the Vercel edge.
+      // Titles and URLs never change, and score/comment-count drift over
+      // ~10 min is imperceptible in the feed row, so we keep the edge
+      // fresh window generous; the 24h stale-while-revalidate lets the
+      // edge serve instantly past that window while refreshing in the
+      // background. Net effect: under any non-trivial traffic, nearly
+      // every batch is served from the edge instead of Firebase.
       'cache-control':
-        'public, max-age=60, s-maxage=60, stale-while-revalidate=300',
+        'public, max-age=60, s-maxage=600, stale-while-revalidate=86400',
     },
   });
 }
