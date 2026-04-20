@@ -149,15 +149,17 @@ const SUMMARY_FONT =
 // output.
 const ARTICLE_SUMMARY_EXPECTED_CHARS = 230;
 
-// Each insight is capped at ~25 words in the prompt, but the Flash-Lite
-// output (without username tails) lands around 55–85 chars in practice.
-// 85 gives one line per insight on tablet and two on phone, matching
-// what the real list renders.
+// The prompt caps each insight at 15 words (~85 chars). 85 gives one line
+// per insight on tablet (≥640px card width) and two on phone. Kept as a
+// hard upper bound rather than an observed average so the reservation
+// covers the longest insight the prompt still allows — no growth.
 const INSIGHT_EXPECTED_CHARS = 85;
 
-// The prompt requests 3–5 insights; 4 is the p50 so we neither
-// systematically over-reserve (5) nor under-reserve (3).
-const EXPECTED_INSIGHT_COUNT = 4;
+// The prompt asks for up to 5 insights (fewer if the discussion is thin).
+// Reserve for the max so rich threads render with zero whitespace; on
+// thin threads the card keeps its loading-state height and leaves blank
+// space at the bottom instead of reflowing.
+const EXPECTED_INSIGHT_COUNT = 5;
 
 // The insight <ul> has padding-left for bullet indentation — subtract so
 // the skeleton lines align with where the real insight text will render.

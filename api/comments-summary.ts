@@ -142,9 +142,11 @@ function buildPrompt(title: string | undefined, transcript: string): string {
   const header = title ? `Article title: ${title}\n\n` : '';
   return (
     `${header}Below are the top comments from a Hacker News discussion. ` +
-    `Extract 3 to 5 of the most useful insights from the conversation — points ` +
-    `of agreement, notable dissents, corrections, or interesting additions.\n\n` +
-    `Return one insight per line, each a short sentence under 25 words. ` +
+    `Extract up to 5 of the most useful insights from the conversation — points ` +
+    `of agreement, notable dissents, corrections, or interesting additions. ` +
+    `Only include genuinely useful points. If the discussion is thin, ` +
+    `return fewer insights rather than padding with filler.\n\n` +
+    `Return one insight per line, each a single short sentence under 15 words. ` +
     `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
   );
