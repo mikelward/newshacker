@@ -82,6 +82,19 @@ export default defineConfig({
             },
           },
           {
+            // Sibling rule for comment summaries. Same strategy + TTL as
+            // /api/summary so that a pinned or favorited story keeps its
+            // comment summary available offline exactly as long as its
+            // article summary does.
+            urlPattern: /\/api\/comments-summary(?:\?.*)?$/,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'ai-comment-summaries',
+              expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
             urlPattern: /\/api\/items(?:\?.*)?$/,
             handler: 'StaleWhileRevalidate',
             options: {

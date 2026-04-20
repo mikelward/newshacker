@@ -2,13 +2,15 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { HNItem } from './hn';
 import { getItem, getItems } from './hn';
 import { summaryQueryOptions, SUMMARY_CACHE_TTL_MS } from '../hooks/useSummary';
+import { commentsSummaryQueryOptions } from '../hooks/useCommentsSummary';
 import { prefetchCommentBatch } from './commentPrefetch';
 
 // Mirror of prefetchPinnedStory for the Favorites list. Favorites are the
 // permanent keepsake shelf — we want to guarantee the title/domain/points
-// row, the AI summary, and the first page of top-level comments are
-// available on /favorites even days later when the user is offline, so
-// we lock all three into the same 7-day persisted cache at favorite-time.
+// row, both AI summaries (article + comments), and the first page of
+// top-level comments are available on /favorites even days later when the
+// user is offline, so we lock everything into the same 7-day persisted
+// cache at favorite-time.
 export function prefetchFavoriteStory(
   client: QueryClient,
   story: Pick<HNItem, 'id' | 'url'>,
@@ -20,6 +22,9 @@ export function prefetchFavoriteStory(
       if (!item) return null;
       const kidIds = item.deleted || item.dead ? [] : (item.kids ?? []);
       prefetchCommentBatch(client, kidIds, getItems);
+      if (kidIds.length > 0) {
+        client.prefetchQuery(commentsSummaryQueryOptions(story.id));
+      }
       return { item, kidIds };
     },
     staleTime: SUMMARY_CACHE_TTL_MS,

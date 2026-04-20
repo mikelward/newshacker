@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { prefetchPinnedStory } from './pinnedStoryPrefetch';
 import { summaryQueryKey } from '../hooks/useSummary';
+import { commentsSummaryQueryKey } from '../hooks/useCommentsSummary';
 
 describe('prefetchPinnedStory', () => {
   beforeEach(() => {
@@ -121,6 +122,112 @@ describe('prefetchPinnedStory', () => {
       .filter((u) => u.includes('/api/items'));
     // Single batch request, not one request per comment.
     expect(itemsCalls).toHaveLength(1);
+  });
+
+  it('prefetches the comments summary when the pinned story has kids', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/321')) {
+        return new Response(
+          JSON.stringify({
+            id: 321,
+            type: 'story',
+            title: 'Pinned with comments',
+            url: 'https://example.com/321',
+            kids: [3211, 3212],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/comments-summary')) {
+        return new Response(
+          JSON.stringify({ insights: ['cached insight'] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/items')) {
+        return new Response('[]', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchPinnedStory(client, {
+      id: 321,
+      url: 'https://example.com/321',
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(commentsSummaryQueryKey(321))).toEqual({
+        insights: ['cached insight'],
+      });
+    });
+
+    const calls = fetchMock.mock.calls.map((c) =>
+      typeof c[0] === 'string' ? c[0] : c[0].toString(),
+    );
+    expect(
+      calls.some((u) => u.includes('/api/comments-summary?id=321')),
+    ).toBe(true);
+  });
+
+  it('does NOT prefetch the comments summary for stories with no kids', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/322')) {
+        return new Response(
+          JSON.stringify({
+            id: 322,
+            type: 'story',
+            title: 'No comments',
+            url: 'https://example.com/322',
+            kids: [],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchPinnedStory(client, {
+      id: 322,
+      url: 'https://example.com/322',
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 322])).toBeTruthy();
+    });
+
+    const calls = fetchMock.mock.calls.map((c) =>
+      typeof c[0] === 'string' ? c[0] : c[0].toString(),
+    );
+    expect(
+      calls.some((u) => u.includes('/api/comments-summary')),
+    ).toBe(false);
   });
 
   it('skips the summary prefetch for self-posts without a url', async () => {
