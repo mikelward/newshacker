@@ -21,15 +21,18 @@ import sharp from 'sharp';
 const BG = '#ff6600';
 const FG = '#ffffff';
 
-// Circle-n mark at viewBox 0 0 512 512. The non-maskable version fills the
-// frame; the maskable version shrinks the ring + glyph into an 80% safe
-// zone so nothing is clipped by Android's adaptive icon masks.
+// Circle-n mark at viewBox 0 0 512 512. The non-maskable version is an
+// orange disc with transparent corners (so the icon reads as circular);
+// the maskable version fills the frame with orange and shrinks the ring +
+// glyph into an 80% safe zone so nothing is clipped by Android's adaptive
+// icon masks.
 function svg({ maskable = false } = {}) {
-  const safe = maskable ? 0.84 : 1;
-  const ringRadius = Math.round(200 * safe);
-  const ringStroke = Math.max(10, Math.round(16 * safe));
-  const fontSize = Math.round(280 * safe);
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  if (maskable) {
+    const safe = 0.84;
+    const ringRadius = Math.round(200 * safe);
+    const ringStroke = Math.max(10, Math.round(16 * safe));
+    const fontSize = Math.round(280 * safe);
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <rect width="512" height="512" fill="${BG}"/>
   <circle cx="256" cy="256" r="${ringRadius}" fill="none" stroke="${FG}" stroke-width="${ringStroke}"/>
@@ -39,6 +42,19 @@ function svg({ maskable = false } = {}) {
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
         font-weight="700"
         font-size="${fontSize}"
+        fill="${FG}">n</text>
+</svg>`;
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <circle cx="256" cy="256" r="250" fill="${BG}"/>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="${FG}" stroke-width="16"/>
+  <text x="50%" y="50%"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-weight="700"
+        font-size="280"
         fill="${FG}">n</text>
 </svg>`;
 }
