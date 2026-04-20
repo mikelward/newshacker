@@ -128,6 +128,34 @@ function buildHopePrompt(title, transcript) {
   );
 }
 
+function buildSimplePrompt(title, transcript) {
+  const header = title ? `Article title: ${title}\n\n` : '';
+  return (
+    `${header}Below are the top comments from a Hacker News discussion. ` +
+    `Extract up to 5 of the most useful insights from the conversation — points ` +
+    `of agreement, notable dissents, corrections, or interesting additions. ` +
+    `Combine related points into a single insight rather than listing them ` +
+    `separately. Only include genuinely useful points; if the discussion is ` +
+    `thin, return fewer insights rather than padding with filler — returning ` +
+    `3 or 4 is fine and preferable to inventing a fifth. Return no more than ` +
+    `5 insights — do not exceed 5.\n\n` +
+    `Each insight must state a specific claim about the subject matter. ` +
+    `State it directly, as an assertion — not a meta-description of what the ` +
+    `article or commenters are doing. Do not use phrases like "the article ` +
+    `suggests", "is framed as", "commenters think", "the manifesto ` +
+    `reflects", or "the comment highlights". Make the claim itself.\n\n` +
+    `State each insight in the strongest form actually argued in the ` +
+    `comments, not a diluted or hedged version. If commenters disagreed, ` +
+    `the strongest version of each side is a valid insight.\n\n` +
+    `Phrase things simply and directly, but keep domain terminology and ` +
+    `precision. Prefer "is" over "functions as", "part of" over "a ` +
+    `component of", "uses" over "utilizes".\n\n` +
+    `Return one insight per line, each a single short sentence under 15 words. ` +
+    `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
+    `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
+  );
+}
+
 function htmlToPlainText(input) {
   if (!input) return '';
   return input
@@ -253,6 +281,7 @@ async function main() {
   const claimRuns = [];
   const tweakRuns = [];
   const hopeRuns = [];
+  const simpleRuns = [];
 
   for (const id of storyIds) {
     process.stdout.write(`story ${id} ... `);
@@ -299,17 +328,26 @@ async function main() {
         transcript.title,
         transcript.transcript,
       );
+      const simpleRun = await runVariant(
+        client,
+        'simple',
+        buildSimplePrompt,
+        transcript.title,
+        transcript.transcript,
+      );
       oldRuns.push(oldRun);
       newRuns.push(newRun);
       claimRuns.push(claimRun);
       tweakRuns.push(tweakRun);
       hopeRuns.push(hopeRun);
+      simpleRuns.push(simpleRun);
       console.log(
         `old=${oldRun.latencyMs}ms/${oldRun.insights.length}` +
           ` new=${newRun.latencyMs}ms/${newRun.insights.length}` +
           ` claim=${claimRun.latencyMs}ms/${claimRun.insights.length}` +
           ` tweak=${tweakRun.latencyMs}ms/${tweakRun.insights.length}` +
-          ` hope=${hopeRun.latencyMs}ms/${hopeRun.insights.length}`,
+          ` hope=${hopeRun.latencyMs}ms/${hopeRun.insights.length}` +
+          ` simple=${simpleRun.latencyMs}ms/${simpleRun.insights.length}`,
       );
       console.log(`  title: ${transcript.title}`);
       const max = Math.max(
@@ -318,6 +356,7 @@ async function main() {
         claimRun.insights.length,
         tweakRun.insights.length,
         hopeRun.insights.length,
+        simpleRun.insights.length,
       );
       for (let i = 0; i < max; i++) {
         const o = oldRun.insights[i] ?? '(—)';
@@ -325,11 +364,13 @@ async function main() {
         const c = claimRun.insights[i] ?? '(—)';
         const t = tweakRun.insights[i] ?? '(—)';
         const h = hopeRun.insights[i] ?? '(—)';
-        console.log(`  old  [${i}]: ${o}`);
-        console.log(`  new  [${i}]: ${n}`);
-        console.log(`  claim[${i}]: ${c}`);
-        console.log(`  tweak[${i}]: ${t}`);
-        console.log(`  hope [${i}]: ${h}`);
+        const s = simpleRun.insights[i] ?? '(—)';
+        console.log(`  old   [${i}]: ${o}`);
+        console.log(`  new   [${i}]: ${n}`);
+        console.log(`  claim [${i}]: ${c}`);
+        console.log(`  tweak [${i}]: ${t}`);
+        console.log(`  hope  [${i}]: ${h}`);
+        console.log(`  simple[${i}]: ${s}`);
       }
     } catch (err) {
       console.log(`error (${err.message})`);
@@ -346,6 +387,10 @@ async function main() {
   summarize(
     'HOPE prompt (TWEAK + simpler-when-equivalent + fewer-is-fine)',
     hopeRuns,
+  );
+  summarize(
+    'SIMPLE prompt (HOPE with trimmed simple-and-direct rule)',
+    simpleRuns,
   );
 }
 
