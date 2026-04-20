@@ -142,9 +142,29 @@ function buildPrompt(title: string | undefined, transcript: string): string {
   const header = title ? `Article title: ${title}\n\n` : '';
   return (
     `${header}Below are the top comments from a Hacker News discussion. ` +
-    `Extract 3 to 5 of the most useful insights from the conversation — points ` +
-    `of agreement, notable dissents, corrections, or interesting additions.\n\n` +
-    `Return one insight per line, each a short sentence under 25 words. ` +
+    `Extract up to 5 of the most useful insights from the conversation — points ` +
+    `of agreement, notable dissents, corrections, or interesting additions. ` +
+    `Combine related points into a single insight rather than listing them ` +
+    `separately. Only include genuinely useful points; if the discussion is ` +
+    `thin, return fewer insights rather than padding with filler — returning ` +
+    `3 or 4 is fine and preferable to inventing a fifth. Return no more than ` +
+    `5 insights — do not exceed 5.\n\n` +
+    `Each insight must state a specific claim about the subject matter. ` +
+    `State it directly, as an assertion — not a meta-description of what the ` +
+    `article or commenters are doing. Do not use phrases like "the article ` +
+    `suggests", "is framed as", "commenters think", "the manifesto ` +
+    `reflects", or "the comment highlights". Make the claim itself.\n\n` +
+    `State each insight in the strongest form actually argued in the ` +
+    `comments, not a diluted or hedged version. If commenters disagreed, ` +
+    `the strongest version of each side is a valid insight.\n\n` +
+    `When there are two equivalent ways to say something, prefer the ` +
+    `simpler and more direct one: "is" over "functions as", "part of" over ` +
+    `"a component of", "uses" over "utilizes", "helps" over "facilitates". ` +
+    `Keep technical terms only where they are the precise word.\n\n` +
+    `Use active voice with a concrete subject. Prefer "Phones with X are ` +
+    `exempt" over "The regulation exempts phones with X"; "X drives Y" ` +
+    `over "Y is driven by X".\n\n` +
+    `Return one insight per line, each a single short sentence under 13 words. ` +
     `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
   );
