@@ -76,6 +76,23 @@ const YOUNG_STORY_WINDOW_MS = 2 * 60 * 60 * 1000;
 const YOUNG_STORY_TTL_MS = 30 * 60 * 1000;
 const OLDER_STORY_TTL_MS = 60 * 60 * 1000;
 
+// Shared-cache layer on Vercel's edge CDN. Mirrors the per-story TTL
+// above so one cache-miss pays Gemini once across all instances, not
+// once per instance. `stale-while-revalidate` keeps the edge serving
+// instantly while refreshing in the background. See api/summary.ts for
+// the rationale on why Referer is not part of the cache key.
+const YOUNG_STORY_EDGE_CACHE =
+  'public, s-maxage=1800, stale-while-revalidate=3600';
+const OLDER_STORY_EDGE_CACHE =
+  'public, s-maxage=3600, stale-while-revalidate=14400';
+const NO_STORE_HEADER = 'private, no-store';
+
+function edgeCacheHeaderForTtl(ttlMs: number): string {
+  return ttlMs === YOUNG_STORY_TTL_MS
+    ? YOUNG_STORY_EDGE_CACHE
+    : OLDER_STORY_EDGE_CACHE;
+}
+
 // Max per-comment plaintext length fed into the prompt. Long comments
 // are truncated to keep total prompt size bounded and predictable.
 const MAX_COMMENT_CHARS = 2000;
@@ -89,7 +106,7 @@ export interface Insight {
   authors?: string[];
 }
 
-type CacheEntry = { insights: Insight[]; expiresAt: number };
+type CacheEntry = { insights: Insight[]; expiresAt: number; ttlMs: number };
 
 // Per-instance in-memory cache. Vercel may run multiple instances, so this is
 // best-effort — not a correctness boundary. It just trims obvious repeats.
@@ -230,10 +247,20 @@ function filterAuthors(
   });
 }
 
-function json(body: unknown, status = 200): Response {
+function json(
+  body: unknown,
+  status = 200,
+  cacheControl?: string,
+): Response {
+  const resolved =
+    cacheControl ??
+    (status >= 200 && status < 300 ? OLDER_STORY_EDGE_CACHE : NO_STORE_HEADER);
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': resolved,
+    },
   });
 }
 
@@ -276,7 +303,11 @@ export async function handleCommentsSummaryRequest(
   const now = deps.now ?? Date.now;
   const cached = cache.get(storyId);
   if (cached && now() < cached.expiresAt) {
-    return json({ insights: cached.insights, cached: true });
+    return json(
+      { insights: cached.insights, cached: true },
+      200,
+      edgeCacheHeaderForTtl(cached.ttlMs),
+    );
   }
 
   const apiKey = process.env.GOOGLE_API_KEY;
@@ -354,8 +385,8 @@ export async function handleCommentsSummaryRequest(
   const insights = filterAuthors(parsed, knownAuthors);
 
   const ttlMs = computeTtlMs(story.time, now());
-  cache.set(storyId, { insights, expiresAt: now() + ttlMs });
-  return json({ insights });
+  cache.set(storyId, { insights, expiresAt: now() + ttlMs, ttlMs });
+  return json({ insights }, 200, edgeCacheHeaderForTtl(ttlMs));
 }
 
 export function __clearCacheForTests(): void {

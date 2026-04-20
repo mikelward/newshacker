@@ -314,6 +314,52 @@ describe('handleSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
+  it('sets a shared-cache Cache-Control header on successful responses', async () => {
+    const articleUrl = 'https://example.com/cc';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const client = createFakeClient([{ text: 'ok' }]);
+    const res = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    const cc = res.headers.get('cache-control') ?? '';
+    expect(cc).toMatch(/public/);
+    expect(cc).toMatch(/s-maxage=3600/);
+    expect(cc).toMatch(/stale-while-revalidate=86400/);
+  });
+
+  it('also sets the shared-cache header when serving from the in-memory cache', async () => {
+    const articleUrl = 'https://example.com/cc-hit';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const client = createFakeClient([{ text: 'first' }]);
+    await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => client,
+      fetchImpl,
+    });
+    const res2 = await handleSummaryRequest(makeRequest(articleUrl), {
+      createClient: () => createFakeClient([]),
+      fetchImpl,
+    });
+    expect((await res2.json()) as { cached?: boolean }).toMatchObject({
+      cached: true,
+    });
+    expect(res2.headers.get('cache-control') ?? '').toMatch(/s-maxage=3600/);
+  });
+
+  it('sets no-store on error responses so the edge cache does not pin them', async () => {
+    const r403 = await handleSummaryRequest(
+      makeRequest('https://example.com/a', { referer: null }),
+    );
+    expect(r403.headers.get('cache-control') ?? '').toMatch(/no-store/);
+
+    const r400 = await handleSummaryRequest(makeRequest(null));
+    expect(r400.headers.get('cache-control') ?? '').toMatch(/no-store/);
+  });
+
   it('re-fetches after the cache ttl expires', async () => {
     const url = 'https://example.com/expire';
     let now = 1_000_000;
