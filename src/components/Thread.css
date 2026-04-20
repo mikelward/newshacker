@@ -38,9 +38,11 @@
   font-weight: 600;
 }
 
-.thread__action:hover {
-  background: var(--hn-pressed);
-  text-decoration: none;
+@media (hover: hover) {
+  .thread__action:hover {
+    background: var(--hn-pressed);
+    text-decoration: none;
+  }
 }
 
 .thread__action:active {
@@ -54,9 +56,11 @@
   color: #fff;
 }
 
-.thread__action--primary:hover {
-  background: var(--hn-orange);
-  filter: brightness(0.95);
+@media (hover: hover) {
+  .thread__action--primary:hover {
+    background: var(--hn-orange);
+    filter: brightness(0.95);
+  }
 }
 
 .thread__action--icon {
@@ -174,8 +178,10 @@
   cursor: pointer;
 }
 
-.thread__summary-retry:hover {
-  background: var(--hn-pressed);
+@media (hover: hover) {
+  .thread__summary-retry:hover {
+    background: var(--hn-pressed);
+  }
 }
 
 .thread__summary-footer {

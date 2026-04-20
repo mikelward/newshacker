@@ -168,8 +168,10 @@ a {
   font-weight: 600;
 }
 
-.retry-btn:hover {
-  background: var(--hn-pressed);
+@media (hover: hover) {
+  .retry-btn:hover {
+    background: var(--hn-pressed);
+  }
 }
 
 .retry-btn:active {

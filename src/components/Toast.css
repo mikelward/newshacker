@@ -43,8 +43,10 @@
   letter-spacing: 0.5px;
 }
 
-.toast__action:hover {
-  filter: brightness(1.2);
+@media (hover: hover) {
+  .toast__action:hover {
+    filter: brightness(1.2);
+  }
 }
 
 @keyframes toast-in {
