@@ -94,10 +94,10 @@ function buildTweakPrompt(title, transcript) {
     `State each insight in the strongest form actually argued in the ` +
     `comments, not a diluted or hedged version. If commenters disagreed, ` +
     `the strongest version of each side is a valid insight.\n\n` +
-    `Use simple, everyday English. Prefer short common words over formal ` +
-    `or academic ones: "is" over "functions as", "part of" over "a ` +
-    `component of", "uses" over "utilizes", "helps" over "facilitates". ` +
-    `Write the way a knowledgeable friend would, not a policy document.\n\n` +
+    `When there are two equivalent ways to say something, prefer the ` +
+    `simpler and more direct one: "is" over "functions as", "part of" over ` +
+    `"a component of", "uses" over "utilizes", "helps" over "facilitates". ` +
+    `Keep technical terms only where they are the precise word.\n\n` +
     `Return one insight per line, each a single short sentence under 15 words. ` +
     `Do not include usernames, quotes, numbering, bullet markers, or markdown.\n\n` +
     `--- BEGIN COMMENTS ---\n${transcript}\n--- END COMMENTS ---`
