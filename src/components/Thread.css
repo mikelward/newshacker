@@ -232,6 +232,14 @@
   color: var(--hn-meta);
 }
 
+/* On the comments card, indent the loading label and footer so they line
+   up with the insight text (the <ul> has padding-left: 20px for bullets,
+   and the skeleton matches). */
+.thread__summary-card--comments .thread__summary-loading,
+.thread__summary-card--comments .thread__summary-footer {
+  padding-left: 20px;
+}
+
 .thread__meta {
   color: var(--hn-meta);
   font-size: 13px;
