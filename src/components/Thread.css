@@ -231,6 +231,30 @@
   padding: 0;
 }
 
-.thread__sentinel {
-  height: 1px;
+.thread__more {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+
+.thread__more-btn {
+  min-height: 48px;
+  padding: 12px 24px;
+  background: var(--hn-bg-card);
+  color: var(--hn-text);
+  border: 1px solid var(--hn-border);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .thread__more-btn:hover {
+    background: var(--hn-pressed);
+  }
+}
+
+.thread__more-btn:active {
+  background: var(--hn-border);
 }

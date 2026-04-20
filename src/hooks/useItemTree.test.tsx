@@ -1,12 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import { Thread, TOP_LEVEL_PAGE_SIZE } from '../components/Thread';
+import userEvent from '@testing-library/user-event';
+import { Thread } from '../components/Thread';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
-import {
-  installIntersectionObserverMock,
-  uninstallIntersectionObserverMock,
-} from '../test/intersectionObserver';
 import type { HNItem } from '../lib/hn';
 
 function comment(id: number, overrides: Partial<HNItem> = {}): HNItem {
@@ -24,11 +21,9 @@ function comment(id: number, overrides: Partial<HNItem> = {}): HNItem {
 describe('useItemTree batching', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    installIntersectionObserverMock();
   });
   afterEach(() => {
     window.localStorage.clear();
-    uninstallIntersectionObserverMock();
   });
 
   it('loads the first page of top-level comments via a single /api/items batch', async () => {
@@ -99,13 +94,12 @@ describe('useItemTree batching', () => {
     });
   });
 
-  it('fires another /api/items batch when the reader scrolls past the first page', async () => {
-    // 40 kids = 2 full pages. The mock IntersectionObserver fires
-    // ratio=1 on observe, so the sentinel triggers onLoadMore as soon
-    // as it mounts — exercising the same pagination path a real scroll
-    // would. We expect exactly two batches: the initial useItemTree
-    // prefetch, plus the pagination batch for the uncached second page.
-    const total = TOP_LEVEL_PAGE_SIZE * 2;
+  it('fires another /api/items batch when the reader pages past the cached slice', async () => {
+    // 40 kids = 4 pages of 10. The initial useItemTree prefetch covers
+    // the first 30 (shared cap), so pages 2 and 3 hydrate from cache
+    // and fire no new batch. Paging into kids 30..39 is uncached and
+    // must trigger a second batch covering exactly those ids.
+    const total = 40;
     const kids = Array.from({ length: total }, (_, i) => 3000 + i);
     const items: Record<number, HNItem> = {
       42: makeStory(42, { kids, descendants: total }),
@@ -117,8 +111,18 @@ describe('useItemTree batching', () => {
     renderWithProviders(<Thread id={42} />, { route: '/item/42' });
 
     await waitFor(() => {
+      expect(screen.getByText(`body ${kids[0]}`)).toBeInTheDocument();
+    });
+
+    // Three clicks advances 10 → 20 → 30 → 40; the first two reveal
+    // already-cached ids, the third is the one that must batch.
+    for (let i = 0; i < 3; i++) {
+      await userEvent.click(screen.getByTestId('comments-load-more'));
+    }
+
+    await waitFor(() => {
       expect(
-        screen.getByText(`body ${kids[TOP_LEVEL_PAGE_SIZE]}`),
+        screen.getByText(`body ${kids[total - 1]}`),
       ).toBeInTheDocument();
     });
 
@@ -135,10 +139,6 @@ describe('useItemTree batching', () => {
       .get('ids')
       ?.split(',')
       .map(Number);
-    // Initial batch covers up to the shared 30-item cap (kids 0..29).
-    // Pagination's slice(20, 40) runs through the "already cached?"
-    // filter, so the second batch only carries the ids missing from
-    // the first batch — kids 30..39.
     expect(firstIds).toEqual(kids.slice(0, 30));
     expect(secondIds).toEqual(kids.slice(30, 40));
   });

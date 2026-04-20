@@ -456,7 +456,7 @@ describe('<Thread>', () => {
     expect(meta).toHaveTextContent(/bob · \S+ · 5 points · 0 comments/);
   });
 
-  it('paginates top-level comments (only renders first page)', async () => {
+  it('paginates top-level comments (only renders first page) and reveals more via Show more', async () => {
     const totalKids = TOP_LEVEL_PAGE_SIZE + 5;
     const kidIds = Array.from({ length: totalKids }, (_, i) => 1000 + i);
     const items: Record<number, HNItem | null> = {
@@ -486,7 +486,19 @@ describe('<Thread>', () => {
     expect(
       screen.queryByText(`comment ${1000 + TOP_LEVEL_PAGE_SIZE}`),
     ).toBeNull();
-    // Sentinel exists so IntersectionObserver can trigger next page
-    expect(screen.getByTestId('comments-sentinel')).toBeInTheDocument();
+    // A visible button offers the next page (remaining 5 — not a full
+    // page — so the label reflects the actual slice size).
+    const loadMore = screen.getByTestId('comments-load-more');
+    expect(loadMore).toHaveTextContent(/Show 5 more comments/);
+
+    await userEvent.click(loadMore);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(`comment ${1000 + TOP_LEVEL_PAGE_SIZE}`),
+      ).toBeInTheDocument();
+    });
+    // All kids now visible, so the button is gone.
+    expect(screen.queryByTestId('comments-load-more')).toBeNull();
   });
 });

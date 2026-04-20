@@ -1,8 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useItemTree } from '../hooks/useItemTree';
-import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useFavorites } from '../hooks/useFavorites';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -24,7 +23,9 @@ interface Props {
   id: number;
 }
 
-export const TOP_LEVEL_PAGE_SIZE = 20;
+// Keep the default view focused on HN's best-ranked top-level comments. Each
+// tap of "Show more comments" reveals the next slice of the same size.
+export const TOP_LEVEL_PAGE_SIZE = 10;
 
 // Material Symbols Outlined — Apache 2.0, Google. viewBox 0 -960 960 960,
 // fill-based paths that take `color` via currentColor.
@@ -202,30 +203,28 @@ export function Thread({ id }: Props) {
   }, [favorited, id, favorite, unfavorite, item, queryClient]);
   const handleLinkClick = useInternalLinkClick();
 
-  const kidIds = data?.kidIds ?? [];
+  const kidIds = useMemo(() => data?.kidIds ?? [], [data?.kidIds]);
   const shown = kidIds.slice(0, visibleCount);
   const hasMore = visibleCount < kidIds.length;
+  const nextSliceSize = Math.min(kidIds.length - visibleCount, TOP_LEVEL_PAGE_SIZE);
 
-  const sentinelRef = useInfiniteScroll<HTMLDivElement>({
-    enabled: hasMore,
-    onLoadMore: () => {
-      setVisibleCount((prev) => {
-        const next = prev + TOP_LEVEL_PAGE_SIZE;
-        // Warm the newly-visible slice in one /api/items batch so the
-        // ~20 Comment observers that are about to mount hydrate from
-        // cache instead of each firing their own Firebase fetch.
-        // Filter out ids already in cache (e.g. from the first-page
-        // batch or a recent visit) to avoid a redundant round-trip.
-        const uncached = kidIds
-          .slice(prev, next)
-          .filter((kid) => !queryClient.getQueryData(['comment', kid]));
-        if (uncached.length > 0) {
-          prefetchCommentBatch(queryClient, uncached, getItems);
-        }
-        return next;
-      });
-    },
-  });
+  const handleLoadMore = useCallback(() => {
+    setVisibleCount((prev) => {
+      const next = prev + TOP_LEVEL_PAGE_SIZE;
+      // Warm the newly-visible slice in one /api/items batch so the
+      // Comment observers that are about to mount hydrate from cache
+      // instead of each firing their own Firebase fetch. Filter out
+      // ids already in cache (e.g. from the first-page batch or a
+      // recent visit) to avoid a redundant round-trip.
+      const uncached = kidIds
+        .slice(prev, next)
+        .filter((kid) => !queryClient.getQueryData(['comment', kid]));
+      if (uncached.length > 0) {
+        prefetchCommentBatch(queryClient, uncached, getItems);
+      }
+      return next;
+    });
+  }, [kidIds, queryClient]);
 
   if (isLoading) {
     return (
@@ -354,12 +353,16 @@ export function Thread({ id }: Props) {
         ))}
       </ol>
       {hasMore ? (
-        <div
-          ref={sentinelRef}
-          className="thread__sentinel"
-          data-testid="comments-sentinel"
-          aria-hidden="true"
-        />
+        <div className="thread__more">
+          <button
+            type="button"
+            className="thread__more-btn"
+            data-testid="comments-load-more"
+            onClick={handleLoadMore}
+          >
+            Show {nextSliceSize} more {pluralize(nextSliceSize, 'comment')}
+          </button>
+        </div>
       ) : null}
     </article>
   );

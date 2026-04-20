@@ -226,6 +226,10 @@ A real `<button>` inside the meta row carries `aria-expanded` and the keyboard-a
 
 Deleted, dead, and empty comments are not rendered at all — including their subtrees — so a thread never shows "[deleted]" placeholder rows.
 
+### Top-level pagination
+
+The thread view renders only the first **10** top-level comments on load. HN's `kids` array is already ranked, so the first 10 are effectively the thread's best comments. Further comments are revealed via an explicit **`Show N more comments`** button at the bottom of the list (no auto-loading on scroll); each tap reveals the next 10. Nested replies inside an expanded comment are not paginated — the full `kids` list renders.
+
 ## Top bar controls
 
 On feed pages the sticky orange header carries two feed-scoped action icons on the right. Both icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.
