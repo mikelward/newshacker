@@ -279,6 +279,62 @@ describe('TooltipButton', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
+  it('shifts the tooltip back inside the viewport when it would overhang', () => {
+    // Install a proto override before the tooltip mounts so the layout
+    // effect sees an overflowing rect on its first measurement pass.
+    const btnRect = {
+      x: 960,
+      y: 12,
+      top: 12,
+      left: 960,
+      right: 1008,
+      bottom: 60,
+      width: 48,
+      height: 48,
+      toJSON() {},
+    } as DOMRect;
+    const tipRect = {
+      x: 904,
+      y: 0,
+      top: 0,
+      left: 904,
+      right: 1064,
+      bottom: 28,
+      width: 160,
+      height: 28,
+      toJSON() {},
+    } as DOMRect;
+    const origProto = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function () {
+      if ((this as Element).getAttribute?.('data-testid') === 'btn') {
+        return btnRect;
+      }
+      if ((this as Element).getAttribute?.('role') === 'tooltip') {
+        return tipRect;
+      }
+      return origProto.call(this);
+    };
+    try {
+      render(
+        <TooltipButton tooltip="Dismiss unpinned" data-testid="btn">
+          x
+        </TooltipButton>,
+      );
+      const btn = screen.getByTestId('btn');
+      dispatch(btn, 'pointerdown', { pointerType: 'touch' });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      const tip = screen.getByRole('tooltip');
+      // Anchor (button center) at x=984, tooltip width 160 → centered
+      // right edge = 1064. Viewport is 1024, margin 8, so overshoot
+      // is 1064 - (1024 - 8) = 48, yielding a -48 px correction.
+      expect(tip.style.getPropertyValue('--tooltip-x-shift')).toBe('-48px');
+    } finally {
+      Element.prototype.getBoundingClientRect = origProto;
+    }
+  });
+
   it('still invokes the consumer pointer handlers', () => {
     const onPointerDown = vi.fn();
     const onPointerUp = vi.fn();

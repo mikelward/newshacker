@@ -4,9 +4,11 @@ import {
   useEffect,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type MouseEvent,
   type PointerEvent,
 } from 'react';
@@ -62,6 +64,8 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
       left: number;
       placement: 'above' | 'below';
     } | null>(null);
+    const [xShift, setXShift] = useState(0);
+    const tooltipRef = useRef<HTMLSpanElement | null>(null);
 
     const startRef = useRef<{
       x: number;
@@ -93,6 +97,37 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
       [clearShowTimer, clearHideTimer],
     );
 
+    // After the tooltip renders, measure its width and nudge it back
+    // inside the viewport if it overhangs. The positioning math in
+    // `showTooltip` only knows the anchor point (button center); the
+    // tooltip's rendered width is what actually determines whether it
+    // fits. We compute the correction as an *absolute* offset from
+    // the ideal (unshifted) center so a single pass stabilizes — no
+    // incremental feedback loop.
+    useLayoutEffect(() => {
+      if (!open || !position) return;
+      const tip = tooltipRef.current;
+      if (!tip) return;
+      const rect = tip.getBoundingClientRect();
+      if (rect.width === 0) return;
+      const vv =
+        typeof window !== 'undefined' ? window.visualViewport : null;
+      const viewportWidth =
+        vv?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
+      const MARGIN = 8;
+      const halfWidth = rect.width / 2;
+      const idealLeft = position.left - halfWidth;
+      const idealRight = position.left + halfWidth;
+      let nextShift = 0;
+      if (idealRight > viewportWidth - MARGIN) {
+        nextShift = viewportWidth - MARGIN - idealRight;
+      }
+      if (idealLeft + nextShift < MARGIN) {
+        nextShift = MARGIN - idealLeft;
+      }
+      if (nextShift !== xShift) setXShift(nextShift);
+    }, [open, position, xShift]);
+
     const showTooltip = useCallback(() => {
       const btn = buttonRef.current;
       if (!btn) return;
@@ -122,6 +157,9 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         left,
         placement,
       });
+      // Reset any pre-existing horizontal shift from a previous show so
+      // the measurement effect can re-compute from the ideal center.
+      setXShift(0);
       setOpen(true);
       clearHideTimer();
       hideTimerRef.current = window.setTimeout(() => {
@@ -247,10 +285,17 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         {open && position && portalTarget
           ? createPortal(
               <span
+                ref={tooltipRef}
                 id={tooltipId}
                 role="tooltip"
                 className={`tooltip-button__tooltip tooltip-button__tooltip--${position.placement}`}
-                style={{ top: position.top, left: position.left }}
+                style={
+                  {
+                    top: position.top,
+                    left: position.left,
+                    '--tooltip-x-shift': `${xShift}px`,
+                  } as CSSProperties
+                }
               >
                 {tooltip}
               </span>,
