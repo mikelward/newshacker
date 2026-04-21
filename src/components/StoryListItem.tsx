@@ -10,8 +10,6 @@ import './StoryListItem.css';
 interface Props {
   story: HNItem;
   rank?: number;
-  isLoggedIn?: boolean;
-  voted?: boolean;
   articleOpened?: boolean;
   commentsOpened?: boolean;
   pinned?: boolean;
@@ -21,13 +19,10 @@ interface Props {
   onUnpin?: (id: number) => void;
   onShare?: (story: HNItem) => void;
   onOpenThread?: (id: number) => void;
-  onVote?: (id: number) => void;
 }
 
 export function StoryListItem({
   story,
-  isLoggedIn = false,
-  voted = false,
   articleOpened = false,
   commentsOpened = false,
   pinned = false,
@@ -37,7 +32,6 @@ export function StoryListItem({
   onUnpin,
   onShare,
   onOpenThread,
-  onVote,
 }: Props) {
   const hasExternalUrl = !!story.url;
   const domain = extractDomain(story.url);
@@ -74,10 +68,6 @@ export function StoryListItem({
     if (pinned) onUnpin?.(story.id);
     else onPin?.(story.id);
   }, [pinned, onPin, onUnpin, story.id]);
-
-  const handleVote = useCallback(() => {
-    onVote?.(story.id);
-  }, [onVote, story.id]);
 
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
     onSwipeRight: onHide ? handleHide : undefined,
@@ -129,22 +119,6 @@ export function StoryListItem({
       style={style}
       {...handlers}
     >
-      {isLoggedIn ? (
-        <div className="story-row__vote">
-          <TooltipButton
-            type="button"
-            className={'vote-btn' + (voted ? ' is-voted' : '')}
-            data-testid="vote-btn"
-            tooltip={voted ? 'Unvote' : 'Upvote'}
-            aria-label={voted ? `Unvote ${title}` : `Upvote ${title}`}
-            aria-pressed={voted}
-            onClick={handleVote}
-          >
-            <span aria-hidden="true">▲</span>
-          </TooltipButton>
-        </div>
-      ) : null}
-
       <Link
         to={`/item/${story.id}`}
         className="story-row__body story-row__body--stretched"

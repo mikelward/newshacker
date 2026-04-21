@@ -14,42 +14,6 @@
   cursor: grabbing;
 }
 
-.story-row__vote {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: flex-start;
-  padding-top: 2px;
-}
-
-.vote-btn {
-  min-width: var(--tap-min);
-  min-height: var(--tap-min);
-  border: none;
-  background: transparent;
-  color: var(--hn-meta);
-  font-size: 24px;
-  line-height: 1;
-  padding: 0;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .vote-btn:hover {
-    background: var(--hn-pressed);
-    color: var(--hn-orange);
-  }
-}
-
-.vote-btn:active {
-  background: var(--hn-border);
-}
-
-.vote-btn.is-voted {
-  color: var(--hn-orange);
-}
-
 .story-row__body {
   flex: 1;
   min-width: 0;

@@ -317,6 +317,131 @@ describe('<Thread>', () => {
     expect(parsedPin.filter((e) => !e.deleted)).toEqual([]);
   });
 
+  // Thread-page voting. The upvote arrow lives in the action row
+  // next to Pin/Favorite and only renders when the user is signed in.
+  // /api/me drives isAuthenticated; /api/vote handles the actual cast.
+  function installVoteFetchMock(
+    username: string | null,
+    voteResponse: () => Response = () => new Response(null, { status: 204 }),
+  ): ReturnType<typeof vi.fn> {
+    const hnMock = installHNFetchMock({
+      items: { 800: makeStory(800, { title: 'Votable' }) },
+    });
+    const outer = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/me') {
+          if (username) {
+            return new Response(JSON.stringify({ username }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ error: 'nope' }), {
+            status: 401,
+          });
+        }
+        if (url === '/api/vote') {
+          return voteResponse();
+        }
+        // installHNFetchMock's mock only reads the URL; init is unused
+        // downstream, so we don't thread it through.
+        return hnMock(input);
+      },
+    );
+    vi.stubGlobal('fetch', outer);
+    return outer;
+  }
+
+  it('does not render the thread upvote button when logged out', async () => {
+    installVoteFetchMock(null);
+    renderWithProviders(<Thread id={800} />);
+    await waitFor(() => {
+      expect(screen.getByText('Votable')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('thread-vote')).toBeNull();
+  });
+
+  it('renders the thread upvote button and toggles the voted state when signed in', async () => {
+    const fetchMock = installVoteFetchMock('alice');
+    renderWithProviders(<Thread id={800} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-vote')).toBeInTheDocument();
+    });
+
+    const vote = screen.getByTestId('thread-vote');
+    expect(vote).toHaveAccessibleName(/^upvote$/i);
+    expect(vote).toHaveAttribute('aria-pressed', 'false');
+    expect(vote.className).not.toContain('thread__action--active');
+
+    await userEvent.click(vote);
+    expect(vote).toHaveAccessibleName(/^unvote$/i);
+    expect(vote).toHaveAttribute('aria-pressed', 'true');
+    expect(vote.className).toContain('thread__action--active');
+
+    // The optimistic write sat in localStorage under alice's namespace.
+    expect(
+      window.localStorage.getItem('newshacker:votedStoryIds:alice'),
+    ).toContain('800');
+
+    // POST /api/vote was fired with id + how=up.
+    await waitFor(() => {
+      const voteCalls = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(voteCalls.length).toBeGreaterThan(0);
+    });
+    const call = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/vote',
+    );
+    expect(JSON.parse(String((call![1] as RequestInit).body))).toEqual({
+      id: 800,
+      how: 'up',
+    });
+
+    // A second tap toggles back to unvoted (how=un on the POST).
+    await userEvent.click(vote);
+    expect(vote).toHaveAttribute('aria-pressed', 'false');
+    await waitFor(() => {
+      const unvoteCalls = fetchMock.mock.calls.filter(([url, init]) => {
+        if (String(url) !== '/api/vote') return false;
+        const body = JSON.parse(String((init as RequestInit).body));
+        return body.how === 'un';
+      });
+      expect(unvoteCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('rolls back the optimistic vote when /api/vote rejects', async () => {
+    installVoteFetchMock(
+      'alice',
+      () =>
+        new Response(
+          JSON.stringify({ error: 'Hacker News session expired' }),
+          { status: 401, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    renderWithProviders(<Thread id={800} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-vote')).toBeInTheDocument();
+    });
+
+    const vote = screen.getByTestId('thread-vote');
+    await userEvent.click(vote);
+
+    // The optimistic flip happens synchronously inside the click, but
+    // in jsdom userEvent awaits through microtasks long enough for the
+    // /api/vote rejection to have rolled state back before we observe
+    // it. So we only assert the final, rolled-back state — that the
+    // button is un-pressed and nothing was persisted.
+    await waitFor(() => {
+      expect(vote).toHaveAttribute('aria-pressed', 'false');
+    });
+    expect(
+      window.localStorage.getItem('newshacker:votedStoryIds:alice'),
+    ).toBeNull();
+  });
+
   it('opens an overflow menu with "Open on Hacker News" and "Share article" entries', async () => {
     installHNFetchMock({
       items: { 730: makeStory(730, { title: 'Mystery' }) },

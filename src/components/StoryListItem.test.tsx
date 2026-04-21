@@ -98,53 +98,10 @@ describe('StoryListItem', () => {
     expect(within(row).queryByText('alice')).toBeNull();
   });
 
-  it('renders no upvote button when logged out, exactly one when logged in', () => {
-    const { unmount } = renderWithProviders(
-      <StoryListItem story={baseStory} isLoggedIn={false} />,
-    );
+  it('does not render a vote button on story rows (voting lives on the thread page)', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
     expect(screen.queryByRole('button', { name: /upvote/i })).toBeNull();
-    unmount();
-
-    renderWithProviders(<StoryListItem story={baseStory} isLoggedIn={true} />);
-    const voteButtons = screen.getAllByRole('button', { name: /upvote/i });
-    expect(voteButtons).toHaveLength(1);
-  });
-
-  it('vote button fires onVote with the story id when tapped', () => {
-    const onVote = vi.fn();
-    renderWithProviders(
-      <StoryListItem story={baseStory} isLoggedIn={true} onVote={onVote} />,
-    );
-    const vote = screen.getByTestId('vote-btn');
-    expect(vote).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(vote);
-    expect(onVote).toHaveBeenCalledWith(baseStory.id);
-  });
-
-  it('vote button reflects `voted` prop (label, aria-pressed, is-voted class)', () => {
-    renderWithProviders(
-      <StoryListItem story={baseStory} isLoggedIn={true} voted={true} />,
-    );
-    const vote = screen.getByTestId('vote-btn');
-    expect(vote).toHaveAttribute('aria-pressed', 'true');
-    expect(vote).toHaveAccessibleName(/^unvote /i);
-    expect(vote.className).toContain('is-voted');
-  });
-
-  it('tapping the vote button does not open the thread', () => {
-    const onOpenThread = vi.fn();
-    const onVote = vi.fn();
-    renderWithProviders(
-      <StoryListItem
-        story={baseStory}
-        isLoggedIn={true}
-        onOpenThread={onOpenThread}
-        onVote={onVote}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('vote-btn'));
-    expect(onVote).toHaveBeenCalledWith(baseStory.id);
-    expect(onOpenThread).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('vote-btn')).toBeNull();
   });
 
   it('shows points and age as display-only text, not tappable', () => {

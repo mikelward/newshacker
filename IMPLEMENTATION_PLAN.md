@@ -36,7 +36,7 @@ Staged so each phase lands as a working, shippable increment. Each phase ends wi
 - `<StoryListItem>` implementing the *Story row layout* from `SPEC.md`:
   - Title is a link (`<a>`) that opens the external URL in a new tab. For self-posts (no URL), it links to `/item/:id` instead.
   - A separate right-aligned "N comments" button links to `/item/:id`; `stopPropagation` on its click so a tap on it never also triggers the title.
-  - Optional left-side upvote arrow slot, rendered only when logged in (behind Phase 5 flag). The slot collapses when logged out so the title shifts left.
+  - No upvote arrow on the row. Upvoting lives on the thread page action bar (see § 5d); the row stays a two-tap-zone read surface regardless of sign-in state.
   - Metadata (points · age) is plain text. Domain under the title is plain text.
   - Min row height 72px; ≥12px gap between the title column and the comments button; ≥48×48px per tap zone.
 - Test for the layout rules explicitly:
@@ -44,7 +44,7 @@ Staged so each phase lands as a working, shippable increment. Each phase ends wi
   - Title tap on a self-post (no URL) navigates to `/item/:id`.
   - "N comments" button navigates to `/item/:id` and does not open the external URL.
   - No rank number, no hide/past/web/flag/via links, no inline author link are present in the row DOM.
-  - When logged out, no upvote button is rendered; when logged in (Phase 5), exactly one upvote button is present.
+  - No upvote button on the row in any state. The Upvote button lives on the thread page's action bar instead (logged-in only — see § 5d).
 - `<StoryList>` with "Load more" button (infinite scroll is Phase 4).
 - Utilities: `formatTimeAgo(unixSeconds)`, `extractDomain(url)`.
 - Tests:
@@ -199,15 +199,18 @@ user-visible breakage.
     background, rollback + toast on failure. Logged-out users get an
     empty set and a no-op `toggleVote`. Not a retry queue: per SPEC
     Non-Goals, offline votes don't queue.
-  - `<StoryListItem>` renders the pre-existing vote slot only when
-    `isLoggedIn`; `StoryList` / `LibraryStoryList` wire `isLoggedIn +
-    voted + onVote` from `useAuth()` + `useVote()`.
+  - **`<Thread>`** renders the Upvote button in its action bar next
+    to Pin / Favorite, only when `useAuth().isAuthenticated`.
+    Deliberately **not** on the story rows — the row is the two-tap-
+    zone read surface (see *Story row layout* in `SPEC.md`), and
+    keeping voting on the thread page means the reader has full
+    context (title, domain, article summary, comment summary,
+    comments) before casting a vote.
 - **Not yet shipped (follow-ups):**
   - Voting on individual comments (same mechanism, different tap
     target). The `Comment` meta row already leaves space for it.
   - Downvoting comments (karma-gated on HN; client needs a signal
     from the scrape to decide whether to render the second arrow).
-  - Voting from the thread page's story header.
   - Pending/animation feedback during the in-flight POST — see
     `TODO.md` § *Optimistic-action feedback*.
 - **Cost/reliability (rule 11):** no new infra; two HN fetches per
