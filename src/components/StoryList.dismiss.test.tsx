@@ -153,7 +153,11 @@ describe('<StoryList> dismissed-story handling', () => {
     });
     expect(screen.getByTestId('undo-btn')).toBeDisabled();
     const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
-    const parsed = stored ? (JSON.parse(stored) as Array<{ id: number }>) : [];
-    expect(parsed.map((e) => e.id)).not.toContain(20);
+    const parsed = stored
+      ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
+      : [];
+    // Undo writes a tombstone for sync propagation; check the live set.
+    const live = parsed.filter((e) => !e.deleted).map((e) => e.id);
+    expect(live).not.toContain(20);
   });
 });

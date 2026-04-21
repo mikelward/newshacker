@@ -22,6 +22,12 @@ export interface StatusResponse {
     gemini: ServiceStatus;
     jina: ServiceStatus;
     redis: ServiceStatus;
+    // Cross-device sync. Reuses the same Redis backend as the summary
+    // caches, so sync is considered configured iff Redis credentials
+    // are present, and reachable iff the Redis ping succeeds. Reported
+    // separately from `redis` so the /debug UI can make the
+    // "sync will work" signal obvious instead of leaving it implicit.
+    sync: ServiceStatus;
   };
 }
 
@@ -87,6 +93,7 @@ export async function handleStatusRequest(
       gemini: { configured: Boolean(process.env.GOOGLE_API_KEY) },
       jina: { configured: Boolean(process.env.JINA_API_KEY) },
       redis,
+      sync: { ...redis },
     },
   };
 

@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addFavoriteId,
   clearFavoriteIds,
+  getAllFavoriteEntries,
   getFavoriteEntries,
   getFavoriteIds,
   removeFavoriteId,
+  replaceFavoriteEntries,
 } from './favorites';
 
 describe('favorites', () => {
@@ -102,5 +104,77 @@ describe('favorites', () => {
     const byId = new Map(entries.map((e) => [e.id, e.at]));
     expect(byId.get(1)).toBe(1000);
     expect(byId.get(2)).toBe(2000);
+  });
+
+  describe('tombstones for sync', () => {
+    it('writes a tombstone on remove', () => {
+      addFavoriteId(1, 1000);
+      removeFavoriteId(1, 2000);
+      expect(getFavoriteIds()).toEqual(new Set());
+      expect(getAllFavoriteEntries()).toEqual([
+        { id: 1, at: 2000, deleted: true },
+      ]);
+    });
+
+    it('re-adding an id clears the tombstone', () => {
+      addFavoriteId(1, 1000);
+      removeFavoriteId(1, 2000);
+      addFavoriteId(1, 3000);
+      expect(getAllFavoriteEntries()).toEqual([{ id: 1, at: 3000 }]);
+    });
+
+    it('remove is a no-op if the id is already tombstoned', () => {
+      addFavoriteId(1, 1000);
+      removeFavoriteId(1, 2000);
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:favoritesChanged', handler);
+      try {
+        removeFavoriteId(1, 3000);
+      } finally {
+        window.removeEventListener('newshacker:favoritesChanged', handler);
+      }
+      expect(events.length).toBe(0);
+      expect(getAllFavoriteEntries()).toEqual([
+        { id: 1, at: 2000, deleted: true },
+      ]);
+    });
+
+    it('remove writes a tombstone even for an id that was never favorited', () => {
+      removeFavoriteId(99, 5000);
+      expect(getAllFavoriteEntries()).toEqual([
+        { id: 99, at: 5000, deleted: true },
+      ]);
+    });
+
+    it('getFavoriteEntries hides tombstones from UI code', () => {
+      addFavoriteId(1, 1000);
+      addFavoriteId(2, 2000);
+      removeFavoriteId(1, 3000);
+      expect(getFavoriteEntries()).toEqual([{ id: 2, at: 2000 }]);
+    });
+  });
+
+  describe('replaceFavoriteEntries', () => {
+    it('overwrites the list wholesale and fires one event', () => {
+      addFavoriteId(1, 1000);
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:favoritesChanged', handler);
+      try {
+        replaceFavoriteEntries([
+          { id: 2, at: 2000 },
+          { id: 3, at: 3000, deleted: true },
+        ]);
+      } finally {
+        window.removeEventListener('newshacker:favoritesChanged', handler);
+      }
+      expect(events.length).toBe(1);
+      expect(getFavoriteIds()).toEqual(new Set([2]));
+      expect(getAllFavoriteEntries()).toEqual([
+        { id: 2, at: 2000 },
+        { id: 3, at: 3000, deleted: true },
+      ]);
+    });
   });
 });

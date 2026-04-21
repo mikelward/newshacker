@@ -56,9 +56,13 @@ describe('<FavoritesPage>', () => {
       expect(screen.queryByText('Five')).toBeNull();
     });
 
-    expect(window.localStorage.getItem('newshacker:favoriteStoryIds')).toBe(
-      '[]',
-    );
+    // Remove now writes a tombstone (for sync); assert on the live
+    // set rather than raw storage, which may hold tombstone entries.
+    const stored = window.localStorage.getItem('newshacker:favoriteStoryIds');
+    const parsed = stored
+      ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(parsed.filter((e) => !e.deleted)).toEqual([]);
   });
 
   it('orders favorited stories newest first by favorite time', async () => {

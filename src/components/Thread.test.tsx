@@ -275,9 +275,13 @@ describe('<Thread>', () => {
 
     await userEvent.click(fav);
     expect(fav).toHaveAttribute('aria-pressed', 'false');
-    expect(window.localStorage.getItem('newshacker:favoriteStoryIds')).toBe(
-      '[]',
+    const storedFav = window.localStorage.getItem(
+      'newshacker:favoriteStoryIds',
     );
+    const parsedFav = storedFav
+      ? (JSON.parse(storedFav) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(parsedFav.filter((e) => !e.deleted)).toEqual([]);
   });
 
   it('toggles pinned state via the Pin button in the header', async () => {
@@ -304,9 +308,13 @@ describe('<Thread>', () => {
     await userEvent.click(pin);
     expect(pin).toHaveAttribute('aria-pressed', 'false');
     expect(pin).toHaveAccessibleName(/^pin$/i);
-    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe(
-      '[]',
+    const storedPin = window.localStorage.getItem(
+      'newshacker:pinnedStoryIds',
     );
+    const parsedPin = storedPin
+      ? (JSON.parse(storedPin) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(parsedPin.filter((e) => !e.deleted)).toEqual([]);
   });
 
   it('opens an overflow menu with "Open on Hacker News" and "Share article" entries', async () => {

@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addPinnedId,
   clearPinnedIds,
+  getAllPinnedEntries,
   getPinnedEntries,
   getPinnedIds,
   removePinnedId,
+  replacePinnedEntries,
 } from './pinnedStories';
 
 describe('pinnedStories', () => {
@@ -97,6 +99,86 @@ describe('pinnedStories', () => {
     const byId = new Map(entries.map((e) => [e.id, e.at]));
     expect(byId.get(1)).toBe(1000);
     expect(byId.get(2)).toBe(2000);
+  });
+
+  describe('tombstones for sync', () => {
+    it('writes a tombstone on remove instead of dropping the entry', () => {
+      addPinnedId(1, 1000);
+      removePinnedId(1, 2000);
+      expect(getPinnedIds()).toEqual(new Set());
+      const all = getAllPinnedEntries();
+      expect(all).toEqual([{ id: 1, at: 2000, deleted: true }]);
+    });
+
+    it('re-adding an id clears the tombstone', () => {
+      addPinnedId(1, 1000);
+      removePinnedId(1, 2000);
+      addPinnedId(1, 3000);
+      const all = getAllPinnedEntries();
+      expect(all).toEqual([{ id: 1, at: 3000 }]);
+    });
+
+    it('remove is a no-op if the id is already tombstoned', () => {
+      addPinnedId(1, 1000);
+      removePinnedId(1, 2000);
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:pinnedStoriesChanged', handler);
+      try {
+        removePinnedId(1, 3000);
+      } finally {
+        window.removeEventListener(
+          'newshacker:pinnedStoriesChanged',
+          handler,
+        );
+      }
+      expect(events.length).toBe(0);
+      const all = getAllPinnedEntries();
+      expect(all).toEqual([{ id: 1, at: 2000, deleted: true }]);
+    });
+
+    it('remove writes a tombstone even for an id that was never pinned', () => {
+      // Sync scenario: another device had the pin; we never pulled it
+      // locally, but the user triggers "unpin" from a surfaced UI. The
+      // tombstone is what prevents that ghost pin from reappearing on
+      // the next sync round.
+      removePinnedId(99, 5000);
+      const all = getAllPinnedEntries();
+      expect(all).toEqual([{ id: 99, at: 5000, deleted: true }]);
+    });
+
+    it('getPinnedEntries hides tombstones from UI code', () => {
+      addPinnedId(1, 1000);
+      addPinnedId(2, 2000);
+      removePinnedId(1, 3000);
+      expect(getPinnedEntries()).toEqual([{ id: 2, at: 2000 }]);
+    });
+  });
+
+  describe('replacePinnedEntries', () => {
+    it('overwrites the local list wholesale and fires one event', () => {
+      addPinnedId(1, 1000);
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:pinnedStoriesChanged', handler);
+      try {
+        replacePinnedEntries([
+          { id: 2, at: 2000 },
+          { id: 3, at: 3000, deleted: true },
+        ]);
+      } finally {
+        window.removeEventListener(
+          'newshacker:pinnedStoriesChanged',
+          handler,
+        );
+      }
+      expect(events.length).toBe(1);
+      expect(getPinnedIds()).toEqual(new Set([2]));
+      expect(getAllPinnedEntries()).toEqual([
+        { id: 2, at: 2000 },
+        { id: 3, at: 3000, deleted: true },
+      ]);
+    });
   });
 
   describe('legacy savedStoryIds migration', () => {

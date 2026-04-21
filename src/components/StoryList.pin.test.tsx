@@ -59,7 +59,11 @@ describe('<StoryList> pin and sweep', () => {
     // Tapping again unpins, still no toast, persistence matches.
     fireEvent.click(pin);
     expect(pin).toHaveAttribute('aria-pressed', 'false');
-    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe('[]');
+    const after = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    const afterParsed = after
+      ? (JSON.parse(after) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(afterParsed.filter((e) => !e.deleted)).toEqual([]);
   });
 
   it('sweep button dismisses unpinned stories and keeps pinned ones', async () => {
@@ -250,7 +254,12 @@ describe('<StoryList> pin and sweep', () => {
     });
     expect(screen.getByTestId('undo-btn')).toBeDisabled();
     const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
-    const parsed = stored ? (JSON.parse(stored) as Array<{ id: number }>) : [];
-    expect(parsed).toHaveLength(0);
+    const parsed = stored
+      ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
+      : [];
+    // Undo writes tombstones rather than removing entries outright so
+    // the tombstones can propagate to other devices via /api/sync.
+    // Assert on the live set, not the raw storage.
+    expect(parsed.filter((e) => !e.deleted)).toEqual([]);
   });
 });

@@ -107,6 +107,22 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   limiting handler should fail-open too (serve the request rather
   than fail closed).
 
+## Sync
+
+- **Opened/read sync (maybe; notes only).** Cross-device sync v1
+  covers Pinned / Favorite / Ignored. Opened (`newshacker:openedStoryIds`)
+  may never ship — it grows fast, the semantics are "noisy recent
+  history" not "curated intent", and the utility of syncing it is
+  unclear. Not a committed TODO; a decision point. If we ever do
+  decide to tackle it, notes for a future self: cap the list at the
+  most recent ~5 k ids per user, and probably use whole-blob
+  last-write-wins per device rather than per-id tombstones — losing
+  an opened mark in a conflict is cheap, and per-id bookkeeping
+  isn't worth the storage cost for a list this size. Revisit only
+  if real demand appears after 5c has been live long enough to show
+  how much cross-device frustration the curated three already
+  solves.
+
 ## Sweep edge cases
 
 - **Row taller than the visible viewport.** Sweep currently dismisses

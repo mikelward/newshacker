@@ -8,6 +8,9 @@ interface ServiceStatus {
   latencyMs?: number;
 }
 
+// `sync` is optional to stay forward-compatible with older deployments
+// that haven't rolled out the extended /api/status shape yet. The UI
+// falls back to the Redis status when it's missing.
 interface StatusResponse {
   region: string | null;
   build: string | null;
@@ -15,6 +18,7 @@ interface StatusResponse {
     gemini: ServiceStatus;
     jina: ServiceStatus;
     redis: ServiceStatus;
+    sync?: ServiceStatus;
   };
 }
 
@@ -96,6 +100,10 @@ export function DebugPage() {
                 ['Gemini', data.services.gemini],
                 ['Jina', data.services.jina],
                 ['Redis', data.services.redis],
+                // Sync uses the same Redis store; report it separately
+                // so the /debug UI makes the "sync will work" signal
+                // explicit instead of requiring the user to infer it.
+                ['Sync', data.services.sync ?? data.services.redis],
               ] as const
             ).map(([label, status]) => (
               <li key={label} className="debug-page__service">

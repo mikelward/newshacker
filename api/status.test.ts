@@ -50,6 +50,21 @@ describe('handleStatusRequest', () => {
     expect(body.services.gemini).toEqual({ configured: false });
     expect(body.services.jina).toEqual({ configured: false });
     expect(body.services.redis).toEqual({ configured: false });
+    expect(body.services.sync).toEqual({ configured: false });
+  });
+
+  it('sync mirrors redis: configured + reachable + latency', async () => {
+    process.env.KV_REST_API_URL = 'https://example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'tok';
+    const pingRedis = vi.fn(async () => ({ ok: true as const, latencyMs: 5 }));
+    const body = await readBody(
+      await handleStatusRequest(makeRequest(), { pingRedis }),
+    );
+    expect(body.services.sync).toEqual({
+      configured: true,
+      reachable: true,
+      latencyMs: 5,
+    });
   });
 
   it('reports gemini and jina as configured when their keys are set', async () => {

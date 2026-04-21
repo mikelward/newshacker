@@ -6,6 +6,7 @@ import { PwaUpdateToast } from './components/PwaUpdateToast';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { ToastProvider } from './components/Toast';
+import { useCloudSync } from './hooks/useCloudSync';
 import { FeedPage } from './pages/FeedPage';
 import { ItemPage } from './pages/ItemPage';
 import { UserPage } from './pages/UserPage';
@@ -19,6 +20,11 @@ import { DebugPage } from './pages/DebugPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
+function CloudSyncBridge() {
+  useCloudSync();
+  return null;
+}
+
 export default function App() {
   return (
     <ToastProvider>
@@ -26,6 +32,7 @@ export default function App() {
       <PwaUpdateToast />
       <FeedBarProvider>
         <BootPrefetch />
+        <CloudSyncBridge />
         <ScrollToTop />
         <AppHeader />
         <main className="app-main">

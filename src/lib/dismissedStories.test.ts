@@ -3,9 +3,11 @@ import {
   DISMISSED_STORY_TTL_MS,
   addDismissedId,
   clearDismissedIds,
+  getAllDismissedEntries,
   getDismissedEntries,
   getDismissedIds,
   removeDismissedId,
+  replaceDismissedEntries,
 } from './dismissedStories';
 
 describe('dismissedStories', () => {
@@ -98,5 +100,70 @@ describe('dismissedStories', () => {
     const byId = new Map(entries.map((e) => [e.id, e.at]));
     expect(byId.get(1)).toBe(now - 2000);
     expect(byId.get(2)).toBe(now - 1000);
+  });
+
+  describe('tombstones for sync', () => {
+    it('writes a tombstone on remove', () => {
+      const now = 1_000_000_000_000;
+      addDismissedId(1, now - 1000);
+      removeDismissedId(1, now);
+      expect(getDismissedIds(now)).toEqual(new Set());
+      expect(getAllDismissedEntries(now)).toEqual([
+        { id: 1, at: now, deleted: true },
+      ]);
+    });
+
+    it('tombstones age out with the same TTL as live entries', () => {
+      const now = 1_000_000_000_000;
+      // Write a tombstone that's older than the TTL.
+      removeDismissedId(1, now - DISMISSED_STORY_TTL_MS - 1);
+      expect(getAllDismissedEntries(now)).toEqual([]);
+    });
+
+    it('re-adding an id clears the tombstone', () => {
+      const now = 1_000_000_000_000;
+      addDismissedId(1, now - 2000);
+      removeDismissedId(1, now - 1000);
+      addDismissedId(1, now);
+      expect(getAllDismissedEntries(now)).toEqual([{ id: 1, at: now }]);
+    });
+
+    it('getDismissedEntries hides tombstones from UI code', () => {
+      const now = 1_000_000_000_000;
+      addDismissedId(1, now - 3000);
+      addDismissedId(2, now - 2000);
+      removeDismissedId(1, now - 1000);
+      expect(getDismissedEntries(now)).toEqual([{ id: 2, at: now - 2000 }]);
+    });
+  });
+
+  describe('replaceDismissedEntries', () => {
+    it('overwrites the list wholesale and fires one event', () => {
+      const now = 1_000_000_000_000;
+      addDismissedId(1, now - 1000);
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener(
+        'newshacker:dismissedStoriesChanged',
+        handler,
+      );
+      try {
+        replaceDismissedEntries([
+          { id: 2, at: now - 500 },
+          { id: 3, at: now - 200, deleted: true },
+        ]);
+      } finally {
+        window.removeEventListener(
+          'newshacker:dismissedStoriesChanged',
+          handler,
+        );
+      }
+      expect(events.length).toBe(1);
+      expect(getDismissedIds(now)).toEqual(new Set([2]));
+      expect(getAllDismissedEntries(now)).toEqual([
+        { id: 2, at: now - 500 },
+        { id: 3, at: now - 200, deleted: true },
+      ]);
+    });
   });
 });

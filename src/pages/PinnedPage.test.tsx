@@ -56,9 +56,11 @@ describe('<PinnedPage>', () => {
       expect(screen.queryByText('Five')).toBeNull();
     });
 
-    expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBe(
-      '[]',
-    );
+    const stored = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    const parsed = stored
+      ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(parsed.filter((e) => !e.deleted)).toEqual([]);
   });
 
   it('orders pinned stories newest first by pin time', async () => {
