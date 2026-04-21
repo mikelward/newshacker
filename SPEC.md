@@ -260,6 +260,7 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 - **At most 2 tappable zones per story row** (3 when logged in, counting the vote arrow): the stretched row link and the pin button. Anything else is display-only.
 - Layout: single column, max-width ~720px, centered on desktop.
 - Active/pressed state on every tappable zone (subtle background darkening) so the user sees which region received their tap.
+- **Long-press tooltip on every button.** Every interactive `<button>` in the app (icon-only and text alike) routes through the shared `<TooltipButton tooltip="…">` component. On a touch or pen pointer, a 500 ms hold shows a small floating tooltip with the button's label for ~1.2 s, then swallows the follow-up click so the user can inspect a control without firing it. On a mouse pointer the tooltip is suppressed — desktop users get the same copy through the native `title` attribute on hover. The tooltip is portaled into `document.body`, position-flipped when there isn't room above, and `position: fixed` with px offsets (no `vh`) so the mobile address bar collapsing doesn't misalign it. iOS Safari doesn't fire `contextmenu` on long-press, so the native callout / selection magnifier is suppressed via CSS instead (`touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-tap-highlight-color: transparent`). Android Chrome's `contextmenu` (which does fire) is `preventDefault`-ed while the long-press is pending. No haptic feedback — the visual tooltip is the whole affordance, and `navigator.vibrate` behavior is inconsistent across iOS (unsupported) and Android (user-gesture timing rules, site-level opt-outs), so we avoid the platform split entirely. Icon-only buttons also carry an `aria-label` (or a `visually-hidden` caption) so the tooltip copy is only a *visual* augmentation, not an accessibility dependency — VoiceOver and TalkBack read the real label.
 
 ## Routes
 
@@ -279,8 +280,9 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 
 - Semantic HTML (`<main>`, `<nav>`, `<article>`).
 - Visible focus styles.
-- `prefers-reduced-motion` respected for the collapse animation.
+- `prefers-reduced-motion` respected for the collapse animation and the tooltip fade-in.
 - Color contrast ≥ 4.5:1 for body text (HN orange on white fails for small text — only used on large headers / buttons).
+- Every icon-only `<button>` has an accessible name — either via `aria-label` or a `visually-hidden` caption inside the button. The long-press tooltip (see *Visual Design*) is visual-only; screen readers rely on the accessible name, not the transient tooltip DOM.
 
 ## Performance Targets
 

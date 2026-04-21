@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppDrawer } from './AppDrawer';
+import { TooltipButton } from './TooltipButton';
 import { isFeed } from '../lib/feeds';
 import { useFeedBar } from '../hooks/useFeedBar';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -75,9 +76,10 @@ export function AppHeader() {
   return (
     <>
       <header className="app-header" role="banner">
-        <button
+        <TooltipButton
           type="button"
           className="app-header__menu-btn"
+          tooltip="Menu"
           aria-label="Open menu"
           aria-expanded={drawerOpen}
           onClick={() => setDrawerOpen(true)}
@@ -85,7 +87,7 @@ export function AppHeader() {
           <span aria-hidden="true" className="app-header__menu-icon">
             ☰
           </span>
-        </button>
+        </TooltipButton>
         <Link
           to="/top"
           className="app-header__home"
@@ -99,28 +101,28 @@ export function AppHeader() {
         {onFeedPage ? (
           <div className="app-header__actions">
             {offlinePill}
-            <button
+            <TooltipButton
               type="button"
               className="app-header__icon-btn"
               data-testid="undo-btn"
               onClick={canUndo ? undo : undefined}
               disabled={!canUndo}
+              tooltip={canUndo ? 'Undo dismiss' : 'Nothing to undo'}
               aria-label={canUndo ? 'Undo dismiss' : 'Nothing to undo'}
-              title={canUndo ? 'Undo dismiss' : 'Nothing to undo'}
             >
               <UndoIcon />
-            </button>
-            <button
+            </TooltipButton>
+            <TooltipButton
               type="button"
               className="app-header__icon-btn"
               data-testid="sweep-btn"
               onClick={canSweep ? sweep : undefined}
               disabled={!canSweep}
+              tooltip={canSweep ? 'Dismiss unpinned' : 'Nothing to dismiss'}
               aria-label={canSweep ? 'Dismiss unpinned' : 'Nothing to dismiss'}
-              title={canSweep ? 'Dismiss unpinned' : 'Nothing to dismiss'}
             >
               <SweepIcon />
-            </button>
+            </TooltipButton>
           </div>
         ) : (
           offlinePill
