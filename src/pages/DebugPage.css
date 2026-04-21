@@ -1,0 +1,138 @@
+.debug-page {
+  background: var(--hn-bg-card);
+  padding: 16px;
+  border-bottom: 1px solid var(--hn-border);
+  color: var(--hn-text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.debug-page__title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.debug-page__hint {
+  margin: 0 0 16px;
+  color: var(--hn-meta);
+  font-size: 13px;
+}
+
+.debug-page__heading {
+  margin: 20px 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.debug-page__list {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.debug-page__list > div {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.debug-page__list dt {
+  color: var(--hn-meta);
+  min-width: 72px;
+}
+
+.debug-page__list dd {
+  margin: 0;
+}
+
+.debug-page__services {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.debug-page__service {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.debug-page__badge {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.debug-page__badge[data-state='ok'] {
+  background: #2f8a3c;
+}
+
+.debug-page__badge[data-state='warn'] {
+  background: #c77700;
+}
+
+.debug-page__badge[data-state='off'] {
+  background: var(--hn-meta);
+  opacity: 0.5;
+}
+
+.debug-page__service-name {
+  font-weight: 600;
+}
+
+.debug-page__service-detail {
+  color: var(--hn-meta);
+  font-size: 13px;
+}
+
+.debug-page__actions {
+  margin: 20px 0 0;
+}
+
+.debug-page__refresh {
+  background: var(--hn-bg-card);
+  color: var(--hn-text);
+  border: 1px solid var(--hn-border);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+@media (hover: hover) {
+  .debug-page__refresh:hover {
+    background: var(--hn-bg);
+  }
+}
+
+.debug-page__refresh:active {
+  background: var(--hn-border);
+}
+
+.debug-page__refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.debug-page code {
+  background: var(--hn-bg-code);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.debug-page a {
+  color: var(--hn-orange);
+  text-decoration: underline;
+}
+
+.debug-page__back {
+  margin-top: 20px;
+  font-size: 14px;
+}
