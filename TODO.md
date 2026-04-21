@@ -124,33 +124,22 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Thread action bar
 
-- **Consider moving Favorite to the overflow menu too.** Pin already
-  lives in the overflow; Favorite is the other "save this" action and
-  is arguably just as secondary on the comments view. Moving it would
-  shrink the on-bar icon row to Upvote / Done / More (or Done / More
-  when logged out), giving the Read article primary button comfortably
-  more room on one row and sidestepping the ≤480px wrap fallback.
-  Tradeoff: Favorite becomes two taps instead of one, which may be
-  fine given how infrequently users flag something as a keepsake vs.
-  how often they mark a thread done. No action today; revisit if the
-  narrow-phone wrap continues to feel off.
+- **Consider a state-dependent middle slot.** Today's bar always shows
+  both Pin/Unpin and Done side-by-side. A snapshot-at-mount variant
+  could show only one — Pin/Unpin when the story wasn't pinned on
+  load (so the user can pin and immediately undo in the same place),
+  Done when it was (so the "I'm finished" action is front-and-centre
+  for a saved item). Shrinks the bar to one slot instead of two, at
+  the cost of having to hunt for the less-common action in the
+  overflow. Tried and reverted once; revisit if the bar feels cramped
+  on very narrow phones.
 
-- **Consider state-dependent / dynamic overflow.** Some of the bar's
-  actions are redundant in certain states (you can't both Pin and
-  Done; the reverse of a toggle is rarely the next tap). Two variants
-  worth exploring:
-  (a) **State-dependent static swap.** Show the forward-state action
-      on the main bar and the reverse in the overflow menu — e.g.
-      Done on the bar while unmarked, "Unmark done" in the overflow
-      once marked. Keeps the bar size stable and the most likely
-      next action always one tap away.
-  (b) **Dynamic overflow.** Measure available width at runtime via
-      `ResizeObserver`; if the row would overflow, demote the
-      right-most icons into the `⋮` menu until it fits. More
-      flexible than a static swap but costs a runtime measurement
-      and can visually shuffle on orientation change.
-  Variant (a) is simpler and probably what we'd ship first. No
-  action today; revisit if the action-bar layout feels off in practice.
+- **Consider dynamic overflow.** Measure available width at runtime
+  via `ResizeObserver`; if the row would overflow, demote the
+  right-most icons into the `⋮` menu until it fits. More flexible
+  than fixed layout but costs a runtime measurement and can visually
+  shuffle on orientation change. Not needed today — the ≤480px wrap
+  fallback covers the narrow case — but an option if the bar grows.
 
 - **Consider having Done auto-navigate back to the feed.** Today
   tapping Done on the thread action bar just flips the button to
