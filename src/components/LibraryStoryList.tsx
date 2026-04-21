@@ -8,6 +8,8 @@ import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
+import { useAuth } from '../hooks/useAuth';
+import { useVote } from '../hooks/useVote';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import './StoryList.css';
@@ -32,6 +34,8 @@ export function LibraryStoryList({
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
+  const { isAuthenticated } = useAuth();
+  const { votedIds, toggleVote } = useVote();
 
   const items = useQuery({
     queryKey: [
@@ -99,6 +103,8 @@ export function LibraryStoryList({
             <StoryListItem
               story={story}
               rank={idx + 1}
+              isLoggedIn={isAuthenticated}
+              voted={votedIds.has(story.id)}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               pinned={pinnedIds.has(story.id)}
@@ -107,6 +113,7 @@ export function LibraryStoryList({
               onUnpin={unpin}
               onShare={shareStory}
               onOpenThread={markCommentsOpenedId}
+              onVote={isAuthenticated ? toggleVote : undefined}
             />
             {recover ? (
               <div className="story-list__recover">

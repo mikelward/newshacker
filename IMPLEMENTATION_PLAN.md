@@ -174,21 +174,47 @@ user-visible breakage.
   the oldest entries are pruned first. Not worth proactively GC'ing
   yet.
 
-### 5d. Voting (future, order vs. 5e undecided)
+### 5d. Voting — story rows (shipped)
 
-- `api/vote.ts`:
-  1. Require the `hn_session` cookie — 401 otherwise.
-  2. `GET https://news.ycombinator.com/item?id=<id>` with the HN cookie → parse the page for the item's `auth` token.
-  3. `GET https://news.ycombinator.com/vote?id=<id>&how=<up|un>&auth=<token>&goto=news` with the HN cookie.
-  4. Return 204 on success; 401/403 on auth issues.
-- Client:
-  - Story list / thread items render a vote arrow when logged in — the slot already exists on `<StoryListItem>` behind the `isLoggedIn` prop but is currently inert.
-  - Optimistic update via TanStack Query `onMutate`; rollback on failure.
-- Tests:
-  - Auth-token scraper: given a fixture HTML page, returns the right token.
-  - Serverless vote handler: mocks item fetch + vote fetch; asserts correct URL & cookie.
-  - Client: optimistic update + rollback.
-- **Cost/reliability (rule 11):** no new infra; one extra HN fetch per vote (scrape + forward). Fragile point: HN HTML markup. Blast radius on break = voting stops working, toast shown, nothing else affected.
+- **`api/vote.ts`** (shipped): POST `{ id, how }` where `how ∈ {"up","un"}`.
+  1. Requires the `hn_session` cookie — 401 otherwise.
+  2. `GET https://news.ycombinator.com/item?id=<id>` with the HN cookie;
+     `redirect: 'manual'` so a 302 → `/login` is translated to a 401.
+  3. Scrapes the per-item `auth` token out of the relevant
+     `<a href="vote?id=<id>&how=<up|un>&auth=<token>…">` anchor.
+  4. `GET https://news.ycombinator.com/vote?…` with the HN cookie.
+  5. Returns 204 on 2xx or a non-login 3xx; 401 if either hop 302s
+     to `/login`; 502 on unreachable / missing vote anchor / non-2xx.
+  Helpers (`parseCookieHeader`, `usernameFromSessionValue`,
+  `extractAuthToken`) are intentionally inlined rather than shared
+  with `api/hn-favorite.ts` — see § "Vercel `api/` gotchas" in
+  `AGENTS.md` and `api/imports.test.ts`.
+- **Client** (shipped):
+  - `src/lib/vote.ts` — `postVote(id, how)` fetch wrapper + `VoteError`.
+  - `src/lib/votes.ts` — per-user localStorage set
+    `newshacker:votedStoryIds:<user>` so the arrow stays orange after
+    a reload. Best-effort only — HN doesn't expose "items I voted on"
+    via the Firebase API.
+  - `src/hooks/useVote.ts` — optimistic flip on tap, POST in
+    background, rollback + toast on failure. Logged-out users get an
+    empty set and a no-op `toggleVote`. Not a retry queue: per SPEC
+    Non-Goals, offline votes don't queue.
+  - `<StoryListItem>` renders the pre-existing vote slot only when
+    `isLoggedIn`; `StoryList` / `LibraryStoryList` wire `isLoggedIn +
+    voted + onVote` from `useAuth()` + `useVote()`.
+- **Not yet shipped (follow-ups):**
+  - Voting on individual comments (same mechanism, different tap
+    target). The `Comment` meta row already leaves space for it.
+  - Downvoting comments (karma-gated on HN; client needs a signal
+    from the scrape to decide whether to render the second arrow).
+  - Voting from the thread page's story header.
+  - Pending/animation feedback during the in-flight POST — see
+    `TODO.md` § *Optimistic-action feedback*.
+- **Cost/reliability (rule 11):** no new infra; two HN fetches per
+  vote (scrape + forward). Free on Vercel Hobby. Fragile point: HN
+  HTML markup — the anchor scraper breaks if HN restructures the
+  vote links. Blast radius = votes fail with a toast; read path
+  untouched.
 
 ### 5f. Favorites round-trip with HN (shipped)
 
@@ -395,4 +421,6 @@ Open:
 | M5 | Phase 5a | HN login + header account chip (shipped) |
 | M6 | Phase 5b | Pinned stories visible on the home feed (shipped) |
 | M7 | Phase 5c | Cross-device sync of Pinned / Favorite / Hidden (shipped) |
-| M8 | Phase 5d / 5e | Voting and comment submission (order undecided) |
+| M8 | Phase 5f | Favorites round-trip with Hacker News (shipped) |
+| M9 | Phase 5d | Story-row voting (shipped — comment voting + downvote still to come) |
+| M10 | Phase 5e | Comment submission (future) |
