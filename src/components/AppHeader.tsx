@@ -59,7 +59,7 @@ export function AppHeader() {
   const online = useOnlineStatus();
 
   const onFeedPage = useIsFeedPage();
-  // sweepCount is > 0 iff there are fully-visible, unpinned rows to dismiss;
+  // sweepCount is > 0 iff there are fully-visible, unpinned rows to hide;
   // the number itself is never surfaced to users.
   const canSweep = !!sweep && sweepCount > 0;
   const offlinePill = !online ? (
@@ -108,8 +108,8 @@ export function AppHeader() {
               data-testid="undo-btn"
               onClick={canUndo ? undo : undefined}
               disabled={!canUndo}
-              tooltip={canUndo ? 'Undo dismiss' : 'Nothing to undo'}
-              aria-label={canUndo ? 'Undo dismiss' : 'Nothing to undo'}
+              tooltip={canUndo ? 'Undo hide' : 'Nothing to undo'}
+              aria-label={canUndo ? 'Undo hide' : 'Nothing to undo'}
             >
               <UndoIcon />
             </TooltipButton>
@@ -119,8 +119,8 @@ export function AppHeader() {
               data-testid="sweep-btn"
               onClick={canSweep ? sweep : undefined}
               disabled={!canSweep}
-              tooltip={canSweep ? 'Dismiss unpinned' : 'Nothing to dismiss'}
-              aria-label={canSweep ? 'Dismiss unpinned' : 'Nothing to dismiss'}
+              tooltip={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
+              aria-label={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
             >
               <SweepIcon />
             </TooltipButton>

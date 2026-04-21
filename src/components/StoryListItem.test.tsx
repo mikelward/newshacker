@@ -85,11 +85,12 @@ describe('StoryListItem', () => {
     expect(onPin).not.toHaveBeenCalled();
   });
 
-  it('does not render rank, hide, past, web, flag, via, or inline author links', () => {
+  it('does not render rank, past, web, flag, via, or inline author links', () => {
     renderWithProviders(<StoryListItem story={baseStory} />);
     const row = screen.getByTestId('story-row');
     const inner = row.innerHTML.toLowerCase();
-    expect(inner).not.toMatch(/\bhide\b/);
+    // "Hide" appears only as a long-press menu item (and only when onHide is
+    // set), not as an inline link in the row chrome itself.
     expect(inner).not.toMatch(/\bpast\b/);
     expect(inner).not.toMatch(/\bflag\b/);
     expect(inner).not.toMatch(/\bvia\b/);
@@ -217,14 +218,14 @@ describe('StoryListItem long-press menu', () => {
     vi.useRealTimers();
   });
 
-  it('opens a menu with Pin / Ignore / Share on long-press', () => {
+  it('opens a menu with Pin / Hide / Share on long-press', () => {
     vi.useFakeTimers();
     renderWithProviders(
       <StoryListItem
         story={baseStory}
         onPin={vi.fn()}
         onUnpin={vi.fn()}
-        onDismiss={vi.fn()}
+        onHide={vi.fn()}
         onShare={vi.fn()}
       />,
     );
@@ -235,7 +236,7 @@ describe('StoryListItem long-press menu', () => {
     });
     expect(screen.getByTestId('story-row-menu')).toBeInTheDocument();
     expect(screen.getByTestId('story-row-menu-pin')).toBeInTheDocument();
-    expect(screen.getByTestId('story-row-menu-ignore')).toBeInTheDocument();
+    expect(screen.getByTestId('story-row-menu-hide')).toBeInTheDocument();
     expect(screen.getByTestId('story-row-menu-share')).toBeInTheDocument();
   });
 
@@ -247,7 +248,7 @@ describe('StoryListItem long-press menu', () => {
         pinned
         onPin={vi.fn()}
         onUnpin={vi.fn()}
-        onDismiss={vi.fn()}
+        onHide={vi.fn()}
         onShare={vi.fn()}
       />,
     );
@@ -264,7 +265,7 @@ describe('StoryListItem long-press menu', () => {
     vi.useFakeTimers();
     const onPin = vi.fn();
     renderWithProviders(
-      <StoryListItem story={baseStory} onPin={onPin} onDismiss={vi.fn()} />,
+      <StoryListItem story={baseStory} onPin={onPin} onHide={vi.fn()} />,
     );
     const row = screen.getByTestId('story-row');
     dispatch(row, 'pointerdown', 100, 100);

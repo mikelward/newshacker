@@ -76,13 +76,17 @@ and each has its own localStorage key (`newshacker:favoriteStoryIds`,
 `newshacker:pinnedStoryIds`) so one is never silently interpreted as the
 other. The pinned-stories module performs a one-shot rename of the legacy
 `newshacker:savedStoryIds` key so existing readers don't lose their list.
+The hidden-stories module does the same one-shot rename of the legacy
+`newshacker:dismissedStoryIds` key to `newshacker:hiddenStoryIds`, which
+is the current key — the vocabulary switched from "ignore/dismiss" to
+"hide" to match HN's own term.
 
 ### MVP (read-only)
 
 1. **Story feeds**
    - Default (and `/`) is the HN front page (Top).
    - Tabs / routes also available for: New, Best, Ask, Show, Jobs.
-   - **Initial paint is exactly one page (30 stories), matching HN's own web front page.** Additional pages are revealed only when the reader taps the explicit **More** button at the end of the list — no infinite scroll, no auto-prefetch of the next page. Each page is 30 stories. The button disappears when the feed's id list has been exhausted. Dismissed stories still count against the 30 (we slice the 30-id window before filtering), so a heavily dismissed session can leave fewer than 30 rows on screen; the reader recovers by tapping More.
+   - **Initial paint is exactly one page (30 stories), matching HN's own web front page.** Additional pages are revealed only when the reader taps the explicit **More** button at the end of the list — no infinite scroll, no auto-prefetch of the next page. Each page is 30 stories. The button disappears when the feed's id list has been exhausted. Hidden stories still count against the 30 (we slice the 30-id window before filtering), so a heavily hidden session can leave fewer than 30 rows on screen; the reader recovers by tapping More.
    - **Off-feed pinned stories pinned to the top.** When the reader has pinned a story that is no longer in the feed's id list (e.g. it dropped off HN's front page), that story is prepended to the top of the feed list in the same row layout — one unified list, pinned rows first, newest-pinned first, followed by the normal feed. No section header, no duplication: a pinned story that is still in the feed id list stays in place at its natural position. This keeps the reader's active reading list reachable from the home view without jumping to `/pinned`. Cost: one extra `/api/items` batch call per feed load when off-feed pins exist (almost always a single request — pins fit well under the 30-id chunk size). Rides the existing items proxy; no new infra. Degrades silently if the fetch fails — the main feed still renders.
    - Each list item shows: title, domain, points · age (display-only), and an "N comments" button.
    - See *Story row layout* for tap-target rules.
@@ -175,7 +179,7 @@ other. The pinned-stories module performs a one-shot rename of the legacy
      is small (voting fails with a toast), but it's an ongoing
      maintenance tax the rest of the read path doesn't carry.
 
-8. **Cross-device sync of Pinned / Favorite / Ignored (shipped).**
+8. **Cross-device sync of Pinned / Favorite / Hidden (shipped).**
    Each of the three lists mirrors to a `/api/sync` serverless
    endpoint backed by the existing Upstash Redis (the same store
    powering the AI summary cache). Identity is the HN username from
@@ -338,14 +342,14 @@ Leading quote paragraphs (lines a commenter prefixes with `> ` to re-quote their
 
 On feed pages the sticky orange header carries two feed-scoped action icons on the right. Both icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.
 
-- **Undo** (Material Symbols `undo`) — restores the most recent dismiss action: either the last swipe-to-dismiss, the last menu "Ignore", or the last sweep (the whole batch at once). One level of undo only; recording a new dismiss replaces the stored batch. Disabled when there is nothing to undo. Not persisted across reloads.
-- **Sweep unpinned** (Material Symbols `sweep`) — dismisses every visible unpinned story in one shot. Disabled when there are no unpinned stories to dismiss.
+- **Undo** (Material Symbols `undo`) — restores the most recent hide action: either the last swipe-to-hide, the last menu "Hide", or the last sweep (the whole batch at once). One level of undo only; recording a new hide replaces the stored batch. Disabled when there is nothing to undo. Not persisted across reloads.
+- **Sweep unpinned** (Material Symbols `sweep`) — hides every visible unpinned story in one shot. Disabled when there are no unpinned stories to hide.
 
 Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols, outlined weight, viewBox `0 -960 960 960`, drawn with `fill="currentColor"`). No icon font, CSS, or web request is used to load them at runtime.
 
-On non-feed pages (thread, `/pinned`, `/ignored`, etc.) these icons do not render at all.
+On non-feed pages (thread, `/pinned`, `/hidden`, etc.) these icons do not render at all.
 
-No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is always deliberate (swipe right, broom, or menu Ignore) — scroll-past does not auto-dismiss. Pin/unpin don't toast either; the pin button's pressed state is the single source of truth for pinned state.
+No hide/sweep toast: the Undo button is the recovery path. Hiding is always deliberate (swipe right, broom, or menu Hide) — scroll-past does not auto-hide. Pin/unpin don't toast either; the pin button's pressed state is the single source of truth for pinned state.
 
 ## Visual Design
 
@@ -370,7 +374,7 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 | `/favorites` | favorite stories (permanent) |
 | `/pinned` | pinned stories (active reading list) |
 | `/opened` | recently opened stories (7-day history) |
-| `/ignored` | recently dismissed stories (7-day history) |
+| `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
 
 ## Accessibility
@@ -538,7 +542,7 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 
 ### Pull-to-refresh
 - **Feed pages** (`/top`, `/new`, `/best`, `/ask`, `/show`, `/jobs`) and
-  the **library pages** (`/pinned`, `/favorites`, `/opened`, `/ignored`)
+  the **library pages** (`/pinned`, `/favorites`, `/opened`, `/hidden`)
   support a pull-to-refresh gesture that re-runs the list's underlying
   React Query fetches. Feed lists refetch both `['storyIds', feed]` and
   `['feedItems', feed]`; library lists refetch their single

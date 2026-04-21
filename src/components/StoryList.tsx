@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
-import { useDismissedStories } from '../hooks/useDismissedStories';
+import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
@@ -37,11 +37,11 @@ function measureHeaderInset(): number {
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
   const queryClient = useQueryClient();
-  const { dismissedIds, dismiss } = useDismissedStories();
+  const { hiddenIds, hide } = useHiddenStories();
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
-  const { setSweep, recordDismiss } = useFeedBar();
+  const { setSweep, recordHide } = useFeedBar();
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
@@ -56,15 +56,15 @@ export function StoryList({ feed }: Props) {
     [pin, items, queryClient],
   );
 
-  const handleDismissOne = useCallback(
+  const handleHideOne = useCallback(
     (id: number) => {
-      dismiss(id);
-      recordDismiss([id]);
+      hide(id);
+      recordHide([id]);
     },
-    [dismiss, recordDismiss],
+    [hide, recordHide],
   );
 
-  // Visibility floor: hide stories that haven't earned at least one
+  // Visibility floor: filter out stories that haven't earned at least one
   // organic upvote (HN submissions start at score 1 from the
   // submitter's implicit self-vote; `> 1` means at least one other
   // person has voted). This is a live, per-render check, not a
@@ -78,9 +78,9 @@ export function StoryList({ feed }: Props) {
           !it.deleted &&
           !it.dead &&
           (it.score ?? 0) > 1 &&
-          !dismissedIds.has(it.id),
+          !hiddenIds.has(it.id),
       ),
-    [items, dismissedIds],
+    [items, hiddenIds],
   );
 
   // Opportunistically warm the thread/comment cache for currently-trending
@@ -200,16 +200,16 @@ export function StoryList({ feed }: Props) {
           (id) =>
             inViewIds.has(id) &&
             !pinnedIds.has(id) &&
-            !dismissedIds.has(id),
+            !hiddenIds.has(id),
         ),
-    [visibleStories, inViewIds, pinnedIds, dismissedIds],
+    [visibleStories, inViewIds, pinnedIds, hiddenIds],
   );
 
   const handleSweep = useCallback(() => {
     if (sweepableIds.length === 0) return;
-    for (const id of sweepableIds) dismiss(id);
-    recordDismiss(sweepableIds);
-  }, [sweepableIds, dismiss, recordDismiss]);
+    for (const id of sweepableIds) hide(id);
+    recordHide(sweepableIds);
+  }, [sweepableIds, hide, recordHide]);
 
   useEffect(() => {
     setSweep(handleSweep, sweepableIds.length);
@@ -271,8 +271,8 @@ export function StoryList({ feed }: Props) {
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               pinned
-              dismissed={dismissedIds.has(story.id)}
-              onDismiss={handleDismissOne}
+              hidden={hiddenIds.has(story.id)}
+              onHide={handleHideOne}
               onPin={handlePin}
               onUnpin={unpin}
               onShare={shareStory}
@@ -293,8 +293,8 @@ export function StoryList({ feed }: Props) {
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               pinned={pinnedIds.has(story.id)}
-              dismissed={dismissedIds.has(story.id)}
-              onDismiss={handleDismissOne}
+              hidden={hiddenIds.has(story.id)}
+              onHide={handleHideOne}
               onPin={handlePin}
               onUnpin={unpin}
               onShare={shareStory}

@@ -1,6 +1,6 @@
 // GET  /api/sync — returns the current user's synced pinned / favorite /
-// ignored lists from Redis. 401 if the hn_session cookie is missing.
-// POST /api/sync — accepts a delta `{ pinned?, favorite?, ignored? }`
+// hidden lists from Redis. 401 if the hn_session cookie is missing.
+// POST /api/sync — accepts a delta `{ pinned?, favorite?, hidden? }`
 // where each list is `Array<{ id, at, deleted? }>`. Merges per-id
 // last-write-wins into the per-user Redis entry and returns the merged
 // state so the client can re-align in one round trip.
@@ -17,7 +17,7 @@ const HN_USERNAME_RE = /^[a-zA-Z0-9_-]{2,32}$/;
 
 const KV_KEY_PREFIX = 'newshacker:sync:';
 
-// Keep per-list entry counts bounded. Pinned/favorite/ignored are all
+// Keep per-list entry counts bounded. Pinned/favorite/hidden are all
 // human-curated lists — 10k per list is a couple orders of magnitude
 // above any realistic user and comfortably within Upstash's 1 MB per
 // value free-tier limit (our entries are ~40–60 bytes each, so 10k ≈
@@ -27,7 +27,7 @@ const MAX_ENTRIES_PER_LIST = 10_000;
 // tying up a function. 256 KiB is generous for even a max-size delta.
 const MAX_BODY_BYTES = 256 * 1024;
 
-const LISTS = ['pinned', 'favorite', 'ignored'] as const;
+const LISTS = ['pinned', 'favorite', 'hidden'] as const;
 
 export interface SyncEntry {
   id: number;
@@ -38,11 +38,11 @@ export interface SyncEntry {
 export interface SyncState {
   pinned: SyncEntry[];
   favorite: SyncEntry[];
-  ignored: SyncEntry[];
+  hidden: SyncEntry[];
 }
 
 function emptyState(): SyncState {
-  return { pinned: [], favorite: [], ignored: [] };
+  return { pinned: [], favorite: [], hidden: [] };
 }
 
 // Parse a Cookie header into name→value. Duplicated from api/me.ts
@@ -121,7 +121,7 @@ function normalizeState(raw: unknown): SyncState {
   return {
     pinned: normalizeList(obj.pinned),
     favorite: normalizeList(obj.favorite),
-    ignored: normalizeList(obj.ignored),
+    hidden: normalizeList(obj.hidden),
   };
 }
 

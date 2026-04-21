@@ -47,7 +47,7 @@ export function AboutPage() {
       <p>
         newshacker keeps a small amount of data on your device (in
         <code> localStorage</code>) to remember which stories you&rsquo;ve
-        opened or ignored so they can be hidden or surfaced in the Library.
+        opened or hidden so they can be hidden or surfaced in the Library.
         This data stays in your browser &mdash; it is not sent to any
         server operated by newshacker.
       </p>

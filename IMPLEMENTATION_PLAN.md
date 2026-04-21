@@ -109,7 +109,7 @@ from their home screen.
   interleaved in pin `at` order), visually distinguished so they
   clearly aren't part of the HN ranking. When a pinned story also
   appears naturally in the feed id list, dedupe — the pinned copy
-  wins. Dismissing is a no-op on a pinned row (the pin itself is the
+  wins. Hiding is a no-op on a pinned row (the pin itself is the
   authoritative "keep this here" signal).
 - **Cost/reliability (rule 11):** pure client-side layout plus the
   item fetches the pinned-prefetch path already does. No new infra,
@@ -131,10 +131,10 @@ Shipped:
   Per-list entry cap (10 000) and 256 KiB body ceiling guard against
   runaway state.
 - Client-side tombstone support added to `lib/pinnedStories.ts`,
-  `lib/favorites.ts`, and `lib/dismissedStories.ts` — `remove*`
+  `lib/favorites.ts`, and `lib/hiddenStories.ts` — `remove*`
   writes `{ id, at: now, deleted: true }` instead of dropping the
   entry, so a subsequent server pull can't silently resurrect an
-  un-pin/un-favorite/un-ignore from a stale peer device.
+  un-pin/un-favorite/unhide from a stale peer device.
 - `lib/cloudSync.ts` singleton owns the sync state machine: pulls on
   sign-in and on reconnect, listens to the three
   `newshacker:*Changed` events, debounces ~2 s, and POSTs the
@@ -247,12 +247,12 @@ Shipped:
 - **Star → Pin rename.** Row-level "Save / Unsave / Saved" replaced with
   "Pin / Unpin". `lib/savedStories` → `lib/pinnedStories`,
   `useSavedStories` → `usePinnedStories`, `SavedPage` → `PinnedPage`,
-  `/saved` route → `/pinned`, sweep aria label → "Dismiss N unpinned".
+  `/saved` route → `/pinned`, sweep aria label → "Hide unpinned".
   The pinned-stories module performs a one-shot rename of the legacy
   `newshacker:savedStoryIds` localStorage key on first read so existing
   readers don't lose their list.
 - Generic library list component renamed `SavedStoryList` → `LibraryStoryList`
-  to reflect that it now backs Pinned, Favorites, Opened and Ignored.
+  to reflect that it now backs Pinned, Favorites, Opened and Hidden.
 
 Follow-ups (next commits, in order):
 - [ ] **Filter opened-from-feed.** Hide stories you've already opened from
@@ -330,5 +330,5 @@ Open:
 | M4 | Phase 4 | Polish + user page (full MVP) |
 | M5 | Phase 5a | HN login + header account chip (shipped) |
 | M6 | Phase 5b | Pinned stories visible on the home feed (shipped) |
-| M7 | Phase 5c | Cross-device sync of Pinned / Favorite / Ignored (shipped) |
+| M7 | Phase 5c | Cross-device sync of Pinned / Favorite / Hidden (shipped) |
 | M8 | Phase 5d / 5e | Voting and comment submission (order undecided) |

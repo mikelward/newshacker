@@ -66,7 +66,7 @@ describe('<StoryList> pin and sweep', () => {
     expect(afterParsed.filter((e) => !e.deleted)).toEqual([]);
   });
 
-  it('sweep button dismisses unpinned stories and keeps pinned ones', async () => {
+  it('sweep button hides unpinned stories and keeps pinned ones', async () => {
     const ids = [1, 2, 3, 4];
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
@@ -89,7 +89,7 @@ describe('<StoryList> pin and sweep', () => {
     await waitFor(() => {
       expect(sweep).not.toBeDisabled();
     });
-    expect(sweep).toHaveAccessibleName(/dismiss unpinned/i);
+    expect(sweep).toHaveAccessibleName(/hide unpinned/i);
 
     fireEvent.click(sweep);
 
@@ -103,7 +103,7 @@ describe('<StoryList> pin and sweep', () => {
     expect(screen.getByTestId('sweep-btn')).toBeDisabled();
   });
 
-  it('sweep only dismisses rows fully in the viewport', async () => {
+  it('sweep only hides rows fully in the viewport', async () => {
     const ids = [1, 2, 3];
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
@@ -245,7 +245,7 @@ describe('<StoryList> pin and sweep', () => {
     await waitFor(() => {
       expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
     });
-    expect(screen.getByTestId('undo-btn')).toHaveAccessibleName(/undo dismiss/i);
+    expect(screen.getByTestId('undo-btn')).toHaveAccessibleName(/undo hide/i);
 
     fireEvent.click(screen.getByTestId('undo-btn'));
 
@@ -253,7 +253,7 @@ describe('<StoryList> pin and sweep', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
     expect(screen.getByTestId('undo-btn')).toBeDisabled();
-    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
     const parsed = stored
       ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
       : [];

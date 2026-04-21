@@ -135,8 +135,8 @@ export function AppDrawer({ open, onClose }: Props) {
             </Link>
           </li>
           <li>
-            <Link to="/ignored" className="app-drawer__link">
-              Ignored
+            <Link to="/hidden" className="app-drawer__link">
+              Hidden
             </Link>
           </li>
         </ul>

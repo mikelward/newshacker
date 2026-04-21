@@ -5,7 +5,7 @@ import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 function items(handlers: Partial<Record<string, () => void>> = {}) {
   return [
     { key: 'pin', label: 'Pin', onSelect: handlers.pin ?? vi.fn() },
-    { key: 'ignore', label: 'Ignore', onSelect: handlers.ignore ?? vi.fn() },
+    { key: 'hide', label: 'Hide', onSelect: handlers.hide ?? vi.fn() },
     { key: 'share', label: 'Share', onSelect: handlers.share ?? vi.fn() },
   ] as StoryRowMenuItem[];
 }
@@ -37,8 +37,8 @@ describe('StoryRowMenu', () => {
     expect(screen.getByTestId('story-row-menu-pin')).toHaveTextContent(
       'Pin',
     );
-    expect(screen.getByTestId('story-row-menu-ignore')).toHaveTextContent(
-      'Ignore',
+    expect(screen.getByTestId('story-row-menu-hide')).toHaveTextContent(
+      'Hide',
     );
     expect(screen.getByTestId('story-row-menu-share')).toHaveTextContent(
       'Share',

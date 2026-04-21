@@ -20,9 +20,9 @@ import {
 } from './pinnedStories';
 import { addFavoriteId, getAllFavoriteEntries } from './favorites';
 import {
-  addDismissedId,
-  getAllDismissedEntries,
-} from './dismissedStories';
+  addHiddenId,
+  getAllHiddenEntries,
+} from './hiddenStories';
 
 const NOW = Date.now();
 const T = {
@@ -35,7 +35,7 @@ const T = {
 };
 
 function emptyState(): SyncState {
-  return { pinned: [], favorite: [], ignored: [] };
+  return { pinned: [], favorite: [], hidden: [] };
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -127,7 +127,7 @@ describe('cloudSync lifecycle', () => {
         { id: 1, at: T.T1, deleted: true },
       ],
       favorite: [],
-      ignored: [],
+      hidden: [],
     };
     const fetchMock = queuedFetch([
       {
@@ -176,7 +176,7 @@ describe('cloudSync lifecycle', () => {
     const body = JSON.parse(postInit.body as string) as SyncState;
     expect(body.pinned).toEqual([{ id: 42, at: T.T5 }]);
     expect(body.favorite).toEqual([]);
-    expect(body.ignored).toEqual([]);
+    expect(body.hidden).toEqual([]);
   });
 
   it('coalesces rapid-fire changes into a single POST', async () => {
@@ -195,7 +195,7 @@ describe('cloudSync lifecycle', () => {
 
     addPinnedId(1, T.T3);
     addFavoriteId(2, T.T4);
-    addDismissedId(3, T.T5);
+    addHiddenId(3, T.T5);
 
     // Wait for the debounce to fire.
     await new Promise<void>((resolve) => setTimeout(resolve, 80));
@@ -207,7 +207,7 @@ describe('cloudSync lifecycle', () => {
     ) as SyncState;
     expect(body.pinned).toEqual([{ id: 1, at: T.T3 }]);
     expect(body.favorite).toEqual([{ id: 2, at: T.T4 }]);
-    expect(body.ignored).toEqual([{ id: 3, at: T.T5 }]);
+    expect(body.hidden).toEqual([{ id: 3, at: T.T5 }]);
   });
 
   it('pushes tombstones for removes', async () => {
@@ -246,7 +246,7 @@ describe('cloudSync lifecycle', () => {
     const server: SyncState = {
       pinned: [{ id: 1, at: T.T3 }],
       favorite: [],
-      ignored: [],
+      hidden: [],
     };
     // Only a GET is queued. If an unexpected POST fires, the mock throws.
     const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
@@ -330,7 +330,7 @@ describe('cloudSync lifecycle', () => {
     const server: SyncState = {
       pinned: [{ id: 5, at: T.T4, deleted: true }],
       favorite: [],
-      ignored: [],
+      hidden: [],
     };
     const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
     await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
@@ -345,7 +345,7 @@ describe('cloudSync lifecycle', () => {
   it('propagates all three lists through a round-trip', async () => {
     addPinnedId(1, T.T3);
     addFavoriteId(2, T.T4);
-    addDismissedId(3, T.T5);
+    addHiddenId(3, T.T5);
     const fetchMock = queuedFetch([
       { response: jsonResponse(emptyState()) },
       {
@@ -365,12 +365,12 @@ describe('cloudSync lifecycle', () => {
     ) as SyncState;
     expect(body.pinned).toEqual([{ id: 1, at: T.T3 }]);
     expect(body.favorite).toEqual([{ id: 2, at: T.T4 }]);
-    expect(body.ignored).toEqual([{ id: 3, at: T.T5 }]);
+    expect(body.hidden).toEqual([{ id: 3, at: T.T5 }]);
 
     // Local state still intact after the round-trip.
     expect(getAllPinnedEntries().map((e) => e.id)).toEqual([1]);
     expect(getAllFavoriteEntries().map((e) => e.id)).toEqual([2]);
-    expect(getAllDismissedEntries().map((e) => e.id)).toEqual([3]);
+    expect(getAllHiddenEntries().map((e) => e.id)).toEqual([3]);
   });
 });
 
@@ -402,7 +402,7 @@ describe('cloudSync debug API', () => {
         response: jsonResponse({
           pinned: [{ id: 99, at: T.T1 }],
           favorite: [],
-          ignored: [],
+          hidden: [],
         }),
       }, // GET
       {
@@ -423,19 +423,19 @@ describe('cloudSync debug API', () => {
     expect(snap.lastPull?.counts).toEqual({
       pinned: 1,
       favorite: 0,
-      ignored: 0,
+      hidden: 0,
     });
     expect(snap.lastPush?.ok).toBe(true);
     expect(snap.lastPush?.counts).toEqual({
       pinned: 1,
       favorite: 0,
-      ignored: 0,
+      hidden: 0,
     });
     // High-water is advanced, so pending is empty.
     expect(snap.pendingCount).toEqual({
       pinned: 0,
       favorite: 0,
-      ignored: 0,
+      hidden: 0,
     });
   });
 
@@ -453,7 +453,7 @@ describe('cloudSync debug API', () => {
   it('records lastPush.error when the POST fails', async () => {
     addPinnedId(1, T.T4);
     const fetchMock = queuedFetch([
-      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) },
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) },
       { response: jsonResponse({ error: 'nope' }, 503) },
     ]);
     await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
@@ -464,7 +464,7 @@ describe('cloudSync debug API', () => {
     expect(snap.lastPush?.counts).toEqual({
       pinned: 1,
       favorite: 0,
-      ignored: 0,
+      hidden: 0,
     });
     // Pending count reflects the still-unpushed entry.
     expect(snap.pendingCount.pinned).toBe(1);
@@ -475,7 +475,7 @@ describe('cloudSync debug API', () => {
     const unsubscribe = subscribeCloudSyncDebug(listener);
     try {
       const fetchMock = queuedFetch([
-        { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) },
+        { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) },
       ]);
       await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
       await drain();
@@ -487,12 +487,12 @@ describe('cloudSync debug API', () => {
 
   it('pullNow forces a GET without waiting for debounce', async () => {
     const fetchMock = queuedFetch([
-      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial start pull
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // initial start pull
       {
         response: jsonResponse({
           pinned: [{ id: 42, at: T.T4 }],
           favorite: [],
-          ignored: [],
+          hidden: [],
         }),
       }, // manual pullNow
     ]);
@@ -515,7 +515,7 @@ describe('cloudSync debug API', () => {
 
   it('pushNow flushes pending deltas immediately, bypassing debounce', async () => {
     const fetchMock = queuedFetch([
-      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial GET
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // initial GET
       {
         response: (init) => {
           const body = JSON.parse(init?.body as string) as SyncState;
@@ -563,12 +563,12 @@ describe('visibility-change pull', () => {
 
   it('fires a pull when the tab becomes visible again', async () => {
     const fetchMock = queuedFetch([
-      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // initial
       {
         response: jsonResponse({
           pinned: [{ id: 77, at: T.T4 }],
           favorite: [],
-          ignored: [],
+          hidden: [],
         }),
       }, // after visibility
     ]);
@@ -593,7 +593,7 @@ describe('visibility-change pull', () => {
 
   it('does not fire a pull when transitioning to hidden', async () => {
     const fetchMock = queuedFetch([
-      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) },
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) },
     ]);
     await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
     await drain();
@@ -606,8 +606,8 @@ describe('visibility-change pull', () => {
 
   it('gate: two quick visibility→visible transitions only trigger one pull', async () => {
     const fetchMock = queuedFetch([
-      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial
-      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // first visibility pull
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // initial
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // first visibility pull
     ]);
     await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
     await drain();

@@ -11,7 +11,7 @@ takes you back there.
 The menu button (top-left) slides out a drawer with two groups:
 
 - **Feeds** — Top, New, Best, Ask, Show, Jobs.
-- **Library** — Favorites, Pinned, Opened, Ignored.
+- **Library** — Favorites, Pinned, Opened, Hidden.
 
 Tap any entry and the drawer closes behind you. Swipe, tap outside, or
 press Escape to dismiss it without going anywhere.
@@ -19,9 +19,9 @@ press Escape to dismiss it without going anywhere.
 On any feed page the header picks up two more controls on the right:
 
 - **Undo** (arrow icon) — bring back the stories you most recently
-  dismissed, whether you swiped them away one at a time or swept them
+  hid, whether you swiped them away one at a time or swept them
   all at once. Disabled when there's nothing to undo.
-- **Sweep** (broom icon) — dismiss every unpinned story currently on
+- **Sweep** (broom icon) — hide every unpinned story currently on
   screen in one tap. Disabled when there's nothing to sweep.
 
 Both are hidden on non-feed pages (threads, libraries, Help, About) so
@@ -48,8 +48,8 @@ thread instead of the row.
 
 There's no separate "N comments" button any more; the comment count
 is plain text inside the meta line. Long-pressing a row still opens a
-small menu with Pin/Unpin, Ignore and Share; swiping does the same
-triage without the menu (left = pin, right = ignore).
+small menu with Pin/Unpin, Hide and Share; swiping does the same
+triage without the menu (left = pin, right = hide).
 
 ## A comment row
 
@@ -128,25 +128,25 @@ Favorites live in the **Favorites** library forever (until you tap
 Unfavorite). They are never swept, never expired, and never filtered
 out of feeds.
 
-## Ignored
+## Hidden
 
-The third library rounds out the set. Three ways to dismiss a story
+The third library rounds out the set. Three ways to hide a story
 from your feeds:
 
 - **Swipe the row right.**
-- **Long-press the row** and pick Ignore.
-- **Tap the 🧹 sweep** button in the top bar to dismiss every
+- **Long-press the row** and pick Hide.
+- **Tap the 🧹 sweep** button in the top bar to hide every
   unpinned story currently visible in one action.
 
-Scrolling past is *not* a dismissal — dismissing is always deliberate.
+Scrolling past is *not* a hide — hiding is always deliberate.
 
-If you dismissed too much, hit the **undo** arrow in the top bar to
+If you hid too much, hit the **undo** arrow in the top bar to
 bring back the batch you most recently swiped or swept. For anything
-older, open the **Ignored** library and tap **Un-ignore** on the row
+older, open the **Hidden** library and tap **Unhide** on the row
 — the "rescue the ones I actually wanted" flow.
 
-Ignored stories live in the **Ignored** library for **7 days**, so
-you can go back and rescue something you dismissed too quickly there
+Hidden stories live in the **Hidden** library for **7 days**, so
+you can go back and rescue something you hid too quickly there
 instead.
 
 ## The mental model
@@ -158,7 +158,7 @@ Three buckets, each with a different lifespan and a different way in:
 | **Opened** | Automatically, when you tap a row or Read article | 7 days |
 | **Pinned** | Deliberately, by pin / swipe-left / menu | Until you unpin |
 | **Favorites** | Deliberately, by the Favorite button on the thread page | Forever (until you unfavorite) |
-| **Ignored** | Swipe-right / menu Ignore / top-bar sweep | 7 days |
+| **Hidden** | Swipe-right / menu Hide / top-bar sweep | 7 days |
 
 Every state change is a side-effect of a gesture you were already
 making — tap to read, swipe or pin to triage, sweep to clear — so

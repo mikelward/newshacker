@@ -106,13 +106,13 @@ describe('<OpenedPage>', () => {
     expect(screen.getByText('Seven')).toBeInTheDocument();
   });
 
-  it('Forget all does not touch dismissed or pinned stores', async () => {
+  it('Forget all does not touch hidden or pinned stores', async () => {
     installHNFetchMock({
       items: { 7: makeStory(7, { title: 'Seven' }) },
     });
     addOpenedId(7);
     window.localStorage.setItem(
-      'newshacker:dismissedStoryIds',
+      'newshacker:hiddenStoryIds',
       JSON.stringify([{ id: 88, at: Date.now() }]),
     );
     window.localStorage.setItem(
@@ -137,11 +137,11 @@ describe('<OpenedPage>', () => {
         screen.getByText(/haven't opened any stories/i),
       ).toBeInTheDocument();
     });
-    const dismissed = window.localStorage.getItem(
-      'newshacker:dismissedStoryIds',
+    const hidden = window.localStorage.getItem(
+      'newshacker:hiddenStoryIds',
     );
     const pinned = window.localStorage.getItem('newshacker:pinnedStoryIds');
-    expect(JSON.parse(dismissed as string)).toHaveLength(1);
+    expect(JSON.parse(hidden as string)).toHaveLength(1);
     expect(JSON.parse(pinned as string)).toHaveLength(1);
   });
 

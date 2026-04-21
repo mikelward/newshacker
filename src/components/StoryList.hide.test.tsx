@@ -4,7 +4,7 @@ import { StoryList } from './StoryList';
 import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
-import { addDismissedId } from '../lib/dismissedStories';
+import { addHiddenId } from '../lib/hiddenStories';
 
 function dispatchPointer(
   target: Element,
@@ -26,7 +26,7 @@ function dispatchPointer(
   });
 }
 
-describe('<StoryList> dismissed-story handling', () => {
+describe('<StoryList> hidden-story handling', () => {
   beforeEach(() => {
     window.localStorage.clear();
     Object.defineProperty(Element.prototype, 'setPointerCapture', {
@@ -59,7 +59,7 @@ describe('<StoryList> dismissed-story handling', () => {
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
     );
     installHNFetchMock({ feeds: { topstories: ids }, items });
-    addDismissedId(2);
+    addHiddenId(2);
 
     renderWithProviders(<StoryList feed="top" />);
 
@@ -71,7 +71,7 @@ describe('<StoryList> dismissed-story handling', () => {
     expect(screen.getByText('Story 3')).toBeInTheDocument();
   });
 
-  it('dismisses a story after a swipe past the threshold and persists the id', async () => {
+  it('hides a story after a swipe past the threshold and persists the id', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const ids = [10, 20, 30];
     const items = Object.fromEntries(
@@ -101,13 +101,13 @@ describe('<StoryList> dismissed-story handling', () => {
     });
     expect(screen.getAllByTestId('story-row')).toHaveLength(2);
 
-    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number; at: number }>;
     expect(parsed.map((e) => e.id)).toContain(20);
   });
 
-  it('undo restores the single story dismissed by a swipe', async () => {
+  it('undo restores the single story hidden by a swipe', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const ids = [10, 20, 30];
     const items = Object.fromEntries(
@@ -152,7 +152,7 @@ describe('<StoryList> dismissed-story handling', () => {
       expect(screen.getByText('Story 20')).toBeInTheDocument();
     });
     expect(screen.getByTestId('undo-btn')).toBeDisabled();
-    const stored = window.localStorage.getItem('newshacker:dismissedStoryIds');
+    const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
     const parsed = stored
       ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
       : [];

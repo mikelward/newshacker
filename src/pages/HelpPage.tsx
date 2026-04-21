@@ -43,40 +43,40 @@ export function HelpPage() {
         They live in <Link to="/favorites">Favorites</Link> in the menu.
       </p>
 
-      <h2 className="about-page__heading">Dismissing stories</h2>
+      <h2 className="about-page__heading">Hiding stories</h2>
       <p>
-        Dismissing hides a story you don&rsquo;t want to see in your feeds:
+        Hiding removes a story you don&rsquo;t want to see in your feeds:
       </p>
       <ul>
         <li>
-          <strong>Swipe a story right</strong> in any feed to dismiss it.
+          <strong>Swipe a story right</strong> in any feed to hide it.
         </li>
         <li>
-          Tap the <strong>sweep</strong> icon in the top bar to dismiss
+          Tap the <strong>sweep</strong> icon in the top bar to hide
           every unpinned story on screen at once.
         </li>
       </ul>
 
-      <h2 className="about-page__heading">Reviewing dismissed stories</h2>
+      <h2 className="about-page__heading">Reviewing hidden stories</h2>
       <p>
-        Dismissed stories live in <Link to="/ignored">Ignored</Link> in
-        the menu, newest first. Tap <strong>Un-ignore</strong> on any
+        Hidden stories live in <Link to="/hidden">Hidden</Link> in
+        the menu, newest first. Tap <strong>Unhide</strong> on any
         row to bring it back to your feeds, or{' '}
-        <strong>Forget all ignored</strong> at the top of the list to
-        clear it. Dismissals expire on their own after seven days.
+        <strong>Forget all hidden</strong> at the top of the list to
+        clear it. Hidden entries expire on their own after seven days.
       </p>
 
-      <h2 className="about-page__heading">Undoing a dismiss</h2>
+      <h2 className="about-page__heading">Undoing a hide</h2>
       <p>
         Tap the <strong>undo</strong> icon in the top bar to bring back
-        the stories you most recently dismissed — whether you swiped
-        them away one at a time or swept them all at once.
+        the stories you most recently hid — whether you swiped them
+        away one at a time or swept them all at once.
       </p>
 
       <h2 className="about-page__heading">The story actions menu</h2>
       <p>
         <strong>Long-press</strong> any story row to open a menu with
-        quick actions: pin or unpin it, dismiss it, and{' '}
+        quick actions: pin or unpin it, hide it, and{' '}
         <strong>share</strong> it. Share uses your device&rsquo;s native
         share sheet when available, and falls back to copying the link
         to the clipboard.
@@ -133,12 +133,12 @@ export function HelpPage() {
         System follows your device setting and is the default.
       </p>
 
-      <h2 className="about-page__heading">Pinned, favorite, dismissed</h2>
+      <h2 className="about-page__heading">Pinned, favorite, hidden</h2>
       <p>
         <strong>Pin</strong> keeps a story in your short-term reading
         list. <strong>Favorite</strong> keeps it for good.{' '}
-        <strong>Dismiss</strong> hides it from the feed. They&rsquo;re
-        independent — you can pin and dismiss the same story (it stays
+        <strong>Hide</strong> removes it from the feed. They&rsquo;re
+        independent — you can pin and hide the same story (it stays
         pinned even though it&rsquo;s gone from the feed), and you can
         favorite a story whether or not it&rsquo;s pinned.
       </p>

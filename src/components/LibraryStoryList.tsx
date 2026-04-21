@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { getItems } from '../lib/hn';
-import { useDismissedStories } from '../hooks/useDismissedStories';
+import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { PullToRefresh } from './PullToRefresh';
@@ -28,7 +28,7 @@ export function LibraryStoryList({
   emptyMessage,
   recover,
 }: Props) {
-  const { dismiss } = useDismissedStories();
+  const { hide } = useHiddenStories();
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
@@ -85,7 +85,7 @@ export function LibraryStoryList({
   return (
     <PullToRefresh
       onRefresh={() =>
-        // Library pages (/pinned, /favorites, /ignored, /opened) read
+        // Library pages (/pinned, /favorites, /hidden, /opened) read
         // from localStorage — refetching items alone can't surface a
         // story pinned on another device because the id isn't in the
         // local list yet. Pull cloudSync first to bring in any new
@@ -102,7 +102,7 @@ export function LibraryStoryList({
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               pinned={pinnedIds.has(story.id)}
-              onDismiss={dismiss}
+              onHide={hide}
               onPin={pin}
               onUnpin={unpin}
               onShare={shareStory}
