@@ -31,7 +31,7 @@
 .header-account__menu {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
+  left: 0;
   min-width: 220px;
   background: var(--hn-bg-card);
   border: 1px solid var(--hn-border);

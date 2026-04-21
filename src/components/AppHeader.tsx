@@ -89,6 +89,7 @@ export function AppHeader() {
             ☰
           </span>
         </TooltipButton>
+        <HeaderAccountMenu />
         <Link
           to="/top"
           className="app-header__home"
@@ -99,39 +100,35 @@ export function AppHeader() {
           </span>
           <span className="app-header__title">newshacker</span>
         </Link>
-        {onFeedPage ? (
-          <div className="app-header__actions">
-            {offlinePill}
-            <TooltipButton
-              type="button"
-              className="app-header__icon-btn"
-              data-testid="undo-btn"
-              onClick={canUndo ? undo : undefined}
-              disabled={!canUndo}
-              tooltip={canUndo ? 'Undo hide' : 'Nothing to undo'}
-              aria-label={canUndo ? 'Undo hide' : 'Nothing to undo'}
-            >
-              <UndoIcon />
-            </TooltipButton>
-            <TooltipButton
-              type="button"
-              className="app-header__icon-btn"
-              data-testid="sweep-btn"
-              onClick={canSweep ? sweep : undefined}
-              disabled={!canSweep}
-              tooltip={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
-              aria-label={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
-            >
-              <SweepIcon />
-            </TooltipButton>
-            <HeaderAccountMenu />
-          </div>
-        ) : (
-          <div className="app-header__actions">
-            {offlinePill}
-            <HeaderAccountMenu />
-          </div>
-        )}
+        <div className="app-header__actions">
+          {offlinePill}
+          {onFeedPage ? (
+            <>
+              <TooltipButton
+                type="button"
+                className="app-header__icon-btn"
+                data-testid="undo-btn"
+                onClick={canUndo ? undo : undefined}
+                disabled={!canUndo}
+                tooltip={canUndo ? 'Undo hide' : 'Nothing to undo'}
+                aria-label={canUndo ? 'Undo hide' : 'Nothing to undo'}
+              >
+                <UndoIcon />
+              </TooltipButton>
+              <TooltipButton
+                type="button"
+                className="app-header__icon-btn"
+                data-testid="sweep-btn"
+                onClick={canSweep ? sweep : undefined}
+                disabled={!canSweep}
+                tooltip={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
+                aria-label={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
+              >
+                <SweepIcon />
+              </TooltipButton>
+            </>
+          ) : null}
+        </div>
       </header>
       <AppDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </>
