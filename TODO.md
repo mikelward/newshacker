@@ -67,6 +67,40 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   including the route, page title, and storage key. Migration path
   needed for the localStorage key so existing users don't lose state.
 
+## Backend / infrastructure
+
+- **Re-evaluate server-side prefetch of summaries.** Currently
+  rejected in `SUMMARIES.md` § "Alternatives considered" on
+  cost-plus-complexity grounds — the edge CDN and service worker
+  already absorb the common case, and a cron prefetching the top 30
+  stories would multiply Gemini spend against items no reader opens.
+  Re-open the question if any of these signals show up: (a)
+  consistently high time-to-summary on fresh `summary_layout` events
+  from low-`score` stories (those are the cold-cache cases nothing
+  else warmed), (b) a material share of thread-page sessions where
+  the summary is still loading when the reader navigates away, (c)
+  Gemini pricing where prefetching top-N stories is cheaper than
+  the current on-demand model. A positive decision here also opens
+  the KV question below, since "which stories have we warmed in the
+  last N minutes" is the kind of state a cron needs.
+
+- **Evaluate Vercel KV (or Upstash) when a shared store is actually
+  needed.** No KV-style store today — `AGENTS.md` rule 6 now allows
+  one when justified, but nothing in the current codebase justifies
+  it. Natural triggers: (a) per-user or per-IP rate limiting on the
+  summary endpoints (already flagged in
+  `IMPLEMENTATION_PLAN.md` § "Rate limiting"; the edge CDN cache
+  doesn't help here), (b) scheduled prefetch bookkeeping if the
+  server-side prefetch item above lands, (c) session state for the
+  login/vote stretch features if HTTP-only cookies prove
+  insufficient. Rule 11 cost/reliability note to include when
+  proposing: Upstash Redis has a 10k-request/day free tier that
+  covers single-digit daily traffic; Vercel KV is Pro-tier pricing
+  but integrates more tightly with Vercel functions. Either adds
+  one new failure mode (store unreachable) — the handler should
+  fall open for rate limiting (serve the request) rather than fail
+  closed.
+
 ## Sweep edge cases
 
 - **Row taller than the visible viewport.** Sweep currently dismisses
