@@ -14,8 +14,8 @@ interface Props {
   articleOpened?: boolean;
   commentsOpened?: boolean;
   pinned?: boolean;
-  dismissed?: boolean;
-  onDismiss?: (id: number) => void;
+  hidden?: boolean;
+  onHide?: (id: number) => void;
   onPin?: (id: number) => void;
   onUnpin?: (id: number) => void;
   onShare?: (story: HNItem) => void;
@@ -28,8 +28,8 @@ export function StoryListItem({
   articleOpened = false,
   commentsOpened = false,
   pinned = false,
-  dismissed = false,
-  onDismiss,
+  hidden = false,
+  onHide,
   onPin,
   onUnpin,
   onShare,
@@ -43,9 +43,9 @@ export function StoryListItem({
 
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const handleDismiss = useCallback(() => {
-    onDismiss?.(story.id);
-  }, [onDismiss, story.id]);
+  const handleHide = useCallback(() => {
+    onHide?.(story.id);
+  }, [onHide, story.id]);
 
   const handlePin = useCallback(() => {
     onPin?.(story.id);
@@ -72,7 +72,7 @@ export function StoryListItem({
   }, [pinned, onPin, onUnpin, story.id]);
 
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
-    onSwipeRight: onDismiss ? handleDismiss : undefined,
+    onSwipeRight: onHide ? handleHide : undefined,
     onSwipeLeft: onPin ? handlePin : undefined,
     onLongPress: openMenu,
   });
@@ -84,7 +84,7 @@ export function StoryListItem({
     (dragging ? ' story-row--dragging' : '') +
     (isDismissing ? ' story-row--dismissing' : '') +
     (rowOpened ? ' story-row--opened' : '') +
-    (dismissed ? ' story-row--dismissed' : '');
+    (hidden ? ' story-row--hidden' : '');
 
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
     const items: StoryRowMenuItem[] = [];
@@ -93,8 +93,8 @@ export function StoryListItem({
     } else if (!pinned && onPin) {
       items.push({ key: 'pin', label: 'Pin', onSelect: handlePin });
     }
-    if (onDismiss) {
-      items.push({ key: 'ignore', label: 'Ignore', onSelect: handleDismiss });
+    if (onHide) {
+      items.push({ key: 'hide', label: 'Hide', onSelect: handleHide });
     }
     if (onShare) {
       items.push({ key: 'share', label: 'Share', onSelect: handleShare });
@@ -104,11 +104,11 @@ export function StoryListItem({
     pinned,
     onPin,
     onUnpin,
-    onDismiss,
+    onHide,
     onShare,
     handlePin,
     handleUnpin,
-    handleDismiss,
+    handleHide,
     handleShare,
   ]);
 

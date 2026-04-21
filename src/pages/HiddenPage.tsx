@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  DISMISSED_STORIES_CHANGE_EVENT,
-  clearDismissedIds,
-  getDismissedEntries,
-  removeDismissedId,
-} from '../lib/dismissedStories';
+  HIDDEN_STORIES_CHANGE_EVENT,
+  clearHiddenIds,
+  getHiddenEntries,
+  removeHiddenId,
+} from '../lib/hiddenStories';
 import {
   OPENED_STORIES_CHANGE_EVENT,
   getOpenedIds,
@@ -12,31 +12,31 @@ import {
 import { LibraryStoryList } from '../components/LibraryStoryList';
 import './HistoryToolbar.css';
 
-function readIgnoredIdsNewestFirst(): number[] {
+function readHiddenIdsNewestFirst(): number[] {
   const opened = getOpenedIds();
-  return getDismissedEntries()
+  return getHiddenEntries()
     .filter((e) => !opened.has(e.id))
     .sort((a, b) => b.at - a.at)
     .map((e) => e.id);
 }
 
-export function IgnoredPage() {
-  const [ids, setIds] = useState<number[]>(() => readIgnoredIdsNewestFirst());
+export function HiddenPage() {
+  const [ids, setIds] = useState<number[]>(() => readHiddenIdsNewestFirst());
 
   useEffect(() => {
-    const sync = () => setIds(readIgnoredIdsNewestFirst());
-    window.addEventListener(DISMISSED_STORIES_CHANGE_EVENT, sync);
+    const sync = () => setIds(readHiddenIdsNewestFirst());
+    window.addEventListener(HIDDEN_STORIES_CHANGE_EVENT, sync);
     window.addEventListener(OPENED_STORIES_CHANGE_EVENT, sync);
     window.addEventListener('storage', sync);
     return () => {
-      window.removeEventListener(DISMISSED_STORIES_CHANGE_EVENT, sync);
+      window.removeEventListener(HIDDEN_STORIES_CHANGE_EVENT, sync);
       window.removeEventListener(OPENED_STORIES_CHANGE_EVENT, sync);
       window.removeEventListener('storage', sync);
     };
   }, []);
 
-  const handleUnignore = useCallback((id: number) => {
-    removeDismissedId(id);
+  const handleUnhide = useCallback((id: number) => {
+    removeHiddenId(id);
   }, []);
 
   const handleForgetAll = useCallback(() => {
@@ -44,10 +44,10 @@ export function IgnoredPage() {
     if (count === 0) return;
     const noun = count === 1 ? 'story' : 'stories';
     const ok = window.confirm(
-      `Forget all ${count} ignored ${noun}? They can reappear in your feeds.`,
+      `Forget all ${count} hidden ${noun}? They can reappear in your feeds.`,
     );
     if (!ok) return;
-    clearDismissedIds();
+    clearHiddenIds();
   }, [ids.length]);
 
   return (
@@ -59,17 +59,17 @@ export function IgnoredPage() {
             className="history-toolbar__forget"
             onClick={handleForgetAll}
           >
-            Forget all ignored
+            Forget all hidden
           </button>
         </div>
       ) : null}
       <LibraryStoryList
-        queryKey="ignored"
+        queryKey="hidden"
         ids={ids}
-        emptyMessage="Nothing ignored. Stories you swipe away or scroll past without opening appear here."
+        emptyMessage="Nothing hidden. Stories you swipe away or scroll past without opening appear here."
         recover={{
-          label: () => 'Un-ignore',
-          onRecover: handleUnignore,
+          label: () => 'Unhide',
+          onRecover: handleUnhide,
         }}
       />
     </>

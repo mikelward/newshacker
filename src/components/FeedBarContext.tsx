@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { removeDismissedId } from '../lib/dismissedStories';
+import { removeHiddenId } from '../lib/hiddenStories';
 
 type Handler = () => void;
 
@@ -16,7 +16,7 @@ export interface FeedBarContextValue {
   setSweep: (handler: Handler | null, count: number) => void;
 
   canUndo: boolean;
-  recordDismiss: (ids: readonly number[]) => void;
+  recordHide: (ids: readonly number[]) => void;
   undo: () => void;
 }
 
@@ -29,11 +29,11 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
     count: number;
   }>({ handler: null, count: 0 });
 
-  // Only the most recent dismiss action is undoable — one level of undo,
+  // Only the most recent hide action is undoable — one level of undo,
   // matching the "undo the last sweep or last swipe" behaviour.
-  const [lastDismissed, setLastDismissed] = useState<readonly number[]>([]);
-  const lastDismissedRef = useRef<readonly number[]>([]);
-  lastDismissedRef.current = lastDismissed;
+  const [lastHidden, setLastHidden] = useState<readonly number[]>([]);
+  const lastHiddenRef = useRef<readonly number[]>([]);
+  lastHiddenRef.current = lastHidden;
 
   const setSweep = useCallback(
     (handler: Handler | null, count: number) => {
@@ -45,16 +45,16 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const recordDismiss = useCallback((ids: readonly number[]) => {
+  const recordHide = useCallback((ids: readonly number[]) => {
     if (ids.length === 0) return;
-    setLastDismissed(Array.from(ids));
+    setLastHidden(Array.from(ids));
   }, []);
 
   const undo = useCallback(() => {
-    const ids = lastDismissedRef.current;
+    const ids = lastHiddenRef.current;
     if (ids.length === 0) return;
-    for (const id of ids) removeDismissedId(id);
-    setLastDismissed([]);
+    for (const id of ids) removeHiddenId(id);
+    setLastHidden([]);
   }, []);
 
   const value = useMemo<FeedBarContextValue>(
@@ -62,16 +62,16 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
       sweep: sweepState.handler,
       sweepCount: sweepState.count,
       setSweep,
-      canUndo: lastDismissed.length > 0,
-      recordDismiss,
+      canUndo: lastHidden.length > 0,
+      recordHide,
       undo,
     }),
     [
       sweepState.handler,
       sweepState.count,
       setSweep,
-      lastDismissed,
-      recordDismiss,
+      lastHidden,
+      recordHide,
       undo,
     ],
   );

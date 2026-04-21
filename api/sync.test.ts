@@ -28,7 +28,7 @@ function request(
 }
 
 function emptyState(): SyncState {
-  return { pinned: [], favorite: [], ignored: [] };
+  return { pinned: [], favorite: [], hidden: [] };
 }
 
 function createTestStore(): SyncStore & {
@@ -157,7 +157,7 @@ describe('handleSyncRequest GET', () => {
     expect(await res.json()).toEqual({
       pinned: [],
       favorite: [],
-      ignored: [],
+      hidden: [],
     });
   });
 
@@ -165,14 +165,14 @@ describe('handleSyncRequest GET', () => {
     store.map.set('alice', {
       pinned: [{ id: 1, at: 100 }],
       favorite: [{ id: 2, at: 200 }],
-      ignored: [{ id: 3, at: 300 }],
+      hidden: [{ id: 3, at: 300 }],
     });
     const res = await handleSyncRequest(request('GET'), { store });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       pinned: [{ id: 1, at: 100 }],
       favorite: [{ id: 2, at: 200 }],
-      ignored: [{ id: 3, at: 300 }],
+      hidden: [{ id: 3, at: 300 }],
     });
   });
 
@@ -180,7 +180,7 @@ describe('handleSyncRequest GET', () => {
     store.map.set('bob', {
       pinned: [{ id: 99, at: 9999 }],
       favorite: [],
-      ignored: [],
+      hidden: [],
     });
     const res = await handleSyncRequest(request('GET'), { store });
     const body = (await res.json()) as SyncState;
@@ -201,7 +201,7 @@ describe('handleSyncRequest GET', () => {
     expect(await res.json()).toEqual({
       pinned: [],
       favorite: [],
-      ignored: [],
+      hidden: [],
     });
   });
 });
@@ -217,7 +217,7 @@ describe('handleSyncRequest POST', () => {
       request('POST', {
         pinned: [{ id: 10, at: 1000 }],
         favorite: [{ id: 20, at: 2000 }],
-        ignored: [{ id: 30, at: 3000 }],
+        hidden: [{ id: 30, at: 3000 }],
       }),
       { store },
     );
@@ -226,7 +226,7 @@ describe('handleSyncRequest POST', () => {
     expect(body).toEqual({
       pinned: [{ id: 10, at: 1000 }],
       favorite: [{ id: 20, at: 2000 }],
-      ignored: [{ id: 30, at: 3000 }],
+      hidden: [{ id: 30, at: 3000 }],
     });
     expect(store.map.get('alice')).toEqual(body);
 
@@ -241,7 +241,7 @@ describe('handleSyncRequest POST', () => {
         { id: 2, at: 200 },
       ],
       favorite: [],
-      ignored: [],
+      hidden: [],
     });
     const res = await handleSyncRequest(
       request('POST', {
@@ -261,7 +261,7 @@ describe('handleSyncRequest POST', () => {
     store.map.set('alice', {
       pinned: [{ id: 1, at: 500 }],
       favorite: [],
-      ignored: [],
+      hidden: [],
     });
     const res = await handleSyncRequest(
       request('POST', { pinned: [{ id: 1, at: 100 }] }),
@@ -275,7 +275,7 @@ describe('handleSyncRequest POST', () => {
     store.map.set('alice', {
       pinned: [{ id: 1, at: 100 }],
       favorite: [],
-      ignored: [],
+      hidden: [],
     });
     const res = await handleSyncRequest(
       request('POST', {
@@ -379,7 +379,7 @@ describe('handleSyncRequest POST', () => {
     store.map.set('alice', {
       pinned: [{ id: 1, at: 100 }],
       favorite: [],
-      ignored: [],
+      hidden: [],
     });
     const res = await handleSyncRequest(request('POST', {}), { store });
     const body = (await res.json()) as SyncState;

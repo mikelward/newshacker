@@ -43,9 +43,9 @@ describe('<AppDrawer>', () => {
       'href',
       '/opened',
     );
-    expect(screen.getByRole('link', { name: 'Ignored' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Hidden' })).toHaveAttribute(
       'href',
-      '/ignored',
+      '/hidden',
     );
     expect(screen.getByRole('link', { name: 'Help' })).toHaveAttribute(
       'href',

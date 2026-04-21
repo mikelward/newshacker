@@ -6,7 +6,7 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Performance
 
-- **Faster sweep.** The broom currently rebuilds the dismissed-ids
+- **Faster sweep.** The broom currently rebuilds the hidden-ids
   localStorage entry once per swept story, firing a storage change
   event each time. Batch the write so a sweep of 30 rows is one
   write + one event.
@@ -45,11 +45,11 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Thread overflow menu
 
-- **Add Ignore / Un-ignore.** The thread `⋮` menu currently only has
+- **Add Hide / Unhide.** The thread `⋮` menu currently only has
   Open on Hacker News + Share article. Add a single context-sensitive
-  entry — `Ignore` if the story isn't dismissed, `Un-ignore` if it
-  is — wired through `useDismissedStories`, mirroring how
-  `StoryListItem` exposes Ignore on the row menu.
+  entry — `Hide` if the story isn't hidden, `Unhide` if it
+  is — wired through `useHiddenStories`, mirroring how
+  `StoryListItem` exposes Hide on the row menu.
 - **Add Share on newshacker.** Companion to `Share article`: shares
   `https://newshacker.app/item/:id` (the discussion view with our
   reader chrome and AI summaries) instead of the source URL. Always
@@ -58,14 +58,6 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   reader. Naming convention is documented in `SPEC.md` (noun =
   *what* is shared; `on <platform>` suffix = *where* the recipient
   lands).
-- **Rename `ignore` → `hide` to match upstream.** HN itself uses
-  "hide" (and "unhide") for the same action; our codebase uses
-  "ignore" / `dismissed*` everywhere (`useDismissedStories`,
-  `lib/dismissedStories`, `/ignored` route, `IgnoredPage`,
-  `newshacker:dismissedStoryIds` localStorage key, "Ignore" menu
-  label). Worth a sweep so the user-visible vocabulary matches HN —
-  including the route, page title, and storage key. Migration path
-  needed for the localStorage key so existing users don't lose state.
 
 ## Backend / infrastructure
 
@@ -110,7 +102,7 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 ## Sync
 
 - **Opened/read sync (maybe; notes only).** Cross-device sync v1
-  covers Pinned / Favorite / Ignored. Opened (`newshacker:openedStoryIds`)
+  covers Pinned / Favorite / Hidden. Opened (`newshacker:openedStoryIds`)
   may never ship — it grows fast, the semantics are "noisy recent
   history" not "curated intent", and the utility of syncing it is
   unclear. Not a committed TODO; a decision point. If we ever do
@@ -125,7 +117,7 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Sweep edge cases
 
-- **Row taller than the visible viewport.** Sweep currently dismisses
+- **Row taller than the visible viewport.** Sweep currently hides
   only rows whose bounding box is fully inside the viewport minus the
   app header. A very long wrapped title on a narrow phone could, in
   theory, make a row taller than that clipped area — it would then be

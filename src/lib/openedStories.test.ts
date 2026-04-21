@@ -85,10 +85,10 @@ describe('openedStories', () => {
     expect(getOpenedIds()).toEqual(new Set());
   });
 
-  it('does not collide with the dismissedStories key', () => {
+  it('does not collide with the hiddenStories key', () => {
     addOpenedId(5);
     expect(
-      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+      window.localStorage.getItem('newshacker:hiddenStoryIds'),
     ).toBeNull();
     expect(
       window.localStorage.getItem('newshacker:openedStoryIds'),

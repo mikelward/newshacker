@@ -1,4 +1,4 @@
-// Cross-device sync glue. Pulls Pinned / Favorite / Ignored from
+// Cross-device sync glue. Pulls Pinned / Favorite / Hidden from
 // /api/sync on login, reconnect, and tab-visibility change, listens to
 // the three change events, and debounces local changes into a single
 // POST ~2 s later. Merge is per-id last-write-wins, matching the server.
@@ -21,11 +21,11 @@ import {
   type FavoriteEntry,
 } from './favorites';
 import {
-  DISMISSED_STORIES_CHANGE_EVENT,
-  getAllDismissedEntries,
-  replaceDismissedEntries,
-  type DismissedEntry,
-} from './dismissedStories';
+  HIDDEN_STORIES_CHANGE_EVENT,
+  getAllHiddenEntries,
+  replaceHiddenEntries,
+  type HiddenEntry,
+} from './hiddenStories';
 
 export const SYNC_DEBOUNCE_MS = 2000;
 // Visibility-triggered pulls are gated: tab-switching shouldn't hammer
@@ -42,10 +42,10 @@ export interface SyncEntry {
 export interface SyncState {
   pinned: SyncEntry[];
   favorite: SyncEntry[];
-  ignored: SyncEntry[];
+  hidden: SyncEntry[];
 }
 
-type ListName = 'pinned' | 'favorite' | 'ignored';
+type ListName = 'pinned' | 'favorite' | 'hidden';
 
 export function mergeEntries(
   current: SyncEntry[],
@@ -149,8 +149,8 @@ function readLocal(list: ListName): SyncEntry[] {
       return asEntries(getAllPinnedEntries());
     case 'favorite':
       return asEntries(getAllFavoriteEntries());
-    case 'ignored':
-      return asEntries(getAllDismissedEntries());
+    case 'hidden':
+      return asEntries(getAllHiddenEntries());
   }
 }
 
@@ -162,15 +162,15 @@ function writeLocal(list: ListName, entries: SyncEntry[]): void {
     case 'favorite':
       replaceFavoriteEntries(entries as FavoriteEntry[]);
       return;
-    case 'ignored':
-      replaceDismissedEntries(entries as DismissedEntry[]);
+    case 'hidden':
+      replaceHiddenEntries(entries as HiddenEntry[]);
       return;
   }
 }
 
 function applyServerState(state: SyncState): void {
   if (!runtime) return;
-  const lists: ListName[] = ['pinned', 'favorite', 'ignored'];
+  const lists: ListName[] = ['pinned', 'favorite', 'hidden'];
   for (const list of lists) {
     const merged = mergeEntries(readLocal(list), state[list]);
     writeLocal(list, merged);
@@ -182,7 +182,7 @@ function applyServerState(state: SyncState): void {
 }
 
 function collectDelta(): SyncState {
-  if (!runtime) return { pinned: [], favorite: [], ignored: [] };
+  if (!runtime) return { pinned: [], favorite: [], hidden: [] };
   return {
     pinned: readLocal('pinned').filter(
       (e) => e.at > runtime!.lastPushed.pinned,
@@ -190,8 +190,8 @@ function collectDelta(): SyncState {
     favorite: readLocal('favorite').filter(
       (e) => e.at > runtime!.lastPushed.favorite,
     ),
-    ignored: readLocal('ignored').filter(
-      (e) => e.at > runtime!.lastPushed.ignored,
+    hidden: readLocal('hidden').filter(
+      (e) => e.at > runtime!.lastPushed.hidden,
     ),
   };
 }
@@ -244,7 +244,7 @@ async function pull(): Promise<void> {
     counts: {
       pinned: server.pinned.length,
       favorite: server.favorite.length,
-      ignored: server.ignored.length,
+      hidden: server.hidden.length,
     },
   };
   applyServerState(server);
@@ -255,18 +255,18 @@ async function push(): Promise<void> {
   if (!runtime) return;
   const delta = collectDelta();
   const total =
-    delta.pinned.length + delta.favorite.length + delta.ignored.length;
+    delta.pinned.length + delta.favorite.length + delta.hidden.length;
   if (total === 0) return;
 
   const deltaCounts: Record<ListName, number> = {
     pinned: delta.pinned.length,
     favorite: delta.favorite.length,
-    ignored: delta.ignored.length,
+    hidden: delta.hidden.length,
   };
   const deltaMax = {
     pinned: maxAt(delta.pinned),
     favorite: maxAt(delta.favorite),
-    ignored: maxAt(delta.ignored),
+    hidden: maxAt(delta.hidden),
   };
   const startedAt = Date.now();
 
@@ -338,9 +338,9 @@ async function push(): Promise<void> {
     runtime.lastPushed.favorite,
     deltaMax.favorite,
   );
-  runtime.lastPushed.ignored = Math.max(
-    runtime.lastPushed.ignored,
-    deltaMax.ignored,
+  runtime.lastPushed.hidden = Math.max(
+    runtime.lastPushed.hidden,
+    deltaMax.hidden,
   );
 
   applyServerState(server);
@@ -359,7 +359,7 @@ function isSyncState(x: unknown): x is SyncState {
   return (
     Array.isArray(obj.pinned) &&
     Array.isArray(obj.favorite) &&
-    Array.isArray(obj.ignored)
+    Array.isArray(obj.hidden)
   );
 }
 
@@ -437,7 +437,7 @@ export async function startCloudSync(
 
   runtime = {
     username,
-    lastPushed: { pinned: 0, favorite: 0, ignored: 0 },
+    lastPushed: { pinned: 0, favorite: 0, hidden: 0 },
     pushTimer: null,
     pushInFlight: false,
     pushQueued: false,
@@ -451,7 +451,7 @@ export async function startCloudSync(
 
   window.addEventListener(PINNED_STORIES_CHANGE_EVENT, onChange);
   window.addEventListener(FAVORITES_CHANGE_EVENT, onChange);
-  window.addEventListener(DISMISSED_STORIES_CHANGE_EVENT, onChange);
+  window.addEventListener(HIDDEN_STORIES_CHANGE_EVENT, onChange);
 
   runtime.unsubscribeOnline = subscribeOnline((online) => {
     if (!online) return;
@@ -474,7 +474,7 @@ export function stopCloudSync(): void {
   runtime = null;
   window.removeEventListener(PINNED_STORIES_CHANGE_EVENT, r.onChange);
   window.removeEventListener(FAVORITES_CHANGE_EVENT, r.onChange);
-  window.removeEventListener(DISMISSED_STORIES_CHANGE_EVENT, r.onChange);
+  window.removeEventListener(HIDDEN_STORIES_CHANGE_EVENT, r.onChange);
   if (r.pushTimer) clearTimeout(r.pushTimer);
   r.unsubscribeOnline?.();
   r.unsubscribeVisibility?.();
@@ -507,8 +507,8 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
     return {
       running: false,
       username: null,
-      lastPushed: { pinned: 0, favorite: 0, ignored: 0 },
-      pendingCount: { pinned: 0, favorite: 0, ignored: 0 },
+      lastPushed: { pinned: 0, favorite: 0, hidden: 0 },
+      pendingCount: { pinned: 0, favorite: 0, hidden: 0 },
       push: { inFlight: false, queued: false, timerPending: false },
       lastPull,
       lastPush,
@@ -522,7 +522,7 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
     pendingCount: {
       pinned: delta.pinned.length,
       favorite: delta.favorite.length,
-      ignored: delta.ignored.length,
+      hidden: delta.hidden.length,
     },
     push: {
       inFlight: runtime.pushInFlight,

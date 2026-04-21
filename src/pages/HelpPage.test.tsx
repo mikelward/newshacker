@@ -16,30 +16,30 @@ describe('<HelpPage>', () => {
     expect(screen.getByText(/swipe a story left/i)).toBeInTheDocument();
   });
 
-  it('describes dismissing (swipe right / sweep)', () => {
+  it('describes hiding (swipe right / sweep)', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(
-      screen.getByRole('heading', { level: 2, name: /dismissing stories/i }),
+      screen.getByRole('heading', { level: 2, name: /hiding stories/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/swipe a story right/i)).toBeInTheDocument();
     expect(screen.getByText(/sweep/i, { selector: 'strong' })).toBeInTheDocument();
   });
 
-  it('describes reviewing dismissed stories via the Ignored library', () => {
+  it('describes reviewing hidden stories via the Hidden library', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(
       screen.getByRole('heading', {
         level: 2,
-        name: /reviewing dismissed stories/i,
+        name: /reviewing hidden stories/i,
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/un-ignore/i, { selector: 'strong' }),
+      screen.getByText(/unhide/i, { selector: 'strong' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/forget all ignored/i, { selector: 'strong' }),
+      screen.getByText(/forget all hidden/i, { selector: 'strong' }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/dismissals expire/i)).toBeInTheDocument();
+    expect(screen.getByText(/hidden entries expire/i)).toBeInTheDocument();
   });
 
   it('explains that comments start collapsed and tap expands them', () => {
@@ -52,15 +52,15 @@ describe('<HelpPage>', () => {
     expect(screen.getByText(/reply on hn/i)).toBeInTheDocument();
   });
 
-  it('links to the Pinned and Ignored pages', () => {
+  it('links to the Pinned and Hidden pages', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(screen.getByRole('link', { name: /pinned/i })).toHaveAttribute(
       'href',
       '/pinned',
     );
-    expect(screen.getByRole('link', { name: /ignored/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /hidden/i })).toHaveAttribute(
       'href',
-      '/ignored',
+      '/hidden',
     );
   });
 
@@ -88,7 +88,7 @@ describe('<HelpPage>', () => {
   it('describes the undo control in the top bar', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(
-      screen.getByRole('heading', { level: 2, name: /undoing a dismiss/i }),
+      screen.getByRole('heading', { level: 2, name: /undoing a hide/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/undo/i, { selector: 'strong' })).toBeInTheDocument();
   });

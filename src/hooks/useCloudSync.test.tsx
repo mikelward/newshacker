@@ -46,7 +46,7 @@ describe('useCloudSync', () => {
       const url = String(input);
       if (url === '/api/me') return jsonResponse({ username: 'alice' });
       if (url === '/api/sync')
-        return jsonResponse({ pinned: [], favorite: [], ignored: [] });
+        return jsonResponse({ pinned: [], favorite: [], hidden: [] });
       throw new Error(`Unexpected ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -83,7 +83,7 @@ describe('useCloudSync', () => {
       const url = String(input);
       if (url === '/api/me') return jsonResponse({ username: 'alice' });
       if (url === '/api/sync')
-        return jsonResponse({ pinned: [], favorite: [], ignored: [] });
+        return jsonResponse({ pinned: [], favorite: [], hidden: [] });
       throw new Error(`Unexpected ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);

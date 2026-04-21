@@ -11,7 +11,7 @@ import { FeedPage } from './pages/FeedPage';
 import { ItemPage } from './pages/ItemPage';
 import { UserPage } from './pages/UserPage';
 import { OpenedPage } from './pages/OpenedPage';
-import { IgnoredPage } from './pages/IgnoredPage';
+import { HiddenPage } from './pages/HiddenPage';
 import { PinnedPage } from './pages/PinnedPage';
 import { FavoritesPage } from './pages/FavoritesPage';
 import { HelpPage } from './pages/HelpPage';
@@ -39,7 +39,11 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/top" replace />} />
             <Route path="/opened" element={<OpenedPage />} />
-            <Route path="/ignored" element={<IgnoredPage />} />
+            <Route path="/hidden" element={<HiddenPage />} />
+            <Route
+              path="/ignored"
+              element={<Navigate to="/hidden" replace />}
+            />
             <Route path="/pinned" element={<PinnedPage />} />
             <Route path="/favorites" element={<FavoritesPage />} />
             <Route path="/help" element={<HelpPage />} />

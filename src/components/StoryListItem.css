@@ -81,9 +81,9 @@
   font-weight: 400;
 }
 
-.story-row--dismissed .story-row__body,
-.story-row--dismissed .story-row__title-text,
-.story-row--dismissed .story-row__meta {
+.story-row--hidden .story-row__body,
+.story-row--hidden .story-row__title-text,
+.story-row--hidden .story-row__meta {
   color: var(--hn-meta);
   font-weight: 400;
   opacity: 0.75;

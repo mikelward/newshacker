@@ -8,8 +8,8 @@ function snap(overrides: Partial<CloudSyncDebugSnapshot> = {}): CloudSyncDebugSn
   return {
     running: true,
     username: 'alice',
-    lastPushed: { pinned: 0, favorite: 0, ignored: 0 },
-    pendingCount: { pinned: 0, favorite: 0, ignored: 0 },
+    lastPushed: { pinned: 0, favorite: 0, hidden: 0 },
+    pendingCount: { pinned: 0, favorite: 0, hidden: 0 },
     push: { inFlight: false, queued: false, timerPending: false },
     lastPull: null,
     lastPush: null,
@@ -43,7 +43,7 @@ describe('<CloudSyncDebugPanel>', () => {
       <CloudSyncDebugPanel
         getSnapshot={() =>
           snap({
-            pendingCount: { pinned: 2, favorite: 1, ignored: 0 },
+            pendingCount: { pinned: 2, favorite: 1, hidden: 0 },
           })
         }
         subscribe={() => () => {}}
@@ -52,7 +52,7 @@ describe('<CloudSyncDebugPanel>', () => {
     expect(screen.getByText(/running as/i)).toBeInTheDocument();
     expect(screen.getByText(/alice/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/pinned 2, favorite 1, ignored 0/i),
+      screen.getByText(/pinned 2, favorite 1, hidden 0/i),
     ).toBeInTheDocument();
   });
 
@@ -66,13 +66,13 @@ describe('<CloudSyncDebugPanel>', () => {
               at: now - 3000,
               ok: true,
               status: 200,
-              counts: { pinned: 3, favorite: 1, ignored: 0 },
+              counts: { pinned: 3, favorite: 1, hidden: 0 },
             },
             lastPush: {
               at: now - 15000,
               ok: false,
               status: 503,
-              counts: { pinned: 1, favorite: 0, ignored: 0 },
+              counts: { pinned: 1, favorite: 0, hidden: 0 },
             },
           })
         }
@@ -80,7 +80,7 @@ describe('<CloudSyncDebugPanel>', () => {
       />,
     );
     expect(
-      screen.getByText(/GET → 200.*pinned 3, favorite 1, ignored 0/i),
+      screen.getByText(/GET → 200.*pinned 3, favorite 1, hidden 0/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/POST → 503.*failed.*pinned 1/i),
@@ -99,7 +99,7 @@ describe('<CloudSyncDebugPanel>', () => {
                 at: Date.now(),
                 ok: true,
                 status: 200,
-                counts: { pinned: 0, favorite: 0, ignored: 0 },
+                counts: { pinned: 0, favorite: 0, hidden: 0 },
               }
             : null,
       });
@@ -127,7 +127,7 @@ describe('<CloudSyncDebugPanel>', () => {
     const triggerPush = vi.fn().mockResolvedValue(undefined);
     const getSnapshot = vi.fn(() =>
       snap({
-        pendingCount: { pinned: 1, favorite: 0, ignored: 0 },
+        pendingCount: { pinned: 1, favorite: 0, hidden: 0 },
       }),
     );
     render(
@@ -144,7 +144,7 @@ describe('<CloudSyncDebugPanel>', () => {
 
   it('re-renders when subscribe fires', () => {
     let listener: (() => void) | null = null;
-    let counts = { pinned: 0, favorite: 0, ignored: 0 };
+    let counts = { pinned: 0, favorite: 0, hidden: 0 };
     const getSnapshot = () =>
       snap({ pendingCount: { ...counts } });
     const subscribe = (cb: () => void) => {
@@ -158,12 +158,12 @@ describe('<CloudSyncDebugPanel>', () => {
     );
     expect(screen.getByText(/no unpushed changes/i)).toBeInTheDocument();
 
-    counts = { pinned: 5, favorite: 0, ignored: 0 };
+    counts = { pinned: 5, favorite: 0, hidden: 0 };
     act(() => {
       listener?.();
     });
     expect(
-      screen.getByText(/pinned 5, favorite 0, ignored 0/i),
+      screen.getByText(/pinned 5, favorite 0, hidden 0/i),
     ).toBeInTheDocument();
   });
 });

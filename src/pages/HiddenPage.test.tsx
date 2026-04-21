@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
-import { IgnoredPage } from './IgnoredPage';
+import { HiddenPage } from './HiddenPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
-import { addDismissedId } from '../lib/dismissedStories';
+import { addHiddenId } from '../lib/hiddenStories';
 import { addOpenedId } from '../lib/openedStories';
 
-describe('<IgnoredPage>', () => {
+describe('<HiddenPage>', () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -15,24 +15,24 @@ describe('<IgnoredPage>', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows an empty state when nothing is ignored', () => {
+  it('shows an empty state when nothing is hidden', () => {
     installHNFetchMock({ items: {} });
-    renderWithProviders(<IgnoredPage />);
-    expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
+    renderWithProviders(<HiddenPage />);
+    expect(screen.getByText(/Nothing hidden/i)).toBeInTheDocument();
   });
 
-  it('shows dismissed-but-not-opened stories', async () => {
+  it('shows hidden-but-not-opened stories', async () => {
     installHNFetchMock({
       items: {
         1: makeStory(1, { title: 'Alpha' }),
         2: makeStory(2, { title: 'Beta' }),
       },
     });
-    addDismissedId(1);
-    addDismissedId(2);
+    addHiddenId(1);
+    addHiddenId(2);
     addOpenedId(2);
 
-    renderWithProviders(<IgnoredPage />);
+    renderWithProviders(<HiddenPage />);
 
     await waitFor(() => {
       expect(screen.getByText('Alpha')).toBeInTheDocument();
@@ -40,19 +40,19 @@ describe('<IgnoredPage>', () => {
     expect(screen.queryByText('Beta')).toBeNull();
   });
 
-  it('un-ignore removes the row and its dismissed record', async () => {
+  it('unhide removes the row and its hidden record', async () => {
     installHNFetchMock({
       items: { 5: makeStory(5, { title: 'Five' }) },
     });
-    addDismissedId(5);
+    addHiddenId(5);
 
-    renderWithProviders(<IgnoredPage />);
+    renderWithProviders(<HiddenPage />);
     await waitFor(() => {
       expect(screen.getByText('Five')).toBeInTheDocument();
     });
 
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: /un-ignore/i }));
+      fireEvent.click(screen.getByRole('button', { name: /unhide/i }));
     });
 
     await waitFor(() => {
@@ -60,7 +60,7 @@ describe('<IgnoredPage>', () => {
     });
 
     const stored = window.localStorage.getItem(
-      'newshacker:dismissedStoryIds',
+      'newshacker:hiddenStoryIds',
     );
     const parsed = stored
       ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
@@ -68,44 +68,44 @@ describe('<IgnoredPage>', () => {
     expect(parsed.filter((e) => !e.deleted)).toEqual([]);
   });
 
-  it('does not show a Forget all button when nothing is ignored', () => {
+  it('does not show a Forget all button when nothing is hidden', () => {
     installHNFetchMock({ items: {} });
-    renderWithProviders(<IgnoredPage />);
+    renderWithProviders(<HiddenPage />);
     expect(
-      screen.queryByRole('button', { name: /forget all ignored/i }),
+      screen.queryByRole('button', { name: /forget all hidden/i }),
     ).toBeNull();
   });
 
-  it('Forget all clears every ignored story after confirmation', async () => {
+  it('Forget all clears every hidden story after confirmation', async () => {
     installHNFetchMock({
       items: {
         1: makeStory(1, { title: 'Alpha' }),
         2: makeStory(2, { title: 'Beta' }),
       },
     });
-    addDismissedId(1);
-    addDismissedId(2);
+    addHiddenId(1);
+    addHiddenId(2);
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    renderWithProviders(<IgnoredPage />);
+    renderWithProviders(<HiddenPage />);
     await waitFor(() => {
       expect(screen.getByText('Alpha')).toBeInTheDocument();
     });
 
     act(() => {
       fireEvent.click(
-        screen.getByRole('button', { name: /forget all ignored/i }),
+        screen.getByRole('button', { name: /forget all hidden/i }),
       );
     });
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/forget all 2 ignored stories/i),
+      expect.stringMatching(/forget all 2 hidden stories/i),
     );
     await waitFor(() => {
-      expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
+      expect(screen.getByText(/Nothing hidden/i)).toBeInTheDocument();
     });
     expect(
-      window.localStorage.getItem('newshacker:dismissedStoryIds'),
+      window.localStorage.getItem('newshacker:hiddenStoryIds'),
     ).toBe('[]');
   });
 
@@ -113,17 +113,17 @@ describe('<IgnoredPage>', () => {
     installHNFetchMock({
       items: { 1: makeStory(1, { title: 'Alpha' }) },
     });
-    addDismissedId(1);
+    addHiddenId(1);
     vi.spyOn(window, 'confirm').mockReturnValue(false);
 
-    renderWithProviders(<IgnoredPage />);
+    renderWithProviders(<HiddenPage />);
     await waitFor(() => {
       expect(screen.getByText('Alpha')).toBeInTheDocument();
     });
 
     act(() => {
       fireEvent.click(
-        screen.getByRole('button', { name: /forget all ignored/i }),
+        screen.getByRole('button', { name: /forget all hidden/i }),
       );
     });
 
@@ -134,33 +134,33 @@ describe('<IgnoredPage>', () => {
     installHNFetchMock({
       items: { 1: makeStory(1, { title: 'Alpha' }) },
     });
-    addDismissedId(1);
+    addHiddenId(1);
     window.localStorage.setItem(
       'newshacker:pinnedStoryIds',
       JSON.stringify([{ id: 99, at: Date.now() }]),
     );
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    renderWithProviders(<IgnoredPage />);
+    renderWithProviders(<HiddenPage />);
     await waitFor(() => {
       expect(screen.getByText('Alpha')).toBeInTheDocument();
     });
 
     act(() => {
       fireEvent.click(
-        screen.getByRole('button', { name: /forget all ignored/i }),
+        screen.getByRole('button', { name: /forget all hidden/i }),
       );
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Nothing ignored/i)).toBeInTheDocument();
+      expect(screen.getByText(/Nothing hidden/i)).toBeInTheDocument();
     });
     const pinned = window.localStorage.getItem('newshacker:pinnedStoryIds');
     expect(pinned).not.toBeNull();
     expect(JSON.parse(pinned as string)).toHaveLength(1);
   });
 
-  it('orders ignored stories newest first by dismissal time', async () => {
+  it('orders hidden stories newest first by hide time', async () => {
     installHNFetchMock({
       items: {
         1: makeStory(1, { title: 'One' }),
@@ -168,10 +168,10 @@ describe('<IgnoredPage>', () => {
       },
     });
     const now = Date.now();
-    addDismissedId(1, now - 2000);
-    addDismissedId(2, now - 1000);
+    addHiddenId(1, now - 2000);
+    addHiddenId(2, now - 1000);
 
-    renderWithProviders(<IgnoredPage />);
+    renderWithProviders(<HiddenPage />);
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(2);
     });
