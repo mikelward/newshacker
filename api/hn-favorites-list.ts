@@ -10,7 +10,94 @@
 // doesn't expose a per-favorite timestamp, so clients that want to
 // merge with local state should treat these entries as `at: 0`).
 
-import { parseFavoritesPage } from './hnFavoritesScrape';
+// Scraper for the HN favorites page. Inlined rather than imported
+// from a sibling file because Vercel's per-file function bundler
+// doesn't reliably trace relative imports between api/*.ts handlers
+// (symptom: ERR_MODULE_NOT_FOUND for ./hnFavoritesScrape at deploy
+// time). Matches the existing convention — see api/comments-summary.ts
+// and the § 5-infra note in IMPLEMENTATION_PLAN.md.
+//
+// The scraper is regex-based rather than DOM-parser-based because
+// (a) shipping a parser to a Node serverless function is avoidable
+// weight, and (b) HN's markup is simple and stable enough that
+// anchoring on table-row + class attributes is safe. On a shape
+// change the scraper returns empty results instead of throwing, so
+// callers treat a scrape miss as "nothing to sync" and local state
+// stays authoritative.
+//
+// HN's default favorites page (no `&comments=t`) shows story rows as
+// `<tr class="athing" id="<id>">`. Comment favorites are a separate
+// tab with rows carrying `class="athing comtr"` — deliberately
+// excluded here by rejecting any row whose class tokens contain
+// `comtr`.
+
+export interface FavoritesScrapeResult {
+  ids: number[];
+  morePath: string | null;
+}
+
+const TR_OPEN_RE = /<tr\b([^>]*)>/gi;
+const CLASS_ATTR_RE = /\bclass=(?:"([^"]*)"|'([^']*)')/i;
+const ID_ATTR_RE = /\bid=(?:"(\d+)"|'(\d+)')/i;
+const A_OPEN_RE = /<a\b([^>]*)>/gi;
+const HREF_ATTR_RE = /\bhref=(?:"([^"]*)"|'([^']*)')/i;
+
+function classTokens(attrs: string): string[] {
+  const m = CLASS_ATTR_RE.exec(attrs);
+  if (!m) return [];
+  const raw = m[1] ?? m[2] ?? '';
+  return raw.split(/\s+/).filter(Boolean);
+}
+
+function idValue(attrs: string): number | null {
+  const m = ID_ATTR_RE.exec(attrs);
+  if (!m) return null;
+  const raw = m[1] ?? m[2];
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n <= 0) return null;
+  return n;
+}
+
+function hrefValue(attrs: string): string | null {
+  const m = HREF_ATTR_RE.exec(attrs);
+  if (!m) return null;
+  return m[1] ?? m[2] ?? null;
+}
+
+function decodeAmp(s: string): string {
+  return s.replace(/&amp;/gi, '&');
+}
+
+export function parseFavoritesPage(html: string): FavoritesScrapeResult {
+  const ids: number[] = [];
+  const seen = new Set<number>();
+
+  for (const m of html.matchAll(TR_OPEN_RE)) {
+    const attrs = m[1] ?? '';
+    const tokens = classTokens(attrs);
+    if (!tokens.includes('athing')) continue;
+    if (tokens.includes('comtr')) continue;
+    const id = idValue(attrs);
+    if (id == null) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+
+  let morePath: string | null = null;
+  for (const m of html.matchAll(A_OPEN_RE)) {
+    const attrs = m[1] ?? '';
+    const tokens = classTokens(attrs);
+    if (!tokens.includes('morelink')) continue;
+    const href = hrefValue(attrs);
+    if (!href) break;
+    morePath = decodeAmp(href);
+    break;
+  }
+
+  return { ids, morePath };
+}
 
 const HN_FAVORITES_URL = 'https://news.ycombinator.com/favorites';
 const HN_ORIGIN = 'https://news.ycombinator.com';
