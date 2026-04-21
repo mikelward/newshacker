@@ -157,8 +157,12 @@ server-side with most-recent-first eviction.
      a short, honest disclosure to that effect.
 
 6. **Account UI** (header chip, not drawer). The sticky orange header
-   gains a single always-visible account control on the far right — one
-   extra tap target, 48×48 hit area, on every page. Surfacing auth
+   gains a single always-visible account control placed immediately to
+   the right of the `newshacker` logo and wordmark — one extra tap
+   target, 48×48 hit area, on every page. Placing it next to the brand
+   (rather than in the far-right actions cluster with Undo/Sweep) keeps
+   the right side reserved for feed-scoped tools and puts the "who am
+   I" affordance next to the "where am I" affordance. Surfacing auth
    state in the header (rather than behind the drawer) means a first-time
    visitor can see "this app has a login" without exploring the menu.
    - **Logged out:** a text `Sign in` button that navigates to `/login`.

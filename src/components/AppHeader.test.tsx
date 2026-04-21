@@ -61,4 +61,20 @@ describe('<AppHeader>', () => {
     renderWithProviders(<AppHeader />, { route: '/pinned' });
     expect(screen.getByTestId('offline-indicator')).toBeInTheDocument();
   });
+
+  it('places the account avatar between the title and the feed action icons', () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    const banner = screen.getByRole('banner');
+    const title = banner.querySelector('.app-header__title');
+    const avatarBtn = screen.getByTestId('header-account-btn');
+    const sweepBtn = screen.getByTestId('sweep-btn');
+    expect(title).not.toBeNull();
+    // DOCUMENT_POSITION_FOLLOWING (0x04) means the argument follows this node.
+    expect(title!.compareDocumentPosition(avatarBtn)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(avatarBtn.compareDocumentPosition(sweepBtn)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
 });

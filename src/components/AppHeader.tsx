@@ -99,6 +99,7 @@ export function AppHeader() {
           </span>
           <span className="app-header__title">newshacker</span>
         </Link>
+        <HeaderAccountMenu />
         {onFeedPage ? (
           <div className="app-header__actions">
             {offlinePill}
@@ -124,13 +125,9 @@ export function AppHeader() {
             >
               <SweepIcon />
             </TooltipButton>
-            <HeaderAccountMenu />
           </div>
         ) : (
-          <div className="app-header__actions">
-            {offlinePill}
-            <HeaderAccountMenu />
-          </div>
+          offlinePill
         )}
       </header>
       <AppDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />

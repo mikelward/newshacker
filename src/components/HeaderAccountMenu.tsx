@@ -10,7 +10,8 @@ import { TooltipButton } from './TooltipButton';
 import { UserAvatar } from './UserAvatar';
 import './HeaderAccountMenu.css';
 
-// Always-visible auth control in the top-right. Two display states:
+// Always-visible auth control, rendered next to the header wordmark.
+// Two display states:
 //   1. Logged out — anonymous silhouette avatar; tap navigates to /login.
 //   2. Logged in — colored initial avatar; tap opens a dropdown with
 //      the username, karma, a link to /user/:username, and Log out.
