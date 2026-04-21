@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
@@ -56,39 +56,23 @@ describe('<StoryList> polish states', () => {
     });
   });
 
-  it('advances pages via the infinite-scroll sentinel', async () => {
-    // First fetch grabs 90 items; sentinel triggers one more page of 30.
-    const ids = Array.from({ length: 120 }, (_, i) => i + 1);
+  it('advances pages only when the reader taps More', async () => {
+    // Regression: no infinite-scroll sentinel, no auto-prefetch. The feed
+    // should stop at 30 rows until the reader explicitly asks for more.
+    const ids = Array.from({ length: 90 }, (_, i) => i + 1);
     const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
     installHNFetchMock({ feeds: { topstories: ids }, items });
-
-    type Entry = { isIntersecting: boolean };
-    let observer: { callback: (e: Entry[]) => void } | null = null;
-    const MockIO = function (cb: (e: Entry[]) => void) {
-      observer = { callback: cb };
-      return {
-        observe: () => {},
-        disconnect: () => {},
-        unobserve: () => {},
-        takeRecords: () => [] as Entry[],
-      };
-    };
-    vi.stubGlobal('IntersectionObserver', MockIO);
 
     renderWithProviders(<StoryList feed="top" />);
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(90);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(30);
     });
 
-    // Trigger the sentinel intersection.
-    expect(observer).not.toBeNull();
-    act(() => {
-      observer!.callback([{ isIntersecting: true }]);
-    });
+    await userEvent.click(screen.getByRole('button', { name: /^more$/i }));
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(120);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(60);
     });
   });
 });

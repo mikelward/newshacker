@@ -17,12 +17,6 @@
   gap: 8px;
 }
 
-.story-list__sentinel {
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
-}
-
 .load-more-btn {
   background: var(--hn-bg-card);
   color: var(--hn-text);

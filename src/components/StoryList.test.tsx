@@ -14,25 +14,45 @@ describe('<StoryList>', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders 90 items then silently prefetches page 2 to 120, with Load more for page 3', async () => {
-    const ids = Array.from({ length: 180 }, (_, i) => i + 1);
+  it('renders 30 items by default and reveals another 30 per More click', async () => {
+    // Mirrors HN's web home page: the initial paint is exactly one page
+    // (30 stories). Additional pages are only fetched when the reader
+    // taps More — no auto-prefetch, no infinite scroll.
+    const ids = Array.from({ length: 120 }, (_, i) => i + 1);
     const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
     installHNFetchMock({ feeds: { topstories: ids }, items });
 
     renderWithProviders(<StoryList feed="top" />);
 
-    // Page 1 (90 items) lands first, then the silent prefetch bumps the
-    // visible list to 120. waitFor settles on the final count.
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(120);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(30);
     });
 
-    const loadMore = screen.getByRole('button', { name: /load more/i });
-    await userEvent.click(loadMore);
+    const more = screen.getByRole('button', { name: /^more$/i });
+    await userEvent.click(more);
 
     await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(150);
+      expect(screen.getAllByTestId('story-row')).toHaveLength(60);
     });
+
+    await userEvent.click(screen.getByRole('button', { name: /^more$/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(90);
+    });
+  });
+
+  it('hides the More button when the feed has 30 or fewer stories', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => i + 1);
+    const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(12);
+    });
+    expect(screen.queryByRole('button', { name: /^more$/i })).not.toBeInTheDocument();
   });
 
   it('refetches the feed on mount when a populated cache would otherwise be considered fresh', async () => {
