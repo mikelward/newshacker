@@ -78,6 +78,19 @@ If any of the above fails, fix it — don't disable the check.
   query, `:active` outside. Every new tappable (button, link, icon
   button) should follow the same shape.
 
+## Component gotchas
+
+- **Use `<TooltipButton>` for new interactive buttons.** It's a drop-in
+  replacement for native `<button>` that adds the long-press tooltip
+  (`tooltip="…"` prop) and handles the cross-browser pitfalls — iOS
+  callout suppression, Android `contextmenu` preventDefault, click
+  swallowing after long-press, viewport-aware positioning.
+  Prefer it over raw `<button>`. Icon-only buttons MUST also set
+  `aria-label` (or contain a `visually-hidden` caption); the tooltip
+  is visual-only and does not satisfy the accessible-name requirement.
+  Text buttons (with a visible label) can keep using native `<button>`
+  — the tooltip would just repeat the label.
+
 ## Architecture notes
 
 - **Read path:** client → Firebase HN API directly (`https://hacker-news.firebaseio.com/v0`). No server involvement.

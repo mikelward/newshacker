@@ -1,0 +1,62 @@
+.tooltip-button {
+  /* iOS long-press can surface the native callout / selection magnifier
+     even on a <button>; the callout+user-select trio is the combo
+     WebKit-based browsers honor (contextmenu never fires on iOS, so
+     CSS is the only lever). `touch-action: manipulation` kills the
+     legacy double-tap-zoom delay and gives us a fast, deterministic
+     single-tap; `-webkit-tap-highlight-color: transparent` drops the
+     grey Android tap flash that would briefly tint the button behind
+     the tooltip. */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tooltip-button__tooltip {
+  position: fixed;
+  background: rgba(30, 30, 30, 0.94);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  max-width: min(240px, calc(100vw - 16px));
+  /* The tooltip is informational only; never eat taps meant for the
+     page underneath (important on iOS where fixed overlays can steal
+     touches from content beneath). */
+  pointer-events: none;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  animation: tooltip-button-fade-in 120ms ease-out both;
+}
+
+/* Default placement: above the button. The anchor is the button's
+   top-center, so we translate up by the tooltip's full height + 8px. */
+.tooltip-button__tooltip--above {
+  transform: translate(-50%, calc(-100% - 8px));
+}
+
+/* Flipped placement when there isn't room above. Anchor is the
+   button's bottom-center; translate down by 8px. */
+.tooltip-button__tooltip--below {
+  transform: translate(-50%, 8px);
+}
+
+@keyframes tooltip-button-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip-button__tooltip {
+    animation: none;
+  }
+}

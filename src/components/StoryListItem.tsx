@@ -4,6 +4,7 @@ import type { HNItem } from '../lib/hn';
 import { extractDomain, formatStoryMetaTail } from '../lib/format';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
+import { TooltipButton } from './TooltipButton';
 import './StoryListItem.css';
 
 interface Props {
@@ -122,13 +123,14 @@ export function StoryListItem({
     >
       {isLoggedIn ? (
         <div className="story-row__vote">
-          <button
+          <TooltipButton
             type="button"
             className="vote-btn"
+            tooltip="Upvote"
             aria-label={`Upvote ${title}`}
           >
             <span aria-hidden="true">▲</span>
-          </button>
+          </TooltipButton>
         </div>
       ) : null}
 
@@ -145,13 +147,13 @@ export function StoryListItem({
         </span>
       </Link>
 
-      <button
+      <TooltipButton
         type="button"
         className={'pin-btn' + (pinned ? ' pin-btn--active' : '')}
         data-testid="pin-btn"
         aria-pressed={pinned}
         aria-label={pinLabel}
-        title={pinned ? 'Unpin' : 'Pin'}
+        tooltip={pinned ? 'Unpin' : 'Pin'}
         onClick={handleTogglePin}
       >
         <svg
@@ -170,7 +172,7 @@ export function StoryListItem({
             <path d="M14 4v5c0 1.12.37 2.16 1 3H9c.65-.86 1-1.9 1-3V4h4m3-2H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1z" />
           )}
         </svg>
-      </button>
+      </TooltipButton>
 
       {menuItems.length > 0 ? (
         <StoryRowMenu

@@ -23,6 +23,7 @@ import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
+import { TooltipButton } from './TooltipButton';
 import './Thread.css';
 
 interface Props {
@@ -535,7 +536,7 @@ export function Thread({ id }: Props) {
               <span className="thread__action-label">Read article</span>
             </a>
           ) : null}
-          <button
+          <TooltipButton
             type="button"
             className={
               'thread__action thread__action--icon' +
@@ -543,14 +544,15 @@ export function Thread({ id }: Props) {
             }
             data-testid="thread-pin"
             aria-pressed={pinned}
+            tooltip={pinned ? 'Unpin' : 'Pin'}
             onClick={handleTogglePinned}
           >
             {pinned ? <PinFilledIcon /> : <PinIcon />}
             <span className="visually-hidden">
               {pinned ? 'Unpin' : 'Pin'}
             </span>
-          </button>
-          <button
+          </TooltipButton>
+          <TooltipButton
             type="button"
             className={
               'thread__action thread__action--icon' +
@@ -558,24 +560,26 @@ export function Thread({ id }: Props) {
             }
             data-testid="thread-favorite"
             aria-pressed={favorited}
+            tooltip={favorited ? 'Unfavorite' : 'Favorite'}
             onClick={handleToggleFavorite}
           >
             {favorited ? <HeartFilledIcon /> : <HeartIcon />}
             <span className="visually-hidden">
               {favorited ? 'Unfavorite' : 'Favorite'}
             </span>
-          </button>
-          <button
+          </TooltipButton>
+          <TooltipButton
             type="button"
             className="thread__action thread__action--icon"
             data-testid="thread-more"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
+            tooltip="More actions"
             aria-label="More actions"
             onClick={openMenu}
           >
             <MoreVertIcon />
-          </button>
+          </TooltipButton>
         </div>
         <StoryRowMenu
           open={menuOpen}

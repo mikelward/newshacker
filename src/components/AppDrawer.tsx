@@ -5,6 +5,7 @@ import { FEEDS, feedLabel } from '../lib/feeds';
 import { getStoryIds } from '../lib/hn';
 import { useTheme } from '../hooks/useTheme';
 import type { Theme } from '../lib/theme';
+import { TooltipButton } from './TooltipButton';
 import './AppDrawer.css';
 
 // Material Symbols Outlined — Apache 2.0, Google. viewBox 0 -960 960 960,
@@ -96,15 +97,16 @@ export function AppDrawer({ open, onClose }: Props) {
         aria-modal="true"
         aria-label="Navigation menu"
       >
-        <button
+        <TooltipButton
           type="button"
           className="app-drawer__close"
           data-testid="drawer-close"
+          tooltip="Close menu"
           aria-label="Close menu"
           onClick={onClose}
         >
           <span aria-hidden="true">×</span>
-        </button>
+        </TooltipButton>
         <div className="app-drawer__section-title">Feeds</div>
         <ul className="app-drawer__list">
           {FEEDS.map((f) => (
@@ -147,18 +149,19 @@ export function AppDrawer({ open, onClose }: Props) {
           aria-labelledby="app-drawer-theme-label"
         >
           {THEME_OPTIONS.map((opt) => (
-            <button
+            <TooltipButton
               key={opt.value}
               type="button"
               role="radio"
               aria-checked={theme === opt.value}
+              tooltip={opt.label}
               aria-label={opt.label}
               className="app-drawer__segmented-btn"
               data-active={theme === opt.value || undefined}
               onClick={() => setTheme(opt.value)}
             >
               <ThemeIcon path={opt.path} />
-            </button>
+            </TooltipButton>
           ))}
         </div>
         <div className="app-drawer__section-title">App</div>
