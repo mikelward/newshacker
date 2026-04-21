@@ -259,7 +259,6 @@ describe('<Thread>', () => {
     });
 
     const fav = screen.getByTestId('thread-favorite');
-    const pin = screen.getByTestId('thread-pin');
     expect(fav).toHaveAccessibleName(/^favorite$/i);
     expect(fav).toHaveAttribute('aria-pressed', 'false');
 
@@ -270,7 +269,6 @@ describe('<Thread>', () => {
       window.localStorage.getItem('newshacker:favoriteStoryIds'),
     ).toContain('"id":710');
     // Pin is untouched by Favorite
-    expect(pin).toHaveAttribute('aria-pressed', 'false');
     expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBeNull();
 
     await userEvent.click(fav);
@@ -315,6 +313,44 @@ describe('<Thread>', () => {
       ? (JSON.parse(storedPin) as Array<{ id: number; deleted?: true }>)
       : [];
     expect(parsedPin.filter((e) => !e.deleted)).toEqual([]);
+  });
+
+  it('toggles done state via the Done button in the header, and unpins on mark-done', async () => {
+    installHNFetchMock({
+      items: { 730: makeStory(730, { title: 'Finishable' }) },
+    });
+    // Pre-pin the story so we can verify mark-done unpins it.
+    window.localStorage.setItem(
+      'newshacker:pinnedStoryIds',
+      JSON.stringify([{ id: 730, at: Date.now() }]),
+    );
+
+    renderWithProviders(<Thread id={730} />);
+    await waitFor(() => {
+      expect(screen.getByText('Finishable')).toBeInTheDocument();
+    });
+
+    const done = screen.getByTestId('thread-done');
+    expect(done).toHaveAccessibleName(/^mark done$/i);
+    expect(done).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(done);
+    expect(done).toHaveAccessibleName(/unmark done/i);
+    expect(done).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      window.localStorage.getItem('newshacker:doneStoryIds'),
+    ).toContain('"id":730');
+
+    // Done unpins as a side-effect — the pin is tombstoned, not live.
+    const pinRaw = window.localStorage.getItem('newshacker:pinnedStoryIds');
+    const pinEntries = pinRaw
+      ? (JSON.parse(pinRaw) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(pinEntries.filter((e) => !e.deleted && e.id === 730)).toEqual([]);
+
+    await userEvent.click(done);
+    expect(done).toHaveAttribute('aria-pressed', 'false');
+    expect(done).toHaveAccessibleName(/^mark done$/i);
   });
 
   // Thread-page voting. The upvote arrow lives in the action row

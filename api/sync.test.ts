@@ -28,7 +28,7 @@ function request(
 }
 
 function emptyState(): SyncState {
-  return { pinned: [], favorite: [], hidden: [] };
+  return { pinned: [], favorite: [], hidden: [], done: [] };
 }
 
 function createTestStore(): SyncStore & {
@@ -158,6 +158,7 @@ describe('handleSyncRequest GET', () => {
       pinned: [],
       favorite: [],
       hidden: [],
+      done: [],
     });
   });
 
@@ -166,6 +167,7 @@ describe('handleSyncRequest GET', () => {
       pinned: [{ id: 1, at: 100 }],
       favorite: [{ id: 2, at: 200 }],
       hidden: [{ id: 3, at: 300 }],
+      done: [{ id: 4, at: 400 }],
     });
     const res = await handleSyncRequest(request('GET'), { store });
     expect(res.status).toBe(200);
@@ -173,6 +175,7 @@ describe('handleSyncRequest GET', () => {
       pinned: [{ id: 1, at: 100 }],
       favorite: [{ id: 2, at: 200 }],
       hidden: [{ id: 3, at: 300 }],
+      done: [{ id: 4, at: 400 }],
     });
   });
 
@@ -181,6 +184,7 @@ describe('handleSyncRequest GET', () => {
       pinned: [{ id: 99, at: 9999 }],
       favorite: [],
       hidden: [],
+      done: [],
     });
     const res = await handleSyncRequest(request('GET'), { store });
     const body = (await res.json()) as SyncState;
@@ -202,6 +206,7 @@ describe('handleSyncRequest GET', () => {
       pinned: [],
       favorite: [],
       hidden: [],
+      done: [],
     });
   });
 });
@@ -218,6 +223,7 @@ describe('handleSyncRequest POST', () => {
         pinned: [{ id: 10, at: 1000 }],
         favorite: [{ id: 20, at: 2000 }],
         hidden: [{ id: 30, at: 3000 }],
+        done: [{ id: 40, at: 4000 }],
       }),
       { store },
     );
@@ -227,6 +233,7 @@ describe('handleSyncRequest POST', () => {
       pinned: [{ id: 10, at: 1000 }],
       favorite: [{ id: 20, at: 2000 }],
       hidden: [{ id: 30, at: 3000 }],
+      done: [{ id: 40, at: 4000 }],
     });
     expect(store.map.get('alice')).toEqual(body);
 
@@ -242,6 +249,7 @@ describe('handleSyncRequest POST', () => {
       ],
       favorite: [],
       hidden: [],
+      done: [],
     });
     const res = await handleSyncRequest(
       request('POST', {
@@ -262,6 +270,7 @@ describe('handleSyncRequest POST', () => {
       pinned: [{ id: 1, at: 500 }],
       favorite: [],
       hidden: [],
+      done: [],
     });
     const res = await handleSyncRequest(
       request('POST', { pinned: [{ id: 1, at: 100 }] }),
@@ -276,6 +285,7 @@ describe('handleSyncRequest POST', () => {
       pinned: [{ id: 1, at: 100 }],
       favorite: [],
       hidden: [],
+      done: [],
     });
     const res = await handleSyncRequest(
       request('POST', {
@@ -380,9 +390,31 @@ describe('handleSyncRequest POST', () => {
       pinned: [{ id: 1, at: 100 }],
       favorite: [],
       hidden: [],
+      done: [],
     });
     const res = await handleSyncRequest(request('POST', {}), { store });
     const body = (await res.json()) as SyncState;
     expect(body.pinned).toEqual([{ id: 1, at: 100 }]);
+  });
+
+  it('round-trips a done delta independent of the other lists', async () => {
+    const res = await handleSyncRequest(
+      request('POST', {
+        done: [
+          { id: 1, at: 100 },
+          { id: 2, at: 200, deleted: true },
+        ],
+      }),
+      { store },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as SyncState;
+    expect(body.done).toEqual([
+      { id: 1, at: 100 },
+      { id: 2, at: 200, deleted: true },
+    ]);
+    expect(body.pinned).toEqual([]);
+    expect(body.favorite).toEqual([]);
+    expect(body.hidden).toEqual([]);
   });
 });

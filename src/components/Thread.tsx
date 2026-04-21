@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { useDoneStories } from '../hooks/useDoneStories';
 import { useFavorites } from '../hooks/useFavorites';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -136,6 +137,38 @@ function MoreVertIcon() {
       focusable="false"
     >
       <path d="M480-160q-33 0-56.5-23.5T400-240q0-33 23.5-56.5T480-320q33 0 56.5 23.5T560-240q0 33-23.5 56.5T480-160Zm0-240q-33 0-56.5-23.5T400-480q0-33 23.5-56.5T480-560q33 0 56.5 23.5T560-480q0 33-23.5 56.5T480-400Zm0-240q-33 0-56.5-23.5T400-720q0-33 23.5-56.5T480-800q33 0 56.5 23.5T560-720q0 33-23.5 56.5T480-640Z" />
+    </svg>
+  );
+}
+
+function DoneIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z" />
+    </svg>
+  );
+}
+
+function DoneFilledIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm-56-216 280-280-56-56-224 224-114-114-56 56 170 170Z" />
     </svg>
   );
 }
@@ -482,6 +515,12 @@ export function Thread({ id }: Props) {
       if (item) prefetchPinnedStory(queryClient, item);
     }
   }, [pinned, id, pin, unpin, item, queryClient]);
+  const { isDone, markDone, unmarkDone } = useDoneStories();
+  const done = isDone(id);
+  const handleToggleDone = useCallback(() => {
+    if (done) unmarkDone(id);
+    else markDone(id);
+  }, [done, id, markDone, unmarkDone]);
   const { isFavorite, favorite, unfavorite } = useFavorites();
   const favorited = isFavorite(id);
   const handleToggleFavorite = useCallback(() => {
@@ -665,6 +704,22 @@ export function Thread({ id }: Props) {
             {favorited ? <HeartFilledIcon /> : <HeartIcon />}
             <span className="visually-hidden">
               {favorited ? 'Unfavorite' : 'Favorite'}
+            </span>
+          </TooltipButton>
+          <TooltipButton
+            type="button"
+            className={
+              'thread__action thread__action--icon' +
+              (done ? ' thread__action--active' : '')
+            }
+            data-testid="thread-done"
+            aria-pressed={done}
+            tooltip={done ? 'Unmark done' : 'Mark done'}
+            onClick={handleToggleDone}
+          >
+            {done ? <DoneFilledIcon /> : <DoneIcon />}
+            <span className="visually-hidden">
+              {done ? 'Unmark done' : 'Mark done'}
             </span>
           </TooltipButton>
           <TooltipButton
