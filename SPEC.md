@@ -426,6 +426,7 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline.
   - An offline-specific message in the AI summary card when no cached summary exists. The same message pattern applies to the AI comment summary card.
 - Write actions (vote, login — once implemented) check `navigator.onLine` and show a toast instead of issuing a request that's guaranteed to fail.
+- **React Query `networkMode: 'offlineFirst'`** (set globally in `main.tsx`). The default 'online' mode pauses queries whenever React Query's `onlineManager` reports offline, which leaves uncached thread/summary reads on a never-resolving loading skeleton. `'offlineFirst'` lets the queryFn run regardless, so the Workbox SW cache can answer from Cache API when it has an entry, and a true miss rejects fast enough for the offline error UI above to render.
 
 ### Planned (not in this change)
 - Pull-to-refresh gesture on feed and thread pages that invalidates the relevant React Query keys (and thus the SW caches via SWR). Replaces the browser's native PTR, which disappears in standalone mode.

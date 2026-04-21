@@ -26,6 +26,14 @@ const queryClient = new QueryClient({
       gcTime: ONE_HOUR,
       retry: 1,
       refetchOnWindowFocus: false,
+      // The Workbox service worker answers from the Cache API when it
+      // can, so we want queries to run the fetch even when the browser
+      // reports offline — otherwise React Query's default 'online' mode
+      // pauses uncached requests in a never-resolving pending state
+      // (spinner hangs). With 'offlineFirst', the fetch runs, the SW
+      // serves a cached response if it has one, and a true miss surfaces
+      // as an error so the offline UI can render.
+      networkMode: 'offlineFirst',
     },
   },
 });
