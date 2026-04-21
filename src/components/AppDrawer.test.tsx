@@ -55,6 +55,10 @@ describe('<AppDrawer>', () => {
       'href',
       '/about',
     );
+    expect(screen.getByRole('link', { name: 'Debug' })).toHaveAttribute(
+      'href',
+      '/debug',
+    );
   });
 
   it('calls onClose when the scrim is clicked', () => {
