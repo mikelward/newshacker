@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient } from '@tanstack/react-query';
 import { StoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
@@ -32,6 +33,48 @@ describe('<StoryList>', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(150);
     });
+  });
+
+  it('refetches the feed on mount when a populated cache would otherwise be considered fresh', async () => {
+    // Regression: after a browser reload, PersistQueryClient hydrates the
+    // React Query cache from localStorage. With the app-wide staleTime of
+    // 5 minutes, the seeded data is still "fresh", so without an
+    // explicit refetchOnMount override the UI would paint yesterday's
+    // story list indefinitely. This test seeds stale data under that same
+    // staleTime and asserts the fresh list replaces it.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 60_000, staleTime: 5 * 60_000 },
+      },
+    });
+    client.setQueryData(
+      ['storyIds', 'top'],
+      [1, 2],
+    );
+    client.setQueryData(['feedItems', 'top'], {
+      pages: [
+        [
+          makeStory(1, { title: 'Stale One' }),
+          makeStory(2, { title: 'Stale Two' }),
+        ],
+      ],
+      pageParams: [0],
+    });
+
+    installHNFetchMock({
+      feeds: { topstories: [3, 4] },
+      items: {
+        3: makeStory(3, { title: 'Fresh Three' }),
+        4: makeStory(4, { title: 'Fresh Four' }),
+      },
+    });
+
+    renderWithProviders(<StoryList feed="top" />, { client });
+
+    await waitFor(() => {
+      expect(screen.getByText('Fresh Three')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Stale One')).not.toBeInTheDocument();
   });
 
   it('filters out deleted and dead items', async () => {

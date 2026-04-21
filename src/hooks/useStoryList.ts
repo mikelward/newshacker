@@ -22,10 +22,20 @@ export const PAGE_SIZE = 30;
 const FIRST_PAGE_MULTIPLIER = 3;
 const FIRST_PAGE_SIZE = PAGE_SIZE * FIRST_PAGE_MULTIPLIER;
 
+// The feed queries override the app-wide `staleTime`/`refetchOnWindowFocus`
+// defaults: for a news feed, "last time the component mounted" is the only
+// freshness signal that matches user intent. Without this, a browser reload
+// (or a tab refocus) rehydrates the persisted React Query cache and shows
+// yesterday's list because the shared staleTime (5 min) still considers it
+// fresh. `refetchOnMount: 'always'` bypasses staleTime on mount; narrowing
+// `refetchOnWindowFocus` to these queries means per-thread/summary caches
+// still benefit from the app-wide off switch.
 export function useStoryIds(feed: Feed) {
   return useQuery({
     queryKey: ['storyIds', feed],
     queryFn: ({ signal }) => getStoryIds(feed, signal),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -73,6 +83,10 @@ export function useFeedItems(feed: Feed): FeedItemsState {
       const loaded = itemsLoadedAfter(allPages.length);
       return allIds && loaded < allIds.length ? allPages.length : undefined;
     },
+    // See the comment on useStoryIds — score/comment counts in the feed
+    // need to refresh on reload/refocus, not only after a 5-minute timer.
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const items = useMemo<Array<HNItem | null>>(
@@ -92,6 +106,29 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     idsRefetch();
     pagesRefetch();
   }, [idsRefetch, pagesRefetch]);
+
+  // If the id list changes (e.g. storyIds.refetchOnMount landed a fresh
+  // ranking after a reload), the pages cache — whose queryKey is
+  // ['feedItems', feed] and intentionally doesn't include the id list
+  // so it survives pin/dismiss churn — is still pointing at yesterday's
+  // ids. A stable signature of the first few ids is enough: if they
+  // differ, the leading page is stale and must be refetched. We skip
+  // the initial mount to avoid doubling up with refetchOnMount.
+  const idsSignature = useMemo(() => {
+    if (!allIds) return '';
+    return allIds.slice(0, PAGE_SIZE).join(',');
+  }, [allIds]);
+  const mountedSignatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!idsSignature) return;
+    if (mountedSignatureRef.current === null) {
+      mountedSignatureRef.current = idsSignature;
+      return;
+    }
+    if (mountedSignatureRef.current === idsSignature) return;
+    mountedSignatureRef.current = idsSignature;
+    pagesRefetch();
+  }, [idsSignature, pagesRefetch]);
 
   // Prefetch page 2 once page 1 has landed so the next scroll doesn't
   // block on a network round-trip. Fires once per feed mount.

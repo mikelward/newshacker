@@ -55,7 +55,11 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'hn-feeds',
-              networkTimeoutSeconds: 3,
+              // The feed list changes on every HN ranking pass, so we
+              // wait a relatively long time for the network before
+              // giving up and serving the cached copy. 3s was short
+              // enough to flip to a stale list on ordinary mobile data.
+              networkTimeoutSeconds: 10,
               expiration: { maxEntries: 10, maxAgeSeconds: 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
@@ -95,10 +99,19 @@ export default defineConfig({
             },
           },
           {
+            // NetworkFirst, not StaleWhileRevalidate: SWR returns the
+            // cached batch immediately, which means a feed reload paints
+            // yesterday's score and comment counts even when the network
+            // is healthy. NetworkFirst still falls back to the cache when
+            // the user is genuinely offline, so `/pinned` etc. keep
+            // working. The Vercel function sets max-age=60, so online
+            // users hit either the browser HTTP cache or the edge cache
+            // anyway — no meaningful extra traffic.
             urlPattern: /\/api\/items(?:\?.*)?$/,
-            handler: 'StaleWhileRevalidate',
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'hn-items-batch',
+              networkTimeoutSeconds: 10,
               expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
