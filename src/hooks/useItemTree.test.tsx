@@ -142,4 +142,85 @@ describe('useItemTree batching', () => {
     expect(firstIds).toEqual(kids.slice(0, 30));
     expect(secondIds).toEqual(kids.slice(30, 40));
   });
+
+  it('does not fire per-id Firebase fetches for the uncached pagination slice — the batch lands first', async () => {
+    // Regression: previously the pagination prefetch fired in parallel with
+    // the setVisibleCount that mounted the new Comment observers, so each
+    // of the ~20 new useCommentItem subscribers raced the batch with its
+    // own single-item Firebase request. Awaiting the batch before
+    // expanding the visible slice keeps the per-id calls at zero.
+    const total = TOP_LEVEL_PAGE_SIZE * 2;
+    const kids = Array.from({ length: total }, (_, i) => 4000 + i);
+    const items: Record<number, HNItem> = {
+      43: makeStory(43, { kids, descendants: total }),
+    };
+    for (const id of kids) items[id] = comment(id);
+
+    const fetchMock = installHNFetchMock({ items });
+
+    renderWithProviders(<Thread id={43} />, { route: '/item/43' });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(`body ${kids[TOP_LEVEL_PAGE_SIZE]}`),
+      ).toBeInTheDocument();
+    });
+
+    const urls = fetchMock.mock.calls.map((c) =>
+      typeof c[0] === 'string' ? c[0] : c[0].toString(),
+    );
+    const secondPageIds = kids.slice(TOP_LEVEL_PAGE_SIZE);
+    const firebaseKidCalls = urls.filter((u) =>
+      secondPageIds.some((id) => u.includes(`/v0/item/${id}.json`)),
+    );
+    expect(firebaseKidCalls).toEqual([]);
+  });
+
+  it('does not refetch already-cached top-level comments per-observer on re-mount', async () => {
+    // Regression for the useCommentItem staleTime bug: a 5-minute
+    // per-observer staleTime combined with a 7-day prefetch window
+    // meant that a Thread re-mount after the observer's window
+    // elapsed would fire N parallel Firebase /item/<id>.json requests
+    // even though the batch had just repopulated the cache. With a
+    // matching 7-day staleTime, observer-driven fetches stay quiet;
+    // freshness comes from the root-refetch batch.
+    const kids = Array.from({ length: 5 }, (_, i) => 5000 + i);
+    const items: Record<number, HNItem> = { 44: makeStory(44, { kids }) };
+    for (const id of kids) items[id] = comment(id);
+
+    const fetchMock = installHNFetchMock({ items });
+
+    const { unmount, client } = renderWithProviders(<Thread id={44} />, {
+      route: '/item/44',
+    });
+
+    await waitFor(() => {
+      for (const id of kids) {
+        expect(screen.getByText(`body ${id}`)).toBeInTheDocument();
+      }
+    });
+
+    unmount();
+
+    const callsBefore = fetchMock.mock.calls.length;
+
+    // Re-mount with the same QueryClient so the prefetched comment
+    // cache is preserved. With the fix in place, no extra per-kid
+    // Firebase calls fire — useCommentItem returns cached data.
+    renderWithProviders(<Thread id={44} />, { route: '/item/44', client });
+
+    await waitFor(() => {
+      for (const id of kids) {
+        expect(screen.getByText(`body ${id}`)).toBeInTheDocument();
+      }
+    });
+
+    const newUrls = fetchMock.mock.calls
+      .slice(callsBefore)
+      .map((c) => (typeof c[0] === 'string' ? c[0] : c[0].toString()));
+    const firebaseKidCalls = newUrls.filter((u) =>
+      kids.some((id) => u.includes(`/v0/item/${id}.json`)),
+    );
+    expect(firebaseKidCalls).toEqual([]);
+  });
 });
