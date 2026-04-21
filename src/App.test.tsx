@@ -4,6 +4,11 @@ import App from './App';
 import { renderWithProviders } from './test/renderUtils';
 import { installHNFetchMock } from './test/mockFetch';
 
+const analyticsMock = vi.fn((_props: unknown) => null);
+vi.mock('@vercel/analytics/react', () => ({
+  Analytics: (props: unknown) => analyticsMock(props),
+}));
+
 describe('<App> routing', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -25,5 +30,12 @@ describe('<App> routing', () => {
     installHNFetchMock({});
     renderWithProviders(<App />, { route: '/no/such/path' });
     expect(screen.getByText(/page not found/i)).toBeInTheDocument();
+  });
+
+  it('mounts Vercel Web Analytics', () => {
+    analyticsMock.mockClear();
+    installHNFetchMock({ feeds: { topstories: [] } });
+    renderWithProviders(<App />, { route: '/top' });
+    expect(analyticsMock).toHaveBeenCalled();
   });
 });
