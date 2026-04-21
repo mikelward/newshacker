@@ -5,6 +5,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
+import { startQueryCacheSync } from './lib/queryCacheSync';
 import './styles/global.css';
 
 // Bump when the shape of cached data changes in a way that would break
@@ -43,6 +44,12 @@ const persister = createSyncStoragePersister({
   key: 'newshacker:rq-cache',
   throttleTime: 1000,
 });
+
+// Bridge cache writes across tabs in real time so a pin/favorite in tab
+// A doesn't force tab B to re-fetch what A already warmed. No cleanup —
+// the channel is scoped to the tab's lifetime; the browser closes it
+// on unload.
+startQueryCacheSync(queryClient);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
