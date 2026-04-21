@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
+import { useAvatarPrefs } from '../hooks/useAvatarPrefs';
 import { getUser } from '../lib/hn';
+import { avatarImageUrl, type AvatarPrefs } from '../lib/avatarPrefs';
+import { EditAvatarForm } from './EditAvatarForm';
 import { TooltipButton } from './TooltipButton';
 import { UserAvatar } from './UserAvatar';
 import './HeaderAccountMenu.css';
@@ -22,8 +25,11 @@ export function HeaderAccountMenu() {
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const { prefs: avatarPrefs, save: saveAvatarPrefs } = useAvatarPrefs();
+  const imageUrl = avatarImageUrl(avatarPrefs, auth.user?.username ?? null);
 
   // Karma is only fetched when the menu is open — opening it is the
   // explicit signal that the reader cares about their profile info.
@@ -56,10 +62,15 @@ export function HeaderAccountMenu() {
   }, [open]);
 
   // Close the menu on route change — we don't want a stale menu hanging
-  // over a brand-new page.
+  // over a brand-new page. Drop any in-progress edit too.
   useEffect(() => {
     setOpen(false);
+    setEditing(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!open) setEditing(false);
+  }, [open]);
 
   const onButtonClick = useCallback(() => {
     if (!auth.user) {
@@ -81,6 +92,14 @@ export function HeaderAccountMenu() {
     }
   }, [auth, loggingOut]);
 
+  const onSaveAvatarPrefs = useCallback(
+    (next: AvatarPrefs) => {
+      saveAvatarPrefs(next);
+      setEditing(false);
+    },
+    [saveAvatarPrefs],
+  );
+
   const user = auth.user;
   const ariaLabel = user ? `Account menu for ${user.username}` : 'Sign in';
   const tooltip = user ? user.username : 'Sign in';
@@ -97,7 +116,7 @@ export function HeaderAccountMenu() {
         aria-expanded={user ? open : undefined}
         onClick={onButtonClick}
       >
-        <UserAvatar username={user?.username} />
+        <UserAvatar username={user?.username} imageUrl={imageUrl} />
       </TooltipButton>
       {user && open ? (
         <div
@@ -116,25 +135,45 @@ export function HeaderAccountMenu() {
               </span>
             ) : null}
           </div>
-          <Link
-            to={`/user/${user.username}`}
-            role="menuitem"
-            className="header-account__menu-item"
-            data-testid="header-account-profile"
-            onClick={() => setOpen(false)}
-          >
-            View profile
-          </Link>
-          <button
-            type="button"
-            role="menuitem"
-            className="header-account__menu-item"
-            data-testid="header-account-logout"
-            onClick={onLogout}
-            disabled={loggingOut}
-          >
-            {loggingOut ? 'Logging out…' : 'Log out'}
-          </button>
+          {editing ? (
+            <EditAvatarForm
+              hnUsername={user.username}
+              initialPrefs={avatarPrefs}
+              onSave={onSaveAvatarPrefs}
+              onCancel={() => setEditing(false)}
+            />
+          ) : (
+            <>
+              <Link
+                to={`/user/${user.username}`}
+                role="menuitem"
+                className="header-account__menu-item"
+                data-testid="header-account-profile"
+                onClick={() => setOpen(false)}
+              >
+                View profile
+              </Link>
+              <button
+                type="button"
+                role="menuitem"
+                className="header-account__menu-item"
+                data-testid="header-account-edit-avatar"
+                onClick={() => setEditing(true)}
+              >
+                Edit avatar
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="header-account__menu-item"
+                data-testid="header-account-logout"
+                onClick={onLogout}
+                disabled={loggingOut}
+              >
+                {loggingOut ? 'Logging out…' : 'Log out'}
+              </button>
+            </>
+          )}
         </div>
       ) : null}
     </div>

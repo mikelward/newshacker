@@ -4,6 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { HeaderAccountMenu } from './HeaderAccountMenu';
 import { renderWithProviders } from '../test/renderUtils';
+import {
+  AVATAR_PREFS_STORAGE_KEY,
+  getStoredAvatarPrefs,
+} from '../lib/avatarPrefs';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -34,10 +38,12 @@ function AppShell() {
 describe('<HeaderAccountMenu>', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    window.localStorage.clear();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   it('renders the anonymous silhouette when logged out', async () => {
@@ -138,6 +144,96 @@ describe('<HeaderAccountMenu>', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('header-account-menu')).not.toBeInTheDocument();
     });
+  });
+
+  it('defaults to a GitHub avatar picture for the logged-in HN username', async () => {
+    mockFetch(async (url) => {
+      if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
+      return jsonResponse({}, 404);
+    });
+    renderWithProviders(<HeaderAccountMenu />);
+    await waitFor(() => {
+      expect(screen.getByTestId('user-avatar-img')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('user-avatar-img')).toHaveAttribute(
+      'src',
+      'https://github.com/alice.png?size=64',
+    );
+  });
+
+  it('omits the image when prefs are set to Letter only', async () => {
+    window.localStorage.setItem(
+      AVATAR_PREFS_STORAGE_KEY,
+      JSON.stringify({ source: 'none' }),
+    );
+    mockFetch(async (url) => {
+      if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
+      return jsonResponse({}, 404);
+    });
+    renderWithProviders(<HeaderAccountMenu />);
+    await waitFor(() => {
+      expect(screen.getByTestId('user-avatar')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('user-avatar-img')).not.toBeInTheDocument();
+  });
+
+  it('opens the Edit avatar form and saves a GitHub override', async () => {
+    mockFetch(async (url) => {
+      if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
+      return jsonResponse({}, 404);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<HeaderAccountMenu />);
+    await waitFor(() =>
+      expect(screen.getByTestId('user-avatar')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('header-account-btn'));
+    await user.click(screen.getByTestId('header-account-edit-avatar'));
+    expect(screen.getByTestId('edit-avatar-form')).toBeInTheDocument();
+
+    const input = screen.getByTestId('edit-avatar-github-input');
+    await user.clear(input);
+    await user.type(input, 'alice-real');
+    await user.click(screen.getByTestId('edit-avatar-save'));
+
+    expect(getStoredAvatarPrefs()).toEqual({
+      source: 'github',
+      githubUsername: 'alice-real',
+    });
+    // Form closes and the menu returns to normal items.
+    expect(screen.queryByTestId('edit-avatar-form')).not.toBeInTheDocument();
+    expect(screen.getByTestId('header-account-edit-avatar')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('user-avatar-img')).toHaveAttribute(
+        'src',
+        'https://github.com/alice-real.png?size=64',
+      );
+    });
+  });
+
+  it('resets to the standard menu when reopened after canceling edit', async () => {
+    mockFetch(async (url) => {
+      if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
+      return jsonResponse({}, 404);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<HeaderAccountMenu />);
+    await waitFor(() =>
+      expect(screen.getByTestId('user-avatar')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('header-account-btn'));
+    await user.click(screen.getByTestId('header-account-edit-avatar'));
+    expect(screen.getByTestId('edit-avatar-form')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('header-account-menu'),
+      ).not.toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId('header-account-btn'));
+    // Reopened menu should be the standard menu, not the form.
+    expect(screen.queryByTestId('edit-avatar-form')).not.toBeInTheDocument();
+    expect(screen.getByTestId('header-account-edit-avatar')).toBeInTheDocument();
   });
 
   it('calls /api/logout and flips back to the silhouette on Log out', async () => {

@@ -149,12 +149,36 @@ is the current key — the vocabulary switched from "ignore/dismiss" to
      Firebase `getUser` path, cached through React Query), a link to
      `/user/:username`, and a `Log out` button. Closes on Escape,
      outside click, or after a menu selection.
-   - **Why the initial, not Gravatar.** Gravatar keys off an email
-     hash and HN doesn't expose users' emails, so a real-photo avatar
-     would require a separate signup step for email. An initial-on-
-     color disc is deterministic from the username, renders offline,
-     and costs no external request — a real picture via profile-
-     settings opt-in is a possible future add-on.
+   - **Profile picture on top of the initial.** The letter-on-color
+     disc is the baseline (offline, zero requests, deterministic), but
+     a real picture can be layered over it. By default the header
+     avatar tries `https://github.com/<hnUsername>.png?size=64` —
+     GitHub's public, unauthenticated, CDN-served avatar endpoint —
+     assuming the HN username is also a GitHub username. If the
+     request 404s (no such GitHub user) or otherwise fails, the
+     `<img>` errors, is unmounted, and the letter underneath is
+     already painted, so there's no visual fallback flicker.
+     Users can override this via the header menu's **Edit avatar**
+     item: they can enter a different GitHub username, switch to
+     Gravatar (enter an email — hashed with SHA-256 in the browser
+     before the request), or turn pictures off entirely. Preferences
+     live in `newshacker:avatarPrefs` (shape
+     `{ source: 'github' | 'gravatar' | 'none', githubUsername?, gravatarEmail?, gravatarHash? }`).
+     The picture is rendered **only on the header avatar** — not on
+     commenters or story posters, because HN usernames ≠ GitHub
+     usernames in the general case and showing a stranger's face on
+     another commenter would be a confident misattribution.
+   - **Cost/reliability (rule 11).** Zero new infra and no new
+     server-side dependencies. One extra public GET per session from
+     the user's browser to github.com (or gravatar.com), both
+     free-tier-forever CDN endpoints at any plausible scale for this
+     app. New failure modes: both endpoints can 404 or time out; both
+     degrade cleanly to the existing letter circle via `<img onError>`.
+     Minor privacy consideration: fetching the picture tells
+     github.com / gravatar.com that a user visited newshacker and
+     what their HN username is; this is acceptable because the user
+     is the one whose avatar is being shown (no third-party
+     commenter avatars, so no fan-out across an entire thread).
    - **Why not also in the drawer.** The drawer's `App` section
      already carries static entries (Help, About, Debug); the header
      chip is the single canonical auth surface and the drawer stays

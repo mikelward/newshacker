@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { UserAvatar } from './UserAvatar';
 import { avatarColorForUsername } from '../lib/avatarColor';
 
@@ -54,5 +54,74 @@ describe('<UserAvatar>', () => {
     const el = screen.getByTestId('user-avatar');
     expect(el.getAttribute('style')).toMatch(/width:\s*48px/);
     expect(el.getAttribute('style')).toMatch(/height:\s*48px/);
+  });
+
+  it('renders the remote image over the initial when imageUrl is given', () => {
+    render(
+      <UserAvatar
+        username="alice"
+        imageUrl="https://github.com/alice.png?size=64"
+      />,
+    );
+    const img = screen.getByTestId('user-avatar-img');
+    expect(img).toHaveAttribute(
+      'src',
+      'https://github.com/alice.png?size=64',
+    );
+    // Initial is still in the DOM underneath so the fallback is invisible
+    // when the image errors later.
+    expect(screen.getByTestId('user-avatar')).toHaveTextContent('A');
+  });
+
+  it('hides the image and keeps the initial when the image errors', () => {
+    render(
+      <UserAvatar
+        username="alice"
+        imageUrl="https://github.com/does-not-exist-xyzzy.png"
+      />,
+    );
+    const img = screen.getByTestId('user-avatar-img');
+    fireEvent.error(img);
+    expect(screen.queryByTestId('user-avatar-img')).not.toBeInTheDocument();
+    expect(screen.getByTestId('user-avatar')).toHaveTextContent('A');
+  });
+
+  it('marks the image as loaded on load so CSS can fade it in', () => {
+    render(
+      <UserAvatar
+        username="alice"
+        imageUrl="https://github.com/alice.png"
+      />,
+    );
+    const img = screen.getByTestId('user-avatar-img');
+    expect(img).toHaveAttribute('data-loaded', 'false');
+    fireEvent.load(img);
+    expect(img).toHaveAttribute('data-loaded', 'true');
+  });
+
+  it('resets the failed state when imageUrl changes', () => {
+    const { rerender } = render(
+      <UserAvatar
+        username="alice"
+        imageUrl="https://github.com/does-not-exist-xyzzy.png"
+      />,
+    );
+    fireEvent.error(screen.getByTestId('user-avatar-img'));
+    expect(screen.queryByTestId('user-avatar-img')).not.toBeInTheDocument();
+    rerender(
+      <UserAvatar
+        username="alice"
+        imageUrl="https://gravatar.com/avatar/abc"
+      />,
+    );
+    expect(screen.getByTestId('user-avatar-img')).toHaveAttribute(
+      'src',
+      'https://gravatar.com/avatar/abc',
+    );
+  });
+
+  it('does not render an image for the anon silhouette', () => {
+    render(<UserAvatar imageUrl="https://example.com/nope.png" />);
+    expect(screen.queryByTestId('user-avatar-img')).not.toBeInTheDocument();
   });
 });
