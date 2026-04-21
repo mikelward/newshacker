@@ -17,7 +17,14 @@ import {
   prefetchFeedStory,
 } from '../lib/feedStoryPrefetch';
 import { useFeedBar } from '../hooks/useFeedBar';
+import { useWarmQueue } from '../hooks/useWarmQueue';
 import './StoryList.css';
+
+// Fire warm requests when a story row is approaching the viewport rather
+// than already fully in it. 400px of headroom usually covers the scroll
+// distance between "about to be on screen" and "reader taps it", so the
+// shared-cache summary is ready by the time they open the thread.
+const WARM_INTERSECTION_ROOT_MARGIN = '400px 0px 400px 0px';
 
 interface Props {
   feed: Feed;
@@ -103,6 +110,20 @@ export function StoryList({ feed }: Props) {
   const [inViewIds, setInViewIds] = useState<Set<number>>(() => new Set());
   const rowEls = useRef<Map<number, HTMLLIElement>>(new Map());
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const warmObserverRef = useRef<IntersectionObserver | null>(null);
+  const warm = useWarmQueue();
+  const hasUrlById = useMemo(() => {
+    const map = new Map<number, boolean>();
+    for (const it of items) {
+      if (it) map.set(it.id, !!it.url);
+    }
+    return map;
+  }, [items]);
+  // Assign during render so the ref is current by the time ref callbacks
+  // fire synchronously during commit — a useEffect would run after the
+  // IntersectionObserver has already been handed a stale map.
+  const hasUrlRef = useRef(hasUrlById);
+  hasUrlRef.current = hasUrlById;
   const [headerInset, setHeaderInset] = useState<number>(() =>
     measureHeaderInset(),
   );
@@ -142,6 +163,35 @@ export function StoryList({ feed }: Props) {
     };
   }, [headerInset]);
 
+  // Separate observer, wider rootMargin, for warming the shared summary
+  // cache. Fires once per row as soon as it approaches the viewport; the
+  // warm queue itself deduplicates per session and batches into a single
+  // /api/warm-summaries call. Self-posts (no external url) are skipped
+  // here so the server never does the extra Firebase round-trip just to
+  // reject them.
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const el = entry.target as HTMLElement;
+          const id = Number(el.dataset.storyId);
+          if (!id) continue;
+          if (!hasUrlRef.current.get(id)) continue;
+          warm.enqueue(id);
+        }
+      },
+      { rootMargin: WARM_INTERSECTION_ROOT_MARGIN },
+    );
+    warmObserverRef.current = io;
+    for (const el of rowEls.current.values()) io.observe(el);
+    return () => {
+      io.disconnect();
+      warmObserverRef.current = null;
+    };
+  }, [warm]);
+
   const rowRefCache = useRef<
     Map<number, (el: HTMLLIElement | null) => void>
   >(new Map());
@@ -150,9 +200,11 @@ export function StoryList({ feed }: Props) {
     if (cached) return cached;
     const setRef = (el: HTMLLIElement | null) => {
       const io = observerRef.current;
+      const warmIo = warmObserverRef.current;
       const prev = rowEls.current.get(id);
       if (prev && prev !== el) {
         io?.unobserve(prev);
+        warmIo?.unobserve(prev);
         rowEls.current.delete(id);
         setInViewIds((s) => {
           if (!s.has(id)) return s;
@@ -164,6 +216,7 @@ export function StoryList({ feed }: Props) {
       if (el) {
         rowEls.current.set(id, el);
         io?.observe(el);
+        warmIo?.observe(el);
       }
     };
     rowRefCache.current.set(id, setRef);
