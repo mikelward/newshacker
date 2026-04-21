@@ -68,49 +68,38 @@ settling on the skeleton-with-reservation approach above. Kept here
 so a later contributor can reconsider without re-losing the
 reasoning.
 
-### Server-side prefetch of summaries
+### Server-side prefetch of summaries — adopted, visibility-gated
 
-Run a background job that polls HN's top-stories feed and calls
-Gemini on each new story at ingest, warming the `/api/summary` cache
-before any reader opens the story — making time-to-summary close to
-zero for the first reader of each popular item.
+**Decision reversed (2026-04-21).** The app now warms the shared
+`/api/summary` Redis cache as story rows approach the viewport on the
+feed, via `/api/warm-summaries`. See *Server-side warming on visibility*
+below for the shape and constants. The older "cron-polls-topstories"
+shape is still rejected for the reasons below, but the visibility-gated
+shape avoids them.
 
-- **Current behavior already handles the common case.** Generated
-  summaries are shared across readers via a single-region Redis store
-  in `us-east-1` (see *Shared server-side cache* in `SPEC.md` —
-  replaced the earlier edge-CDN approach; replicas in other regions
-  are a follow-up when traffic justifies them). Locally, the PWA
-  service worker also caches per-response. Once the global first
-  reader of a given story has paid the Gemini latency, every
-  subsequent reader — anywhere — hits Redis; same-region readers in
-  single-digit milliseconds, other-region readers with one
-  cross-region hop until replicas are added. At single-digit daily
-  traffic concentrated on one region the cold-first-reader case is
-  not a perceived problem.
-- **What it would cost.** A Vercel cron polling `topstories.json`
-  every few minutes is within the free plan's cron allowance, but
-  each prefetched story is a Gemini call whether or not any reader
-  opens it. Top 30 stories × ~24 polls/day ≈ hundreds of Gemini
-  calls against stories no one touches — multiplying our Gemini
-  spend for a marginal latency gain. Also introduces a stateful
-  piece (the cron + a small amount of "which stories have we
-  warmed?" bookkeeping) that the app doesn't otherwise need,
-  which brings its own uptime, rate-limit-against-HN, and
-  reconciliation concerns — acceptable under `AGENTS.md` rule 6
-  if the latency payoff materializes, not acceptable for a
-  marginal gain.
-- **When to reconsider.** When the cold-generation wait on the
-  first reader of a fresh story becomes a perceived quality
-  problem. Concrete signals: (a) consistently high time-to-summary
-  on stories with a low `score`, since those are fresh and
-  unlikely to be cache-warm; (b) a material share of sessions
-  where the summary is still loading when the reader taps back to
-  the feed; (c) Gemini pricing where always-on prefetch of the
-  top-N stories is cheaper than our current on-demand model. Any
-  one of those flips the cost/benefit; see `TODO.md` §
-  "Backend / infrastructure" for the standing follow-up. The
-  edge-CDN-vs-KV question itself is now decided — the shared cache
-  is Upstash Redis (see `SPEC.md` § "Shared server-side cache").
+- **Why the cron shape was (and is) wrong.** A Vercel cron polling
+  `topstories.json` every few minutes is within the free plan's
+  cron allowance, but each prefetched story is a Gemini call whether
+  or not any reader opens it. Top 30 stories × ~24 polls/day ≈
+  hundreds of Gemini calls against stories no one touches —
+  multiplying our Gemini spend for a marginal latency gain. It also
+  introduces a stateful piece (the cron + "which stories have we
+  warmed?" bookkeeping) that the app doesn't otherwise need.
+- **Why the visibility-gated shape works.** Warms are triggered by
+  real reader attention, so total Gemini spend tracks real demand
+  rather than feed width × cron cadence. With a 5-minute per-id
+  dedup in Redis (see *Server-side warming on visibility*) the
+  first viewer of a fresh story pays the Gemini call once and
+  every subsequent viewer hits the shared Redis cache — including
+  the viewer who taps the thread. Pages 2+ are handled naturally
+  because warming is driven by IntersectionObserver on scroll, not
+  by a list-load snapshot.
+- **When to re-evaluate.** If per-day generated-count (see
+  `/api/warm-stats`) approaches the daily budget ceiling without
+  feeling like proportional product value, narrow the warm scope
+  (e.g. top 10 ids, top feeds only, or score threshold). If
+  generated-count stays tiny, relax the 5-min dedup or the score
+  gate to catch colder reads.
 
 ### Block thread-page render until summaries are ready
 
@@ -177,6 +166,124 @@ WebAssembly model or a browser-native summarizer API (e.g. Chrome's
   to stable across major browsers at zero download cost, it
   becomes a useful fallback for offline or Gemini-is-down cases
   without a new dependency.
+
+## Server-side warming on visibility
+
+As story rows scroll into (or near) the viewport on the feed, the client
+posts their ids to `/api/warm-summaries` in debounced batches. The
+endpoint fetches each item, applies a few cheap filters, and delegates
+to the existing `/api/summary` pipeline so the shared Upstash Redis
+cache is populated before the reader taps the thread. See
+`api/warm-summaries.ts` and `src/hooks/useWarmQueue.ts`.
+
+### Shape
+
+- **Client side** (`src/hooks/useWarmQueue.ts`, wired in
+  `src/components/StoryList.tsx`). An `IntersectionObserver` with
+  `rootMargin: '400px 0px 400px 0px'` fires `enqueue(id)` for every row
+  that approaches the viewport. The queue debounces at 200 ms and
+  POSTs the accumulated ids in one request. A per-session `Set` avoids
+  re-enqueueing the same id on another intersection event. Only stories
+  with an external `url` are enqueued — text posts (Ask HN / Show HN)
+  skip warming because the article-summary pipeline has nothing to
+  summarize for them.
+- **Server side** (`api/warm-summaries.ts`). Accepts
+  `POST { ids: number[] }` with the same Referer allowlist as
+  `/api/summary`. For each id:
+  1. Claim a 5-min per-id dedup marker in Redis (`SET … NX EX 300`).
+     First caller to claim wins; every other caller within the window
+     gets `skip:dedup`. This also acts as the negative cache for
+     failed generations — `/api/summary` does not cache errors, so
+     without this a broken article URL would retry-storm on every
+     scroll.
+  2. Fetch the HN item once and pass it to `handleSummaryRequest` as
+     a `fetchItem` dep so the summary pipeline doesn't re-fetch.
+  3. Apply filters: `skip:no-url`, `skip:low-score` (score ≤ 0),
+     `skip:dead` (dead or deleted), `skip:missing-item` (Firebase
+     returned null).
+  4. Gate on the daily budget. If the current day's generated counter
+     is already at the cap, return `skip:budget` without invoking
+     Gemini.
+  5. Delegate to `handleSummaryRequest`. On a `cached: true`
+     response, record `cached` and skip the budget charge. On a fresh
+     200, record `generated` and increment the daily budget counter.
+     On any non-2xx, record `error:gemini`; on a Firebase exception,
+     record `error:firebase`.
+- **Stats endpoint** (`api/warm-stats.ts`). GET returns today's
+  counters and budget usage:
+  `{ day, outcomes: { generated, cached, skip:*, error:* }, budgetUsed, redis }`.
+  Intended for manual curl during triage — Vercel logs remain the
+  primary channel for per-event detail.
+
+### Constants and where they live
+
+- `WARM_DEDUP_TTL_SECONDS = 300` (`api/warm-summaries.ts`). 5 min is a
+  compromise between "stampede absorption" and "a fresh story's
+  warm hasn't gone stale yet when the next reader scrolls by". Tighten
+  if summaries start going stale for fast-moving front-page churn;
+  loosen if retry storms ever show up in `error:gemini`.
+- `RATE_LIMIT_REQUESTS_PER_MIN = 60`. Per-IP fixed-window counter,
+  90 s TTL. A realistic scrolling user fires a handful of batches per
+  minute; 60 is ~10× that ceiling. A scripted abuser hits the cap
+  before the per-id dedup even matters.
+- `DEFAULT_DAILY_BUDGET = 3000`. Generated-summary counter per UTC
+  day. Override via `WARM_DAILY_BUDGET`. Chosen as "a few thousand
+  Flash-Lite calls" — comfortably inside a normal hobby-tier spend
+  and large enough to cover all plausible real demand; it's a
+  circuit breaker for a bug in the dedup or filter logic, not the
+  expected spend line.
+- `WARM_INTERSECTION_ROOT_MARGIN = '400px 0px 400px 0px'`
+  (`src/components/StoryList.tsx`). 400 px is roughly a full phone
+  viewport of lead time — enough that a scroll-then-tap user gets
+  a cache hit on the thread page without warming stories so far
+  off-screen that the reader never saw them.
+- `DEFAULT_DEBOUNCE_MS = 200` and `DEFAULT_BATCH_CAP = 30`
+  (`src/hooks/useWarmQueue.ts`). Matches the feed page size so one
+  burst of 30 visible rows is one POST, not 30.
+
+### Error taxonomy
+
+Separate "not eligible" from "actually broke" so a dashboard glance
+answers "is warming healthy?":
+
+- **Skips (normal):** `skip:no-url`, `skip:low-score`, `skip:dead`,
+  `skip:missing-item`, `skip:dedup`, `skip:budget`, `ratelimit`,
+  `invalid`. These are expected operation and don't warrant alerts.
+- **Errors (investigate):** `error:firebase` means the HN item fetch
+  threw — usually a transient Firebase blip, watch for trends.
+  `error:gemini` means the summary pipeline returned non-2xx — could
+  be a broken article URL (short-lived, dedup-negative-cached) or a
+  Gemini outage (sustained spike).
+- **Per-ID outcome in the response.** Even though the client fires-
+  and-forgets in production, `POST /api/warm-summaries` returns
+  `{ results: { [id]: outcome } }` so tests and manual curls see
+  exactly what happened without grepping Vercel logs.
+
+### Cost and reliability (rule 11)
+
+- **Gemini.** Upper bound per UTC day = `DEFAULT_DAILY_BUDGET` fresh
+  summaries. At current traffic the expected steady-state number is
+  roughly "new stories entering the visible top of each feed per
+  day × fraction that any user scrolled near", which is in the low
+  tens. Cost stays flat under a user-count spike because the per-id
+  5-min dedup collapses concurrent warms to one Gemini call.
+- **Redis.** Working set grows by one dedup key per warmed id (5-min
+  TTL) and small daily counters (2-day TTL). Handful of MB at peak,
+  well inside the Upstash free tier already in use.
+- **Vercel invocations.** One `/api/warm-summaries` POST per ~30
+  visible rows per tab. Comfortably inside the Hobby-tier 100k/mo
+  ceiling at current traffic; at an order of magnitude more, revisit.
+- **New failure modes.** (1) `/api/warm-summaries` itself — if it
+  hangs or 5xxs, the client is fire-and-forget so the reader notices
+  nothing; the thread page still hits `/api/summary` on demand and
+  just pays the cold-path latency that viewpoint-warming was meant
+  to hide. (2) Redis unavailable — the endpoint fails open: no
+  dedup, no rate limit, no budget cap, but warms still proceed and
+  the underlying `/api/summary` has its own fail-open behavior. (3)
+  Gemini rate limit / outage — the dedup marker soaks up retry storms
+  for 5 min per id, and the daily-budget circuit breaker stops
+  warms once the cap is hit. On-demand thread-page summaries are
+  unaffected.
 
 ## The tunable constants
 
