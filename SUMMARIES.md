@@ -75,11 +75,6 @@ Gemini on each new story at ingest, warming the `/api/summary` cache
 before any reader opens the story — making time-to-summary close to
 zero for the first reader of each popular item.
 
-- **Why not now.** `AGENTS.md` rule 6 caps the architecture at
-  "HN's API + stateless Vercel functions" — no persistent backend
-  service, no database, no workers. A poller turns the project
-  into a stateful system with its own uptime, its own rate-limit
-  relationship with HN, and its own reconciliation concerns.
 - **Current behavior already handles the common case.** Generated
   summaries are shared across readers via Vercel's edge CDN (see
   `8c3b21b Share AI summary caches across all servers via Vercel
@@ -92,16 +87,24 @@ zero for the first reader of each popular item.
   each prefetched story is a Gemini call whether or not any reader
   opens it. Top 30 stories × ~24 polls/day ≈ hundreds of Gemini
   calls against stories no one touches — multiplying our Gemini
-  spend for a marginal latency gain.
+  spend for a marginal latency gain. Also introduces a stateful
+  piece (the cron + a small amount of "which stories have we
+  warmed?" bookkeeping) that the app doesn't otherwise need,
+  which brings its own uptime, rate-limit-against-HN, and
+  reconciliation concerns — acceptable under `AGENTS.md` rule 6
+  if the latency payoff materializes, not acceptable for a
+  marginal gain.
 - **When to reconsider.** When the cold-generation wait on the
   first reader of a fresh story becomes a perceived quality
   problem. Concrete signals: (a) consistently high time-to-summary
   on stories with a low `score`, since those are fresh and
   unlikely to be cache-warm; (b) a material share of sessions
   where the summary is still loading when the reader taps back to
-  the feed; (c) Gemini pricing where always-on prefetch is cheaper
-  than our current on-demand model. Any one of those makes the
-  no-backend rule worth revisiting.
+  the feed; (c) Gemini pricing where always-on prefetch of the
+  top-N stories is cheaper than our current on-demand model. Any
+  one of those flips the cost/benefit; see `TODO.md` §
+  "Backend / infrastructure" for the standing follow-up and the
+  KV-vs-edge-cache question that comes with it.
 
 ### Block thread-page render until summaries are ready
 
