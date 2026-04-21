@@ -76,12 +76,17 @@ before any reader opens the story — making time-to-summary close to
 zero for the first reader of each popular item.
 
 - **Current behavior already handles the common case.** Generated
-  summaries are shared across readers via Vercel's edge CDN (see
-  `8c3b21b Share AI summary caches across all servers via Vercel
-  edge CDN`) and locally via the PWA service worker. Only the
-  first reader of a given story waits on Gemini; every subsequent
-  reader hits cache in tens of milliseconds. At single-digit daily
-  traffic the cold-first-reader case is not a perceived problem.
+  summaries are shared across readers via a single-region Redis store
+  in `us-east-1` (see *Shared server-side cache* in `SPEC.md` —
+  replaced the earlier edge-CDN approach; replicas in other regions
+  are a follow-up when traffic justifies them). Locally, the PWA
+  service worker also caches per-response. Once the global first
+  reader of a given story has paid the Gemini latency, every
+  subsequent reader — anywhere — hits Redis; same-region readers in
+  single-digit milliseconds, other-region readers with one
+  cross-region hop until replicas are added. At single-digit daily
+  traffic concentrated on one region the cold-first-reader case is
+  not a perceived problem.
 - **What it would cost.** A Vercel cron polling `topstories.json`
   every few minutes is within the free plan's cron allowance, but
   each prefetched story is a Gemini call whether or not any reader
@@ -103,8 +108,9 @@ zero for the first reader of each popular item.
   the feed; (c) Gemini pricing where always-on prefetch of the
   top-N stories is cheaper than our current on-demand model. Any
   one of those flips the cost/benefit; see `TODO.md` §
-  "Backend / infrastructure" for the standing follow-up and the
-  KV-vs-edge-cache question that comes with it.
+  "Backend / infrastructure" for the standing follow-up. The
+  edge-CDN-vs-KV question itself is now decided — the shared cache
+  is Upstash Redis (see `SPEC.md` § "Shared server-side cache").
 
 ### Block thread-page render until summaries are ready
 

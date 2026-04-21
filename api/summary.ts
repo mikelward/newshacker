@@ -1,23 +1,18 @@
 import { GoogleGenAI } from '@google/genai';
+import { Redis } from '@upstash/redis';
 
 const MODEL = 'gemini-2.5-flash-lite';
-const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_SECONDS = 60 * 60;
 const MAX_URL_LEN = 2048;
 const MAX_CONTENT_CHARS = 200_000;
 
-// Shared-cache layer on Vercel's edge CDN. `s-maxage` is the freshness
-// window for the shared cache (edge instances globally share it), and
-// `stale-while-revalidate` lets the edge serve a stale copy for a day
-// while refreshing in the background. This is the real "shared across
-// all servers" cache — the per-instance Map below is just a tiny
-// belt-and-suspenders layer for the same-instance hot path.
-//
-// Note: the edge may serve a cached response without re-checking the
-// Referer header. That's intentional — the Referer gate protects the
-// expensive Gemini/Jina path, and a cache hit skips that path entirely.
-// Errors set `no-store` so bad-referer 403s never get cached.
-const EDGE_CACHE_HEADER =
-  'public, s-maxage=3600, stale-while-revalidate=86400';
+// Cache-Control on success. We deliberately do NOT use the edge CDN as
+// the shared cache anymore — Vercel's CDN is regional, so popular stories
+// would still pay one Gemini call per region. The shared cache lives in
+// KV (see SummaryStore below); the edge would just hide stale-by-region
+// data behind it. `private, no-store` keeps the function in the request
+// path so KV is always consulted; the service worker still caches per
+// its own runtime rule (see vite.config.ts).
 const NO_STORE_HEADER = 'private, no-store';
 
 const JINA_ENDPOINT = 'https://r.jina.ai/';
@@ -93,12 +88,62 @@ function parseStoryId(raw: string | null): number | null {
   return n;
 }
 
-// Cache keyed by HN story id, not article URL. Two HN posts pointing at
-// the same external URL pay independently — accepted trade for not
-// letting any caller pin arbitrary cache keys (and burn Gemini/Jina
-// spend) via a `?url=` of their choosing.
-type CacheEntry = { summary: string; ts: number };
-const cache = new Map<number, CacheEntry>();
+// Shared backend cache: an Upstash Redis key per story id. Writes go to
+// the primary region; reads are served from the nearest read replica
+// (typically single-digit ms). Both Vercel KV (Marketplace) and a direct
+// Upstash database expose the same REST shape — we accept either env
+// var pair so the same code works regardless of how the store was
+// provisioned. If neither is set, we degrade silently to no shared
+// cache (the per-instance Map is intentionally gone — a 5ms KV read is
+// the right shared-cache latency, and keeping a process-local Map next
+// to it just creates incoherent state across instances).
+//
+// Cache key is the HN story id, not the article URL. Two HN posts
+// pointing at the same external URL pay independently — accepted trade
+// for not letting any caller pin arbitrary cache keys (and burn
+// Gemini/Jina spend) via a `?url=` of their choosing.
+const KV_KEY_PREFIX = 'newshacker:summary:article:';
+
+export interface SummaryStore {
+  get(storyId: number): Promise<string | null>;
+  set(storyId: number, summary: string, ttlSeconds: number): Promise<void>;
+}
+
+let defaultStore: SummaryStore | null | undefined;
+
+function createDefaultStore(): SummaryStore | null {
+  const url =
+    process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token =
+    process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  const redis = new Redis({ url, token });
+  return {
+    async get(storyId) {
+      try {
+        const value = await redis.get<string>(`${KV_KEY_PREFIX}${storyId}`);
+        return value ?? null;
+      } catch {
+        // Fail-open: KV unreachable falls through to live generation.
+        return null;
+      }
+    },
+    async set(storyId, summary, ttlSeconds) {
+      try {
+        await redis.set(`${KV_KEY_PREFIX}${storyId}`, summary, {
+          ex: ttlSeconds,
+        });
+      } catch {
+        // Best-effort write; a missed set is no worse than a cache miss.
+      }
+    },
+  };
+}
+
+function getDefaultStore(): SummaryStore | null {
+  if (defaultStore === undefined) defaultStore = createDefaultStore();
+  return defaultStore;
+}
 
 function isValidHttpUrl(value: string): boolean {
   if (value.length > MAX_URL_LEN) return false;
@@ -124,14 +169,11 @@ function buildPrompt(articleUrl: string, content: string): string {
 }
 
 function json(body: unknown, status = 200): Response {
-  const cacheControl = status >= 200 && status < 300
-    ? EDGE_CACHE_HEADER
-    : NO_STORE_HEADER;
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      'cache-control': cacheControl,
+      'cache-control': NO_STORE_HEADER,
     },
   });
 }
@@ -157,10 +199,12 @@ export interface SummaryClient {
 
 export interface SummaryDeps {
   createClient?: (apiKey: string) => SummaryClient;
-  now?: () => number;
   fetchImpl?: typeof fetch;
   fetchItem?: (id: number, signal?: AbortSignal) => Promise<HNItem | null>;
   jinaApiKey?: string;
+  // `null` = explicitly disable the shared cache for this request;
+  // `undefined` = use the default (lazy-initialised) Upstash store.
+  store?: SummaryStore | null;
 }
 
 function clampContent(body: string): string | null {
@@ -274,10 +318,19 @@ export async function handleSummaryRequest(
     return json({ error: 'Invalid id parameter' }, 400);
   }
 
-  const now = deps.now ?? Date.now;
-  const cached = cache.get(storyId);
-  if (cached && now() - cached.ts < CACHE_TTL_MS) {
-    return json({ summary: cached.summary, cached: true });
+  const store =
+    deps.store === undefined ? getDefaultStore() : deps.store;
+
+  if (store) {
+    // Fail-open at the handler layer too: if the store implementation
+    // forgets to catch (the default Upstash one does, but tests and
+    // future stores might not), KV trouble must not break the endpoint.
+    try {
+      const cached = await store.get(storyId);
+      if (cached) return json({ summary: cached, cached: true });
+    } catch {
+      // fall through to live generation
+    }
   }
 
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
@@ -369,12 +422,14 @@ export async function handleSummaryRequest(
     );
   }
 
-  cache.set(storyId, { summary, ts: now() });
+  if (store) {
+    try {
+      await store.set(storyId, summary, CACHE_TTL_SECONDS);
+    } catch {
+      // best-effort write
+    }
+  }
   return json({ summary });
-}
-
-export function __clearCacheForTests(): void {
-  cache.clear();
 }
 
 export async function GET(request: Request): Promise<Response> {

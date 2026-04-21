@@ -324,19 +324,75 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side TTL is freshness-aware — 30 min for stories < 2 h old, 1 h otherwise — so hot front-page threads keep pace with the comment rush. React Query TTL on the client is 1 h.
 - **Items batch proxy** (`/api/items`): NetworkFirst with 10s timeout, 1-day TTL, 50 entries. The batch URL keys on the exact id set, which means a refresh of the same feed page hits the same cache entry — SWR here would silently repaint yesterday's score/comment counts. NetworkFirst still falls back to the cache when the user is genuinely offline, so `/pinned` and friends keep working.
 
-**Shared server-side cache (Vercel edge CDN).** `/api/summary`,
-`/api/comments-summary`, and `/api/items` set `Cache-Control: public,
-s-maxage=…, stale-while-revalidate=…` so Vercel's CDN caches the
-response across all serverless instances globally. This is the layer
-that makes cache reuse truly "shared between all servers" — a single
-cache-miss pays Gemini/Jina once, not once per instance. The per-instance
-in-memory `Map` in each handler is retained as a best-effort second
-layer for the hot same-instance path. Error responses (4xx/5xx) send
-`Cache-Control: private, no-store` so bad-referer 403s and transient
-failures never get pinned at the edge. TTLs mirror the per-handler
-in-memory TTLs: summary = 1 h, comment summary = 30 min young / 1 h
-older, items batch = 60 s. Cost: $0 — Vercel CDN is included with the
-plan and replaces function invocations on cache hits.
+**Shared server-side cache (Redis via Vercel Storage Marketplace).**
+`/api/summary` and `/api/comments-summary` use a **shared Redis store**
+(provisioned through Vercel's Storage Marketplace, which auto-injects
+`KV_REST_API_URL` / `KV_REST_API_TOKEN` into every deployment) as the
+cross-instance cache. The handler reads the key on entry and returns
+immediately on hit; on miss it generates via Gemini and writes the
+result with the same TTL as before — article summary 1 h, comments
+summary 30 min for stories <2 h old, 1 h otherwise. Reads from a
+function in the same AWS region as the Redis primary are single-digit
+ms — fast enough that the per-instance in-memory `Map` we used to keep
+alongside the previous edge-CDN layer was removed (it just created
+incoherent state across instances without a meaningful latency win at
+~5 ms Redis reads).
+
+**Current topology: single primary, no replicas.** Both the Vercel
+functions and the Redis primary live in AWS `us-east-1` (Virginia), so
+cross-component latency is dominated by the function cold-start, not
+the Redis hop. Readers in other regions still end up running the
+function in `iad1` (Vercel's default) and paying one cross-region hop
+for the response itself — that's a Vercel concern, not a Redis one.
+Because there are no replicas yet, the practical benefit over the
+previous edge CDN at single-region, single-digit daily traffic is
+modest: we save a few Gemini calls on the rare cross-region-new-reader
+case, we gain a foundation for the follow-up work listed below, and
+we lose the CDN's zero-function-invocation fast path. Accepted trade;
+see IMPLEMENTATION_PLAN.md § Phase 6 for the follow-ups this unlocks.
+
+**Eventual topology (when justified by traffic).** Redis Cloud and
+Upstash both support read replicas in additional regions. Adding a
+replica in e.g. `eu-west-1` or `ap-southeast-2` would let Vercel
+functions in those regions read from a nearby replica (~5 ms instead
+of ~100–200 ms cross-Atlantic). Today, with traffic almost entirely
+on `us-east-1`, an extra replica is pure cost; if `summary_layout` or
+a future server-side latency metric shows a material share of reads
+from far regions, revisit. Writes always go to the primary; the cache
+is eventually consistent across replicas (sub-second), which is fine
+for a TTL'd summary — a replica briefly serving the previous value
+after a new write is indistinguishable from a slightly-earlier cache
+hit.
+
+Both summary endpoints set `Cache-Control: private, no-store` on every
+response so neither the edge CDN nor the browser HTTP cache pins
+results — the function must always run so Redis is the freshness
+boundary. The service worker caches `/api/summary` and
+`/api/comments-summary` independently per its own Workbox runtime
+rules (status-based, not header-based), so offline reads still work
+as documented above.
+
+`/api/items` is unchanged — it still uses the edge CDN (`s-maxage=60`)
+because its short TTL and per-batch URL keying make CDN absorption the
+right tool there.
+
+The handler is **fail-open**: if Redis is unreachable, the request
+falls through to live Gemini generation rather than erroring. The
+cache is a latency optimisation, not a correctness boundary.
+
+Cost and reliability (rule 11): current setup is the free tier
+(~30 MB storage, no HA) — ample for the ~1 KB per key, ~50 key working
+set we'll see at this traffic. Free tier is single-instance, so a
+provider outage takes the cache offline until it recovers; the
+fail-open path keeps the feature working (at cold-Gemini latency)
+during that window, so no user-visible breakage, just slower
+summaries. Paid tiers with HA / replicas are a few dollars per month
+and a straight upgrade when the traffic or feature set justifies it
+(e.g. if the follow-up items below start writing session or
+rate-limit state to the same store, where fail-open is less
+acceptable). New failure modes added by this change: one — Redis
+provider unreachable. No new request paths to monitor beyond the
+already-present Gemini and Jina dependencies.
 - **HN write endpoints** (`news.ycombinator.com`): never cached — votes and login must never reuse a stale response.
 
 The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.
