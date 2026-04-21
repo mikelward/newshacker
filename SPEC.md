@@ -18,9 +18,9 @@ The existing HN mobile site crams many small, adjacent tappable elements onto ea
 
 We achieve that by:
 
-1. **At most three tap zones per row**, always in the same positions: optional upvote on the left, the row body (title + meta) as a single stretched link, and a pin button on the right. No hide, no past, no web, no flag, no inline author link, no rank number, no separate comments button.
+1. **At most three tap zones per row**, always in the same positions: the row body (title + meta) as a single stretched link on the left, a pin button on the right, and a reserved slot in between for at most one additional action. No hide, no past, no web, no flag, no inline author link, no rank number, no separate comments button. The shipped UI uses only two (row body + pin); voting currently lives on the thread page rather than the row (see *Thread action bar*).
 2. **Large, well-spaced hit areas.** Minimum 48×48px per tappable, ≥8px dead space between adjacent targets.
-3. **Metadata is display-only.** Domain, points, comment count, and age are plain text inside the row's stretched link; only the explicit upvote arrow, row body, and pin button are distinct tap targets.
+3. **Metadata is display-only.** Domain, points, comment count, and age are plain text inside the row's stretched link; only the row body and the pin button are distinct tap targets today.
 4. **The pin button is a real icon button** on the right, not an inline text link — visually obvious and easy to aim for.
 5. **Obvious zones, not clever ones.** A reader should be able to glance at the row and know, without reading, what each tap will do.
 
@@ -31,7 +31,7 @@ We achieve that by:
 - Familiar HN look & feel — orange `#ff6600` header, cream background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
-- Optional: log in and upvote stories/comments via HN's existing web endpoints.
+- Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
 
 ## Non-Goals (MVP)
 
@@ -160,13 +160,14 @@ is the current key — the vocabulary switched from "ignore/dismiss" to
      chip is the single canonical auth surface and the drawer stays
      focused on navigation.
 
-7. **Voting & unvoting on story rows (shipped).** Each HN story and
-   comment page carries a per-user, per-item `auth` token in its vote
-   links (`vote?id=<id>&how=up&auth=<token>&goto=news`). To cast a vote
-   we need the user's session cookie (already have, from Login) **and**
+7. **Voting & unvoting stories (shipped).** Each HN story page carries a
+   per-user, per-item `auth` token in its vote link
+   (`vote?id=<id>&how=up&auth=<token>&goto=news`). To cast a vote we
+   need the user's session cookie (already have, from Login) **and**
    the per-item `auth` token, scraped from the rendered HN HTML for
    that item. `/api/vote` does the scrape + forward; the client calls
-   it optimistically — the vote arrow flips to orange on tap, a
+   it optimistically — the **Upvote button on the thread page action
+   bar** (see *Thread action bar*) flips to orange on tap, a
    localStorage-backed per-user set (`newshacker:votedStoryIds:<user>`)
    keeps the arrow orange across reloads, and a failure (401 session
    expired, 502 HN HTML changed or item locked) rolls the local state
@@ -176,6 +177,15 @@ is the current key — the vocabulary switched from "ignore/dismiss" to
    shows the arrow as un-voted here; tapping it then 502s (HN's item
    page won't render a `how=up` link for an already-voted item) and we
    toast the failure. Acceptable for the MVP.
+   - **Why on the thread page, not the row.** The story row is a
+     focused browsing surface with exactly two tap zones (row body,
+     pin). Adding a third target there — tiny by necessity, on the
+     left of a scrolling list — would both mis-tap frequently and
+     encourage hit-and-run voting without reading. The thread page
+     already carries the reader's full context (title, domain, AI
+     article summary, AI comment summary, the comments themselves),
+     so an intentional tap on an action-bar button there is both
+     easier to hit and a more deliberate act.
    - **Not yet shipped (follow-ups):** voting on individual comments
      (same mechanism, different tap target — see *Comment row layout*
      for the reserved slot), downvoting comments (only available to
@@ -311,22 +321,25 @@ This is the single most important UI decision in the app, so it is specified in 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                                                          │
-│   ▲     Story title goes here, wrapping to two lines     │
-│         if needed.                                       │   ☆
-│         example.com · 412 points · 128 comments · 3h     │
+│   Story title goes here, wrapping to two lines           │
+│   if needed.                                             │   ☆
+│   example.com · 412 points · 128 comments · 3h           │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-   ^     ^                                                    ^
-   |     |                                                    |
-  Vote  Row tap → thread (/item/:id)                         Pin toggle:
-  (opt) (title + meta share one stretched link)             pin / unpin
+   ^                                                          ^
+   |                                                          |
+  Row tap → thread (/item/:id)                               Pin toggle:
+  (title + meta share one stretched link)                   pin / unpin
 ```
 
-Tap zones — there are never more than these three:
+Tap zones — there are never more than three, and the shipped UI uses two:
 
-- **▲ Upvote** (only when logged in; when logged out, the column collapses and the title shifts left). Min 48×48px. Stretch feature; see *Architecture*.
 - **Row body** — the title and meta line share a single stretched `<Link to="/item/:id">`, so a tap anywhere on the row opens the thread. The article itself is opened from a prominent "Read article" button on the thread page. Self-posts behave the same way (they've never had an external article to begin with).
 - **Pin button** — a real icon button on the right, not an inline text link. Tapping toggles pinned state. Has its own 48×48px hit area and ≥8px horizontal gap from the row body.
+
+A third slot is reserved between the row body and the pin button for at most one additional per-row action. It's currently unused — voting took the slot in an earlier design and has since been moved to the thread page action bar (see below). Any future use of the slot has to clear a high bar: the action has to be something the reader actually wants to do from a scrolling feed without opening the story, not merely something we're capable of adding.
+
+**Voting deliberately lives on the thread page, not the row.** An earlier draft reserved a third tap zone on the left for the vote arrow (visible only when logged in). We dropped it: the row stays a pure browsing surface, and upvoting becomes an intentional act on the page where the reader has context — title, domain, points, article summary, comment summary, comments themselves. See *Thread action bar* below.
 
 Everything else is display-only:
 
@@ -346,7 +359,11 @@ Spacing / sizing:
 - Min dead space between adjacent tap zones: 8px.
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
 
-Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Pin, Favorite, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the same row, and a single primary tap target per comment row. See *Comment row layout* below.
+Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Upvote (logged-in only), Pin, Favorite, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the same row, and a single primary tap target per comment row. See *Comment row layout* below.
+
+### Thread action bar
+
+Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin** → **Favorite** → **More actions ⋮**. Each is a 48×48px icon button with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--hn-meta` by default and `--hn-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
 
 Tapping ⋮ opens a bottom-sheet menu (the same `StoryRowMenu` component used for long-press on a list row) with secondary actions for the story:
 
@@ -409,7 +426,7 @@ No hide/sweep toast: the Undo button is the recovery path. Hiding is always deli
 - Text: `#000` primary, `#828282` metadata.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
 - **Tap targets: ≥48×48px, ≥8px spacing between any two distinct targets.**
-- **At most 2 tappable zones per story row** (3 when logged in, counting the vote arrow): the stretched row link and the pin button. Anything else is display-only.
+- **At most 3 tappable zones per story row**, 2 in the shipped UI (row body + pin). Anything else is display-only. Upvoting is not on the row today; it lives on the thread page (see *Thread action bar*).
 - Layout: single column, max-width ~720px, centered on desktop.
 - Active/pressed state on every tappable zone (subtle background darkening) so the user sees which region received their tap.
 - **Long-press tooltip on every button.** Every interactive `<button>` in the app (icon-only and text alike) routes through the shared `<TooltipButton tooltip="…">` component. On a touch or pen pointer, a 500 ms hold shows a small floating tooltip with the button's label for ~1.2 s, then swallows the follow-up click so the user can inspect a control without firing it. On a mouse pointer the tooltip is suppressed — desktop users get the same copy through the native `title` attribute on hover. The tooltip is portaled into `document.body`, position-flipped when there isn't room above, and `position: fixed` with px offsets (no `vh`) so the mobile address bar collapsing doesn't misalign it. iOS Safari doesn't fire `contextmenu` on long-press, so the native callout / selection magnifier is suppressed via CSS instead (`touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-tap-highlight-color: transparent`). Android Chrome's `contextmenu` (which does fire) is `preventDefault`-ed while the long-press is pending. No haptic feedback — the visual tooltip is the whole affordance, and `navigator.vibrate` behavior is inconsistent across iOS (unsupported) and Android (user-gesture timing rules, site-level opt-outs), so we avoid the platform split entirely. Icon-only buttons also carry an `aria-label` (or a `visually-hidden` caption) so the tooltip copy is only a *visual* augmentation, not an accessibility dependency — VoiceOver and TalkBack read the real label.

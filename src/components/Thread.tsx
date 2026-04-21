@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../hooks/useAuth';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useFavorites } from '../hooks/useFavorites';
@@ -8,6 +9,7 @@ import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useShareStory } from '../hooks/useShareStory';
+import { useVote } from '../hooks/useVote';
 import { SummaryError, useSummary } from '../hooks/useSummary';
 import { useCommentsSummary } from '../hooks/useCommentsSummary';
 import { useContentWidth } from '../hooks/useContentWidth';
@@ -81,6 +83,27 @@ function PinFilledIcon() {
       focusable="false"
     >
       <path d="m634-448 86 77v60H510v241l-30 30-30-30v-241H240v-60l80-77v-333h-50v-60h414v60h-50v333Z" />
+    </svg>
+  );
+}
+
+function UpArrowIcon() {
+  // Solid upward-pointing triangle — mirrors HN's `▲` vote arrow. We
+  // rely on `.thread__action--active` toggling `currentColor` to HN
+  // orange for the voted state, rather than a separate filled variant,
+  // because HN itself uses a shape+color (not outline↔solid) convention
+  // for upvoted.
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M480-720 220-320h520L480-720Z" />
     </svg>
   );
 }
@@ -469,6 +492,12 @@ export function Thread({ id }: Props) {
       if (item) prefetchFavoriteStory(queryClient, item);
     }
   }, [favorited, id, favorite, unfavorite, item, queryClient]);
+  const { isAuthenticated } = useAuth();
+  const { isVoted, toggleVote } = useVote();
+  const voted = isVoted(id);
+  const handleToggleVote = useCallback(() => {
+    toggleVote(id);
+  }, [id, toggleVote]);
   const handleLinkClick = useInternalLinkClick();
   const shareStory = useShareStory();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -587,6 +616,24 @@ export function Thread({ id }: Props) {
               <OpenInNewIcon />
               <span className="thread__action-label">Read article</span>
             </a>
+          ) : null}
+          {isAuthenticated ? (
+            <TooltipButton
+              type="button"
+              className={
+                'thread__action thread__action--icon' +
+                (voted ? ' thread__action--active' : '')
+              }
+              data-testid="thread-vote"
+              aria-pressed={voted}
+              tooltip={voted ? 'Unvote' : 'Upvote'}
+              onClick={handleToggleVote}
+            >
+              <UpArrowIcon />
+              <span className="visually-hidden">
+                {voted ? 'Unvote' : 'Upvote'}
+              </span>
+            </TooltipButton>
           ) : null}
           <TooltipButton
             type="button"
