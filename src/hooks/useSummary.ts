@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { trackedFetch } from '../lib/networkStatus';
 
 export const SUMMARY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -42,7 +43,7 @@ async function fetchSummary(
   storyId: number,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
-  const res = await fetch(`/api/summary?id=${storyId}`, { signal });
+  const res = await trackedFetch(`/api/summary?id=${storyId}`, { signal });
   if (!res.ok) {
     let message = 'Summarization failed';
     let reason: SummaryErrorReason | undefined;

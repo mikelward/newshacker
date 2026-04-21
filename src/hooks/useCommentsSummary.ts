@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { trackedFetch } from '../lib/networkStatus';
 
 // Matches the conservative end of the server-side TTL (the server may
 // regenerate after 30 min for young stories). The client holds onto the
@@ -15,7 +16,7 @@ async function fetchCommentsSummary(
   storyId: number,
   signal?: AbortSignal,
 ): Promise<CommentsSummaryResult> {
-  const res = await fetch(`/api/comments-summary?id=${storyId}`, { signal });
+  const res = await trackedFetch(`/api/comments-summary?id=${storyId}`, { signal });
   if (!res.ok) {
     let message = 'Summarization failed';
     try {

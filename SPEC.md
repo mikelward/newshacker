@@ -416,12 +416,13 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 - When new comments arrive upstream after the pin, old cached comments are **not** invalidated — each comment lives under its own cache key. SWR surfaces the cached copy offline; next online visit refreshes silently.
 
 ### Offline UX
-- `useOnlineStatus` hook (reads `navigator.onLine`, listens to `online`/`offline` events) drives:
+- `useOnlineStatus` hook drives:
   - A small "Offline" pill in the header.
   - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline.
   - An offline-specific message in the AI summary card when no cached summary exists. The same message pattern applies to the AI comment summary card.
 - Write actions (vote, login — once implemented) check `navigator.onLine` and show a toast instead of issuing a request that's guaranteed to fail.
 - **React Query `networkMode: 'offlineFirst'`** (set globally in `main.tsx`). The default 'online' mode pauses queries whenever React Query's `onlineManager` reports offline, which leaves uncached thread/summary reads on a never-resolving loading skeleton. `'offlineFirst'` lets the queryFn run regardless, so the Workbox SW cache can answer from Cache API when it has an entry, and a true miss rejects fast enough for the offline error UI above to render.
+- **Fetch-failure-based detection** (`src/lib/networkStatus.ts`). `navigator.onLine` on mobile lags badly behind reality — walking into a tunnel can leave it stuck at `true` for tens of seconds, so the header pill would appear long after Brave's own offline banner. Every app fetch goes through `trackedFetch`, which flips the tracker offline the instant a request throws a `TypeError` (fetch's network-layer failure signal) and back online the instant any response comes back (even a 500 proves we reached a server). `AbortError` is ignored so a superseded query doesn't masquerade as a connectivity drop. The tracker also listens to the browser's `online`/`offline` events as a secondary signal and keeps React Query's `onlineManager` in sync so refetch-on-reconnect still fires. Zero new requests — we only instrument ones the app was already making.
 
 ### Planned (not in this change)
 - Pull-to-refresh gesture on feed and thread pages that invalidates the relevant React Query keys (and thus the SW caches via SWR). Replaces the browser's native PTR, which disappears in standalone mode.

@@ -69,7 +69,12 @@ describe('<Thread> offline messaging', () => {
   });
 
   it('shows the offline-specific summary message when the summary has never been fetched', async () => {
-    installHNFetchMock({
+    // The item fetch succeeds (it's been cached), but the summary fetch
+    // throws a TypeError — matching real offline behavior where the
+    // browser can't reach our /api/summary endpoint at all. The tracker
+    // flips offline on that failure, and the Thread renders the
+    // summary-offline copy instead of the generic error.
+    const hnMock = installHNFetchMock({
       items: {
         321: makeStory(321, {
           title: 'Offline read',
@@ -77,10 +82,17 @@ describe('<Thread> offline messaging', () => {
           kids: [],
         }),
       },
-      // Summary fixture is absent on purpose so the request 500s, standing
-      // in for "never cached and we are offline".
     });
-    setOnline(false);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('/api/summary')) {
+          throw new TypeError('network down');
+        }
+        return hnMock(input);
+      }),
+    );
 
     renderWithProviders(<Thread id={321} />, { route: '/item/321' });
 

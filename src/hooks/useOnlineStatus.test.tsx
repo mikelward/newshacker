@@ -1,59 +1,94 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useOnlineStatus } from './useOnlineStatus';
+import {
+  _resetNetworkStatusForTests,
+  reportFetchFailure,
+  reportFetchSuccess,
+} from '../lib/networkStatus';
+
+function setNavigatorOnline(value: boolean) {
+  Object.defineProperty(window.navigator, 'onLine', {
+    configurable: true,
+    value,
+  });
+}
 
 describe('useOnlineStatus', () => {
   beforeEach(() => {
-    vi.unstubAllGlobals();
+    setNavigatorOnline(true);
+    _resetNetworkStatusForTests();
   });
   afterEach(() => {
-    vi.unstubAllGlobals();
+    setNavigatorOnline(true);
+    _resetNetworkStatusForTests();
   });
 
-  function setOnline(value: boolean) {
-    Object.defineProperty(window.navigator, 'onLine', {
-      configurable: true,
-      value,
-    });
-  }
-
   it('initialises from navigator.onLine', () => {
-    setOnline(true);
     const { result } = renderHook(() => useOnlineStatus());
     expect(result.current).toBe(true);
   });
 
-  it('flips to false on offline event', () => {
-    setOnline(true);
+  it('flips to false on window offline event', () => {
     const { result } = renderHook(() => useOnlineStatus());
     act(() => {
-      setOnline(false);
+      setNavigatorOnline(false);
       window.dispatchEvent(new Event('offline'));
     });
     expect(result.current).toBe(false);
   });
 
-  it('flips to true on online event', () => {
-    setOnline(false);
+  it('flips to true on window online event', () => {
+    setNavigatorOnline(false);
+    _resetNetworkStatusForTests();
     const { result } = renderHook(() => useOnlineStatus());
     expect(result.current).toBe(false);
     act(() => {
-      setOnline(true);
+      setNavigatorOnline(true);
       window.dispatchEvent(new Event('online'));
     });
     expect(result.current).toBe(true);
   });
 
-  it('cleans up listeners on unmount', () => {
-    const add = vi.spyOn(window, 'addEventListener');
-    const remove = vi.spyOn(window, 'removeEventListener');
-    const { unmount } = renderHook(() => useOnlineStatus());
-    const onlineAdded = add.mock.calls.some(([event]) => event === 'online');
-    expect(onlineAdded).toBe(true);
+  it('flips offline immediately when a fetch fails with a network error', () => {
+    // The whole point of this indirection: the OS takes seconds to
+    // flip navigator.onLine when you walk into a tunnel, but any
+    // in-flight request fails instantly. The pill should react to the
+    // latter, not wait for the former.
+    const { result } = renderHook(() => useOnlineStatus());
+    expect(result.current).toBe(true);
+    act(() => {
+      reportFetchFailure(new TypeError('Failed to fetch'));
+    });
+    expect(result.current).toBe(false);
+  });
+
+  it('flips back online when the next fetch succeeds', () => {
+    const { result } = renderHook(() => useOnlineStatus());
+    act(() => {
+      reportFetchFailure(new TypeError('Failed to fetch'));
+    });
+    expect(result.current).toBe(false);
+    act(() => {
+      reportFetchSuccess();
+    });
+    expect(result.current).toBe(true);
+  });
+
+  it('ignores AbortError — a caller cancelling is not a connectivity signal', () => {
+    const { result } = renderHook(() => useOnlineStatus());
+    act(() => {
+      reportFetchFailure(new DOMException('aborted', 'AbortError'));
+    });
+    expect(result.current).toBe(true);
+  });
+
+  it('stops updating after unmount', () => {
+    const { result, unmount } = renderHook(() => useOnlineStatus());
     unmount();
-    const onlineRemoved = remove.mock.calls.some(([event]) => event === 'online');
-    const offlineRemoved = remove.mock.calls.some(([event]) => event === 'offline');
-    expect(onlineRemoved).toBe(true);
-    expect(offlineRemoved).toBe(true);
+    act(() => {
+      reportFetchFailure(new TypeError('Failed to fetch'));
+    });
+    expect(result.current).toBe(true);
   });
 });
