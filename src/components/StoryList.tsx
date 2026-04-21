@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useDismissedStories } from '../hooks/useDismissedStories';
+import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { StoryListItem } from './StoryListItem';
@@ -40,8 +41,9 @@ export function StoryList({ feed }: Props) {
   const shareStory = useShareStory();
   const { setSweep, recordDismiss } = useFeedBar();
 
-  const { items, hasMore, isFetchingMore, loadMore, refetch, isError } =
+  const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
+  const { stories: offFeedPinnedStories } = useOffFeedPinnedStories(allIds);
 
   const handlePin = useCallback(
     (id: number) => {
@@ -235,13 +237,39 @@ export function StoryList({ feed }: Props) {
     );
   }
 
-  if (visibleStories.length === 0 && !hasMore) {
+  if (
+    visibleStories.length === 0 &&
+    offFeedPinnedStories.length === 0 &&
+    !hasMore
+  ) {
     return <EmptyState message="No stories yet." />;
   }
 
   return (
     <>
       <ol className="story-list">
+        {offFeedPinnedStories.map((story) => (
+          <li
+            key={`pinned-${story.id}`}
+            ref={getRowRef(story.id)}
+            className="story-list__item"
+            data-story-id={story.id}
+            data-off-feed-pinned="true"
+          >
+            <StoryListItem
+              story={story}
+              articleOpened={articleOpenedIds.has(story.id)}
+              commentsOpened={commentsOpenedIds.has(story.id)}
+              pinned
+              dismissed={dismissedIds.has(story.id)}
+              onDismiss={handleDismissOne}
+              onPin={handlePin}
+              onUnpin={unpin}
+              onShare={shareStory}
+              onOpenThread={handleOpenThread}
+            />
+          </li>
+        ))}
         {visibleStories.map((story, idx) => (
           <li
             key={story.id}
