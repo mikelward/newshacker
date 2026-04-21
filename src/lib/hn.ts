@@ -1,4 +1,5 @@
 import { feedEndpoint, type Feed } from './feeds';
+import { trackedFetch } from './networkStatus';
 
 export const HN_API_BASE = 'https://hacker-news.firebaseio.com/v0';
 
@@ -29,7 +30,7 @@ export interface HNUser {
 }
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, { signal });
+  const res = await trackedFetch(url, { signal });
   if (!res.ok) {
     throw new Error(`HN API ${res.status}: ${url}`);
   }
@@ -88,7 +89,7 @@ async function fetchItemsBatch(
 ): Promise<Array<HNItem | null>> {
   const qs = new URLSearchParams({ ids: ids.join(',') });
   if (options.fields === 'full') qs.set('fields', 'full');
-  const res = await fetch(`/api/items?${qs.toString()}`, { signal });
+  const res = await trackedFetch(`/api/items?${qs.toString()}`, { signal });
   if (!res.ok) {
     throw new Error(`items API ${res.status}`);
   }

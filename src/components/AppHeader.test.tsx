@@ -57,6 +57,7 @@ describe('<AppHeader>', () => {
 
   it('shows the offline pill on non-feed routes too', () => {
     setOnline(false);
+    window.dispatchEvent(new Event('offline'));
     renderWithProviders(<AppHeader />, { route: '/pinned' });
     expect(screen.getByTestId('offline-indicator')).toBeInTheDocument();
   });
