@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
+import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
@@ -38,6 +39,7 @@ export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
   const queryClient = useQueryClient();
   const { hiddenIds, hide } = useHiddenStories();
+  const { doneIds } = useDoneStories();
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
@@ -70,6 +72,8 @@ export function StoryList({ feed }: Props) {
   // person has voted). This is a live, per-render check, not a
   // persistent filter — if a story's score climbs above 1 on a
   // subsequent feed refetch, it rejoins the list automatically.
+  // Done stories are also hidden: Done is the completion log, and
+  // the feed should represent "what's still worth looking at".
   const visibleStories = useMemo(
     () =>
       items.filter(
@@ -78,9 +82,10 @@ export function StoryList({ feed }: Props) {
           !it.deleted &&
           !it.dead &&
           (it.score ?? 0) > 1 &&
-          !hiddenIds.has(it.id),
+          !hiddenIds.has(it.id) &&
+          !doneIds.has(it.id),
       ),
-    [items, hiddenIds],
+    [items, hiddenIds, doneIds],
   );
 
   // Opportunistically warm the thread/comment cache for currently-trending

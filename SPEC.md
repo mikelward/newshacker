@@ -55,10 +55,10 @@ above for the shape we expect to ship):
 
 ## Feature List
 
-### Pinned vs. Favorite — two intents, two buckets
+### Pinned vs. Favorite vs. Done — three intents, three buckets
 
-"Pin" and "Favorite" are deliberately separate so a single row-level action
-doesn't have to do double duty.
+"Pin", "Favorite", and "Done" are deliberately separate so no single
+action has to do double duty.
 
 - **Pinned (📌)** is your **active reading list**. You pin from a story row
   (pin button, swipe-left, or long-press → Pin). Pins stay until you remove
@@ -70,16 +70,37 @@ doesn't have to do double duty.
   zones" rule. Favorites never auto-expire and are not swept. The intent is
   "I loved this and want to remember it", not "I want to come back to this
   soon".
+- **Done (check)** is your **completion log**. You mark done from the
+  **article comments view** (thread page, action bar), not from the row.
+  Tapping Done also unpins the story — Pin is the active queue, Done is
+  where items go when they leave the queue, and a story can't be in both.
+  Done stories are filtered out of every feed (same as Hidden, but
+  permanent instead of the Hidden list's 7-day TTL). The intent is
+  "I engaged with this thread and I'm finished with it", not "not
+  interested" (that's Hide) and not "keepsake forever" (that's Favorite).
+  Favorites are orthogonal — favoriting and marking done are independent.
 
-The two lists live side by side in the drawer ("Favorites" above "Pinned")
-and each has its own localStorage key (`newshacker:favoriteStoryIds`,
-`newshacker:pinnedStoryIds`) so one is never silently interpreted as the
-other. The pinned-stories module performs a one-shot rename of the legacy
-`newshacker:savedStoryIds` key so existing readers don't lose their list.
-The hidden-stories module does the same one-shot rename of the legacy
-`newshacker:dismissedStoryIds` key to `newshacker:hiddenStoryIds`, which
-is the current key — the vocabulary switched from "ignore/dismiss" to
-"hide" to match HN's own term.
+The four lists live side by side in the drawer ("Favorites", "Pinned",
+"Done", "Hidden") and each has its own localStorage key
+(`newshacker:favoriteStoryIds`, `newshacker:pinnedStoryIds`,
+`newshacker:doneStoryIds`, `newshacker:hiddenStoryIds`) so one is never
+silently interpreted as another. The pinned-stories module performs a
+one-shot rename of the legacy `newshacker:savedStoryIds` key so existing
+readers don't lose their list. The hidden-stories module does the same
+one-shot rename of the legacy `newshacker:dismissedStoryIds` key to
+`newshacker:hiddenStoryIds`, which is the current key — the vocabulary
+switched from "ignore/dismiss" to "hide" to match HN's own term.
+
+**Retention today:** Favorite, Pinned, and Done entries (and their
+tombstones) are all permanent; Hidden entries (and tombstones) expire
+after 7 days. Only Favorite is clearly intended to be forever — see
+`TODO.md § Retention policy` for a standing item to reconsider TTLs
+for Pinned, Done, and tombstones once we have real usage data.
+
+**Cross-device sync:** all four lists — Pinned, Favorite, Hidden, Done —
+ride `/api/sync` (Upstash Redis, per-user, per-id last-write-wins,
+fail-open) for signed-in users. Max 10k entries per list, enforced
+server-side with most-recent-first eviction.
 
 ### MVP (read-only)
 
@@ -383,11 +404,15 @@ Spacing / sizing:
 - Min dead space between adjacent tap zones: 8px.
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
 
-Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Upvote (logged-in only), Pin, Favorite, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the same row, and a single primary tap target per comment row. See *Comment row layout* below.
+Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Upvote (logged-in only), Pin, Favorite, Done, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the same row, and a single primary tap target per comment row. See *Comment row layout* below.
 
 ### Thread action bar
 
-Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin** → **Favorite** → **More actions ⋮**. Each is a 48×48px icon button with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--hn-meta` by default and `--hn-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
+Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin** → **Favorite** → **Done** → **More actions ⋮**. Each is a 48×48px icon button with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--hn-meta` by default and `--hn-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
+
+The **Pin** button (Material Symbols `push_pin`, outline → filled on toggle) is the same pinned state as the row-level pin on feeds — making the toggle reachable from the thread page matters for stories opened directly from a share link, where there's no feed row to tap. The **Favorite** button (heart, outline → filled) sits immediately after Pin; together they're the "save this" pair (queue vs. keepsake). The **Done** button (Material Symbols `done`, outline → filled on toggle) sits immediately right of Favorite and marks the thread complete: the story is filtered out of every feed (see *Pinned vs. Favorite vs. Done* above) and added to the synced Done list. Tapping Done on a pinned story also unpins it; Done and Pin are mutually exclusive. Tapping Done does **not** navigate away; the filled icon is the confirmation, and the user can navigate back when ready. Auto-navigate-on-done is tracked in `TODO.md § Thread action bar` as a possible future change. There is no Done toast — the button state is the single source of truth, matching Pin/Favorite.
+
+On narrow phones (≤480px viewport) the primary "Read article" button wraps to its own row above the icon buttons so all six targets stay at the 48×48px minimum; wider viewports keep the whole bar on one row.
 
 Tapping ⋮ opens a bottom-sheet menu (the same `StoryRowMenu` component used for long-press on a list row) with secondary actions for the story:
 
@@ -439,7 +464,7 @@ On feed pages the sticky orange header carries two feed-scoped action icons on t
 
 Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols, outlined weight, viewBox `0 -960 960 960`, drawn with `fill="currentColor"`). No icon font, CSS, or web request is used to load them at runtime.
 
-On non-feed pages (thread, `/pinned`, `/hidden`, etc.) these icons do not render at all.
+On non-feed pages (thread, `/pinned`, `/done`, `/hidden`, etc.) these icons do not render at all.
 
 No hide/sweep toast: the Undo button is the recovery path. Hiding is always deliberate (swipe right, broom, or menu Hide) — scroll-past does not auto-hide. Pin/unpin don't toast either; the pin button's pressed state is the single source of truth for pinned state.
 

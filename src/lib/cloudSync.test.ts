@@ -23,6 +23,12 @@ import {
   addHiddenId,
   getAllHiddenEntries,
 } from './hiddenStories';
+import {
+  addDoneId,
+  getAllDoneEntries,
+  getDoneIds,
+  removeDoneId,
+} from './doneStories';
 
 const NOW = Date.now();
 const T = {
@@ -35,7 +41,7 @@ const T = {
 };
 
 function emptyState(): SyncState {
-  return { pinned: [], favorite: [], hidden: [] };
+  return { pinned: [], favorite: [], hidden: [], done: [] };
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -128,6 +134,7 @@ describe('cloudSync lifecycle', () => {
       ],
       favorite: [],
       hidden: [],
+      done: [],
     };
     const fetchMock = queuedFetch([
       {
@@ -247,6 +254,7 @@ describe('cloudSync lifecycle', () => {
       pinned: [{ id: 1, at: T.T3 }],
       favorite: [],
       hidden: [],
+      done: [],
     };
     // Only a GET is queued. If an unexpected POST fires, the mock throws.
     const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
@@ -331,6 +339,7 @@ describe('cloudSync lifecycle', () => {
       pinned: [{ id: 5, at: T.T4, deleted: true }],
       favorite: [],
       hidden: [],
+      done: [],
     };
     const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
     await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
@@ -342,10 +351,11 @@ describe('cloudSync lifecycle', () => {
     ]);
   });
 
-  it('propagates all three lists through a round-trip', async () => {
+  it('propagates all four lists through a round-trip', async () => {
     addPinnedId(1, T.T3);
     addFavoriteId(2, T.T4);
     addHiddenId(3, T.T5);
+    addDoneId(4, T.T5);
     const fetchMock = queuedFetch([
       { response: jsonResponse(emptyState()) },
       {
@@ -366,11 +376,88 @@ describe('cloudSync lifecycle', () => {
     expect(body.pinned).toEqual([{ id: 1, at: T.T3 }]);
     expect(body.favorite).toEqual([{ id: 2, at: T.T4 }]);
     expect(body.hidden).toEqual([{ id: 3, at: T.T5 }]);
+    expect(body.done).toEqual([{ id: 4, at: T.T5 }]);
 
     // Local state still intact after the round-trip.
     expect(getAllPinnedEntries().map((e) => e.id)).toEqual([1]);
     expect(getAllFavoriteEntries().map((e) => e.id)).toEqual([2]);
     expect(getAllHiddenEntries().map((e) => e.id)).toEqual([3]);
+    expect(getAllDoneEntries().map((e) => e.id)).toEqual([4]);
+  });
+
+  it('merges server Done tombstones into local on pull', async () => {
+    addDoneId(5, T.T1);
+    const server: SyncState = {
+      pinned: [],
+      favorite: [],
+      hidden: [],
+      done: [{ id: 5, at: T.T4, deleted: true }],
+    };
+    const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    expect(getDoneIds()).toEqual(new Set());
+    expect(getAllDoneEntries()).toEqual([
+      { id: 5, at: T.T4, deleted: true },
+    ]);
+  });
+
+  it('a local Done add triggers a debounced POST with the delta', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(emptyState()) }, // GET
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      }, // POST
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    addDoneId(42, T.T5);
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.done).toEqual([{ id: 42, at: T.T5 }]);
+  });
+
+  it('pushes tombstones for done removes', async () => {
+    addDoneId(1, T.T1);
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(emptyState()) }, // GET
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      }, // initial flush POST
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      }, // tombstone POST
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    removeDoneId(1, T.T5);
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[2][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.done).toEqual([{ id: 1, at: T.T5, deleted: true }]);
   });
 });
 
@@ -424,18 +511,21 @@ describe('cloudSync debug API', () => {
       pinned: 1,
       favorite: 0,
       hidden: 0,
+      done: 0,
     });
     expect(snap.lastPush?.ok).toBe(true);
     expect(snap.lastPush?.counts).toEqual({
       pinned: 1,
       favorite: 0,
       hidden: 0,
+      done: 0,
     });
     // High-water is advanced, so pending is empty.
     expect(snap.pendingCount).toEqual({
       pinned: 0,
       favorite: 0,
       hidden: 0,
+      done: 0,
     });
   });
 
@@ -465,6 +555,7 @@ describe('cloudSync debug API', () => {
       pinned: 1,
       favorite: 0,
       hidden: 0,
+      done: 0,
     });
     // Pending count reflects the still-unpushed entry.
     expect(snap.pendingCount.pinned).toBe(1);

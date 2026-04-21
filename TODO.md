@@ -122,6 +122,79 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   limiting handler should fail-open too (serve the request rather
   than fail closed).
 
+## Thread action bar
+
+- **Consider state-dependent / overflow-aware action bar.** Today the
+  thread action bar shows Read article → Upvote → Pin → Done →
+  Favorite → More on every thread. Six targets is tight on narrow
+  phones (we mitigate by wrapping the primary to its own row on
+  ≤480px) and some of those actions are redundant in certain states.
+  Two variants worth exploring:
+  (a) **State-dependent static swap.** Show the forward-state action
+      on the main bar and the reverse in the overflow menu. When
+      unpinned-and-not-done: main bar is Pin, overflow has Unmark
+      done. When pinned: main bar is Done (one-tap finish), overflow
+      has Unpin. When done: main bar is Unmark done, overflow has
+      Pin. This keeps the bar at five icons always (Upvote / <Pin
+      or Done> / Favorite / More + one from the pair) and the most
+      likely next action is always one tap away.
+  (b) **Dynamic overflow.** Measure available width at runtime via
+      `ResizeObserver`; if the row would overflow, demote the
+      right-most icons into the `⋮` menu until it fits. More
+      flexible than a static swap but costs a runtime measurement
+      and can visually shuffle on orientation change.
+  Variant (a) is simpler and probably what we'd ship first. No
+  action today; revisit if the two-row layout on narrow phones
+  feels off in practice.
+
+- **Consider having Done auto-navigate back to the feed.** Today
+  tapping Done on the thread action bar just flips the button to
+  filled and updates local + sync state — you stay on the thread
+  page. Alternative: tapping Done pops the thread and returns to
+  the feed (or wherever the user arrived from), mirroring the
+  Apollo-style "mark read" flow on Reddit clients.
+  Pros: clearer "I'm finished" gesture; one tap clears both the
+  thread and the row; matches muscle memory from other reader
+  apps. Cons: breaks the consistency with Pin/Favorite/Upvote
+  (which all toggle in place); removes the user's ability to
+  see the filled icon as confirmation; needs a toast with Undo
+  to stay forgiving (undo right after a route change is
+  otherwise awkward).
+  If we do this, the change is small: `navigate(-1)` (or
+  `navigate('/')` if there's no history) in the markDone branch
+  of the click handler, plus a `showToast('Marked done', { action:
+  { label: 'Undo', onClick: () => unmarkDone(id) } })` via the
+  existing `ToastProvider`. Skip on unmark-done (you're already
+  on the story so there's nowhere meaningful to navigate).
+
+## Retention policy
+
+- **Reconsider TTL for Pinned / Done / tombstones.** Pinned, Done,
+  and their tombstones are all currently permanent, mirroring
+  Favorite. Only Favorite is *clearly* intended to be forever (it's
+  a deliberate keepsake, and for authenticated users it's synced
+  with HN). Pinned is an active reading list — stale entries from
+  years ago probably aren't what the user wants. Done is a
+  completion log — useful recent history, probably not useful at
+  infinite age. Tombstones only need to live long enough for
+  every device the user owns to pull them once.
+  Worth revisiting:
+  (a) Pinned entries: cap by age (e.g. 90 d or 180 d) or by count
+      (e.g. 500), whichever bites first? Today the server-side 10k
+      cap in `api/sync.ts` is the only bound.
+  (b) Done entries: 30–180 d TTL would keep the Done page
+      manageable for long-lived power users without ever silently
+      losing a recent completion. Whatever we pick, the Done page
+      UX should make the policy visible (e.g. footer "Showing
+      completions from the last 180 days").
+  (c) Tombstones across all three synced lists: a 90-day TTL on
+      the tombstone itself would stop dead entries from consuming
+      storage indefinitely. Safe as long as we're confident no
+      user's device stays offline longer than that window.
+  Not urgent — at realistic usage, none of these lists get large
+  enough to matter for storage or performance. Revisit when we
+  have real user data showing list sizes.
+
 ## Sync
 
 - **Opened/read sync (maybe; notes only).** Cross-device sync v1

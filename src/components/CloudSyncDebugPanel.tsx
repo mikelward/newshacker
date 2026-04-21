@@ -25,10 +25,12 @@ function ago(at: number | undefined, now: number): string {
 }
 
 function formatCounts(
-  counts: Record<'pinned' | 'favorite' | 'hidden', number> | undefined,
+  counts:
+    | Record<'pinned' | 'favorite' | 'hidden' | 'done', number>
+    | undefined,
 ): string {
   if (!counts) return '—';
-  return `pinned ${counts.pinned}, favorite ${counts.favorite}, hidden ${counts.hidden}`;
+  return `pinned ${counts.pinned}, favorite ${counts.favorite}, hidden ${counts.hidden}, done ${counts.done}`;
 }
 
 function describeLast(
@@ -108,7 +110,8 @@ export function CloudSyncDebugPanel({
   const pending =
     snapshot.pendingCount.pinned +
     snapshot.pendingCount.favorite +
-    snapshot.pendingCount.hidden;
+    snapshot.pendingCount.hidden +
+    snapshot.pendingCount.done;
 
   return (
     <section className="cloud-sync-debug" data-testid="cloud-sync-debug">

@@ -17,8 +17,21 @@
 
 .thread__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+/* Narrow phones can't fit the full "Read article" primary button plus
+   five icon buttons (Upvote / Pin / Done / Favorite / More) on one
+   row — at 375px viewport the icons alone take ~330px, leaving the
+   primary button no room. Letting the primary grow to the full row
+   width on narrow screens keeps it tappable and lets the icons flow
+   onto their own row below. */
+@media (max-width: 480px) {
+  .thread__action--primary {
+    flex-basis: 100%;
+  }
 }
 
 .thread__action {
