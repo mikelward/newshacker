@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useItemTree } from '../hooks/useItemTree';
@@ -467,10 +467,119 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
   );
 }
 
+interface ThreadActionBarProps {
+  itemId: number;
+  articleUrl?: string;
+  canVote: boolean;
+  voted: boolean;
+  pinned: boolean;
+  done: boolean;
+  menuOpen: boolean;
+  onToggleVote: () => void;
+  onTogglePinned: () => void;
+  onToggleDone: () => void;
+  onOpenMenu: () => void;
+  testIdSuffix?: '' | '-bottom';
+}
+
+function ThreadActionBar({
+  itemId,
+  articleUrl,
+  canVote,
+  voted,
+  pinned,
+  done,
+  menuOpen,
+  onToggleVote,
+  onTogglePinned,
+  onToggleDone,
+  onOpenMenu,
+  testIdSuffix = '',
+}: ThreadActionBarProps) {
+  return (
+    <div className="thread__actions">
+      {articleUrl ? (
+        <a
+          className="thread__action thread__action--primary"
+          href={articleUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => markArticleOpenedId(itemId)}
+        >
+          <OpenInNewIcon />
+          <span className="thread__action-label">Read article</span>
+        </a>
+      ) : null}
+      {canVote ? (
+        <TooltipButton
+          type="button"
+          className={
+            'thread__action thread__action--icon' +
+            (voted ? ' thread__action--active' : '')
+          }
+          data-testid={`thread-vote${testIdSuffix}`}
+          aria-pressed={voted}
+          tooltip={voted ? 'Unvote' : 'Upvote'}
+          onClick={onToggleVote}
+        >
+          <UpArrowIcon />
+          <span className="visually-hidden">
+            {voted ? 'Unvote' : 'Upvote'}
+          </span>
+        </TooltipButton>
+      ) : null}
+      <TooltipButton
+        type="button"
+        className={
+          'thread__action thread__action--icon' +
+          (pinned ? ' thread__action--active' : '')
+        }
+        data-testid={`thread-pin${testIdSuffix}`}
+        aria-pressed={pinned}
+        tooltip={pinned ? 'Unpin' : 'Pin'}
+        onClick={onTogglePinned}
+      >
+        {pinned ? <PinFilledIcon /> : <PinIcon />}
+        <span className="visually-hidden">{pinned ? 'Unpin' : 'Pin'}</span>
+      </TooltipButton>
+      <TooltipButton
+        type="button"
+        className={
+          'thread__action thread__action--icon' +
+          (done ? ' thread__action--active' : '')
+        }
+        data-testid={`thread-done${testIdSuffix}`}
+        aria-pressed={done}
+        tooltip={done ? 'Unmark done' : 'Mark done'}
+        onClick={onToggleDone}
+      >
+        {done ? <DoneFilledIcon /> : <DoneIcon />}
+        <span className="visually-hidden">
+          {done ? 'Unmark done' : 'Mark done'}
+        </span>
+      </TooltipButton>
+      <TooltipButton
+        type="button"
+        className="thread__action thread__action--icon"
+        data-testid={`thread-more${testIdSuffix}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        tooltip="More actions"
+        aria-label="More actions"
+        onClick={onOpenMenu}
+      >
+        <MoreVertIcon />
+      </TooltipButton>
+    </div>
+  );
+}
+
 export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
   const queryClient = useQueryClient();
   const online = useOnlineStatus();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
   const { isPinned, pin, unpin } = usePinnedStories();
   const pinned = isPinned(id);
@@ -486,9 +595,18 @@ export function Thread({ id }: Props) {
   const { isDone, markDone, unmarkDone } = useDoneStories();
   const done = isDone(id);
   const handleToggleDone = useCallback(() => {
-    if (done) unmarkDone(id);
-    else markDone(id);
-  }, [done, id, markDone, unmarkDone]);
+    if (done) {
+      unmarkDone(id);
+      return;
+    }
+    markDone(id);
+    // Mark-done closes the thread: pop back to wherever the reader came
+    // from (usually a feed). location.key === 'default' means this is
+    // the first in-app history entry (deep link, refresh, shared URL),
+    // so there's nothing to pop — land on the home feed instead.
+    if (location.key !== 'default') navigate(-1);
+    else navigate('/');
+  }, [done, id, markDone, unmarkDone, location.key, navigate]);
   const { isFavorite, favorite, unfavorite } = useFavorites();
   const favorited = isFavorite(id);
   const handleToggleFavorite = useCallback(() => {
@@ -619,82 +737,19 @@ export function Thread({ id }: Props) {
       <header className="thread__header">
         <h1 className="thread__title">{item.title ?? '[untitled]'}</h1>
         {item.url ? <SummaryCard storyId={id} /> : null}
-        <div className="thread__actions">
-          {item.url ? (
-            <a
-              className="thread__action thread__action--primary"
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => markArticleOpenedId(item.id)}
-            >
-              <OpenInNewIcon />
-              <span className="thread__action-label">Read article</span>
-            </a>
-          ) : null}
-          {isAuthenticated ? (
-            <TooltipButton
-              type="button"
-              className={
-                'thread__action thread__action--icon' +
-                (voted ? ' thread__action--active' : '')
-              }
-              data-testid="thread-vote"
-              aria-pressed={voted}
-              tooltip={voted ? 'Unvote' : 'Upvote'}
-              onClick={handleToggleVote}
-            >
-              <UpArrowIcon />
-              <span className="visually-hidden">
-                {voted ? 'Unvote' : 'Upvote'}
-              </span>
-            </TooltipButton>
-          ) : null}
-          <TooltipButton
-            type="button"
-            className={
-              'thread__action thread__action--icon' +
-              (pinned ? ' thread__action--active' : '')
-            }
-            data-testid="thread-pin"
-            aria-pressed={pinned}
-            tooltip={pinned ? 'Unpin' : 'Pin'}
-            onClick={handleTogglePinned}
-          >
-            {pinned ? <PinFilledIcon /> : <PinIcon />}
-            <span className="visually-hidden">
-              {pinned ? 'Unpin' : 'Pin'}
-            </span>
-          </TooltipButton>
-          <TooltipButton
-            type="button"
-            className={
-              'thread__action thread__action--icon' +
-              (done ? ' thread__action--active' : '')
-            }
-            data-testid="thread-done"
-            aria-pressed={done}
-            tooltip={done ? 'Unmark done' : 'Mark done'}
-            onClick={handleToggleDone}
-          >
-            {done ? <DoneFilledIcon /> : <DoneIcon />}
-            <span className="visually-hidden">
-              {done ? 'Unmark done' : 'Mark done'}
-            </span>
-          </TooltipButton>
-          <TooltipButton
-            type="button"
-            className="thread__action thread__action--icon"
-            data-testid="thread-more"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            tooltip="More actions"
-            aria-label="More actions"
-            onClick={openMenu}
-          >
-            <MoreVertIcon />
-          </TooltipButton>
-        </div>
+        <ThreadActionBar
+          itemId={item.id}
+          articleUrl={item.url}
+          canVote={isAuthenticated}
+          voted={voted}
+          pinned={pinned}
+          done={done}
+          menuOpen={menuOpen}
+          onToggleVote={handleToggleVote}
+          onTogglePinned={handleTogglePinned}
+          onToggleDone={handleToggleDone}
+          onOpenMenu={openMenu}
+        />
         <StoryRowMenu
           open={menuOpen}
           title={item.title ?? '[untitled]'}
@@ -750,6 +805,22 @@ export function Thread({ id }: Props) {
           aria-hidden="true"
         />
       ) : null}
+      <footer className="thread__footer">
+        <ThreadActionBar
+          itemId={item.id}
+          articleUrl={item.url}
+          canVote={isAuthenticated}
+          voted={voted}
+          pinned={pinned}
+          done={done}
+          menuOpen={menuOpen}
+          onToggleVote={handleToggleVote}
+          onTogglePinned={handleTogglePinned}
+          onToggleDone={handleToggleDone}
+          onOpenMenu={openMenu}
+          testIdSuffix="-bottom"
+        />
+      </footer>
     </article>
   );
 }

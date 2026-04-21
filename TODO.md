@@ -141,25 +141,17 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   shuffle on orientation change. Not needed today — the ≤480px wrap
   fallback covers the narrow case — but an option if the bar grows.
 
-- **Consider having Done auto-navigate back to the feed.** Today
-  tapping Done on the thread action bar just flips the button to
-  filled and updates local + sync state — you stay on the thread
-  page. Alternative: tapping Done pops the thread and returns to
-  the feed (or wherever the user arrived from), mirroring the
-  Apollo-style "mark read" flow on Reddit clients.
-  Pros: clearer "I'm finished" gesture; one tap clears both the
-  thread and the row; matches muscle memory from other reader
-  apps. Cons: breaks the consistency with Pin/Favorite/Upvote
-  (which all toggle in place); removes the user's ability to
-  see the filled icon as confirmation; needs a toast with Undo
-  to stay forgiving (undo right after a route change is
-  otherwise awkward).
-  If we do this, the change is small: `navigate(-1)` (or
-  `navigate('/')` if there's no history) in the markDone branch
-  of the click handler, plus a `showToast('Marked done', { action:
-  { label: 'Undo', onClick: () => unmarkDone(id) } })` via the
-  existing `ToastProvider`. Skip on unmark-done (you're already
-  on the story so there's nowhere meaningful to navigate).
+- **Consider a Done-undo toast.** Mark-done now pops back to the
+  feed (see *Thread action bar* in `SPEC.md`), which means if a user
+  taps Done by accident they've both hidden the row from every feed
+  *and* left the thread. Browser back recovers it — they land back
+  on the thread with the Done button filled, and tapping it unmarks.
+  Adding `showToast('Marked done', { action: { label: 'Undo',
+  onClick: () => unmarkDone(id) } })` via the existing `ToastProvider`
+  would be a more discoverable recovery path. Held off until we see
+  whether accidental mark-done is a real problem; SPEC currently
+  calls out that button state is the single source of truth, and
+  adding a toast cuts against that.
 
 ## Retention policy
 
