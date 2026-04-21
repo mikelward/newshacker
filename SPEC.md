@@ -408,6 +408,11 @@ Comments use `src/lib/commentPrefetch.ts`'s `prefetchCommentBatch` helper everyw
 
 The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time) the per-comment `useCommentItem` falls back to individual Firebase fetches, so nothing breaks visibly.
 
+### Trending-score drive-by warm
+- As the feed renders, `StoryList` calls `prefetchFeedStory` (in `src/lib/feedStoryPrefetch.ts`) for every row with `score > 100`. It delegates to the same `prefetchPinnedStory` used at pin-time, so the warm shape is identical: `['itemRoot', id]`, the first 30 top-level comments (one shared `/api/items?fields=full` batch), the article AI summary, and the comments AI summary. Tapping a popular headline renders the thread, summaries, and early comments without a round-trip.
+- Tracked per-session via a `Set` in `StoryList` so re-renders don't re-fetch, and `prefetchFeedStory` short-circuits outright if `['itemRoot', id]` is already cached.
+- Summary endpoints are shared-cached in KV (see *Shared server-side cache* below), so a trending story typically costs one Gemini call per hour globally even if thousands of clients warm it.
+
 ### Pin/Favorite offline prefetch
 - Pinning a story calls `prefetchPinnedStory` — stores the item root, the article AI summary, the AI comment summary (when the story has kids), **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time.
 - Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline with real discussion and both summaries.
