@@ -36,6 +36,7 @@ export function useStoryIds(feed: Feed) {
 
 export interface FeedItemsState {
   items: Array<HNItem | null>;
+  allIds: number[] | undefined;
   totalIds: number;
   isLoading: boolean;
   isError: boolean;
@@ -124,6 +125,7 @@ export function useFeedItems(feed: Feed): FeedItemsState {
 
   return {
     items,
+    allIds,
     totalIds: allIds?.length ?? 0,
     isLoading: ids.isLoading || (pages.isLoading && items.length === 0),
     isError: ids.isError || pages.isError,
