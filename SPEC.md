@@ -184,7 +184,18 @@ server-side with most-recent-first eviction.
      Gravatar (enter an email — hashed with SHA-256 in the browser
      before the request), or turn pictures off entirely. Preferences
      live in `newshacker:avatarPrefs` (shape
-     `{ source: 'github' | 'gravatar' | 'none', githubUsername?, gravatarEmail?, gravatarHash? }`).
+     `{ source: 'github' | 'gravatar' | 'none', githubUsername?, gravatarEmail?, gravatarHash?, at? }`,
+     where `at` is the Date.now() of the last save, used for
+     cross-device LWW). For signed-in users, the `source`,
+     `githubUsername`, `gravatarHash`, and `at` travel over
+     `/api/sync` alongside Pinned/Favorite/Hidden so a picture
+     override set on one device propagates to every other device.
+     The raw `gravatarEmail` is intentionally **never** sent — only
+     the SHA-256 hash leaves the device, so Gravatar email doesn't
+     land on our server. On a new device the edit form's email field
+     will be empty (we can't un-hash); the user can retype it if they
+     want it echoed back for display, but the picture itself already
+     works from the synced hash.
      The picture is rendered **only on the header avatar** — not on
      commenters or story posters, because HN usernames ≠ GitHub
      usernames in the general case and showing a stranger's face on
@@ -248,19 +259,28 @@ server-side with most-recent-first eviction.
 
 ### Planned / not yet implemented
 
-8. **Cross-device sync of Pinned / Favorite / Hidden (shipped).**
-   Each of the three lists mirrors to a `/api/sync` serverless
-   endpoint backed by the existing Upstash Redis (the same store
-   powering the AI summary cache). Identity is the HN username from
-   the `hn_session` cookie — no separate signup. Shape is three keyed
-   lists of `{ id, at, deleted? }` tuples; "deleted" is a tombstone
-   so an unpin on device A cannot be resurrected by device B's stale
-   local pin. Merge is last-write-wins per id, with the latest `at`
-   winning. The client pulls on sign-in and on reconnect, and
-   debounces local changes (~2 s) into a single POST for whatever
-   changed since the last successful push. Fails open: if the sync
-   endpoint is down, `localStorage` keeps working exactly as today —
-   sync is purely additive.
+8. **Cross-device sync of Pinned / Favorite / Hidden / Avatar prefs
+   (shipped).** Each of the three lists plus the avatar-prefs record
+   mirrors to a `/api/sync` serverless endpoint backed by the
+   existing Upstash Redis (the same store powering the AI summary
+   cache). Identity is the HN username from the `hn_session` cookie
+   — no separate signup. Lists are `{ id, at, deleted? }` tuples;
+   "deleted" is a tombstone so an unpin on device A cannot be
+   resurrected by device B's stale local pin. Merge is last-write-
+   wins per id, with the latest `at` winning. Avatar is a single
+   record `{ source, githubUsername?, gravatarHash?, at }` with LWW
+   on the single `at`; the raw `gravatarEmail` is **deliberately
+   never sent**, so a user's email doesn't end up on our server and
+   the switch-device flow shows the hashed picture but an empty
+   email field in the edit form. Device-local defaults have no `at`
+   (treated as 0 for LWW), so the server's record always wins on
+   first login from a new device — solving "I set my override on
+   my laptop but my phone still shows the default GitHub handle."
+   The client pulls on sign-in and on reconnect, and debounces local
+   changes (~2 s) into a single POST for whatever changed since the
+   last successful push. Fails open: if the sync endpoint is down,
+   `localStorage` keeps working exactly as today — sync is purely
+   additive.
    - **Opened/read history is out of scope for v1, and may stay that
      way.** The `newshacker:openedStoryIds` store grows fast (one
      entry per story tapped, unbounded in principle) and its
@@ -272,9 +292,12 @@ server-side with most-recent-first eviction.
      rather than per-id tombstones, since losing a read mark in a
      conflict is cheap).
    - **Cost/reliability (rule 11):** reuses existing Upstash Redis; at
-     ~1 KB × 3 lists per user, thousands of users still fit the free
-     tier. New failure mode: sync endpoint down — localStorage still
-     works, no user-visible breakage.
+     ~1 KB × 3 lists + a <200-byte avatar record per user, thousands
+     of users still fit the free tier. New failure mode: sync
+     endpoint down — localStorage still works, no user-visible
+     breakage. No additional external API calls and no new failure
+     modes introduced by the avatar extension (same endpoint, same
+     store, same fail-open behavior).
 
 9. **Favorites round-trip with Hacker News (shipped).** For
    logged-in users, the newshacker favorite heart is mirrored to HN

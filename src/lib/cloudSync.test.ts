@@ -29,6 +29,11 @@ import {
   getDoneIds,
   removeDoneId,
 } from './doneStories';
+import {
+  AVATAR_PREFS_STORAGE_KEY,
+  getStoredAvatarPrefs,
+  setStoredAvatarPrefs,
+} from './avatarPrefs';
 
 const NOW = Date.now();
 const T = {
@@ -349,6 +354,190 @@ describe('cloudSync lifecycle', () => {
     expect(getAllPinnedEntries()).toEqual([
       { id: 5, at: T.T4, deleted: true },
     ]);
+  });
+
+  it('adopts a newer avatar record from the server on pull', async () => {
+    // Local starts with the default (no `at` → treated as 0).
+    const server: SyncState = {
+      pinned: [],
+      favorite: [],
+      hidden: [],
+      done: [],
+      avatar: {
+        source: 'github',
+        githubUsername: 'alice-real',
+        at: T.T3,
+      },
+    };
+    const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    const prefs = getStoredAvatarPrefs();
+    expect(prefs.source).toBe('github');
+    expect(prefs.githubUsername).toBe('alice-real');
+    expect(prefs.at).toBe(T.T3);
+  });
+
+  it('keeps a newer local avatar and pushes it when the server is older', async () => {
+    // Local is newer (just saved).
+    setStoredAvatarPrefs(
+      { source: 'github', githubUsername: 'alice-new' },
+      T.T5,
+    );
+    const server: SyncState = {
+      pinned: [],
+      favorite: [],
+      hidden: [],
+      done: [],
+      avatar: {
+        source: 'github',
+        githubUsername: 'alice-old',
+        at: T.T1,
+      },
+    };
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(server) }, // initial GET: server is older
+      {
+        matcher: (input, init) =>
+          String(input) === '/api/sync' && init?.method === 'POST',
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse({ ...body, avatar: body.avatar });
+        },
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    // Local override survived — server record did not overwrite.
+    expect(getStoredAvatarPrefs().githubUsername).toBe('alice-new');
+    // And we POSTed our newer avatar.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.avatar).toEqual({
+      source: 'github',
+      githubUsername: 'alice-new',
+      at: T.T5,
+    });
+  });
+
+  it('never sends a raw email in the avatar delta', async () => {
+    setStoredAvatarPrefs(
+      {
+        source: 'gravatar',
+        gravatarEmail: 'alice@example.com',
+        gravatarHash: 'a'.repeat(64),
+      },
+      T.T5,
+    );
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(emptyState()) },
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.avatar).toEqual({
+      source: 'gravatar',
+      gravatarHash: 'a'.repeat(64),
+      at: T.T5,
+    });
+    expect(body.avatar).not.toHaveProperty('gravatarEmail');
+  });
+
+  it('a local save after login triggers an avatar push', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(emptyState()) }, // initial GET
+      {
+        matcher: (input, init) =>
+          String(input) === '/api/sync' && init?.method === 'POST',
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // GET only
+
+    setStoredAvatarPrefs({ source: 'none' }, T.T5);
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.avatar).toEqual({ source: 'none', at: T.T5 });
+  });
+
+  it('does not re-push the same avatar record once acknowledged', async () => {
+    const server: SyncState = {
+      pinned: [],
+      favorite: [],
+      hidden: [],
+      done: [],
+      avatar: { source: 'github', at: T.T3 },
+    };
+    // Only a GET queued — if an unexpected POST fires, the mock throws.
+    const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getStoredAvatarPrefs().at).toBe(T.T3);
+  });
+
+  it('ignores a malformed avatar in the pull response', async () => {
+    // Start with a local record at T1.
+    setStoredAvatarPrefs({ source: 'github' }, T.T1);
+    // Server returns garbage for avatar. The other three lists are fine.
+    window.localStorage.setItem(
+      'probe-before',
+      window.localStorage.getItem(AVATAR_PREFS_STORAGE_KEY) ?? '',
+    );
+    const bogusServer = {
+      pinned: [],
+      favorite: [],
+      hidden: [],
+      done: [],
+      avatar: { source: 'linkedin', at: 'soon' },
+    };
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(bogusServer) },
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    // Local avatar is untouched; the bogus server record didn't poison it.
+    expect(getStoredAvatarPrefs().at).toBe(T.T1);
+    // Post should have fired (because our local record is newer than the
+    // high-water mark of 0), so we flush it.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('propagates all four lists through a round-trip', async () => {

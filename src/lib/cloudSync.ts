@@ -1,7 +1,9 @@
-// Cross-device sync glue. Pulls Pinned / Favorite / Hidden / Done from
-// /api/sync on login, reconnect, and tab-visibility change, listens to
-// the four change events, and debounces local changes into a single
-// POST ~2 s later. Merge is per-id last-write-wins, matching the server.
+// Cross-device sync glue. Pulls Pinned / Favorite / Hidden / Done /
+// Avatar from /api/sync on login, reconnect, and tab-visibility change,
+// listens to the five change events, and debounces local changes into
+// a single POST ~2 s later. Merge is per-id last-write-wins for the
+// four lists and single-record last-write-wins for the avatar prefs,
+// matching the server.
 //
 // Fail-open: any error (server down, offline, 5xx) is swallowed and
 // retried on the next event or reconnect. Local storage remains the
@@ -32,6 +34,13 @@ import {
   replaceDoneEntries,
   type DoneEntry,
 } from './doneStories';
+import {
+  AVATAR_PREFS_CHANGE_EVENT,
+  getStoredAvatarPrefs,
+  replaceAvatarPrefs,
+  type AvatarPrefs,
+  type AvatarSource,
+} from './avatarPrefs';
 
 export const SYNC_DEBOUNCE_MS = 2000;
 // Visibility-triggered pulls are gated: tab-switching shouldn't hammer
@@ -45,11 +54,19 @@ export interface SyncEntry {
   deleted?: true;
 }
 
+export interface SyncAvatar {
+  source: AvatarSource;
+  githubUsername?: string;
+  gravatarHash?: string;
+  at: number;
+}
+
 export interface SyncState {
   pinned: SyncEntry[];
   favorite: SyncEntry[];
   hidden: SyncEntry[];
   done: SyncEntry[];
+  avatar?: SyncAvatar;
 }
 
 type ListName = 'pinned' | 'favorite' | 'hidden' | 'done';
@@ -79,6 +96,10 @@ function maxAt(entries: SyncEntry[]): number {
 interface SyncRuntime {
   username: string;
   lastPushed: Record<ListName, number>;
+  // High-water mark for the avatar record. Advanced whenever we
+  // successfully POST or observe a server value at that `at` — same
+  // idea as lastPushed for the lists, but for a single record.
+  lastPushedAvatar: number;
   pushTimer: ReturnType<typeof setTimeout> | null;
   pushInFlight: boolean;
   pushQueued: boolean;
@@ -101,7 +122,9 @@ export interface CloudSyncDebugSnapshot {
   running: boolean;
   username: string | null;
   lastPushed: Record<ListName, number>;
+  lastPushedAvatar: number;
   pendingCount: Record<ListName, number>;
+  pendingAvatar: boolean;
   push: { inFlight: boolean; queued: boolean; timerPending: boolean };
   lastPull: LastRequest | null;
   lastPush: LastRequest | null;
@@ -112,8 +135,10 @@ export interface LastRequest {
   ok: boolean;
   status?: number;
   // For GET: counts of entries returned by the server. For POST: counts
-  // in the delta we sent.
+  // in the delta we sent. The avatar flag is true when an avatar record
+  // was present in the response (GET) or the delta (POST).
   counts?: Record<ListName, number>;
+  avatar?: boolean;
   error?: string;
 }
 
@@ -180,6 +205,23 @@ function writeLocal(list: ListName, entries: SyncEntry[]): void {
   }
 }
 
+// Strip the raw email before shipping the record over the wire: we
+// intentionally never send it, since the server only needs the hash
+// to build the Gravatar URL on other devices. Also strips anything
+// that isn't a valid avatar shape (e.g. an `at` that snuck in as 0).
+function toSyncAvatar(prefs: AvatarPrefs): SyncAvatar | null {
+  if (!prefs.at || prefs.at <= 0) return null;
+  const out: SyncAvatar = { source: prefs.source, at: prefs.at };
+  if (prefs.githubUsername) out.githubUsername = prefs.githubUsername;
+  if (prefs.gravatarHash) out.gravatarHash = prefs.gravatarHash;
+  return out;
+}
+
+function localAvatarAt(): number {
+  const prefs = getStoredAvatarPrefs();
+  return typeof prefs.at === 'number' ? prefs.at : 0;
+}
+
 function applyServerState(state: SyncState): void {
   if (!runtime) return;
   const lists: ListName[] = ['pinned', 'favorite', 'hidden', 'done'];
@@ -195,11 +237,37 @@ function applyServerState(state: SyncState): void {
       maxAt(incoming),
     );
   }
+  if (state.avatar) {
+    // LWW on a single record: strictly-newer server `at` overwrites
+    // local, otherwise we keep the local copy. The local
+    // `gravatarEmail` is deliberately not preserved on server-wins
+    // because another device may have rotated the hash; the edit form
+    // will show an empty email and the user can retype if they want
+    // it to round-trip for display.
+    const localAt = localAvatarAt();
+    if (state.avatar.at > localAt) {
+      const next: AvatarPrefs = {
+        source: state.avatar.source,
+        at: state.avatar.at,
+      };
+      if (state.avatar.githubUsername) {
+        next.githubUsername = state.avatar.githubUsername;
+      }
+      if (state.avatar.gravatarHash) {
+        next.gravatarHash = state.avatar.gravatarHash;
+      }
+      replaceAvatarPrefs(next);
+    }
+    runtime.lastPushedAvatar = Math.max(
+      runtime.lastPushedAvatar,
+      state.avatar.at,
+    );
+  }
 }
 
 function collectDelta(): SyncState {
   if (!runtime) return { pinned: [], favorite: [], hidden: [], done: [] };
-  return {
+  const delta: SyncState = {
     pinned: readLocal('pinned').filter(
       (e) => e.at > runtime!.lastPushed.pinned,
     ),
@@ -213,6 +281,12 @@ function collectDelta(): SyncState {
       (e) => e.at > runtime!.lastPushed.done,
     ),
   };
+  const localPrefs = getStoredAvatarPrefs();
+  const candidate = toSyncAvatar(localPrefs);
+  if (candidate && candidate.at > runtime.lastPushedAvatar) {
+    delta.avatar = candidate;
+  }
+  return delta;
 }
 
 async function pull(): Promise<void> {
@@ -266,6 +340,7 @@ async function pull(): Promise<void> {
       hidden: server.hidden.length,
       done: server.done?.length ?? 0,
     },
+    avatar: !!server.avatar,
   };
   applyServerState(server);
   notifyDebug();
@@ -279,7 +354,8 @@ async function push(): Promise<void> {
     delta.favorite.length +
     delta.hidden.length +
     delta.done.length;
-  if (total === 0) return;
+  const hasAvatarDelta = !!delta.avatar;
+  if (total === 0 && !hasAvatarDelta) return;
 
   const deltaCounts: Record<ListName, number> = {
     pinned: delta.pinned.length,
@@ -293,6 +369,7 @@ async function push(): Promise<void> {
     hidden: maxAt(delta.hidden),
     done: maxAt(delta.done),
   };
+  const deltaAvatarAt = delta.avatar ? delta.avatar.at : 0;
   const startedAt = Date.now();
 
   let res: Response;
@@ -307,6 +384,7 @@ async function push(): Promise<void> {
       at: startedAt,
       ok: false,
       counts: deltaCounts,
+      avatar: hasAvatarDelta,
       error: errorMessage(e),
     };
     notifyDebug();
@@ -318,6 +396,7 @@ async function push(): Promise<void> {
       ok: false,
       status: res.status,
       counts: deltaCounts,
+      avatar: hasAvatarDelta,
     };
     notifyDebug();
     return;
@@ -332,6 +411,7 @@ async function push(): Promise<void> {
       ok: false,
       status: res.status,
       counts: deltaCounts,
+      avatar: hasAvatarDelta,
       error: 'invalid-json',
     };
     notifyDebug();
@@ -343,6 +423,7 @@ async function push(): Promise<void> {
       ok: false,
       status: res.status,
       counts: deltaCounts,
+      avatar: hasAvatarDelta,
       error: 'invalid-shape',
     };
     notifyDebug();
@@ -371,6 +452,12 @@ async function push(): Promise<void> {
     runtime.lastPushed.done,
     deltaMax.done,
   );
+  if (hasAvatarDelta) {
+    runtime.lastPushedAvatar = Math.max(
+      runtime.lastPushedAvatar,
+      deltaAvatarAt,
+    );
+  }
 
   applyServerState(server);
   lastPush = {
@@ -378,23 +465,47 @@ async function push(): Promise<void> {
     ok: true,
     status: res.status,
     counts: deltaCounts,
+    avatar: hasAvatarDelta,
   };
   notifyDebug();
+}
+
+function isAvatarSource(v: unknown): v is AvatarSource {
+  return v === 'github' || v === 'gravatar' || v === 'none';
+}
+
+function isSyncAvatar(x: unknown): x is SyncAvatar {
+  if (typeof x !== 'object' || x === null) return false;
+  const obj = x as Record<string, unknown>;
+  if (!isAvatarSource(obj.source)) return false;
+  if (typeof obj.at !== 'number' || !Number.isFinite(obj.at) || obj.at < 0) {
+    return false;
+  }
+  return true;
 }
 
 function isSyncState(x: unknown): x is SyncState {
   if (typeof x !== 'object' || x === null) return false;
   const obj = x as Record<string, unknown>;
-  // Accept responses from older servers that don't yet return `done` as
-  // an array — we'll treat it as empty rather than rejecting the pull.
+  if (
+    !Array.isArray(obj.pinned) ||
+    !Array.isArray(obj.favorite) ||
+    !Array.isArray(obj.hidden)
+  ) {
+    return false;
+  }
+  // Accept responses from older servers that don't yet return `done`
+  // as an array — treat it as empty rather than rejecting the pull.
   // The POST path always sends `done`, and a fresh server deploy will
   // start echoing it back.
-  if (!Array.isArray(obj.done) && obj.done !== undefined) return false;
-  return (
-    Array.isArray(obj.pinned) &&
-    Array.isArray(obj.favorite) &&
-    Array.isArray(obj.hidden)
-  );
+  if (obj.done !== undefined && !Array.isArray(obj.done)) return false;
+  // Drop a malformed avatar in place so the rest of the pipeline can
+  // treat it as "no record" without guarding every access. A bogus
+  // `at` would otherwise poison `lastPushedAvatar` via NaN.
+  if (obj.avatar !== undefined && !isSyncAvatar(obj.avatar)) {
+    delete obj.avatar;
+  }
+  return true;
 }
 
 function schedulePush(delayOverride?: number): void {
@@ -472,6 +583,7 @@ export async function startCloudSync(
   runtime = {
     username,
     lastPushed: { pinned: 0, favorite: 0, hidden: 0, done: 0 },
+    lastPushedAvatar: 0,
     pushTimer: null,
     pushInFlight: false,
     pushQueued: false,
@@ -487,6 +599,7 @@ export async function startCloudSync(
   window.addEventListener(FAVORITES_CHANGE_EVENT, onChange);
   window.addEventListener(HIDDEN_STORIES_CHANGE_EVENT, onChange);
   window.addEventListener(DONE_STORIES_CHANGE_EVENT, onChange);
+  window.addEventListener(AVATAR_PREFS_CHANGE_EVENT, onChange);
 
   runtime.unsubscribeOnline = subscribeOnline((online) => {
     if (!online) return;
@@ -511,6 +624,7 @@ export function stopCloudSync(): void {
   window.removeEventListener(FAVORITES_CHANGE_EVENT, r.onChange);
   window.removeEventListener(HIDDEN_STORIES_CHANGE_EVENT, r.onChange);
   window.removeEventListener(DONE_STORIES_CHANGE_EVENT, r.onChange);
+  window.removeEventListener(AVATAR_PREFS_CHANGE_EVENT, r.onChange);
   if (r.pushTimer) clearTimeout(r.pushTimer);
   r.unsubscribeOnline?.();
   r.unsubscribeVisibility?.();
@@ -544,7 +658,9 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
       running: false,
       username: null,
       lastPushed: { pinned: 0, favorite: 0, hidden: 0, done: 0 },
+      lastPushedAvatar: 0,
       pendingCount: { pinned: 0, favorite: 0, hidden: 0, done: 0 },
+      pendingAvatar: false,
       push: { inFlight: false, queued: false, timerPending: false },
       lastPull,
       lastPush,
@@ -555,12 +671,14 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
     running: true,
     username: runtime.username,
     lastPushed: { ...runtime.lastPushed },
+    lastPushedAvatar: runtime.lastPushedAvatar,
     pendingCount: {
       pinned: delta.pinned.length,
       favorite: delta.favorite.length,
       hidden: delta.hidden.length,
       done: delta.done.length,
     },
+    pendingAvatar: !!delta.avatar,
     push: {
       inFlight: runtime.pushInFlight,
       queued: runtime.pushQueued,

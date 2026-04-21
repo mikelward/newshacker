@@ -10,9 +10,15 @@ export interface AvatarPrefs {
   // username at render time".
   githubUsername?: string;
   // Kept so the edit form can show the user what email they typed
-  // last time; the URL is built from `gravatarHash`.
+  // last time; the URL is built from `gravatarHash`. Never synced to
+  // the server — only the hash leaves the device.
   gravatarEmail?: string;
   gravatarHash?: string;
+  // Monotonic timestamp of the last user-initiated save. Used by
+  // cloudSync for last-write-wins across devices. Absent on a pristine
+  // device (never edited) so the server's record always wins on first
+  // login from that device.
+  at?: number;
 }
 
 export const DEFAULT_AVATAR_PREFS: AvatarPrefs = { source: 'github' };
@@ -71,6 +77,9 @@ function sanitize(raw: unknown): AvatarPrefs {
   if (typeof r.gravatarHash === 'string' && HASH_HEX_RE.test(r.gravatarHash)) {
     out.gravatarHash = r.gravatarHash;
   }
+  if (typeof r.at === 'number' && Number.isFinite(r.at) && r.at >= 0) {
+    out.at = r.at;
+  }
   return out;
 }
 
@@ -92,7 +101,32 @@ export function getStoredAvatarPrefs(): AvatarPrefs {
   return sanitize(parsed);
 }
 
-export function setStoredAvatarPrefs(prefs: AvatarPrefs): void {
+export function setStoredAvatarPrefs(
+  prefs: AvatarPrefs,
+  now: number = Date.now(),
+): void {
+  if (!hasWindow()) return;
+  // User-initiated saves always stamp a fresh `at` so cloudSync can
+  // beat an older server record on its next push. Callers that want to
+  // preserve an incoming `at` (e.g. the sync layer applying a server
+  // pull) use `replaceAvatarPrefs` instead.
+  const clean: AvatarPrefs = { ...sanitize(prefs), at: now };
+  try {
+    window.localStorage.setItem(
+      AVATAR_PREFS_STORAGE_KEY,
+      JSON.stringify(clean),
+    );
+  } catch {
+    // quota or privacy-mode failures are non-fatal
+  }
+  window.dispatchEvent(new CustomEvent(AVATAR_PREFS_CHANGE_EVENT));
+}
+
+// Overwrite stored prefs with exactly what's given — no `at` stamping.
+// Used by the sync layer after a pull to replay the server record. The
+// incoming `at` (if any) is preserved so subsequent LWW comparisons
+// against other devices are consistent.
+export function replaceAvatarPrefs(prefs: AvatarPrefs): void {
   if (!hasWindow()) return;
   const clean = sanitize(prefs);
   try {
@@ -101,7 +135,7 @@ export function setStoredAvatarPrefs(prefs: AvatarPrefs): void {
       JSON.stringify(clean),
     );
   } catch {
-    // quota or privacy-mode failures are non-fatal
+    // non-fatal
   }
   window.dispatchEvent(new CustomEvent(AVATAR_PREFS_CHANGE_EVENT));
 }

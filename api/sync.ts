@@ -29,10 +29,31 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 const LISTS = ['pinned', 'favorite', 'hidden', 'done'] as const;
 
+// Avatar prefs are a single LWW record (not a list), so they get their
+// own shape. The raw email is intentionally absent — the client only
+// ever sends the SHA-256 hash, preserving today's privacy property
+// that raw emails never leave the device.
+type AvatarSource = 'github' | 'gravatar' | 'none';
+// Matches GitHub's actual username rules (1–39 chars, alnum or
+// non-adjacent hyphens). Kept inlined here rather than shared with the
+// client's copy in src/lib/avatarPrefs.ts because Vercel's bundler has
+// been flaky about tracing imports that cross the api/ boundary — see
+// the file header comment in this file.
+const AVATAR_GITHUB_USERNAME_RE =
+  /^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$/;
+const AVATAR_HASH_HEX_RE = /^[a-f0-9]{64}$/;
+
 export interface SyncEntry {
   id: number;
   at: number;
   deleted?: true;
+}
+
+export interface SyncAvatar {
+  source: AvatarSource;
+  githubUsername?: string;
+  gravatarHash?: string;
+  at: number;
 }
 
 export interface SyncState {
@@ -40,6 +61,7 @@ export interface SyncState {
   favorite: SyncEntry[];
   hidden: SyncEntry[];
   done: SyncEntry[];
+  avatar?: SyncAvatar;
 }
 
 function emptyState(): SyncState {
@@ -116,15 +138,47 @@ function normalizeList(value: unknown): SyncEntry[] {
   return out;
 }
 
+function isAvatarSource(value: unknown): value is AvatarSource {
+  return (
+    value === 'github' || value === 'gravatar' || value === 'none'
+  );
+}
+
+function normalizeAvatar(value: unknown): SyncAvatar | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (!isAvatarSource(v.source)) return undefined;
+  if (typeof v.at !== 'number' || !Number.isFinite(v.at) || v.at < 0) {
+    return undefined;
+  }
+  const out: SyncAvatar = { source: v.source, at: v.at };
+  if (
+    typeof v.githubUsername === 'string' &&
+    AVATAR_GITHUB_USERNAME_RE.test(v.githubUsername)
+  ) {
+    out.githubUsername = v.githubUsername;
+  }
+  if (
+    typeof v.gravatarHash === 'string' &&
+    AVATAR_HASH_HEX_RE.test(v.gravatarHash)
+  ) {
+    out.gravatarHash = v.gravatarHash;
+  }
+  return out;
+}
+
 function normalizeState(raw: unknown): SyncState {
   if (typeof raw !== 'object' || raw === null) return emptyState();
   const obj = raw as Record<string, unknown>;
-  return {
+  const state: SyncState = {
     pinned: normalizeList(obj.pinned),
     favorite: normalizeList(obj.favorite),
     hidden: normalizeList(obj.hidden),
     done: normalizeList(obj.done),
   };
+  const avatar = normalizeAvatar(obj.avatar);
+  if (avatar) state.avatar = avatar;
+  return state;
 }
 
 // Per-id last-write-wins merge. The entry with the highest `at` for a
@@ -141,6 +195,17 @@ export function mergeEntries(
     if (!existing || e.at > existing.at) byId.set(e.id, e);
   }
   return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+}
+
+// Single-record LWW for the avatar. Strictly-newer `at` wins; ties
+// keep the incumbent (idempotent repeat pushes).
+export function mergeAvatar(
+  current: SyncAvatar | undefined,
+  incoming: SyncAvatar | undefined,
+): SyncAvatar | undefined {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  return incoming.at > current.at ? incoming : current;
 }
 
 function capList(list: SyncEntry[]): SyncEntry[] {
@@ -276,6 +341,11 @@ export async function handleSyncRequest(
     const incoming = normalizeList(delta[list]);
     merged[list] = capList(mergeEntries(current[list], incoming));
   }
+  const mergedAvatar = mergeAvatar(
+    current.avatar,
+    normalizeAvatar(delta.avatar),
+  );
+  if (mergedAvatar) merged.avatar = mergedAvatar;
 
   try {
     await store.set(username, merged);
@@ -309,5 +379,6 @@ export const _internals = {
   MAX_BODY_BYTES,
   normalizeList,
   normalizeState,
+  normalizeAvatar,
   capList,
 };

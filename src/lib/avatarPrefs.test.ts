@@ -9,6 +9,7 @@ import {
   gravatarHashFromEmail,
   isValidGithubUsername,
   isValidGravatarEmail,
+  replaceAvatarPrefs,
   setStoredAvatarPrefs,
 } from './avatarPrefs';
 
@@ -73,23 +74,49 @@ describe('avatar prefs storage', () => {
   });
 
   it('saves and loads a github override', () => {
-    setStoredAvatarPrefs({ source: 'github', githubUsername: 'alice-real' });
+    setStoredAvatarPrefs(
+      { source: 'github', githubUsername: 'alice-real' },
+      12345,
+    );
     expect(getStoredAvatarPrefs()).toEqual({
       source: 'github',
       githubUsername: 'alice-real',
+      at: 12345,
     });
   });
 
   it('saves and loads a gravatar prefs with hash', () => {
-    setStoredAvatarPrefs({
-      source: 'gravatar',
-      gravatarEmail: 'alice@example.com',
-      gravatarHash: 'a'.repeat(64),
-    });
+    setStoredAvatarPrefs(
+      {
+        source: 'gravatar',
+        gravatarEmail: 'alice@example.com',
+        gravatarHash: 'a'.repeat(64),
+      },
+      67890,
+    );
     expect(getStoredAvatarPrefs()).toEqual({
       source: 'gravatar',
       gravatarEmail: 'alice@example.com',
       gravatarHash: 'a'.repeat(64),
+      at: 67890,
+    });
+  });
+
+  it('stamps a fresh `at` on every save, ignoring any incoming value', () => {
+    setStoredAvatarPrefs({ source: 'github', at: 1 }, 200);
+    expect(getStoredAvatarPrefs().at).toBe(200);
+  });
+
+  it('replaceAvatarPrefs honors the provided `at` verbatim', () => {
+    replaceAvatarPrefs({
+      source: 'gravatar',
+      gravatarHash: 'a'.repeat(64),
+      at: 4242,
+    });
+    expect(getStoredAvatarPrefs()).toEqual({
+      source: 'gravatar',
+      gravatarHash: 'a'.repeat(64),
+      at: 4242,
     });
   });
 
@@ -101,6 +128,7 @@ describe('avatar prefs storage', () => {
         githubUsername: 'has space',
         gravatarEmail: 'not-an-email',
         gravatarHash: 'nothex',
+        at: 'soon',
       }),
     );
     expect(getStoredAvatarPrefs()).toEqual({ source: 'github' });
