@@ -22,18 +22,6 @@
   margin-bottom: 12px;
 }
 
-/* Narrow phones can't fit the full "Read article" primary button plus
-   five icon buttons (Upvote / Pin / Done / Favorite / More) on one
-   row — at 375px viewport the icons alone take ~330px, leaving the
-   primary button no room. Letting the primary grow to the full row
-   width on narrow screens keeps it tappable and lets the icons flow
-   onto their own row below. */
-@media (max-width: 480px) {
-  .thread__action--primary {
-    flex-basis: 100%;
-  }
-}
-
 .thread__action {
   display: flex;
   align-items: center;
@@ -62,8 +50,13 @@
   background: var(--hn-border);
 }
 
+/* The "Read article" primary button always takes its own row above the
+   icon buttons. It's the main CTA on the thread page — a full-width
+   primary button reads clearer and guarantees room for the label,
+   rather than ellipsizing on narrow phones or looking lost among the
+   icons on desktop. The icon row flows below via flex-wrap. */
 .thread__action--primary {
-  flex: 1;
+  flex-basis: 100%;
   min-width: 0;
   background: var(--hn-orange);
   border-color: var(--hn-orange);

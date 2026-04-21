@@ -282,7 +282,7 @@ describe('<Thread>', () => {
     expect(parsedFav.filter((e) => !e.deleted)).toEqual([]);
   });
 
-  it('toggles pinned state via the Pin button in the header', async () => {
+  it('toggles pinned state via the Pin entry in the overflow menu', async () => {
     installHNFetchMock({
       items: { 700: makeStory(700, { title: 'Pinnable' }) },
     });
@@ -292,20 +292,26 @@ describe('<Thread>', () => {
       expect(screen.getByText('Pinnable')).toBeInTheDocument();
     });
 
-    const pin = screen.getByTestId('thread-pin');
-    expect(pin).toHaveAccessibleName(/^pin$/i);
-    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    // Pin/Unpin lives in the overflow menu — Done is the prominent
+    // "I'm finished with this thread" action in the bar; Pin (save for
+    // later) is secondary on the comments view.
+    expect(screen.queryByTestId('thread-pin')).toBeNull();
 
-    await userEvent.click(pin);
-    expect(pin).toHaveAccessibleName(/unpin/i);
-    expect(pin).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(screen.getByTestId('thread-more'));
+    const pinItem = screen.getByTestId('story-row-menu-pin');
+    expect(pinItem).toHaveTextContent(/^pin$/i);
+    await userEvent.click(pinItem);
     expect(
       window.localStorage.getItem('newshacker:pinnedStoryIds'),
     ).toContain('"id":700');
+    await waitFor(() => {
+      expect(screen.queryByTestId('story-row-menu')).toBeNull();
+    });
 
-    await userEvent.click(pin);
-    expect(pin).toHaveAttribute('aria-pressed', 'false');
-    expect(pin).toHaveAccessibleName(/^pin$/i);
+    await userEvent.click(screen.getByTestId('thread-more'));
+    const unpinItem = screen.getByTestId('story-row-menu-pin');
+    expect(unpinItem).toHaveTextContent(/^unpin$/i);
+    await userEvent.click(unpinItem);
     const storedPin = window.localStorage.getItem(
       'newshacker:pinnedStoryIds',
     );

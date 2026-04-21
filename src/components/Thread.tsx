@@ -56,38 +56,6 @@ function OpenInNewIcon() {
   );
 }
 
-function PinIcon() {
-  return (
-    <svg
-      className="thread__action-icon"
-      viewBox={MS_VIEWBOX}
-      fill="currentColor"
-      width="28"
-      height="28"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m634-448 86 77v60H510v241l-30 30-30-30v-241H240v-60l80-77v-332h-50v-60h414v60h-50v332Zm-313 77h312l-59-55v-354H380v354l-59 55Zm156 0Z" />
-    </svg>
-  );
-}
-
-function PinFilledIcon() {
-  return (
-    <svg
-      className="thread__action-icon"
-      viewBox={MS_VIEWBOX}
-      fill="currentColor"
-      width="28"
-      height="28"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m634-448 86 77v60H510v241l-30 30-30-30v-241H240v-60l80-77v-333h-50v-60h414v60h-50v333Z" />
-    </svg>
-  );
-}
-
 function UpArrowIcon() {
   // Solid upward-pointing triangle — mirrors HN's `▲` vote arrow. We
   // rely on `.thread__action--active` toggling `currentColor` to HN
@@ -545,6 +513,11 @@ export function Thread({ id }: Props) {
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
     const items: StoryRowMenuItem[] = [
       {
+        key: 'pin',
+        label: pinned ? 'Unpin' : 'Pin',
+        onSelect: handleTogglePinned,
+      },
+      {
         key: 'open-on-hn',
         label: 'Open on Hacker News',
         onSelect: () => {
@@ -566,7 +539,7 @@ export function Thread({ id }: Props) {
       });
     }
     return items;
-  }, [id, item, shareStory]);
+  }, [id, item, pinned, handleTogglePinned, shareStory]);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
@@ -674,22 +647,6 @@ export function Thread({ id }: Props) {
               </span>
             </TooltipButton>
           ) : null}
-          <TooltipButton
-            type="button"
-            className={
-              'thread__action thread__action--icon' +
-              (pinned ? ' thread__action--active' : '')
-            }
-            data-testid="thread-pin"
-            aria-pressed={pinned}
-            tooltip={pinned ? 'Unpin' : 'Pin'}
-            onClick={handleTogglePinned}
-          >
-            {pinned ? <PinFilledIcon /> : <PinIcon />}
-            <span className="visually-hidden">
-              {pinned ? 'Unpin' : 'Pin'}
-            </span>
-          </TooltipButton>
           <TooltipButton
             type="button"
             className={
