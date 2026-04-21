@@ -1,10 +1,54 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Thread, TOP_LEVEL_PAGE_SIZE } from './Thread';
+import { FeedBarProvider } from './FeedBarContext';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import type { HNItem } from '../lib/hn';
+
+function LocationProbe() {
+  const loc = useLocation();
+  return <div data-testid="location-pathname">{loc.pathname}</div>;
+}
+
+// Renders <Thread> inside a MemoryRouter with a multi-entry history, so
+// tests can observe what happens when the thread navigates back or home.
+// initialIndex lands on the last entry (the /item/:id route).
+function renderThreadWithHistory({
+  id,
+  entries,
+}: {
+  id: number;
+  entries: string[];
+}) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 0,
+        staleTime: 0,
+        networkMode: 'offlineFirst',
+      },
+    },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+        <FeedBarProvider>
+          <LocationProbe />
+          <Routes>
+            <Route path="/" element={<div data-testid="route-home" />} />
+            <Route path="/top" element={<div data-testid="route-top" />} />
+            <Route path="/item/:id" element={<Thread id={id} />} />
+          </Routes>
+        </FeedBarProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
 
 describe('<Thread>', () => {
   beforeEach(() => {
@@ -50,10 +94,17 @@ describe('<Thread>', () => {
     await waitFor(() => {
       expect(screen.getByText('Parent')).toBeInTheDocument();
     });
-    const readArticle = screen.getByRole('link', { name: /read article/i });
-    expect(readArticle).toHaveAttribute('href', 'https://example.com/100');
-    expect(readArticle).toHaveTextContent(/^\s*Read article\s*$/);
-    expect(readArticle).not.toHaveTextContent(/example\.com/);
+    // Action bar is duplicated (top + bottom of thread), so there are two
+    // "Read article" links. Both should point at the same href.
+    const readArticles = screen.getAllByRole('link', {
+      name: /read article/i,
+    });
+    expect(readArticles).toHaveLength(2);
+    for (const link of readArticles) {
+      expect(link).toHaveAttribute('href', 'https://example.com/100');
+      expect(link).toHaveTextContent(/^\s*Read article\s*$/);
+      expect(link).not.toHaveTextContent(/example\.com/);
+    }
     // Top-level comment body visible
     await waitFor(() => {
       expect(screen.getByText(/hello/)).toBeInTheDocument();
@@ -233,7 +284,9 @@ describe('<Thread>', () => {
       expect(screen.getByText('Readable')).toBeInTheDocument();
     });
 
-    const link = screen.getByRole('link', { name: /read article/i });
+    // Either of the two "Read article" links (top or bottom bar) fires
+    // markArticleOpenedId; the top link is enough for this assertion.
+    const [link] = screen.getAllByRole('link', { name: /read article/i });
     // jsdom follows hrefs — cancel navigation so the click handler still runs.
     link.addEventListener('click', (e) => e.preventDefault());
     await userEvent.click(link);
@@ -321,7 +374,7 @@ describe('<Thread>', () => {
     expect(parsedPin.filter((e) => !e.deleted)).toEqual([]);
   });
 
-  it('toggles done state via the Done button on the bar, and unpins on mark-done', async () => {
+  it('mark-done: records the story, unpins it, and pops back to the previous entry', async () => {
     installHNFetchMock({
       items: { 730: makeStory(730, { title: 'Finishable' }) },
     });
@@ -331,32 +384,140 @@ describe('<Thread>', () => {
       JSON.stringify([{ id: 730, at: Date.now() }]),
     );
 
-    renderWithProviders(<Thread id={730} />);
-    await waitFor(() => {
-      expect(screen.getByText('Finishable')).toBeInTheDocument();
+    renderThreadWithHistory({
+      id: 730,
+      entries: ['/top', '/item/730'],
     });
+    await screen.findByText('Finishable');
 
     const done = screen.getByTestId('thread-done');
     expect(done).toHaveAccessibleName(/^mark done$/i);
     expect(done).toHaveAttribute('aria-pressed', 'false');
 
     await userEvent.click(done);
-    expect(done).toHaveAccessibleName(/unmark done/i);
-    expect(done).toHaveAttribute('aria-pressed', 'true');
+
+    // Done persisted.
     expect(
       window.localStorage.getItem('newshacker:doneStoryIds'),
     ).toContain('"id":730');
 
-    // Done unpins as a side-effect — the pin is tombstoned, not live.
+    // Pin is tombstoned (mark-done unpins).
     const pinRaw = window.localStorage.getItem('newshacker:pinnedStoryIds');
     const pinEntries = pinRaw
       ? (JSON.parse(pinRaw) as Array<{ id: number; deleted?: true }>)
       : [];
     expect(pinEntries.filter((e) => !e.deleted && e.id === 730)).toEqual([]);
 
+    // Navigated back to /top (the previous entry), and the thread UI is
+    // gone.
+    await waitFor(() => {
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent(
+        '/top',
+      );
+    });
+    expect(screen.queryByText('Finishable')).toBeNull();
+  });
+
+  it('mark-done with no in-app history falls back to the home feed', async () => {
+    installHNFetchMock({
+      items: { 731: makeStory(731, { title: 'Deeplinked' }) },
+    });
+
+    // Single-entry history: location.key will be 'default', so we can't
+    // pop back — mark-done should navigate to '/' instead.
+    renderThreadWithHistory({
+      id: 731,
+      entries: ['/item/731'],
+    });
+    await screen.findByText('Deeplinked');
+
+    await userEvent.click(screen.getByTestId('thread-done'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/');
+    });
+    expect(screen.getByTestId('route-home')).toBeInTheDocument();
+  });
+
+  it('unmark-done: does not navigate — the user stays on the thread', async () => {
+    installHNFetchMock({
+      items: { 732: makeStory(732, { title: 'Revisited' }) },
+    });
+    // Pre-mark the story done so we land on an "Unmark done" button.
+    window.localStorage.setItem(
+      'newshacker:doneStoryIds',
+      JSON.stringify([{ id: 732, at: Date.now() }]),
+    );
+
+    renderThreadWithHistory({
+      id: 732,
+      entries: ['/top', '/item/732'],
+    });
+    await screen.findByText('Revisited');
+
+    const done = screen.getByTestId('thread-done');
+    expect(done).toHaveAccessibleName(/unmark done/i);
+    expect(done).toHaveAttribute('aria-pressed', 'true');
+
     await userEvent.click(done);
+
+    // Still on the thread, state flipped back to "Mark done".
+    expect(screen.getByTestId('location-pathname')).toHaveTextContent(
+      '/item/732',
+    );
+    expect(screen.getByText('Revisited')).toBeInTheDocument();
     expect(done).toHaveAttribute('aria-pressed', 'false');
     expect(done).toHaveAccessibleName(/^mark done$/i);
+    // Tombstoned in localStorage, not active.
+    const raw = window.localStorage.getItem('newshacker:doneStoryIds');
+    const entries = raw
+      ? (JSON.parse(raw) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(entries.filter((e) => !e.deleted && e.id === 732)).toEqual([]);
+  });
+
+  it('renders a duplicated action bar at the bottom of the thread', async () => {
+    installHNFetchMock({
+      items: { 733: makeStory(733, { title: 'Doubled' }) },
+    });
+
+    renderWithProviders(<Thread id={733} />);
+    await screen.findByText('Doubled');
+
+    // Both bars present, with distinct test ids.
+    expect(screen.getByTestId('thread-done')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-done-bottom')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-pin')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-pin-bottom')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-more')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-more-bottom')).toBeInTheDocument();
+    // Both Read article links too.
+    expect(screen.getAllByRole('link', { name: /read article/i })).toHaveLength(
+      2,
+    );
+  });
+
+  it('mark-done from the bottom action bar also navigates back', async () => {
+    installHNFetchMock({
+      items: { 734: makeStory(734, { title: 'BottomDone' }) },
+    });
+
+    renderThreadWithHistory({
+      id: 734,
+      entries: ['/top', '/item/734'],
+    });
+    await screen.findByText('BottomDone');
+
+    await userEvent.click(screen.getByTestId('thread-done-bottom'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent(
+        '/top',
+      );
+    });
+    expect(
+      window.localStorage.getItem('newshacker:doneStoryIds'),
+    ).toContain('"id":734');
   });
 
   // Thread-page voting. The upvote arrow lives in the action row

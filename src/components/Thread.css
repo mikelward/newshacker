@@ -311,3 +311,8 @@
 .thread__sentinel {
   height: 1px;
 }
+
+.thread__footer {
+  padding: 16px 16px 4px;
+  border-top: 1px solid var(--hn-border);
+}
