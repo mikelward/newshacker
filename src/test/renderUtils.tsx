@@ -14,7 +14,10 @@ export function renderWithProviders(ui: ReactElement, options: Options = {}) {
     route = '/top',
     client = new QueryClient({
       defaultOptions: {
-        queries: { retry: false, gcTime: 0, staleTime: 0 },
+        // Mirror main.tsx's networkMode so tests reflect what users get
+        // in production — in particular so the offline-error path runs
+        // the queryFn instead of pausing when onlineManager is offline.
+        queries: { retry: false, gcTime: 0, staleTime: 0, networkMode: 'offlineFirst' },
       },
     }),
     ...rest
