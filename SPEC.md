@@ -310,10 +310,10 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 ### Caching strategy
 - **App shell**: precached at build time so the app boots offline. Navigation falls back to precached `index.html`; React Router takes over client-side.
 - **HN items** (`/item/:id.json`): StaleWhileRevalidate, 7-day TTL, 500 entries.
-- **Feed lists** (`topstories`, `newstories`, etc.): NetworkFirst with 3s timeout, 1-day TTL, 10 entries.
+- **Feed lists** (`topstories`, `newstories`, etc.): NetworkFirst with 10s timeout, 1-day TTL, 10 entries. The longer timeout stops ordinary mobile-data latency from flipping the strategy to "serve last-known list" on reload.
 - **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries.
 - **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side TTL is freshness-aware — 30 min for stories < 2 h old, 1 h otherwise — so hot front-page threads keep pace with the comment rush. React Query TTL on the client is 1 h.
-- **Items batch proxy** (`/api/items`): StaleWhileRevalidate, 1-day TTL, 50 entries.
+- **Items batch proxy** (`/api/items`): NetworkFirst with 10s timeout, 1-day TTL, 50 entries. The batch URL keys on the exact id set, which means a refresh of the same feed page hits the same cache entry — SWR here would silently repaint yesterday's score/comment counts. NetworkFirst still falls back to the cache when the user is genuinely offline, so `/pinned` and friends keep working.
 
 **Shared server-side cache (Vercel edge CDN).** `/api/summary`,
 `/api/comments-summary`, and `/api/items` set `Cache-Control: public,
@@ -331,6 +331,8 @@ plan and replaces function invocations on cache hits.
 - **HN write endpoints** (`news.ycombinator.com`): never cached — votes and login must never reuse a stale response.
 
 The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.
+
+**Feed freshness override.** The app-wide React Query defaults (`staleTime: 5 min`, `refetchOnWindowFocus: false`) are tuned for comment threads and AI summaries — once those land, users don't expect them to re-fetch on every tab switch. The feed queries (`['storyIds', feed]` and `['feedItems', feed]`) opt into `refetchOnMount: 'always'` and `refetchOnWindowFocus: true`, so a browser reload or a tab refocus always re-checks the network. Without this, the persisted cache would hydrate the UI with a hours-old list that the 5-minute staleTime still considers fresh.
 
 ### Comment batching
 Comments use `src/lib/commentPrefetch.ts`'s `prefetchCommentBatch` helper everywhere we know a set of ids we're about to need. One helper, three callers:
