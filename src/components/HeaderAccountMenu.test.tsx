@@ -199,6 +199,7 @@ describe('<HeaderAccountMenu>', () => {
     expect(getStoredAvatarPrefs()).toEqual({
       source: 'github',
       githubUsername: 'alice-real',
+      at: expect.any(Number),
     });
     // Form closes and the menu returns to normal items.
     expect(screen.queryByTestId('edit-avatar-form')).not.toBeInTheDocument();

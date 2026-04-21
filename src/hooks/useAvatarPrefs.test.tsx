@@ -33,6 +33,7 @@ describe('useAvatarPrefs', () => {
     expect(result.current.prefs).toEqual({
       source: 'github',
       githubUsername: 'alice-real',
+      at: expect.any(Number),
     });
   });
 
@@ -62,6 +63,8 @@ describe('useAvatarPrefs', () => {
       source: 'github',
       githubUsername: 'bob',
     });
+    // This write bypasses setStoredAvatarPrefs, so no `at` is stamped —
+    // the stored blob is exactly what we wrote above.
   });
 
   it('cleans up listeners on unmount', () => {

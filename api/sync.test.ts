@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   handleSyncRequest,
+  mergeAvatar,
   mergeEntries,
+  type SyncAvatar,
   type SyncEntry,
   type SyncState,
   type SyncStore,
@@ -112,6 +114,112 @@ describe('mergeEntries', () => {
       [{ id: 1, at: 200 }],
     );
     expect(merged).toEqual([{ id: 1, at: 200 }]);
+  });
+});
+
+describe('mergeAvatar', () => {
+  it('returns incoming when current is absent', () => {
+    const next: SyncAvatar = { source: 'github', at: 100 };
+    expect(mergeAvatar(undefined, next)).toEqual(next);
+  });
+
+  it('returns current when incoming is absent', () => {
+    const cur: SyncAvatar = { source: 'github', at: 100 };
+    expect(mergeAvatar(cur, undefined)).toEqual(cur);
+  });
+
+  it('newer `at` wins', () => {
+    const cur: SyncAvatar = { source: 'github', at: 100 };
+    const next: SyncAvatar = { source: 'gravatar', at: 200, gravatarHash: 'a'.repeat(64) };
+    expect(mergeAvatar(cur, next)).toEqual(next);
+  });
+
+  it('older `at` loses', () => {
+    const cur: SyncAvatar = { source: 'github', at: 500 };
+    const next: SyncAvatar = { source: 'none', at: 100 };
+    expect(mergeAvatar(cur, next)).toEqual(cur);
+  });
+
+  it('ties keep the incumbent', () => {
+    const cur: SyncAvatar = { source: 'github', at: 100 };
+    const next: SyncAvatar = { source: 'none', at: 100 };
+    expect(mergeAvatar(cur, next)).toEqual(cur);
+  });
+});
+
+describe('normalizeAvatar', () => {
+  it('accepts a minimal record', () => {
+    expect(
+      _internals.normalizeAvatar({ source: 'github', at: 100 }),
+    ).toEqual({ source: 'github', at: 100 });
+  });
+
+  it('accepts github override', () => {
+    expect(
+      _internals.normalizeAvatar({
+        source: 'github',
+        githubUsername: 'alice-real',
+        at: 100,
+      }),
+    ).toEqual({ source: 'github', githubUsername: 'alice-real', at: 100 });
+  });
+
+  it('accepts gravatar hash', () => {
+    const hash = 'a'.repeat(64);
+    expect(
+      _internals.normalizeAvatar({
+        source: 'gravatar',
+        gravatarHash: hash,
+        at: 100,
+      }),
+    ).toEqual({ source: 'gravatar', gravatarHash: hash, at: 100 });
+  });
+
+  it('drops invalid github username but keeps the rest', () => {
+    expect(
+      _internals.normalizeAvatar({
+        source: 'github',
+        githubUsername: 'has space',
+        at: 100,
+      }),
+    ).toEqual({ source: 'github', at: 100 });
+  });
+
+  it('drops invalid hash but keeps the rest', () => {
+    expect(
+      _internals.normalizeAvatar({
+        source: 'gravatar',
+        gravatarHash: 'nothex',
+        at: 100,
+      }),
+    ).toEqual({ source: 'gravatar', at: 100 });
+  });
+
+  it('rejects unknown source', () => {
+    expect(
+      _internals.normalizeAvatar({ source: 'linkedin', at: 100 }),
+    ).toBeUndefined();
+  });
+
+  it('rejects a bogus `at`', () => {
+    expect(
+      _internals.normalizeAvatar({ source: 'github', at: 'soon' }),
+    ).toBeUndefined();
+    expect(
+      _internals.normalizeAvatar({ source: 'github', at: -1 }),
+    ).toBeUndefined();
+    expect(_internals.normalizeAvatar({ source: 'github' })).toBeUndefined();
+  });
+
+  it('never returns a raw email, even when one is provided', () => {
+    const result = _internals.normalizeAvatar({
+      source: 'gravatar',
+      gravatarEmail: 'alice@example.com',
+      gravatarHash: 'a'.repeat(64),
+      at: 100,
+    });
+    expect(result).toBeDefined();
+    expect(result).not.toHaveProperty('gravatarEmail');
   });
 });
 
@@ -416,5 +524,89 @@ describe('handleSyncRequest POST', () => {
     expect(body.pinned).toEqual([]);
     expect(body.favorite).toEqual([]);
     expect(body.hidden).toEqual([]);
+  });
+
+  it('round-trips an avatar record and preserves it across pushes', async () => {
+    const res = await handleSyncRequest(
+      request('POST', {
+        avatar: { source: 'github', githubUsername: 'alice-real', at: 100 },
+      }),
+      { store },
+    );
+    const body = (await res.json()) as SyncState;
+    expect(body.avatar).toEqual({
+      source: 'github',
+      githubUsername: 'alice-real',
+      at: 100,
+    });
+
+    // A later push with no avatar keeps the stored record.
+    const res2 = await handleSyncRequest(
+      request('POST', { pinned: [{ id: 1, at: 200 }] }),
+      { store },
+    );
+    const body2 = (await res2.json()) as SyncState;
+    expect(body2.avatar).toEqual({
+      source: 'github',
+      githubUsername: 'alice-real',
+      at: 100,
+    });
+  });
+
+  it('applies LWW on the avatar across pushes', async () => {
+    await handleSyncRequest(
+      request('POST', { avatar: { source: 'github', at: 500 } }),
+      { store },
+    );
+    // Older push loses.
+    const losing = await handleSyncRequest(
+      request('POST', { avatar: { source: 'none', at: 100 } }),
+      { store },
+    );
+    expect(((await losing.json()) as SyncState).avatar?.source).toBe('github');
+    // Newer push wins.
+    const winning = await handleSyncRequest(
+      request('POST', {
+        avatar: { source: 'gravatar', gravatarHash: 'a'.repeat(64), at: 900 },
+      }),
+      { store },
+    );
+    const body = (await winning.json()) as SyncState;
+    expect(body.avatar).toEqual({
+      source: 'gravatar',
+      gravatarHash: 'a'.repeat(64),
+      at: 900,
+    });
+  });
+
+  it('strips a raw gravatarEmail from an incoming avatar', async () => {
+    const res = await handleSyncRequest(
+      request('POST', {
+        avatar: {
+          source: 'gravatar',
+          gravatarEmail: 'alice@example.com',
+          gravatarHash: 'a'.repeat(64),
+          at: 100,
+        },
+      }),
+      { store },
+    );
+    const body = (await res.json()) as SyncState;
+    expect(body.avatar).toBeDefined();
+    expect(body.avatar).not.toHaveProperty('gravatarEmail');
+    expect(store.map.get('alice')?.avatar).not.toHaveProperty('gravatarEmail');
+  });
+
+  it('silently ignores a malformed avatar (keeps the rest of the delta)', async () => {
+    const res = await handleSyncRequest(
+      request('POST', {
+        pinned: [{ id: 1, at: 100 }],
+        avatar: { source: 'linkedin', at: 100 },
+      }),
+      { store },
+    );
+    const body = (await res.json()) as SyncState;
+    expect(body.pinned).toEqual([{ id: 1, at: 100 }]);
+    expect(body.avatar).toBeUndefined();
   });
 });
