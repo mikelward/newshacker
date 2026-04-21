@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
-import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
@@ -60,15 +59,6 @@ export function StoryList({ feed }: Props) {
     },
     [dismiss, recordDismiss],
   );
-
-  const sentinelRef = useInfiniteScroll<HTMLDivElement>({
-    enabled: hasMore && !isFetchingMore,
-    onLoadMore: loadMore,
-    // Fire well before the bottom of the list enters the viewport so
-    // scroll-driven "load more" overlaps with the user's reading of the
-    // current page, rather than showing a visible loading gap.
-    rootMargin: '1200px 0px',
-  });
 
   // Visibility floor: hide stories that haven't earned at least one
   // organic upvote (HN submissions start at score 1 from the
@@ -277,18 +267,13 @@ export function StoryList({ feed }: Props) {
       </ol>
       {hasMore ? (
         <div className="story-list__more">
-          <div
-            ref={sentinelRef}
-            className="story-list__sentinel"
-            aria-hidden="true"
-          />
           <button
             type="button"
             className="load-more-btn"
             onClick={loadMore}
             disabled={isFetchingMore}
           >
-            {isFetchingMore ? 'Loading…' : 'Load more'}
+            {isFetchingMore ? 'Loading…' : 'More'}
           </button>
         </div>
       ) : null}
