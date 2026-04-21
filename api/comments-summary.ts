@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { Redis } from '@upstash/redis';
 
 const MODEL = 'gemini-2.5-flash-lite';
 
@@ -71,37 +72,72 @@ const TOP_LEVEL_SAMPLE_SIZE = 20;
 // Freshness-aware server TTL. A young, front-paged story gains comments
 // rapidly in its first couple of hours, so the summary goes stale fast
 // — re-run every 30 min. Older stories have settled conversations and
-// can ride the cheaper 1h cadence.
+// can ride the cheaper 1h cadence. TTLs are seconds because that's what
+// Redis EX takes; the wall-clock comparison below uses ms.
 const YOUNG_STORY_WINDOW_MS = 2 * 60 * 60 * 1000;
-const YOUNG_STORY_TTL_MS = 30 * 60 * 1000;
-const OLDER_STORY_TTL_MS = 60 * 60 * 1000;
+const YOUNG_STORY_TTL_SECONDS = 30 * 60;
+const OLDER_STORY_TTL_SECONDS = 60 * 60;
 
-// Shared-cache layer on Vercel's edge CDN. Mirrors the per-story TTL
-// above so one cache-miss pays Gemini once across all instances, not
-// once per instance. `stale-while-revalidate` keeps the edge serving
-// instantly while refreshing in the background. See api/summary.ts for
-// the rationale on why Referer is not part of the cache key.
-const YOUNG_STORY_EDGE_CACHE =
-  'public, s-maxage=1800, stale-while-revalidate=3600';
-const OLDER_STORY_EDGE_CACHE =
-  'public, s-maxage=3600, stale-while-revalidate=14400';
+// Cache-Control on success. Same rationale as api/summary.ts: the shared
+// cache lives in KV (Upstash), not the edge CDN, because the CDN is
+// regional and a popular cross-region story would still pay one Gemini
+// call per region. `private, no-store` keeps the function in the request
+// path so KV is consulted; the service worker still caches per its own
+// runtime rule (see vite.config.ts).
 const NO_STORE_HEADER = 'private, no-store';
-
-function edgeCacheHeaderForTtl(ttlMs: number): string {
-  return ttlMs === YOUNG_STORY_TTL_MS
-    ? YOUNG_STORY_EDGE_CACHE
-    : OLDER_STORY_EDGE_CACHE;
-}
 
 // Max per-comment plaintext length fed into the prompt. Long comments
 // are truncated to keep total prompt size bounded and predictable.
 const MAX_COMMENT_CHARS = 2000;
 
-type CacheEntry = { insights: string[]; expiresAt: number; ttlMs: number };
+// Shared backend cache: see api/summary.ts for the rationale on Upstash
+// over Vercel edge CDN, on the env-var fallback chain, and on why the
+// per-instance Map was removed in favor of a single shared store.
+const KV_KEY_PREFIX = 'newshacker:summary:comments:';
 
-// Per-instance in-memory cache. Vercel may run multiple instances, so this is
-// best-effort — not a correctness boundary. It just trims obvious repeats.
-const cache = new Map<number, CacheEntry>();
+export interface CommentsSummaryStore {
+  get(storyId: number): Promise<string[] | null>;
+  set(
+    storyId: number,
+    insights: string[],
+    ttlSeconds: number,
+  ): Promise<void>;
+}
+
+let defaultStore: CommentsSummaryStore | null | undefined;
+
+function createDefaultStore(): CommentsSummaryStore | null {
+  const url =
+    process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token =
+    process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  const redis = new Redis({ url, token });
+  return {
+    async get(storyId) {
+      try {
+        const value = await redis.get<string[]>(`${KV_KEY_PREFIX}${storyId}`);
+        return value ?? null;
+      } catch {
+        return null;
+      }
+    },
+    async set(storyId, insights, ttlSeconds) {
+      try {
+        await redis.set(`${KV_KEY_PREFIX}${storyId}`, insights, {
+          ex: ttlSeconds,
+        });
+      } catch {
+        // Best-effort write; a missed set is no worse than a cache miss.
+      }
+    },
+  };
+}
+
+function getDefaultStore(): CommentsSummaryStore | null {
+  if (defaultStore === undefined) defaultStore = createDefaultStore();
+  return defaultStore;
+}
 
 function parseStoryId(raw: string | null): number | null {
   if (!raw || !/^\d+$/.test(raw)) return null;
@@ -110,10 +146,15 @@ function parseStoryId(raw: string | null): number | null {
   return n;
 }
 
-function computeTtlMs(storyTimeSec: number | undefined, nowMs: number): number {
-  if (!storyTimeSec) return OLDER_STORY_TTL_MS;
+function computeTtlSeconds(
+  storyTimeSec: number | undefined,
+  nowMs: number,
+): number {
+  if (!storyTimeSec) return OLDER_STORY_TTL_SECONDS;
   const ageMs = nowMs - storyTimeSec * 1000;
-  return ageMs < YOUNG_STORY_WINDOW_MS ? YOUNG_STORY_TTL_MS : OLDER_STORY_TTL_MS;
+  return ageMs < YOUNG_STORY_WINDOW_MS
+    ? YOUNG_STORY_TTL_SECONDS
+    : OLDER_STORY_TTL_SECONDS;
 }
 
 // Minimal HTML-to-plaintext. HN comment bodies use a constrained subset
@@ -179,19 +220,12 @@ function parseInsights(raw: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-function json(
-  body: unknown,
-  status = 200,
-  cacheControl?: string,
-): Response {
-  const resolved =
-    cacheControl ??
-    (status >= 200 && status < 300 ? OLDER_STORY_EDGE_CACHE : NO_STORE_HEADER);
+function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      'cache-control': resolved,
+      'cache-control': NO_STORE_HEADER,
     },
   });
 }
@@ -218,6 +252,9 @@ export interface CommentsSummaryDeps {
   createClient?: (apiKey: string) => SummaryClient;
   fetchItem?: (id: number, signal?: AbortSignal) => Promise<HNItem | null>;
   now?: () => number;
+  // `null` = explicitly disable the shared cache for this request;
+  // `undefined` = use the default (lazy-initialised) Upstash store.
+  store?: CommentsSummaryStore | null;
 }
 
 export async function handleCommentsSummaryRequest(
@@ -235,13 +272,21 @@ export async function handleCommentsSummaryRequest(
   }
 
   const now = deps.now ?? Date.now;
-  const cached = cache.get(storyId);
-  if (cached && now() < cached.expiresAt) {
-    return json(
-      { insights: cached.insights, cached: true },
-      200,
-      edgeCacheHeaderForTtl(cached.ttlMs),
-    );
+  const store =
+    deps.store === undefined ? getDefaultStore() : deps.store;
+
+  if (store) {
+    // Fail-open at the handler layer too: if the store implementation
+    // forgets to catch (the default Upstash one does, but tests and
+    // future stores might not), KV trouble must not break the endpoint.
+    try {
+      const cached = await store.get(storyId);
+      if (cached && cached.length > 0) {
+        return json({ insights: cached, cached: true });
+      }
+    } catch {
+      // fall through to live generation
+    }
   }
 
   const apiKey = process.env.GOOGLE_API_KEY;
@@ -316,13 +361,15 @@ export async function handleCommentsSummaryRequest(
     return json({ error: 'Summarization failed' }, 502);
   }
 
-  const ttlMs = computeTtlMs(story.time, now());
-  cache.set(storyId, { insights, expiresAt: now() + ttlMs, ttlMs });
-  return json({ insights }, 200, edgeCacheHeaderForTtl(ttlMs));
-}
-
-export function __clearCacheForTests(): void {
-  cache.clear();
+  const ttlSeconds = computeTtlSeconds(story.time, now());
+  if (store) {
+    try {
+      await store.set(storyId, insights, ttlSeconds);
+    } catch {
+      // best-effort write
+    }
+  }
+  return json({ insights });
 }
 
 export async function GET(request: Request): Promise<Response> {

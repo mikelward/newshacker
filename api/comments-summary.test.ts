@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   handleCommentsSummaryRequest,
-  __clearCacheForTests,
+  type CommentsSummaryStore,
 } from './comments-summary';
 // Local type mirrors the handler's internal HNItem — duplicated
 // intentionally so the test doesn't reach into the handler's private
@@ -62,6 +62,34 @@ function fetchItemFrom(items: Record<number, HNItem | null>) {
   return vi.fn(async (id: number) => items[id] ?? null);
 }
 
+// In-memory CommentsSummaryStore for tests. Honors TTL via an injectable
+// `now` so the freshness-aware expiration tests still work.
+function createTestStore(
+  now: () => number = Date.now,
+): CommentsSummaryStore & {
+  map: Map<number, { value: string[]; expiresAt: number }>;
+} {
+  const map = new Map<number, { value: string[]; expiresAt: number }>();
+  return {
+    map,
+    async get(storyId) {
+      const entry = map.get(storyId);
+      if (!entry) return null;
+      if (now() >= entry.expiresAt) {
+        map.delete(storyId);
+        return null;
+      }
+      return entry.value;
+    },
+    async set(storyId, insights, ttlSeconds) {
+      map.set(storyId, {
+        value: insights,
+        expiresAt: now() + ttlSeconds * 1000,
+      });
+    },
+  };
+}
+
 // A fixed timestamp that is safely "old" relative to any `now` the tests
 // bind to (test `now` is in 2023/2024, this story is from Sept 2020).
 // Using a wall-clock-relative value would interact badly with tests that
@@ -72,7 +100,6 @@ describe('handleCommentsSummaryRequest', () => {
   const origGoogle = process.env.GOOGLE_API_KEY;
 
   beforeEach(() => {
-    __clearCacheForTests();
     process.env.GOOGLE_API_KEY = 'test-key';
   });
   afterEach(() => {
@@ -116,7 +143,9 @@ describe('handleCommentsSummaryRequest', () => {
 
   it('returns 503 when GOOGLE_API_KEY is unset', async () => {
     delete process.env.GOOGLE_API_KEY;
-    const res = await handleCommentsSummaryRequest(makeRequest('1'));
+    const res = await handleCommentsSummaryRequest(makeRequest('1'), {
+      store: null,
+    });
     expect(res.status).toBe(503);
   });
 
@@ -124,6 +153,7 @@ describe('handleCommentsSummaryRequest', () => {
     const fetchItem = fetchItemFrom({ 1: null });
     const res = await handleCommentsSummaryRequest(makeRequest('1'), {
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(404);
   });
@@ -134,6 +164,7 @@ describe('handleCommentsSummaryRequest', () => {
     });
     const res = await handleCommentsSummaryRequest(makeRequest('1'), {
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(404);
   });
@@ -152,6 +183,7 @@ describe('handleCommentsSummaryRequest', () => {
     });
     const res = await handleCommentsSummaryRequest(makeRequest('10'), {
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(404);
   });
@@ -186,6 +218,7 @@ describe('handleCommentsSummaryRequest', () => {
     const res = await handleCommentsSummaryRequest(makeRequest('100'), {
       fetchItem,
       createClient: () => client,
+      store: null,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -229,6 +262,7 @@ describe('handleCommentsSummaryRequest', () => {
     const res = await handleCommentsSummaryRequest(makeRequest('105'), {
       fetchItem,
       createClient: () => client,
+      store: null,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -252,6 +286,7 @@ describe('handleCommentsSummaryRequest', () => {
     await handleCommentsSummaryRequest(makeRequest('200'), {
       fetchItem,
       createClient: () => client,
+      store: null,
     });
     const contents = client.models.generateContent.mock.calls[0]![0].contents;
     expect(contents).toContain('real 1');
@@ -285,6 +320,7 @@ describe('handleCommentsSummaryRequest', () => {
     await handleCommentsSummaryRequest(makeRequest('500'), {
       fetchItem,
       createClient: () => client,
+      store: null,
     });
     // Story fetch (1) + first 20 kid fetches = 21 calls.
     expect(fetchItem).toHaveBeenCalledTimes(21);
@@ -316,6 +352,7 @@ describe('handleCommentsSummaryRequest', () => {
     const res = await handleCommentsSummaryRequest(makeRequest('700'), {
       fetchItem,
       createClient: () => client,
+      store: null,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ insights: ['Takes are taken.'] });
@@ -335,6 +372,7 @@ describe('handleCommentsSummaryRequest', () => {
     const res = await handleCommentsSummaryRequest(makeRequest('900'), {
       fetchItem,
       createClient: () => client,
+      store: null,
     });
     expect(res.status).toBe(502);
   });
@@ -353,11 +391,12 @@ describe('handleCommentsSummaryRequest', () => {
     const res = await handleCommentsSummaryRequest(makeRequest('910'), {
       fetchItem,
       createClient: () => client,
+      store: null,
     });
     expect(res.status).toBe(502);
   });
 
-  it('serves a cached summary on a repeat request within the TTL window', async () => {
+  it('serves a cached summary on a repeat request via the shared store', async () => {
     const fetchItem = fetchItemFrom({
       1000: {
         id: 1000,
@@ -367,12 +406,14 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1001: { id: 1001, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: 'one' }]);
     let now = 1_700_000_000_000;
+    const store = createTestStore(() => now);
+    const client = createFakeClient([{ text: 'one' }]);
     const r1 = await handleCommentsSummaryRequest(makeRequest('1000'), {
       fetchItem,
       createClient: () => client,
       now: () => now,
+      store,
     });
     expect(await r1.json()).toEqual({ insights: ['one'] });
 
@@ -383,6 +424,7 @@ describe('handleCommentsSummaryRequest', () => {
       fetchItem,
       createClient: () => client2,
       now: () => now,
+      store,
     });
     expect(await r2.json()).toEqual({
       insights: ['one'],
@@ -391,7 +433,7 @@ describe('handleCommentsSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
-  it('sets the older-story shared-cache header on a successful older-story response', async () => {
+  it('writes older-story insights to the shared store with the 1h TTL', async () => {
     const fetchItem = fetchItemFrom({
       1300: {
         id: 1300,
@@ -401,19 +443,22 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1301: { id: 1301, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: 'ok' }]);
-    const res = await handleCommentsSummaryRequest(makeRequest('1300'), {
+    const get = vi.fn<CommentsSummaryStore['get']>(async () => null);
+    const set = vi.fn<CommentsSummaryStore['set']>(async () => undefined);
+    await handleCommentsSummaryRequest(makeRequest('1300'), {
       fetchItem,
-      createClient: () => client,
+      createClient: () => createFakeClient([{ text: 'ok' }]),
       now: () => 1_700_000_000_000,
+      store: { get, set },
     });
-    const cc = res.headers.get('cache-control') ?? '';
-    expect(cc).toMatch(/public/);
-    expect(cc).toMatch(/s-maxage=3600/);
-    expect(cc).toMatch(/stale-while-revalidate=14400/);
+    expect(set).toHaveBeenCalledTimes(1);
+    const [id, insights, ttlSeconds] = set.mock.calls[0]!;
+    expect(id).toBe(1300);
+    expect(insights).toEqual(['ok']);
+    expect(ttlSeconds).toBe(60 * 60);
   });
 
-  it('sets the younger 30-min shared-cache header on young stories', async () => {
+  it('writes young-story insights to the shared store with the 30min TTL', async () => {
     const now = 1_700_000_000_000;
     const youngStoryTime = Math.floor(now / 1000) - 30 * 60;
     const fetchItem = fetchItemFrom({
@@ -425,18 +470,20 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1311: { id: 1311, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: 'ok' }]);
-    const res = await handleCommentsSummaryRequest(makeRequest('1310'), {
+    const get = vi.fn<CommentsSummaryStore['get']>(async () => null);
+    const set = vi.fn<CommentsSummaryStore['set']>(async () => undefined);
+    await handleCommentsSummaryRequest(makeRequest('1310'), {
       fetchItem,
-      createClient: () => client,
+      createClient: () => createFakeClient([{ text: 'ok' }]),
       now: () => now,
+      store: { get, set },
     });
-    const cc = res.headers.get('cache-control') ?? '';
-    expect(cc).toMatch(/s-maxage=1800/);
-    expect(cc).toMatch(/stale-while-revalidate=3600/);
+    expect(set).toHaveBeenCalledTimes(1);
+    const [, , ttlSeconds] = set.mock.calls[0]!;
+    expect(ttlSeconds).toBe(30 * 60);
   });
 
-  it('also sets the shared-cache header when serving from the in-memory cache', async () => {
+  it('sets no-store Cache-Control on successful responses', async () => {
     const fetchItem = fetchItemFrom({
       1320: {
         id: 1320,
@@ -446,26 +493,18 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1321: { id: 1321, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
-    const client = createFakeClient([{ text: 'v1' }]);
-    let now = 1_700_000_000_000;
-    await handleCommentsSummaryRequest(makeRequest('1320'), {
-      fetchItem,
-      createClient: () => client,
-      now: () => now,
-    });
-    now += 1_000;
     const res = await handleCommentsSummaryRequest(makeRequest('1320'), {
       fetchItem,
-      createClient: () => createFakeClient([]),
-      now: () => now,
+      createClient: () => createFakeClient([{ text: 'ok' }]),
+      now: () => 1_700_000_000_000,
+      store: null,
     });
-    expect((await res.json()) as { cached?: boolean }).toMatchObject({
-      cached: true,
-    });
-    expect(res.headers.get('cache-control') ?? '').toMatch(/s-maxage=3600/);
+    // Edge CDN is not the shared cache — the function must always run
+    // so KV can be consulted.
+    expect(res.headers.get('cache-control') ?? '').toMatch(/no-store/);
   });
 
-  it('sets no-store on error responses so the edge does not cache them', async () => {
+  it('sets no-store on error responses', async () => {
     const r403 = await handleCommentsSummaryRequest(
       makeRequest('1', { referer: null }),
     );
@@ -486,11 +525,13 @@ describe('handleCommentsSummaryRequest', () => {
       1101: { id: 1101, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
     let now = 1_700_000_000_000;
+    const store = createTestStore(() => now);
     const client1 = createFakeClient([{ text: 'v1' }]);
     await handleCommentsSummaryRequest(makeRequest('1100'), {
       fetchItem,
       createClient: () => client1,
       now: () => now,
+      store,
     });
 
     now += 60 * 60 * 1000 + 1;
@@ -499,6 +540,7 @@ describe('handleCommentsSummaryRequest', () => {
       fetchItem,
       createClient: () => client2,
       now: () => now,
+      store,
     });
     expect(await res.json()).toEqual({ insights: ['v2'] });
   });
@@ -515,6 +557,7 @@ describe('handleCommentsSummaryRequest', () => {
       },
       1201: { id: 1201, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
+    const store = createTestStore(() => now);
 
     // First call populates cache.
     const client1 = createFakeClient([{ text: 'v1' }]);
@@ -522,6 +565,7 @@ describe('handleCommentsSummaryRequest', () => {
       fetchItem,
       createClient: () => client1,
       now: () => now,
+      store,
     });
 
     // 29 min later — still cached (< 30min TTL).
@@ -531,6 +575,7 @@ describe('handleCommentsSummaryRequest', () => {
       fetchItem,
       createClient: () => clientStillCached,
       now: () => now,
+      store,
     });
     expect(await rCached.json()).toMatchObject({
       insights: ['v1'],
@@ -545,8 +590,41 @@ describe('handleCommentsSummaryRequest', () => {
       fetchItem,
       createClient: () => client2,
       now: () => now,
+      store,
     });
     expect(await res.json()).toEqual({ insights: ['v2'] });
     expect(client2.models.generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls through to live generation when the shared store throws (fail-open)', async () => {
+    // Defense-in-depth: even if a store implementation forgets to catch
+    // its own errors, KV trouble must not break the endpoint.
+    const fetchItem = fetchItemFrom({
+      1400: {
+        id: 1400,
+        type: 'story',
+        kids: [1401],
+        time: OLD_STORY_TIME,
+      },
+      1401: { id: 1401, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const store: CommentsSummaryStore = {
+      get: vi.fn(async () => {
+        throw new Error('kv get failed');
+      }),
+      set: vi.fn(async () => {
+        throw new Error('kv set failed');
+      }),
+    };
+    const res = await handleCommentsSummaryRequest(makeRequest('1400'), {
+      fetchItem,
+      createClient: () => createFakeClient([{ text: 'live insight' }]),
+      now: () => 1_700_000_000_000,
+      store,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ insights: ['live insight'] });
+    expect(store.get).toHaveBeenCalledTimes(1);
+    expect(store.set).toHaveBeenCalledTimes(1);
   });
 });

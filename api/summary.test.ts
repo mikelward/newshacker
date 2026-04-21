@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   handleSummaryRequest,
   isAllowedReferer,
-  __clearCacheForTests,
+  type SummaryStore,
 } from './summary';
 
 const ALLOWED_REFERER = 'https://newshacker.app/item/1';
@@ -42,6 +42,32 @@ function makeRawRequest(
 
 function fetchItemFor(items: Record<number, HNItemFixture | null>) {
   return vi.fn(async (id: number) => items[id] ?? null);
+}
+
+// In-memory SummaryStore used in tests in place of a real Upstash client.
+// Honors TTL via an injectable `now` so expiration tests still work.
+function createTestStore(now: () => number = Date.now): SummaryStore & {
+  map: Map<number, { value: string; expiresAt: number }>;
+} {
+  const map = new Map<number, { value: string; expiresAt: number }>();
+  return {
+    map,
+    async get(storyId) {
+      const entry = map.get(storyId);
+      if (!entry) return null;
+      if (now() >= entry.expiresAt) {
+        map.delete(storyId);
+        return null;
+      }
+      return entry.value;
+    },
+    async set(storyId, summary, ttlSeconds) {
+      map.set(storyId, {
+        value: summary,
+        expiresAt: now() + ttlSeconds * 1000,
+      });
+    },
+  };
 }
 
 interface GenerateRequest {
@@ -95,7 +121,6 @@ describe('handleSummaryRequest', () => {
   const origJina = process.env.JINA_API_KEY;
 
   beforeEach(() => {
-    __clearCacheForTests();
     process.env.GOOGLE_API_KEY = 'test-key';
     delete process.env.JINA_API_KEY;
   });
@@ -130,11 +155,15 @@ describe('handleSummaryRequest', () => {
     const client = createFakeClient([{ text: 'ok' }]);
     const r1 = await handleSummaryRequest(
       makeRequest(1, { referer: 'http://localhost:5173/item/1' }),
-      { createClient: () => client, fetchImpl, fetchItem },
+      {
+        createClient: () => client,
+        fetchImpl,
+        fetchItem,
+        store: createTestStore(),
+      },
     );
     expect(r1.status).toBe(200);
 
-    __clearCacheForTests();
     const r2 = await handleSummaryRequest(
       makeRequest(1, {
         referer: 'https://newshacker-preview-abc.vercel.app/item/1',
@@ -145,6 +174,7 @@ describe('handleSummaryRequest', () => {
           'https://example.com/a': { body: '<article>hi</article>' },
         }),
         fetchItem,
+        store: createTestStore(),
       },
     );
     expect(r2.status).toBe(200);
@@ -193,7 +223,10 @@ describe('handleSummaryRequest', () => {
 
   it('returns 404 when the story does not exist', async () => {
     const fetchItem = fetchItemFor({ 99: null });
-    const res = await handleSummaryRequest(makeRequest(99), { fetchItem });
+    const res = await handleSummaryRequest(makeRequest(99), {
+      fetchItem,
+      store: null,
+    });
     expect(res.status).toBe(404);
   });
 
@@ -202,9 +235,15 @@ describe('handleSummaryRequest', () => {
       11: { id: 11, type: 'story', deleted: true },
       12: { id: 12, type: 'story', dead: true },
     });
-    const r1 = await handleSummaryRequest(makeRequest(11), { fetchItem });
+    const r1 = await handleSummaryRequest(makeRequest(11), {
+      fetchItem,
+      store: null,
+    });
     expect(r1.status).toBe(404);
-    const r2 = await handleSummaryRequest(makeRequest(12), { fetchItem });
+    const r2 = await handleSummaryRequest(makeRequest(12), {
+      fetchItem,
+      store: null,
+    });
     expect(r2.status).toBe(404);
   });
 
@@ -212,7 +251,10 @@ describe('handleSummaryRequest', () => {
     const fetchItem = fetchItemFor({
       33: { id: 33, type: 'story', title: 'Ask HN' },
     });
-    const res = await handleSummaryRequest(makeRequest(33), { fetchItem });
+    const res = await handleSummaryRequest(makeRequest(33), {
+      fetchItem,
+      store: null,
+    });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
       error: 'Story has no article to summarize',
@@ -224,7 +266,10 @@ describe('handleSummaryRequest', () => {
     const fetchItem = vi.fn(async () => {
       throw new Error('boom');
     });
-    const res = await handleSummaryRequest(makeRequest(44), { fetchItem });
+    const res = await handleSummaryRequest(makeRequest(44), {
+      fetchItem,
+      store: null,
+    });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
       error: 'Could not load story',
@@ -237,7 +282,10 @@ describe('handleSummaryRequest', () => {
     const fetchItem = fetchItemFor({
       1: { id: 1, type: 'story', url: 'https://example.com/a' },
     });
-    const res = await handleSummaryRequest(makeRequest(1), { fetchItem });
+    const res = await handleSummaryRequest(makeRequest(1), {
+      fetchItem,
+      store: null,
+    });
     expect(res.status).toBe(503);
   });
 
@@ -257,6 +305,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ summary: 'A one-sentence summary.' });
@@ -286,6 +335,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     const prompt = client.models.generateContent.mock.calls[0]![0].contents;
     expect(prompt).toMatch(/voice of the author/i);
@@ -309,6 +359,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ summary: 'Raw-fetch summary.' });
@@ -331,6 +382,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ summary: 'Plain summary.' });
@@ -353,6 +405,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
@@ -380,6 +433,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({
@@ -405,6 +459,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({
@@ -426,6 +481,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
@@ -447,6 +503,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({
@@ -472,6 +529,7 @@ describe('handleSummaryRequest', () => {
       fetchImpl,
       fetchItem,
       jinaApiKey: 'deps-key',
+      store: null,
     });
     expect(res.status).toBe(200);
     const jinaInit = fetchImpl.mock.calls[0]![1]!;
@@ -479,7 +537,7 @@ describe('handleSummaryRequest', () => {
     expect(headers.authorization).toBe('Bearer deps-key');
   });
 
-  it('serves a cached summary on a repeat request', async () => {
+  it('serves a cached summary on a repeat request via the shared store', async () => {
     const articleUrl = 'https://example.com/cached';
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>first</article>' },
@@ -487,11 +545,13 @@ describe('handleSummaryRequest', () => {
     const fetchItem = fetchItemFor({
       150: { id: 150, type: 'story', url: articleUrl },
     });
+    const store = createTestStore();
     const client = createFakeClient([{ text: 'first-summary' }]);
     const res1 = await handleSummaryRequest(makeRequest(150), {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store,
     });
     expect(await res1.json()).toEqual({ summary: 'first-summary' });
 
@@ -500,6 +560,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client2,
       fetchImpl,
       fetchItem,
+      store,
     });
     expect(await res2.json()).toEqual({
       summary: 'first-summary',
@@ -508,7 +569,31 @@ describe('handleSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
-  it('sets a shared-cache Cache-Control header on successful responses', async () => {
+  it('writes the summary to the shared store with the expected TTL', async () => {
+    const articleUrl = 'https://example.com/ttl-set';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const fetchItem = fetchItemFor({
+      155: { id: 155, type: 'story', url: articleUrl },
+    });
+    const get = vi.fn<SummaryStore['get']>(async () => null);
+    const set = vi.fn<SummaryStore['set']>(async () => undefined);
+    await handleSummaryRequest(makeRequest(155), {
+      createClient: () => createFakeClient([{ text: 'ok' }]),
+      fetchImpl,
+      fetchItem,
+      store: { get, set },
+    });
+    expect(set).toHaveBeenCalledTimes(1);
+    const [id, summary, ttlSeconds] = set.mock.calls[0]!;
+    expect(id).toBe(155);
+    expect(summary).toBe('ok');
+    // 1h TTL.
+    expect(ttlSeconds).toBe(60 * 60);
+  });
+
+  it('sets no-store Cache-Control on successful responses', async () => {
     const articleUrl = 'https://example.com/cc';
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
@@ -521,39 +606,14 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
+      store: null,
     });
-    const cc = res.headers.get('cache-control') ?? '';
-    expect(cc).toMatch(/public/);
-    expect(cc).toMatch(/s-maxage=3600/);
-    expect(cc).toMatch(/stale-while-revalidate=86400/);
+    // Edge CDN is explicitly not the shared cache — the function must
+    // always run so KV can be consulted.
+    expect(res.headers.get('cache-control') ?? '').toMatch(/no-store/);
   });
 
-  it('also sets the shared-cache header when serving from the in-memory cache', async () => {
-    const articleUrl = 'https://example.com/cc-hit';
-    const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
-    });
-    const fetchItem = fetchItemFor({
-      170: { id: 170, type: 'story', url: articleUrl },
-    });
-    const client = createFakeClient([{ text: 'first' }]);
-    await handleSummaryRequest(makeRequest(170), {
-      createClient: () => client,
-      fetchImpl,
-      fetchItem,
-    });
-    const res2 = await handleSummaryRequest(makeRequest(170), {
-      createClient: () => createFakeClient([]),
-      fetchImpl,
-      fetchItem,
-    });
-    expect((await res2.json()) as { cached?: boolean }).toMatchObject({
-      cached: true,
-    });
-    expect(res2.headers.get('cache-control') ?? '').toMatch(/s-maxage=3600/);
-  });
-
-  it('sets no-store on error responses so the edge cache does not pin them', async () => {
+  it('sets no-store on error responses', async () => {
     const r403 = await handleSummaryRequest(
       makeRequest(1, { referer: null }),
     );
@@ -563,9 +623,10 @@ describe('handleSummaryRequest', () => {
     expect(r400.headers.get('cache-control') ?? '').toMatch(/no-store/);
   });
 
-  it('re-fetches after the cache ttl expires', async () => {
+  it('re-fetches after the shared-store ttl expires', async () => {
     const articleUrl = 'https://example.com/expire';
     let now = 1_000_000;
+    const store = createTestStore(() => now);
     const fetchImpl = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
     });
@@ -577,7 +638,7 @@ describe('handleSummaryRequest', () => {
       createClient: () => client,
       fetchImpl,
       fetchItem,
-      now: () => now,
+      store,
     });
 
     now += 60 * 60 * 1000 + 1;
@@ -589,9 +650,43 @@ describe('handleSummaryRequest', () => {
       createClient: () => client2,
       fetchImpl: fetchImpl2,
       fetchItem,
-      now: () => now,
+      store,
     });
     expect(await res2.json()).toEqual({ summary: 'v2' });
     expect(client2.models.generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls through to live generation when the shared store throws (fail-open)', async () => {
+    // Defense-in-depth: even if a store implementation forgets to catch
+    // its own errors, KV trouble must not break the endpoint. The
+    // default Upstash store catches internally; this guards the
+    // handler's belt-and-braces try/catch.
+    const articleUrl = 'https://example.com/kv-down';
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const fetchItem = fetchItemFor({
+      190: { id: 190, type: 'story', url: articleUrl },
+    });
+    const store: SummaryStore = {
+      get: vi.fn(async () => {
+        throw new Error('kv get failed');
+      }),
+      set: vi.fn(async () => {
+        throw new Error('kv set failed');
+      }),
+    };
+    const res = await handleSummaryRequest(makeRequest(190), {
+      createClient: () => createFakeClient([{ text: 'live' }]),
+      fetchImpl,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ summary: 'live' });
+    expect(store.get).toHaveBeenCalledTimes(1);
+    // The handler still attempted to write — which also threw — but the
+    // response is sent regardless.
+    expect(store.set).toHaveBeenCalledTimes(1);
   });
 });

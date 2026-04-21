@@ -84,22 +84,28 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   the KV question below, since "which stories have we warmed in the
   last N minutes" is the kind of state a cron needs.
 
-- **Evaluate Vercel KV (or Upstash) when a shared store is actually
-  needed.** No KV-style store today — `AGENTS.md` rule 6 now allows
-  one when justified, but nothing in the current codebase justifies
-  it. Natural triggers: (a) per-user or per-IP rate limiting on the
-  summary endpoints (already flagged in
-  `IMPLEMENTATION_PLAN.md` § "Rate limiting"; the edge CDN cache
-  doesn't help here), (b) scheduled prefetch bookkeeping if the
-  server-side prefetch item above lands, (c) session state for the
-  login/vote stretch features if HTTP-only cookies prove
-  insufficient. Rule 11 cost/reliability note to include when
-  proposing: Upstash Redis has a 10k-request/day free tier that
-  covers single-digit daily traffic; Vercel KV is Pro-tier pricing
-  but integrates more tightly with Vercel functions. Either adds
-  one new failure mode (store unreachable) — the handler should
-  fall open for rate limiting (serve the request) rather than fail
-  closed.
+- **Redis (Vercel Storage Marketplace) is now in use** (summary
+  endpoints, shipped). `AGENTS.md` rule 6 was satisfied by the
+  cost-and-reliability case in `SPEC.md` § "Shared server-side cache
+  (Redis via Vercel Storage Marketplace)". Current deployment: **free
+  tier, single primary in `us-east-1`, no replicas, no HA** — enough
+  for today's traffic and the fail-open handler. Remaining natural
+  triggers for upgrading the store:
+  (a) per-user or per-IP rate limiting on the summary endpoints
+  (already flagged in `IMPLEMENTATION_PLAN.md` § "Rate limiting" —
+  rate limiting is less comfortable as fail-open than summaries,
+  so this is the most likely trigger to move off the free tier),
+  (b) scheduled prefetch bookkeeping if the server-side prefetch
+  cron lands (see Phase B sketched in chat / `SUMMARIES.md`),
+  (c) session state for the login/vote stretch features if
+  HTTP-only cookies prove insufficient,
+  (d) `summary_layout` (or a new server-side metric) showing a
+  material share of reads from far-from-`us-east-1` regions — that's
+  the signal to add a read replica.
+  Cost today: $0 on the free tier. Reliability: one failure mode
+  (store unreachable) — summary handler is already fail-open; rate
+  limiting handler should fail-open too (serve the request rather
+  than fail closed).
 
 ## Sweep edge cases
 
