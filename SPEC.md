@@ -194,7 +194,14 @@ Spacing / sizing:
 - Min dead space between adjacent tap zones: 8px.
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
 
-Thread page mirrors the same discipline: a single, full-width "Read article" button at the top of a story view (hidden for self-posts), and a single primary tap target per comment row. See *Comment row layout* below.
+Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Pin, Favorite, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the same row, and a single primary tap target per comment row. See *Comment row layout* below.
+
+Tapping ⋮ opens a bottom-sheet menu (the same `StoryRowMenu` component used for long-press on a list row) with secondary actions for the story:
+
+- **Open on Hacker News** — opens `https://news.ycombinator.com/item?id=:id` in a new tab. Lets users jump to the canonical HN page (e.g. to upvote/comment from their HN account, while we don't yet support write actions).
+- **Share article** — invokes the Web Share API (or copies the link to the clipboard as a fallback) on the source URL, via the `useShareStory` hook. Hidden on self-posts (Ask HN, Show HN, etc.) since there's no off-site article to share.
+
+Naming convention for share entries: a noun ("Share **article**") names *what* is being shared; the `on <platform>` suffix names *where* the recipient lands. This keeps the Share entries aligned with **Open on Hacker News** above and leaves room for a planned **Share on newshacker** entry that shares the discussion view on our origin.
 
 ## Comment row layout
 

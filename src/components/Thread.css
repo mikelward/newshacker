@@ -51,9 +51,16 @@
 
 .thread__action--primary {
   flex: 1;
+  min-width: 0;
   background: var(--hn-orange);
   border-color: var(--hn-orange);
   color: #fff;
+}
+
+.thread__action-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (hover: hover) {
