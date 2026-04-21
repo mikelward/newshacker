@@ -7,6 +7,7 @@ import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { ToastProvider } from './components/Toast';
 import { useCloudSync } from './hooks/useCloudSync';
+import { useHnFavoritesSync } from './hooks/useHnFavoritesSync';
 import { FeedPage } from './pages/FeedPage';
 import { ItemPage } from './pages/ItemPage';
 import { UserPage } from './pages/UserPage';
@@ -25,6 +26,11 @@ function CloudSyncBridge() {
   return null;
 }
 
+function HnFavoritesSyncBridge() {
+  useHnFavoritesSync();
+  return null;
+}
+
 export default function App() {
   return (
     <ToastProvider>
@@ -33,6 +39,7 @@ export default function App() {
       <FeedBarProvider>
         <BootPrefetch />
         <CloudSyncBridge />
+        <HnFavoritesSyncBridge />
         <ScrollToTop />
         <AppHeader />
         <main className="app-main">
