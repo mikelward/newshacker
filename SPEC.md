@@ -79,6 +79,7 @@ other. The pinned-stories module performs a one-shot rename of the legacy
    - Infinite scroll or "Load more" pagination (30 items per page, matching HN).
    - Each list item shows: title, domain, points · age (display-only), and an "N comments" button.
    - See *Story row layout* for tap-target rules.
+   - **Minimum-upvote visibility (`score > 1`).** Every feed filters out stories whose `score` is ≤ 1. HN submissions start at score 1 (the submitter's implicit self-upvote), so `> 1` means "at least one other person has upvoted this." The primary motivation is **signal-to-noise**: this is especially load-bearing for `/new`, which on raw HN is mostly instant self-submits and brand-new drops most readers don't care about — requiring one organic upvote before we surface a story turns `/new` into a meaningful "rising" feed instead of a firehose. On `/top`, `/best`, `/ask`, `/show`, `/jobs` the filter is effectively a no-op because HN's own ranking already pushes score-1 items out. The filter is live and per-render: a story excluded on one fetch is pulled back in automatically as soon as a later feed refresh shows its score has risen. There is no persistent "hidden by score" list. As a side benefit, this also closes the "submit-a-link-to-get-a-Gemini-summary" abuse path — the summary endpoints enforce the same `> 1` floor, and a story the feed never renders never triggers a warm.
 
 2. **Thread view**
    - Story header (title, link, points, author, age, text if self-post).
@@ -412,6 +413,12 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 - As the feed renders, `StoryList` calls `prefetchFeedStory` (in `src/lib/feedStoryPrefetch.ts`) for every row with `score > 100`. It delegates to the same `prefetchPinnedStory` used at pin-time, so the warm shape is identical: `['itemRoot', id]`, the first 30 top-level comments (one shared `/api/items?fields=full` batch), the article AI summary, and the comments AI summary. Tapping a popular headline renders the thread, summaries, and early comments without a round-trip.
 - Tracked per-session via a `Set` in `StoryList` so re-renders don't re-fetch, and `prefetchFeedStory` short-circuits outright if `['itemRoot', id]` is already cached.
 - Summary endpoints are shared-cached in KV (see *Shared server-side cache* below), so a trending story typically costs one Gemini call per hour globally even if thousands of clients warm it.
+
+### Warm-on-view server summary cache
+- When a story row scrolls fully into the viewport, `StoryList` fires fire-and-forget requests to `/api/summary?id=…` and `/api/comments-summary?id=…` via `warmFeedSummaries` (`src/lib/feedSummaryWarm.ts`). Both endpoints short-circuit on a KV hit without touching Gemini, so the steady-state cost is one Redis read per view; only the first viewer of a not-yet-cached story pays a Gemini generation, and every subsequent viewer (and every subsequent page load) is served from KV.
+- Replaces the scheduled "summarize every front-page story every 30 minutes" cron we almost built. Impressions are the pacing signal, so we only pay for summaries people actually looked at.
+- Session-scoped dedup via a `Set` in `StoryList` prevents the same row firing twice as it scrolls back into view. Ask-HN / Show-HN / job posts (no `url`) skip `/api/summary` but still warm `/api/comments-summary`.
+- Score-gated to `> 1` on the client (cheap short-circuit) and on the server (authoritative). Combined with the feed-level `score > 1` visibility rule, a score-1 row never renders and therefore never triggers a warm.
 
 ### Pin/Favorite offline prefetch
 - Pinning a story calls `prefetchPinnedStory` — stores the item root, the article AI summary, the AI comment summary (when the story has kids), **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time.

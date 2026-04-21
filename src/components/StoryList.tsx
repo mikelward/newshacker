@@ -16,6 +16,7 @@ import {
   FEED_PREFETCH_SCORE_THRESHOLD,
   prefetchFeedStory,
 } from '../lib/feedStoryPrefetch';
+import { warmFeedSummaries } from '../lib/feedSummaryWarm';
 import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
 
@@ -69,6 +70,12 @@ export function StoryList({ feed }: Props) {
     rootMargin: '1200px 0px',
   });
 
+  // Visibility floor: hide stories that haven't earned at least one
+  // organic upvote (HN submissions start at score 1 from the
+  // submitter's implicit self-vote; `> 1` means at least one other
+  // person has voted). This is a live, per-render check, not a
+  // persistent filter — if a story's score climbs above 1 on a
+  // subsequent feed refetch, it rejoins the list automatically.
   const visibleStories = useMemo(
     () =>
       items.filter(
@@ -76,6 +83,7 @@ export function StoryList({ feed }: Props) {
           it != null &&
           !it.deleted &&
           !it.dead &&
+          (it.score ?? 0) > 1 &&
           !dismissedIds.has(it.id),
       ),
     [items, dismissedIds],
@@ -169,6 +177,26 @@ export function StoryList({ feed }: Props) {
     rowRefCache.current.set(id, setRef);
     return setRef;
   }, []);
+
+  // Warm the server-side Gemini summary caches (/api/summary and
+  // /api/comments-summary, both Upstash-backed) for rows the user has
+  // actually scrolled into view. This replaces a periodic cron — instead
+  // of generating summaries for every story on a schedule, we generate
+  // them on demand for the stories people are actually looking at. The
+  // endpoints already short-circuit on a KV hit, so only the first view
+  // of each story in a TTL window pays a Gemini call. Session-scoped
+  // dedup via `warmedServerIdsRef` stops us from re-hitting the server
+  // as a row re-enters the viewport during scroll.
+  const warmedServerIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (inViewIds.size === 0) return;
+    for (const story of visibleStories) {
+      if (!inViewIds.has(story.id)) continue;
+      if (warmedServerIdsRef.current.has(story.id)) continue;
+      warmedServerIdsRef.current.add(story.id);
+      warmFeedSummaries(story);
+    }
+  }, [inViewIds, visibleStories]);
 
   const sweepableIds = useMemo(
     () =>

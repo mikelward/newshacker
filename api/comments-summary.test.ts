@@ -158,9 +158,49 @@ describe('handleCommentsSummaryRequest', () => {
     expect(res.status).toBe(404);
   });
 
+  it('returns 400 with low_score for a story that has not earned an organic upvote', async () => {
+    // `> 1` means "at least one vote beyond the submitter's implicit
+    // self-upvote". Score 0, missing score, and score 1 all fail.
+    const fetchItem = fetchItemFrom({
+      3: {
+        id: 3,
+        type: 'story',
+        kids: [99],
+        time: OLD_STORY_TIME,
+        score: 0,
+      },
+      5: { id: 5, type: 'story', kids: [99], time: OLD_STORY_TIME },
+      7: {
+        id: 7,
+        type: 'story',
+        kids: [99],
+        time: OLD_STORY_TIME,
+        score: 1,
+      },
+      99: { id: 99, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    for (const id of ['3', '5', '7']) {
+      const res = await handleCommentsSummaryRequest(makeRequest(id), {
+        fetchItem,
+        store: null,
+      });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: 'Story is not eligible for summary',
+        reason: 'low_score',
+      });
+    }
+  });
+
   it('returns 404 when a story has no kids', async () => {
     const fetchItem = fetchItemFrom({
-      1: { id: 1, type: 'story', title: 'No comments', time: OLD_STORY_TIME },
+      1: {
+        id: 1,
+        type: 'story',
+        title: 'No comments',
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
     });
     const res = await handleCommentsSummaryRequest(makeRequest('1'), {
       fetchItem,
@@ -176,6 +216,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [11, 12, 13],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       11: { id: 11, type: 'comment', deleted: true },
       12: { id: 12, type: 'comment', dead: true, by: 'x', text: 'y' },
@@ -196,6 +237,7 @@ describe('handleCommentsSummaryRequest', () => {
         title: 'Great post',
         kids: [101, 102],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       101: {
         id: 101,
@@ -247,6 +289,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [106],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       106: {
         id: 106,
@@ -277,6 +320,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [201, 202, 203],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       201: { id: 201, type: 'comment', by: 'a', text: 'real 1', time: 1 },
       202: { id: 202, type: 'comment', deleted: true },
@@ -304,6 +348,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: kidIds,
         time: OLD_STORY_TIME,
+        score: 10,
       },
     };
     for (const id of kidIds) {
@@ -339,6 +384,7 @@ describe('handleCommentsSummaryRequest', () => {
         // no url
         kids: [701],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       701: {
         id: 701,
@@ -365,6 +411,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [901],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       901: { id: 901, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -384,6 +431,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [911],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       911: { id: 911, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -403,6 +451,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [1001],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       1001: { id: 1001, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -440,6 +489,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [1301],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       1301: { id: 1301, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -467,6 +517,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [1311],
         time: youngStoryTime,
+        score: 10,
       },
       1311: { id: 1311, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -490,6 +541,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [1321],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       1321: { id: 1321, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -521,6 +573,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [1101],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       1101: { id: 1101, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -554,6 +607,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [1201],
         time: youngStoryTime,
+        score: 10,
       },
       1201: { id: 1201, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
@@ -605,6 +659,7 @@ describe('handleCommentsSummaryRequest', () => {
         type: 'story',
         kids: [1401],
         time: OLD_STORY_TIME,
+        score: 10,
       },
       1401: { id: 1401, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });

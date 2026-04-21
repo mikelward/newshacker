@@ -12,6 +12,7 @@ interface HNItemFixture {
   type?: string;
   title?: string;
   url?: string;
+  score?: number;
   dead?: boolean;
   deleted?: boolean;
 }
@@ -150,7 +151,7 @@ describe('handleSummaryRequest', () => {
       'https://example.com/a': { body: '<article>hi</article>' },
     });
     const fetchItem = fetchItemFor({
-      1: { id: 1, type: 'story', url: 'https://example.com/a' },
+      1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
     });
     const client = createFakeClient([{ text: 'ok' }]);
     const r1 = await handleSummaryRequest(
@@ -247,9 +248,36 @@ describe('handleSummaryRequest', () => {
     expect(r2.status).toBe(404);
   });
 
+  it('returns 400 with low_score for a story that has not earned an organic upvote', async () => {
+    // `> 1` means "at least one vote beyond the submitter's implicit
+    // self-upvote". Score 0 (flagged-to-oblivion), missing score
+    // (API anomaly), and score 1 (fresh self-submit) all fail the floor.
+    const fetchItem = fetchItemFor({
+      21: {
+        id: 21,
+        type: 'story',
+        url: 'https://example.com/zero',
+        score: 0,
+      },
+      22: { id: 22, type: 'story', url: 'https://example.com/missing' },
+      23: { id: 23, type: 'story', url: 'https://example.com/one', score: 1 },
+    });
+    for (const id of [21, 22, 23]) {
+      const res = await handleSummaryRequest(makeRequest(id), {
+        fetchItem,
+        store: null,
+      });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: 'Story is not eligible for summary',
+        reason: 'low_score',
+      });
+    }
+  });
+
   it('returns 400 with no_article reason for a self-post', async () => {
     const fetchItem = fetchItemFor({
-      33: { id: 33, type: 'story', title: 'Ask HN' },
+      33: { id: 33, type: 'story', title: 'Ask HN', score: 10 },
     });
     const res = await handleSummaryRequest(makeRequest(33), {
       fetchItem,
@@ -280,7 +308,7 @@ describe('handleSummaryRequest', () => {
   it('returns 503 when GOOGLE_API_KEY is unset', async () => {
     delete process.env.GOOGLE_API_KEY;
     const fetchItem = fetchItemFor({
-      1: { id: 1, type: 'story', url: 'https://example.com/a' },
+      1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
     });
     const res = await handleSummaryRequest(makeRequest(1), {
       fetchItem,
@@ -298,7 +326,12 @@ describe('handleSummaryRequest', () => {
       },
     });
     const fetchItem = fetchItemFor({
-      55: { id: 55, type: 'story', url: 'https://www.theverge.com/foo' },
+      55: {
+        id: 55,
+        type: 'story',
+        url: 'https://www.theverge.com/foo',
+        score: 10,
+      },
     });
     const client = createFakeClient([{ text: 'A one-sentence summary.' }]);
     const res = await handleSummaryRequest(makeRequest(55), {
@@ -328,7 +361,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>body</article>' },
     });
     const fetchItem = fetchItemFor({
-      66: { id: 66, type: 'story', url: articleUrl },
+      66: { id: 66, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([{ text: 'ok' }]);
     await handleSummaryRequest(makeRequest(66), {
@@ -352,7 +385,7 @@ describe('handleSummaryRequest', () => {
       },
     });
     const fetchItem = fetchItemFor({
-      77: { id: 77, type: 'story', url: articleUrl },
+      77: { id: 77, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([{ text: 'Raw-fetch summary.' }]);
     const res = await handleSummaryRequest(makeRequest(77), {
@@ -375,7 +408,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>Raw HTML.</article>' },
     });
     const fetchItem = fetchItemFor({
-      88: { id: 88, type: 'story', url: articleUrl },
+      88: { id: 88, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([{ text: 'Plain summary.' }]);
     const res = await handleSummaryRequest(makeRequest(88), {
@@ -398,7 +431,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { status: 403 },
     });
     const fetchItem = fetchItemFor({
-      111: { id: 111, type: 'story', url: articleUrl },
+      111: { id: 111, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([]);
     const res = await handleSummaryRequest(makeRequest(111), {
@@ -426,7 +459,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { throws: abortErr },
     });
     const fetchItem = fetchItemFor({
-      112: { id: 112, type: 'story', url: articleUrl },
+      112: { id: 112, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([]);
     const res = await handleSummaryRequest(makeRequest(112), {
@@ -452,7 +485,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { throws: abortErr },
     });
     const fetchItem = fetchItemFor({
-      113: { id: 113, type: 'story', url: articleUrl },
+      113: { id: 113, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([]);
     const res = await handleSummaryRequest(makeRequest(113), {
@@ -474,7 +507,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>body</article>' },
     });
     const fetchItem = fetchItemFor({
-      120: { id: 120, type: 'story', url: articleUrl },
+      120: { id: 120, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([{ text: '   ' }]);
     const res = await handleSummaryRequest(makeRequest(120), {
@@ -496,7 +529,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>body</article>' },
     });
     const fetchItem = fetchItemFor({
-      130: { id: 130, type: 'story', url: articleUrl },
+      130: { id: 130, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([new Error('boom')]);
     const res = await handleSummaryRequest(makeRequest(130), {
@@ -521,7 +554,7 @@ describe('handleSummaryRequest', () => {
       },
     });
     const fetchItem = fetchItemFor({
-      140: { id: 140, type: 'story', url: articleUrl },
+      140: { id: 140, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([{ text: 'Deps summary.' }]);
     const res = await handleSummaryRequest(makeRequest(140), {
@@ -543,7 +576,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>first</article>' },
     });
     const fetchItem = fetchItemFor({
-      150: { id: 150, type: 'story', url: articleUrl },
+      150: { id: 150, type: 'story', url: articleUrl, score: 10 },
     });
     const store = createTestStore();
     const client = createFakeClient([{ text: 'first-summary' }]);
@@ -575,7 +608,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>body</article>' },
     });
     const fetchItem = fetchItemFor({
-      155: { id: 155, type: 'story', url: articleUrl },
+      155: { id: 155, type: 'story', url: articleUrl, score: 10 },
     });
     const get = vi.fn<SummaryStore['get']>(async () => null);
     const set = vi.fn<SummaryStore['set']>(async () => undefined);
@@ -599,7 +632,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>body</article>' },
     });
     const fetchItem = fetchItemFor({
-      160: { id: 160, type: 'story', url: articleUrl },
+      160: { id: 160, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([{ text: 'ok' }]);
     const res = await handleSummaryRequest(makeRequest(160), {
@@ -631,7 +664,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>body</article>' },
     });
     const fetchItem = fetchItemFor({
-      180: { id: 180, type: 'story', url: articleUrl },
+      180: { id: 180, type: 'story', url: articleUrl, score: 10 },
     });
     const client = createFakeClient([{ text: 'v1' }]);
     await handleSummaryRequest(makeRequest(180), {
@@ -666,7 +699,7 @@ describe('handleSummaryRequest', () => {
       [articleUrl]: { body: '<article>body</article>' },
     });
     const fetchItem = fetchItemFor({
-      190: { id: 190, type: 'story', url: articleUrl },
+      190: { id: 190, type: 'story', url: articleUrl, score: 10 },
     });
     const store: SummaryStore = {
       get: vi.fn(async () => {

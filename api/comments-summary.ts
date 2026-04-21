@@ -304,6 +304,15 @@ export async function handleCommentsSummaryRequest(
   if (!story || story.deleted || story.dead) {
     return json({ error: 'Story not available' }, 404);
   }
+  // Anti-abuse floor — see the matching comment in api/summary.ts for
+  // the rationale. `> 1` means at least one organic upvote beyond the
+  // submitter's implicit self-vote.
+  if (!(typeof story.score === 'number' && story.score > 1)) {
+    return json(
+      { error: 'Story is not eligible for summary', reason: 'low_score' },
+      400,
+    );
+  }
 
   const kidIds = (story.kids ?? []).slice(0, TOP_LEVEL_SAMPLE_SIZE);
   if (kidIds.length === 0) {
