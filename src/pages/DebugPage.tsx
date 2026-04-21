@@ -55,11 +55,6 @@ export function DebugPage() {
   return (
     <article className="debug-page">
       <h1 className="debug-page__title">Debug</h1>
-      <p className="debug-page__hint">
-        Operator-visibility snapshot of which third-party services the
-        current deployment is configured for and whether the Redis
-        cache is reachable from this region.
-      </p>
 
       {isLoading ? (
         <p aria-busy="true">Loading status…</p>
