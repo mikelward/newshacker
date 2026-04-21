@@ -11,6 +11,8 @@ import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
+import { useAuth } from '../hooks/useAuth';
+import { useVote } from '../hooks/useVote';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import {
@@ -41,6 +43,8 @@ export function StoryList({ feed }: Props) {
   const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
+  const { isAuthenticated } = useAuth();
+  const { votedIds, toggleVote } = useVote();
   const { setSweep, recordHide } = useFeedBar();
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
@@ -268,6 +272,8 @@ export function StoryList({ feed }: Props) {
           >
             <StoryListItem
               story={story}
+              isLoggedIn={isAuthenticated}
+              voted={votedIds.has(story.id)}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               pinned
@@ -277,6 +283,7 @@ export function StoryList({ feed }: Props) {
               onUnpin={unpin}
               onShare={shareStory}
               onOpenThread={handleOpenThread}
+              onVote={isAuthenticated ? toggleVote : undefined}
             />
           </li>
         ))}
@@ -290,6 +297,8 @@ export function StoryList({ feed }: Props) {
             <StoryListItem
               story={story}
               rank={idx + 1}
+              isLoggedIn={isAuthenticated}
+              voted={votedIds.has(story.id)}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               pinned={pinnedIds.has(story.id)}
@@ -299,6 +308,7 @@ export function StoryList({ feed }: Props) {
               onUnpin={unpin}
               onShare={shareStory}
               onOpenThread={handleOpenThread}
+              onVote={isAuthenticated ? toggleVote : undefined}
             />
           </li>
         ))}

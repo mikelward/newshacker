@@ -160,24 +160,38 @@ is the current key — the vocabulary switched from "ignore/dismiss" to
      chip is the single canonical auth surface and the drawer stays
      focused on navigation.
 
-### Planned / not yet implemented
+7. **Voting & unvoting on story rows (shipped).** Each HN story and
+   comment page carries a per-user, per-item `auth` token in its vote
+   links (`vote?id=<id>&how=up&auth=<token>&goto=news`). To cast a vote
+   we need the user's session cookie (already have, from Login) **and**
+   the per-item `auth` token, scraped from the rendered HN HTML for
+   that item. `/api/vote` does the scrape + forward; the client calls
+   it optimistically — the vote arrow flips to orange on tap, a
+   localStorage-backed per-user set (`newshacker:votedStoryIds:<user>`)
+   keeps the arrow orange across reloads, and a failure (401 session
+   expired, 502 HN HTML changed or item locked) rolls the local state
+   back and toasts. Unvote uses the same endpoint with `how=un`. HN
+   does not expose "which items have I voted on" via the Firebase API,
+   so the local set is best-effort — a vote cast on another device
+   shows the arrow as un-voted here; tapping it then 502s (HN's item
+   page won't render a `how=up` link for an already-voted item) and we
+   toast the failure. Acceptable for the MVP.
+   - **Not yet shipped (follow-ups):** voting on individual comments
+     (same mechanism, different tap target — see *Comment row layout*
+     for the reserved slot), downvoting comments (only available to
+     accounts with enough karma on HN, so the client needs to decide
+     when to render the second arrow), and a pending/animation state
+     during the in-flight POST (see `TODO.md` §
+     *Optimistic-action feedback*).
+   - **Cost/reliability (rule 11):** no new infra; two HN fetches per
+     vote (item-page scrape + vote replay). Free on Vercel Hobby.
+     Fragile point: HN HTML markup — the anchor scraper breaks if HN
+     restructures vote links. Blast radius is small (the vote toast
+     errors out; the read path is untouched). Per SPEC Non-Goals,
+     there is no offline queue for votes — a vote attempted while
+     offline toasts immediately and does not retry on reconnect.
 
-7. **Voting & unvoting** (stretch). Each HN story and comment page carries
-   a per-user, per-item `auth` token in its vote links
-   (`vote?id=<id>&how=up&auth=<token>&goto=news`). To cast a vote we need
-   the user's session cookie (already have, from Login) **and** the
-   per-item `auth` token, scraped from the rendered HN HTML for that
-   item. Voting lands as a `/api/vote` serverless endpoint that does the
-   scrape + forward. The client-side vote arrow already has its reserved
-   slot in the story row layout (see *Story row layout*); currently it
-   never renders because no user is ever "logged in for voting" — the
-   slot appears only once voting ships. Unvote uses the same endpoint
-   with `how=un`.
-   - **Cost/reliability (rule 11):** no new infra; one extra HN fetch per
-     vote (scrape + forward = two HN requests). Fragile point: HN HTML
-     markup — parser breaks if HN restructures vote links. Blast radius
-     is small (voting fails with a toast), but it's an ongoing
-     maintenance tax the rest of the read path doesn't carry.
+### Planned / not yet implemented
 
 8. **Cross-device sync of Pinned / Favorite / Hidden (shipped).**
    Each of the three lists mirrors to a `/api/sync` serverless

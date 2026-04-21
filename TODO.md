@@ -43,6 +43,29 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   top-level prefetch) into cache in one burst. Useful for mega-threads
   a user wants to read offline in full.
 
+## Optimistic-action feedback
+
+- **Consider a pending state or animation for server-persisted
+  actions.** Today voting, favoriting, pinning-with-HN-sync, and
+  hidden-list cross-device sync all flip the local UI state
+  instantly on tap, then POST silently, then roll back + toast on
+  failure. That's fine in the happy case but gives the user no cue
+  that something is happening during the ~500–1500 ms request
+  window, which matters most on flaky connections. Two options to
+  explore (not yet scoped):
+  1. A short "received" animation on the target icon (e.g. a 150 ms
+     `scale(1 → 1.2 → 1)` pulse on `.vote-btn.is-voted` /
+     `.pin-btn--active` / the favorite heart). Low-risk, but doesn't
+     communicate failure — just "we registered your tap".
+  2. A proper pending state — hook tracks in-flight ids, button
+     shows `aria-busy="true"` and a subtle dim until the POST
+     resolves, double-taps within that window are debounced. More
+     correct, more code, slightly heavier visually.
+  Apply uniformly across vote / favorite / pin (and anywhere else
+  we add optimistic server-persisted actions) — picking one style
+  so behavior is consistent. Also revisit the toast copy for
+  failures while you're in there.
+
 ## Thread overflow menu
 
 - **Add Hide / Unhide.** The thread `⋮` menu currently only has
