@@ -39,6 +39,27 @@ describe('<AppHeader>', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
+  it('places the account avatar between the menu button and the brand link', () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    const banner = screen.getByRole('banner');
+    const menuBtn = screen.getByRole('button', { name: /open menu/i });
+    const avatarBtn = screen.getByTestId('header-account-btn');
+    const brand = banner.querySelector('.app-header__home');
+    expect(brand).not.toBeNull();
+    const order = Array.from(banner.querySelectorAll('*'));
+    expect(order.indexOf(menuBtn)).toBeLessThan(order.indexOf(avatarBtn));
+    expect(order.indexOf(avatarBtn)).toBeLessThan(order.indexOf(brand!));
+  });
+
+  it('renders the sweep button after the brand link on feed pages', () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    const banner = screen.getByRole('banner');
+    const brand = banner.querySelector('.app-header__home');
+    const sweepBtn = screen.getByTestId('sweep-btn');
+    const order = Array.from(banner.querySelectorAll('*'));
+    expect(order.indexOf(brand!)).toBeLessThan(order.indexOf(sweepBtn));
+  });
+
   it('hides the offline pill when the browser reports online', () => {
     setOnline(true);
     renderWithProviders(<AppHeader />, { route: '/top' });

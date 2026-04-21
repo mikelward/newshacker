@@ -157,10 +157,14 @@ server-side with most-recent-first eviction.
      a short, honest disclosure to that effect.
 
 6. **Account UI** (header chip, not drawer). The sticky orange header
-   gains a single always-visible account control on the far right — one
-   extra tap target, 48×48 hit area, on every page. Surfacing auth
-   state in the header (rather than behind the drawer) means a first-time
-   visitor can see "this app has a login" without exploring the menu.
+   gains a single always-visible account control on the **far left, immediately
+   after the hamburger menu button** — one extra tap target, 48×48 hit area,
+   on every page. The right side of the header is reserved for feed-scoped
+   actions (Undo, Sweep) so the destructive controls live in the corner, away
+   from identity. Surfacing auth state in the header (rather than behind the
+   drawer) means a first-time visitor can see "this app has a login" without
+   exploring the menu. The dropdown anchors to the **left edge** of the avatar
+   button so it doesn't clip off-screen.
    - **Logged out:** a text `Sign in` button that navigates to `/login`.
    - **Logged in:** a 32 px circular **initial avatar** — the user's
      first letter on a color-hashed disc (color deterministically
