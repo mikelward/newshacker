@@ -43,7 +43,7 @@ export interface FeedItemsState {
   isFetchingMore: boolean;
   hasMore: boolean;
   loadMore: () => void;
-  refetch: () => void;
+  refetch: () => Promise<unknown>;
 }
 
 function pageRange(pageIndex: number): { start: number; take: number } {
@@ -95,10 +95,10 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const refetch = useCallback(() => {
-    idsRefetch();
-    pagesRefetch();
-  }, [idsRefetch, pagesRefetch]);
+  const refetch = useCallback(
+    () => Promise.all([idsRefetch(), pagesRefetch()]),
+    [idsRefetch, pagesRefetch],
+  );
 
   // If the id list changes (e.g. storyIds.refetchOnMount landed a fresh
   // ranking after a reload), the pages cache — whose queryKey is
