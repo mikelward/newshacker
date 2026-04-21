@@ -392,6 +392,13 @@ events/month; at current single-digit traffic this is effectively free.
 Beyond 25k, custom events are billed at Vercel's posted rate — revisit
 event volume before adding high-frequency custom events.
 
+The thread page also emits a `summary_layout` custom event once per
+summary card after data arrives, carrying bucketed card width,
+summary length, reserved and rendered content heights, and (for the
+comments card) insight count. It exists to retune the
+skeleton-reservation constants in `Thread.tsx` from real usage data;
+see `SUMMARIES.md` for the dashboard workflow.
+
 ## Open Questions
 
 - Rate limiting: HN will throttle scraped requests. For MVP the read path doesn't touch HN's HTML (Firebase is the source), so this only matters once voting is enabled.
