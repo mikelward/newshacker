@@ -207,10 +207,47 @@ is the current key — the vocabulary switched from "ignore/dismiss" to
      tier. New failure mode: sync endpoint down — localStorage still
      works, no user-visible breakage.
 
-9. **Submitting comments and replies** is out of scope today (see
-   *Non-Goals* below) but is a candidate for a future phase once voting
-   is stable. Writing comments uses the same HN cookie + per-item `auth`
-   token pattern as voting.
+9. **Favorites round-trip with Hacker News (shipped).** For
+   logged-in users, the newshacker favorite heart is mirrored to HN
+   best-effort in both directions.
+   - **Bootstrap pull.** On sign-in and app start, the client calls
+     `/api/hn-favorites-list`, which scrapes
+     `news.ycombinator.com/favorites?id=<user>` with the HN session
+     cookie and returns the deduplicated story IDs. The client merges
+     those IDs into the local `favoriteStoryIds` store with `at: 0`,
+     so any subsequent local action wins the last-write-wins race.
+     Local tombstones are preserved — an unfavorite recorded locally
+     isn't resurrected by an HN entry the user hasn't yet had a
+     chance to push.
+   - **Write queue.** Each user-originated favorite/unfavorite is
+     enqueued into a per-user `newshacker:hnFavoriteQueue:<user>`
+     localStorage queue (coalesced — a favorite+unfavorite pair for
+     the same id cancels before it ever reaches HN). A client-side
+     worker drains the queue through `POST /api/hn-favorite`, which
+     scrapes the per-item auth token off the item page and forwards
+     the fave action to HN. On transient failures the entry backs off
+     (2 s → 5 min capped) and retries; after 10 attempts it's
+     dropped with `lastError` recorded. A 401 from HN stalls the
+     worker until the next sign-in.
+   - **Local wins.** Local favorites state remains authoritative for
+     the UI. A queued write that eventually gets dropped doesn't roll
+     local state back — the only observable effect is that HN's
+     favorites page stays out of sync until the user retaps. This is
+     the deliberate counterpart of the optimistic tap.
+   - **Logged-out users** are unaffected: the queue is never
+     consulted, the bootstrap pull never runs, favorites stay
+     local-only exactly as before.
+   - **Cost/reliability (rule 11):** 2 HN fetches per enqueued action
+     (scrape + fave) + 1 Vercel invocation. Bootstrap is bounded at
+     20 HN pages (600 favorites) per sign-in. No new infra — reuses
+     the existing `hn_session` cookie. Fragile point: HN HTML shape
+     changing; blast radius = HN round-trip stops and local state
+     keeps working.
+
+10. **Submitting comments and replies** is out of scope today (see
+    *Non-Goals* below) but is a candidate for a future phase once voting
+    is stable. Writing comments uses the same HN cookie + per-item `auth`
+    token pattern as voting.
 
 ## Data Sources
 

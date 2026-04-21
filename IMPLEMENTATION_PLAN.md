@@ -190,6 +190,70 @@ user-visible breakage.
   - Client: optimistic update + rollback.
 - **Cost/reliability (rule 11):** no new infra; one extra HN fetch per vote (scrape + forward). Fragile point: HN HTML markup. Blast radius on break = voting stops working, toast shown, nothing else affected.
 
+### 5f. Favorites round-trip with HN (shipped)
+
+**Goal:** logged-in users' favorite state survives across devices
+and across newshacker ↔ HN. Logged-out users stay local-only.
+
+Shipped in two phases behind one PR:
+
+**Phase A — read-only pull.**
+- `api/hnFavoritesScrape.ts`: pure regex scraper that takes
+  `news.ycombinator.com/favorites?id=<user>` HTML and returns
+  `{ ids, morePath }`. Filters `athing` rows that carry the
+  `comtr` token so comment favorites don't leak in.
+- `api/hn-favorites-list.ts`: `GET` handler that walks the page
+  with the signed-in user's HN cookie up to a 20-page cap
+  (600 favorites worst case), returns
+  `{ ids: number[], truncated: boolean }`.
+- `src/lib/hnFavoritesSync.ts` · `mergeHnFavorites`: pure merge
+  that adds HN-only ids with `at: 0` and preserves every existing
+  local entry (live or tombstoned). `startHnFavoritesSync`
+  fires a one-shot bootstrap pull; `useHnFavoritesSync` wires
+  the singleton to `useAuth` and is mounted in `App.tsx`.
+
+**Phase B — write queue.**
+- `src/lib/hnFavoriteQueue.ts`: per-user localStorage queue at
+  `newshacker:hnFavoriteQueue:<username>`. Enqueue coalesces
+  canceling pairs (favorite+unfavorite for the same id drops
+  both); 2 s → 5 min capped exponential backoff; `MAX_ATTEMPTS`
+  of 10 before the entry is dropped with `lastError` recorded.
+- `api/hn-favorite.ts`: `POST` handler that scrapes the per-item
+  `fave?id=…&auth=…` anchor off the item page, then `GET`s
+  `/fave` with that token (with `&un=t` for unfavorite). Returns
+  204 on success, 401 on session expiry, 502 on scrape failure
+  or rejected action.
+- The same `hnFavoritesSync` singleton runs a worker that drains
+  the queue one entry at a time through `POST /api/hn-favorite`.
+  Drop on 204 / 400 / 404 / 405; stall on 401 until the next
+  sign-in; `markFailure` (triggering backoff) on 429 / 5xx /
+  network. The worker is kicked by enqueue, online transitions,
+  visibilitychange, and a scheduled timer sitting on the earliest
+  `nextAttemptAt`.
+- `useFavorites` picks up the signed-in username via `useAuth`
+  and calls `enqueueHnFavoriteAction` on every user-originated
+  action. Bootstrap merges go through `replaceFavoriteEntries`
+  directly, so merge-induced changes don't echo back to HN.
+
+**Tests.** `hnFavoritesScrape.test.ts` (10), `hn-favorites-list.test.ts`
+(9), `hn-favorite.test.ts` (15), `hnFavoriteQueue.test.ts` (18),
+`hnFavoritesSync.test.ts` (21), plus `useFavorites.test.tsx`
+extended to 9 covering logged-in enqueue behavior.
+
+**Cost/reliability (rule 11):** each write = 1 Vercel invocation
++ 2 HN fetches; bootstrap ≤ 20 HN fetches per sign-in (5-min
+server cache is a future optimization if traffic warrants it).
+No new infra. New failure modes: HN HTML shape changing → scraper
+degrades gracefully (empty result, local state untouched); HN
+rate-limiting → backoff absorbs. Blast radius on total failure:
+local favorites keep working, only the HN round-trip stops.
+
+**Stretch (not in this phase):**
+- Hide/ignored round-trip uses the same machinery (HN's
+  `/hide?id=…&auth=…` endpoint shares the token source), but
+  HN has no public "my hidden items" page so it'd be
+  push-only — deserves its own phase after this settles.
+
 ### 5e. Comment submission (future, order vs. 5d undecided)
 
 Out of scope today; previously listed under *Non-Goals*, now softened to

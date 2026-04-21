@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
+import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
 import './DebugPage.css';
 
 interface ServiceStatus {
@@ -133,6 +134,8 @@ export function DebugPage() {
           </p>
 
           <CloudSyncDebugPanel />
+
+          <HnFavoritesSyncDebugPanel />
         </>
       )}
 
