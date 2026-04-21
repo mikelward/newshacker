@@ -97,6 +97,39 @@ If any of the above fails, fix it — don't disable the check.
 - **Write path (login/vote):** client → our `/api/*` serverless function → news.ycombinator.com. The HN `user` cookie value is stored in our own HTTP-only cookie on our origin; never expose it to client JS.
 - **Auth-token scraping:** HN's vote links carry a per-user, per-item `auth` query param. The vote handler must fetch the item page, parse the token, then issue the vote.
 
+## Vercel `api/` gotchas
+
+- **No shared modules for `api/*.ts` — keep helpers inlined, even if
+  they're duplicated across handlers.** Both obvious escape hatches
+  from the duplication have been tried on Vercel and both failed
+  *only at deploy time*, after every local check (`npm test`, `lint`,
+  `typecheck`, `build`) had passed:
+  1. Importing from outside `api/` (e.g. `src/lib/…`, a sibling
+     top-level `lib/` folder). The Vercel bundler's import tracer
+     inconsistently includes the files — `summary.ts` was bitten by
+     this historically and carries a comment about it.
+  2. Importing from a `_`-prefixed directory inside `api/`
+     (e.g. `api/_lib/session.ts`). Vercel treats `_` as "don't route"
+     *and* "don't ship", so the deployed Lambda errors at startup
+     with `ERR_MODULE_NOT_FOUND: Cannot find module
+     '/var/task/api/_lib/…' imported from /var/task/api/items.js`.
+     Tests pass locally because Vite resolves the import via Node
+     module resolution; Vercel's tracer is what drops it.
+
+  A non-underscore subdirectory (`api/lib/…`) would ship, but Vercel
+  would route every file in it as its own serverless function, which
+  breaks in different ways. There is no currently-known way to share
+  code between sibling `api/*.ts` handlers reliably on Vercel; the
+  accepted pattern is to copy-paste the helper, add a comment that
+  points at the siblings, and move on.
+
+  A regression test at `api/imports.test.ts` scans every `api/*.ts`
+  file and fails if it imports from a subdirectory of `api/` or from
+  a parent directory. If you find yourself tempted to try this again,
+  that test is the first sign it's about to fail in production.
+  Delete the test only if you've actually deployed and verified the
+  new approach works on a Vercel preview.
+
 ## Safe vs. risky actions
 
 - Safe: edit files, add dependencies, run tests, run the dev server.

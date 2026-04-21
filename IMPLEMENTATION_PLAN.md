@@ -197,23 +197,36 @@ Out of scope today; previously listed under *Non-Goals*, now softened to
 HN cookie + scraped per-item `auth` token, posted to HN's `/comment`
 form endpoint. Not prioritised yet — decide after voting is in flight.
 
-### 5-infra. Shared helpers inside `api/` (chore, not feature-blocking)
+### 5-infra. Shared helpers inside `api/` (attempted, reverted — do not retry)
 
 `api/summary.ts` carries a comment noting that Vercel's per-file
 function bundler "has been flaky about tracing shared modules" and so
-the HN fetch helper was inlined rather than imported. We've now
-duplicated HN-cookie parsing + session-cookie serialization across
-`api/login.ts`, `api/me.ts`, and `api/logout.ts`, and voting + sync
-would add two more files that need the same pieces.
+the HN fetch helper was inlined rather than imported. HN-cookie parsing
++ session-cookie serialization is likewise duplicated across
+`api/login.ts`, `api/me.ts`, `api/logout.ts`, and `api/sync.ts`.
 
-- [ ] **Fix `api/` cross-file sharing.** Investigate whether an
-  `api/_session.ts` (underscore-prefixed so Vercel doesn't route it),
-  an `api/lib/` subdirectory, or a Vite/tsconfig `paths` alias can
-  resolve the tracing issue reliably in both dev and prod. Once
-  proven, migrate the duplicated helpers (HN cookie parsing,
-  username validation, Set-Cookie serialization, allowed-Referer
-  list) into one place. Today's inlined copies are marked with
-  matching comments so the next touch doesn't miss a sibling.
+Attempted in a prior commit (reverted): pulled the shared helpers into
+`api/_lib/` and imported them from each handler. The tests, lint,
+typecheck, and build all passed locally — but at runtime on Vercel
+the deployed `items.js` blew up with
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module
+'/var/task/api/_lib/hnFetch' imported from /var/task/api/items.js
+```
+
+Vercel's function bundler drops underscore-prefixed paths from the
+Lambda bundle (the `_`-prefix is how you mark something non-routable,
+and the bundler currently interprets that as "don't ship it"). The
+sibling option — imports from outside `api/` — is the one the original
+`summary.ts` comment flagged as flaky. Both routes are now confirmed
+dead-ends.
+
+**Current rule (see AGENTS.md § "Vercel `api/` gotchas"):** files in
+`api/*.ts` must not import from any `api/` subdirectory or from
+outside `api/`. Keep helpers inlined in each handler. There is a
+regression test at `api/imports.test.ts` that scans every `api/*.ts`
+file and fails CI if a disallowed import sneaks back in.
 
 ## Phase 5.5 — Favorites + Pinned rename
 
