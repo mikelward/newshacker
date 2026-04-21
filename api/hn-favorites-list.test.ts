@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleHnFavoritesListRequest } from './hn-favorites-list';
+import {
+  handleHnFavoritesListRequest,
+  parseFavoritesPage,
+} from './hn-favorites-list';
 
 function requestWithCookie(cookie: string | null): Request {
   const headers = new Headers();
@@ -36,6 +39,85 @@ function htmlResponse(body: string, status = 200): Response {
     headers: { 'content-type': 'text/html; charset=utf-8' },
   });
 }
+
+describe('parseFavoritesPage', () => {
+  it('returns empty result for empty / garbage input', () => {
+    expect(parseFavoritesPage('')).toEqual({ ids: [], morePath: null });
+    expect(parseFavoritesPage('not html at all')).toEqual({
+      ids: [],
+      morePath: null,
+    });
+    expect(
+      parseFavoritesPage('<html><body>no favorites yet</body></html>'),
+    ).toEqual({ ids: [], morePath: null });
+  });
+
+  it('extracts story IDs in document order', () => {
+    const html = favoritesHtml({ ids: [111, 222, 333], morePath: null });
+    expect(parseFavoritesPage(html)).toEqual({
+      ids: [111, 222, 333],
+      morePath: null,
+    });
+  });
+
+  it('captures the morelink href and decodes &amp;', () => {
+    const html = favoritesHtml({
+      ids: [42],
+      morePath: 'favorites?id=alice&amp;p=2',
+    });
+    expect(parseFavoritesPage(html)).toEqual({
+      ids: [42],
+      morePath: 'favorites?id=alice&p=2',
+    });
+  });
+
+  it('ignores comment-favorite rows (class="athing comtr")', () => {
+    const html =
+      `<tr class="athing" id="1"></tr>` +
+      `<tr class="athing comtr" id="9990"></tr>` +
+      `<tr class="athing" id="2"></tr>`;
+    expect(parseFavoritesPage(html).ids).toEqual([1, 2]);
+  });
+
+  it('handles attribute order with id before class', () => {
+    const html =
+      `<tr id="555" class="athing"><td>a</td></tr>` +
+      `<tr class="athing" id="666"><td>b</td></tr>`;
+    expect(parseFavoritesPage(html).ids).toEqual([555, 666]);
+  });
+
+  it('handles single-quoted attributes', () => {
+    const html =
+      `<tr class='athing' id='777'><td>a</td></tr>` +
+      `<a class='morelink' href='favorites?id=bob&amp;p=3' rel='next'>More</a>`;
+    expect(parseFavoritesPage(html)).toEqual({
+      ids: [777],
+      morePath: 'favorites?id=bob&p=3',
+    });
+  });
+
+  it('deduplicates repeat IDs', () => {
+    const html =
+      `<tr class="athing" id="10"></tr>` +
+      `<tr class="athing" id="20"></tr>` +
+      `<tr class="athing" id="10"></tr>`;
+    expect(parseFavoritesPage(html).ids).toEqual([10, 20]);
+  });
+
+  it('rejects non-numeric, zero, or negative IDs', () => {
+    const html =
+      `<tr class="athing" id="abc"></tr>` +
+      `<tr class="athing" id="0"></tr>` +
+      `<tr class="athing" id="-5"></tr>` +
+      `<tr class="athing" id="123"></tr>`;
+    expect(parseFavoritesPage(html).ids).toEqual([123]);
+  });
+
+  it('tolerates extra class tokens on morelink', () => {
+    const html = `<a class="foo morelink bar" href="favorites?id=u&amp;p=2">More</a>`;
+    expect(parseFavoritesPage(html).morePath).toBe('favorites?id=u&p=2');
+  });
+});
 
 describe('handleHnFavoritesListRequest', () => {
   it('returns 401 when the session cookie is missing', async () => {
