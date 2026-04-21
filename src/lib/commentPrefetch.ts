@@ -41,9 +41,13 @@ export async function prefetchCommentBatch(
   // Use prefetchQuery (rather than setQueryData) so each comment entry
   // picks up the 7-day gcTime — otherwise the default 1-hour gc wipes
   // them from memory (and then the persister) long before the user
-  // comes back to read offline. We await the full set so callers can
-  // rely on the cache being populated once their awaited prefetch
-  // resolves (e.g. tests, and upstream prefetchers that return it).
+  // comes back to read offline. `staleTime: 0` makes prefetchQuery run
+  // the (already-resolved) queryFn even when a value exists, so a
+  // root-refetch batch actually overwrites older cached comment data
+  // with the fresh version — how edits and deletions surface in the
+  // thread. We await the full set so callers can rely on the cache
+  // being populated once their awaited prefetch resolves (e.g. tests,
+  // and upstream prefetchers that return it).
   const writes: Array<Promise<void>> = [];
   for (let i = 0; i < slice.length; i += 1) {
     const item = items[i];
@@ -54,7 +58,7 @@ export async function prefetchCommentBatch(
       client.prefetchQuery({
         queryKey: ['comment', id],
         queryFn: () => resolved,
-        staleTime: SUMMARY_CACHE_TTL_MS,
+        staleTime: 0,
         gcTime: SUMMARY_CACHE_TTL_MS,
       }),
     );

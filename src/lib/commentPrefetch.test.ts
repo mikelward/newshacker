@@ -90,6 +90,25 @@ describe('prefetchCommentBatch', () => {
     expect(client.getQueryData(['comment', 1])).toBeUndefined();
   });
 
+  it('overwrites existing cached comment data on a subsequent batch so edits and deletions surface on root refetch', async () => {
+    const client = newClient();
+
+    const firstFetcher = async (ids: number[]): Promise<Array<HNItem | null>> =>
+      ids.map((id) => ({ ...makeComment(id), text: `original ${id}` }));
+    await prefetchCommentBatch(client, [42], firstFetcher);
+    expect(client.getQueryData<HNItem>(['comment', 42])?.text).toBe(
+      'original 42',
+    );
+
+    const secondFetcher = async (ids: number[]): Promise<Array<HNItem | null>> =>
+      ids.map((id) => ({ ...makeComment(id), text: `edited ${id}` }));
+    await prefetchCommentBatch(client, [42], secondFetcher);
+
+    expect(client.getQueryData<HNItem>(['comment', 42])?.text).toBe(
+      'edited 42',
+    );
+  });
+
   it('preserves kids on cached comments so offline UI shows accurate reply counts', async () => {
     const fetcher = async (ids: number[]): Promise<Array<HNItem | null>> =>
       ids.map((id) => ({
