@@ -13,12 +13,6 @@
   font-weight: 700;
 }
 
-.debug-page__hint {
-  margin: 0 0 16px;
-  color: var(--hn-meta);
-  font-size: 13px;
-}
-
 .debug-page__heading {
   margin: 20px 0 8px;
   font-size: 16px;
