@@ -1,0 +1,80 @@
+.ptr {
+  position: relative;
+  /* Prevent the browser's own pull-to-refresh from racing ours at
+     scrollTop === 0. Without this, Chrome on Android fires its own PTR
+     and the screen briefly shows both. */
+  overscroll-behavior-y: contain;
+}
+
+.ptr__surface {
+  position: relative;
+  will-change: transform;
+}
+
+.ptr__indicator {
+  position: absolute;
+  top: -64px;
+  left: 0;
+  right: 0;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--hn-orange);
+  pointer-events: none;
+}
+
+.ptr__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--hn-orange) 25%, transparent);
+  border-top-color: var(--hn-orange);
+  opacity: 0;
+  transform: rotate(0deg);
+  transition: opacity 120ms ease-out;
+}
+
+/* Fade the spinner in as the user pulls past the trigger distance.
+   The indicator itself rides the surface transform, so no extra
+   translate is needed here. */
+.ptr__indicator[data-armed='true'] .ptr__spinner {
+  opacity: 1;
+}
+
+.ptr[data-phase='pulling'] .ptr__spinner,
+.ptr[data-phase='refreshing'] .ptr__spinner,
+.ptr[data-phase='settling'] .ptr__spinner {
+  opacity: 1;
+}
+
+.ptr[data-phase='refreshing'] .ptr__spinner {
+  animation: ptr-spin 800ms linear infinite;
+}
+
+@keyframes ptr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptr[data-phase='refreshing'] .ptr__spinner {
+    animation: none;
+  }
+  .ptr__surface {
+    transition: none !important;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

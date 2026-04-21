@@ -528,8 +528,34 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   - AND-ing protects both directions: a SW-served cache hit while genuinely offline won't falsely flip us online (browser still says offline), and a stuck `navigator.onLine=true` in a tunnel won't hide the pill while real fetches keep failing (`fetchOnline` is false).
   - The tracker keeps React Query's `onlineManager` in sync with the combined value so refetch-on-reconnect still fires. Zero new requests — we only instrument ones the app was already making.
 
-### Planned (not in this change)
-- Pull-to-refresh gesture on feed and thread pages that invalidates the relevant React Query keys (and thus the SW caches via SWR). Replaces the browser's native PTR, which disappears in standalone mode.
+### Pull-to-refresh
+- **Feed pages** (`/top`, `/new`, `/best`, `/ask`, `/show`, `/jobs`) and
+  the **library pages** (`/pinned`, `/favorites`, `/opened`, `/ignored`)
+  support a pull-to-refresh gesture that re-runs the list's underlying
+  React Query fetches. Feed lists refetch both `['storyIds', feed]` and
+  `['feedItems', feed]`; library lists refetch their single
+  `['libraryStoryItems', …]` query. Cache invalidation is implicit —
+  React Query's own refetch path honours the SW's
+  StaleWhileRevalidate/NetworkFirst strategies.
+- Gesture shape: arm when the document is at `scrollTop === 0` and the
+  pointer travels downward more than it does sideways. A horizontal-
+  first drag aborts so `useSwipeToDismiss` owns per-row swipes. Pull
+  translation has a 0.5× rubber-band factor and caps at 96 px; release
+  past 64 px fires the refresh, shorter pulls snap back. The spinner
+  stays visible for at least 400 ms (even on an instant cache hit) so
+  the user actually perceives the refresh.
+- Replaces the browser's native PTR, which disappears in
+  `display: standalone` PWA mode. `overscroll-behavior-y: contain` on
+  the wrapper prevents the native PTR from racing ours at the top of
+  the scroll.
+- **Cost / reliability (rule 11):** no new infrastructure and no new
+  external API calls — pull-to-refresh just retriggers the fetches the
+  list already knows how to run. Client-only gesture; no bundle-size
+  concern beyond the ~2 KB hook + component. Reliability impact: the
+  same HN Firebase / `/api/items` dependencies as the baseline load.
+  A user who pulls-to-refresh while offline gets the existing offline
+  error state (via React Query's `networkMode: 'offlineFirst'`) and the
+  small header "Offline" pill — no regression.
 
 ## Deployment
 

@@ -6,6 +6,7 @@ import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
@@ -246,7 +247,7 @@ export function StoryList({ feed }: Props) {
   }
 
   return (
-    <>
+    <PullToRefresh onRefresh={refetch}>
       <ol className="story-list">
         {offFeedPinnedStories.map((story) => (
           <li
@@ -305,7 +306,7 @@ export function StoryList({ feed }: Props) {
           </button>
         </div>
       ) : null}
-    </>
+    </PullToRefresh>
   );
 }
 

@@ -3,6 +3,7 @@ import { getItems } from '../lib/hn';
 import { useDismissedStories } from '../hooks/useDismissedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
@@ -81,34 +82,36 @@ export function LibraryStoryList({
   }
 
   return (
-    <ol className="story-list">
-      {stories.map((story, idx) => (
-        <li key={story.id} className="story-list__item">
-          <StoryListItem
-            story={story}
-            rank={idx + 1}
-            articleOpened={articleOpenedIds.has(story.id)}
-            commentsOpened={commentsOpenedIds.has(story.id)}
-            pinned={pinnedIds.has(story.id)}
-            onDismiss={dismiss}
-            onPin={pin}
-            onUnpin={unpin}
-            onShare={shareStory}
-            onOpenThread={markCommentsOpenedId}
-          />
-          {recover ? (
-            <div className="story-list__recover">
-              <button
-                type="button"
-                className="recover-btn"
-                onClick={() => recover.onRecover(story.id)}
-              >
-                {recover.label(story.id)}
-              </button>
-            </div>
-          ) : null}
-        </li>
-      ))}
-    </ol>
+    <PullToRefresh onRefresh={() => items.refetch()}>
+      <ol className="story-list">
+        {stories.map((story, idx) => (
+          <li key={story.id} className="story-list__item">
+            <StoryListItem
+              story={story}
+              rank={idx + 1}
+              articleOpened={articleOpenedIds.has(story.id)}
+              commentsOpened={commentsOpenedIds.has(story.id)}
+              pinned={pinnedIds.has(story.id)}
+              onDismiss={dismiss}
+              onPin={pin}
+              onUnpin={unpin}
+              onShare={shareStory}
+              onOpenThread={markCommentsOpenedId}
+            />
+            {recover ? (
+              <div className="story-list__recover">
+                <button
+                  type="button"
+                  className="recover-btn"
+                  onClick={() => recover.onRecover(story.id)}
+                >
+                  {recover.label(story.id)}
+                </button>
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </PullToRefresh>
   );
 }
