@@ -43,6 +43,30 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   top-level prefetch) into cache in one burst. Useful for mega-threads
   a user wants to read offline in full.
 
+## Thread overflow menu
+
+- **Add Ignore / Un-ignore.** The thread `⋮` menu currently only has
+  Open on Hacker News + Share article. Add a single context-sensitive
+  entry — `Ignore` if the story isn't dismissed, `Un-ignore` if it
+  is — wired through `useDismissedStories`, mirroring how
+  `StoryListItem` exposes Ignore on the row menu.
+- **Add Share on newshacker.** Companion to `Share article`: shares
+  `https://newshacker.app/item/:id` (the discussion view with our
+  reader chrome and AI summaries) instead of the source URL. Always
+  shown, including on self-posts. Together with `Share article` the
+  user picks whether the recipient lands on the source or in our
+  reader. Naming convention is documented in `SPEC.md` (noun =
+  *what* is shared; `on <platform>` suffix = *where* the recipient
+  lands).
+- **Rename `ignore` → `hide` to match upstream.** HN itself uses
+  "hide" (and "unhide") for the same action; our codebase uses
+  "ignore" / `dismissed*` everywhere (`useDismissedStories`,
+  `lib/dismissedStories`, `/ignored` route, `IgnoredPage`,
+  `newshacker:dismissedStoryIds` localStorage key, "Ignore" menu
+  label). Worth a sweep so the user-visible vocabulary matches HN —
+  including the route, page title, and storage key. Migration path
+  needed for the localStorage key so existing users don't lose state.
+
 ## Sweep edge cases
 
 - **Row taller than the visible viewport.** Sweep currently dismisses
