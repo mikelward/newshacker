@@ -1,29 +1,19 @@
 import { useEffect, useState } from 'react';
+import { getOnline, subscribeOnline } from '../lib/networkStatus';
 
-// `navigator.onLine` is only a hint — it's true whenever the OS reports any
-// network, even one that can't reach us — but it's enough to switch UX
-// between "probably online" and "definitely offline", and it lets us stop
-// issuing writes that would queue up and fail. Real reachability gets
-// confirmed or denied by the next fetch.
-function readOnline(): boolean {
-  if (typeof navigator === 'undefined') return true;
-  return navigator.onLine;
-}
-
+// Backed by `networkStatus`, which combines `navigator.onLine` /
+// online-offline window events with real fetch-failure signals so the
+// "Offline" pill flips as soon as a request fails, not whenever the OS
+// eventually notices the radio dropped. See src/lib/networkStatus.ts.
 export function useOnlineStatus(): boolean {
-  const [online, setOnline] = useState<boolean>(readOnline);
+  const [online, setOnline] = useState<boolean>(getOnline);
 
   useEffect(() => {
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    // Re-sync on mount in case we missed an event between render and effect.
-    setOnline(readOnline());
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
+    const unsubscribe = subscribeOnline(setOnline);
+    // Re-sync on mount in case the tracker updated between render and
+    // effect.
+    setOnline(getOnline());
+    return unsubscribe;
   }, []);
 
   return online;

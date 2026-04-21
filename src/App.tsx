@@ -15,6 +15,7 @@ import { PinnedPage } from './pages/PinnedPage';
 import { FavoritesPage } from './pages/FavoritesPage';
 import { HelpPage } from './pages/HelpPage';
 import { AboutPage } from './pages/AboutPage';
+import { DebugPage } from './pages/DebugPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 export default function App() {
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/favorites" element={<FavoritesPage />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/debug" element={<DebugPage />} />
             <Route path="/item/:id" element={<ItemPage />} />
             <Route path="/user/:id" element={<UserPage />} />
             <Route path="/:feed" element={<FeedPage />} />

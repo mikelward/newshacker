@@ -409,6 +409,11 @@ Comments use `src/lib/commentPrefetch.ts`'s `prefetchCommentBatch` helper everyw
 
 The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time) the per-comment `useCommentItem` falls back to individual Firebase fetches, so nothing breaks visibly.
 
+### Trending-score drive-by warm
+- As the feed renders, `StoryList` calls `prefetchFeedStory` (in `src/lib/feedStoryPrefetch.ts`) for every row with `score > 100`. It delegates to the same `prefetchPinnedStory` used at pin-time, so the warm shape is identical: `['itemRoot', id]`, the first 30 top-level comments (one shared `/api/items?fields=full` batch), the article AI summary, and the comments AI summary. Tapping a popular headline renders the thread, summaries, and early comments without a round-trip.
+- Tracked per-session via a `Set` in `StoryList` so re-renders don't re-fetch, and `prefetchFeedStory` short-circuits outright if `['itemRoot', id]` is already cached.
+- Summary endpoints are shared-cached in KV (see *Shared server-side cache* below), so a trending story typically costs one Gemini call per hour globally even if thousands of clients warm it.
+
 ### Pin/Favorite offline prefetch
 - Pinning a story calls `prefetchPinnedStory` — stores the item root, the article AI summary, the AI comment summary (when the story has kids), **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time.
 - Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline with real discussion and both summaries.
@@ -417,11 +422,17 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 - When new comments arrive upstream after the pin, old cached comments are **not** invalidated — each comment lives under its own cache key. SWR surfaces the cached copy offline; next online visit refreshes silently.
 
 ### Offline UX
-- `useOnlineStatus` hook (reads `navigator.onLine`, listens to `online`/`offline` events) drives:
+- `useOnlineStatus` hook drives:
   - A small "Offline" pill in the header.
   - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline.
   - An offline-specific message in the AI summary card when no cached summary exists. The same message pattern applies to the AI comment summary card.
 - Write actions (vote, login — once implemented) check `navigator.onLine` and show a toast instead of issuing a request that's guaranteed to fail.
+- **React Query `networkMode: 'offlineFirst'`** (set globally in `main.tsx`). The default 'online' mode pauses queries whenever React Query's `onlineManager` reports offline, which leaves uncached thread/summary reads on a never-resolving loading skeleton. `'offlineFirst'` lets the queryFn run regardless, so the Workbox SW cache can answer from Cache API when it has an entry, and a true miss rejects fast enough for the offline error UI above to render.
+- **Combined fetch-failure + browser-event detection** (`src/lib/networkStatus.ts`). `navigator.onLine` on mobile lags badly behind reality — walking into a tunnel can leave it stuck at `true` for tens of seconds, so the header pill would appear long after Brave's own offline banner. We keep two independent signals and AND them: `online = browserOnline && fetchOnline`. Either one flipping to false flips the pill immediately; both have to agree online before the pill hides again.
+  - `fetchOnline`: every app fetch goes through `trackedFetch`, which flips `fetchOnline` to false the instant a request throws a `TypeError` (fetch's network-layer failure signal) and back to true the instant any response comes back (even a 500 proves we reached a server). `AbortError` is ignored so a superseded query doesn't masquerade as a connectivity drop.
+  - `browserOnline`: `navigator.onLine` plus `online`/`offline` window events.
+  - AND-ing protects both directions: a SW-served cache hit while genuinely offline won't falsely flip us online (browser still says offline), and a stuck `navigator.onLine=true` in a tunnel won't hide the pill while real fetches keep failing (`fetchOnline` is false).
+  - The tracker keeps React Query's `onlineManager` in sync with the combined value so refetch-on-reconnect still fires. Zero new requests — we only instrument ones the app was already making.
 
 ### Planned (not in this change)
 - Pull-to-refresh gesture on feed and thread pages that invalidates the relevant React Query keys (and thus the SW caches via SWR). Replaces the browser's native PTR, which disappears in standalone mode.

@@ -12,6 +12,10 @@ import { ErrorState, EmptyState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
+import {
+  FEED_PREFETCH_SCORE_THRESHOLD,
+  prefetchFeedStory,
+} from '../lib/feedStoryPrefetch';
 import { useFeedBar } from '../hooks/useFeedBar';
 import { useWarmQueue } from '../hooks/useWarmQueue';
 import './StoryList.css';
@@ -83,6 +87,20 @@ export function StoryList({ feed }: Props) {
       ),
     [items, dismissedIds],
   );
+
+  // Opportunistically warm the thread/comment cache for currently-trending
+  // stories so tapping one feels instant. We only fire once per story id
+  // per session (tracked by `warmedIdsRef`) and skip anything already in
+  // the query cache — see `prefetchFeedStory` for the cost note.
+  const warmedIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    for (const story of visibleStories) {
+      if ((story.score ?? 0) <= FEED_PREFETCH_SCORE_THRESHOLD) continue;
+      if (warmedIdsRef.current.has(story.id)) continue;
+      warmedIdsRef.current.add(story.id);
+      prefetchFeedStory(queryClient, story);
+    }
+  }, [visibleStories, queryClient]);
 
   // Sweep only applies to rows the user can actually see *right now*, not
   // the whole rendered list. A row counts as "in view" iff its bounding
