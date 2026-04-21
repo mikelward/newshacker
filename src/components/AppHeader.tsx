@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppDrawer } from './AppDrawer';
+import { HeaderAccountMenu } from './HeaderAccountMenu';
 import { TooltipButton } from './TooltipButton';
 import { isFeed } from '../lib/feeds';
 import { useFeedBar } from '../hooks/useFeedBar';
@@ -123,9 +124,13 @@ export function AppHeader() {
             >
               <SweepIcon />
             </TooltipButton>
+            <HeaderAccountMenu />
           </div>
         ) : (
-          offlinePill
+          <div className="app-header__actions">
+            {offlinePill}
+            <HeaderAccountMenu />
+          </div>
         )}
       </header>
       <AppDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />

@@ -1,0 +1,21 @@
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.user-avatar--anon {
+  color: #fff;
+}
+
+.user-avatar__icon {
+  display: block;
+}

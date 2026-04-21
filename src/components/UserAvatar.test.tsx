@@ -1,0 +1,58 @@
+import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { UserAvatar } from './UserAvatar';
+import { avatarColorForUsername } from '../lib/avatarColor';
+
+describe('avatarColorForUsername', () => {
+  it('returns the same color for the same input', () => {
+    expect(avatarColorForUsername('alice')).toBe(avatarColorForUsername('alice'));
+  });
+
+  it('returns a color from the non-orange palette', () => {
+    // Palette entries are explicitly chosen to not clash with the HN
+    // brand mark's orange. We don't assert the exact hex per username
+    // (that would couple the test to the hash) but we do assert the
+    // color is never an HN-orange hue.
+    const color = avatarColorForUsername('bob');
+    // `#ff6600` and neighbors — none of the palette entries should
+    // match these.
+    expect(color.toLowerCase()).not.toMatch(/^#ff6[0-9a-f]{3}$/);
+    expect(color.toLowerCase()).not.toMatch(/^#e65c00$/);
+  });
+
+  it('falls back deterministically for an empty username', () => {
+    expect(avatarColorForUsername('')).toBeDefined();
+  });
+});
+
+describe('<UserAvatar>', () => {
+  it('renders an anonymous silhouette when no username is given', () => {
+    const { container } = render(<UserAvatar />);
+    expect(screen.getByTestId('user-avatar-anon')).toBeInTheDocument();
+    // SVG person icon is present.
+    expect(container.querySelector('svg')).not.toBeNull();
+  });
+
+  it('renders the uppercase initial when a username is given', () => {
+    render(<UserAvatar username="alice" />);
+    expect(screen.getByTestId('user-avatar')).toHaveTextContent('A');
+  });
+
+  it('does not leak a tappable child — the avatar itself is aria-hidden', () => {
+    render(<UserAvatar username="alice" />);
+    // The wrapping button supplies the accessible name; the visual
+    // avatar must not also be exposed to assistive tech or it's
+    // announced twice.
+    expect(screen.getByTestId('user-avatar')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+  });
+
+  it('respects a custom size prop', () => {
+    render(<UserAvatar username="alice" size={48} />);
+    const el = screen.getByTestId('user-avatar');
+    expect(el.getAttribute('style')).toMatch(/width:\s*48px/);
+    expect(el.getAttribute('style')).toMatch(/height:\s*48px/);
+  });
+});

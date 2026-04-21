@@ -74,38 +74,138 @@ Staged so each phase lands as a working, shippable increment. Each phase ends wi
 - User page: karma, about, created.
 - Tests for loading/error/empty states.
 
-## Phase 5 (stretch) — Login & Vote
+## Phase 5 — Accounts & collaboration
 
-Gate everything in this phase behind an env flag (`VITE_ENABLE_AUTH=true`) so MVP can ship without it.
-
-### 5a. Login
+### 5a. Login (shipped)
 
 - `api/login.ts` (Vercel serverless):
-  1. Accept `{ username, password }`.
-  2. `POST https://news.ycombinator.com/login` with `application/x-www-form-urlencoded`, body `acct=<u>&pw=<p>&goto=news`.
-  3. If the response sets a `user` cookie → success. Otherwise parse the HTML for "Bad login."
-  4. On success, set an HTTP-only, Secure, SameSite=Lax cookie on our origin containing the HN `user` cookie value.
-- `api/me.ts`: returns `{ username }` or 401 based on our session cookie.
-- `api/logout.ts`: clears our cookie.
-- Client: `<LoginPage>`, `useAuth()` hook.
+  1. Accepts `{ username, password }` JSON.
+  2. `POST https://news.ycombinator.com/login` with `application/x-www-form-urlencoded`, body `acct=<u>&pw=<p>&goto=news`, `redirect: 'manual'`.
+  3. Reads the `Set-Cookie` header for `user=<value>`. A missing `user=` cookie means HN rejected the credentials; the endpoint returns 401.
+  4. On success, sets an HTTP-only, Secure, SameSite=Lax `hn_session` cookie on our origin containing the HN cookie value. Username is parsed from the HN cookie value (`username&hash`, split on `&`) and returned in the response body.
+- `api/me.ts`: returns `{ username }` parsed from the `hn_session` cookie; 401 if absent. No round trip to HN — the cookie is the source of truth on boot.
+- `api/logout.ts`: clears `hn_session` with a `Max-Age=0` overwrite.
+- Outbound HN fetch sends a realistic desktop User-Agent plus an `accept-language` header. Node's default `undici/*` UA can make HN reject the login without setting the `user` cookie, which surfaces to the user as "Bad login" even with correct credentials. The UA is logged-in browser-identical rather than identifying as `newshacker`, because HN's login flow does not advertise a bot-friendly path.
+- Client: `useAuth()` hook (`['me']` React Query key), `<LoginPage>` form with username/password + inline error, and a header `HeaderAccountMenu` chip in the top-right — anonymous silhouette → `/login` when logged out; initial-on-colored-disc with a dropdown (username, karma, View profile, Log out) when logged in. Palette excludes HN orange so it never fights the brand mark.
 - Tests:
-  - Serverless handler with mocked `fetch`: success sets cookie; bad login returns 401.
-  - Client: login form submits and redirects; `useAuth` reflects state.
+  - Serverless handlers with mocked `fetch`: success sets the cookie and returns the username; bad login returns 401; missing fields return 400; logout clears the cookie; outbound request carries a realistic User-Agent.
+  - Client: `useAuth` reflects `/api/me` state, login form submits, `HeaderAccountMenu` renders the silhouette, opens the dropdown, and flips to the silhouette after Log out.
 
-### 5b. Vote
+### 5b. Keep pinned stories visible on the main feed (next)
+
+Shipping this before sync because it's purely client-side, works for
+logged-out readers too, and gives sync a concrete, curated list to
+carry across devices once 5c lands.
+
+Today a pinned story only appears in `/pinned`. Once HN's own ranking
+drops it off the front page, it disappears from `/top` (and `/new`,
+`/best`, …) entirely — you have to navigate to `/pinned` to find it
+again. That's fine when pinning is cheap-and-forgettable, but less
+so once the user has a curated reading list they expect to run down
+from their home screen.
+
+- [ ] **Float pinned stories onto the feeds.** On every feed page,
+  render the user's pinned stories above the standard feed rows (or
+  interleaved in pin `at` order), visually distinguished so they
+  clearly aren't part of the HN ranking. When a pinned story also
+  appears naturally in the feed id list, dedupe — the pinned copy
+  wins. Dismissing is a no-op on a pinned row (the pin itself is the
+  authoritative "keep this here" signal).
+- **Cost/reliability (rule 11):** pure client-side layout plus the
+  item fetches the pinned-prefetch path already does. No new infra,
+  no new endpoints. Added failure mode: none new — if the item fetch
+  fails, the row renders the `[unavailable]` placeholder we already
+  use elsewhere.
+- **Open questions:** ordering (pin-time vs. most-recent activity),
+  and how to handle long-pinned lists — capping at N most-recent
+  pins is likely, with the full list still reachable at `/pinned`.
+  Decide when the feature lands.
+
+### 5c. Cross-device sync (after 5b)
+
+Motivation: today Pinned / Favorite / Ignored live only in
+`localStorage`, so pinning on mobile doesn't propagate to desktop.
+With 5b already surfacing pinned rows on the home feed, sync upgrades
+that into a cross-device curated feed.
+
+- Identity: the HN username from the `hn_session` cookie (shipped in 5a).
+  No separate signup; users without an HN account don't get sync (a real
+  trade — see *Open questions* below).
+- `api/sync.ts` (Vercel serverless + existing Upstash Redis):
+  - `GET /api/sync` → `{ pinned, favorite, ignored }` where each list is
+    `Array<{ id, at, deleted? }>`. Reads one Redis hash keyed
+    `sync:<username>`.
+  - `POST /api/sync` → accepts a delta `{ list, id, at, deleted? }[]`,
+    merges into the per-user hash. Merge rule: per-id last-write-wins on
+    `at`; a deleted entry with a newer `at` masks an older additive
+    entry.
+- Client:
+  - New `useCloudSync` hook: on login or reconnect, `GET /api/sync` and
+    merge into the three `localStorage` stores with the same LWW rule.
+  - Hooks into the existing `newshacker:pinnedStoriesChanged`,
+    `newshacker:favoritesChanged`, and `newshacker:dismissedStoriesChanged`
+    events. Debounces ~2 s and `POST`s deltas.
+  - Fail-open: if `/api/sync` errors, localStorage still works — sync is
+    additive, never authoritative.
+  - Unpin/unfavorite/unignore writes a tombstone (`deleted: true, at: now`)
+    that replaces the additive entry locally and on the server so the
+    other device doesn't resurrect it on its next pull.
+- Tests:
+  - Serverless: GET on empty user returns empty lists; POST + GET round-trips
+    a delta; newer `at` wins; tombstone masks additive.
+  - Client: `useCloudSync` merges pulled state with local, debounces
+    pushes, no-ops when logged out.
+- **Cost/reliability (rule 11):** reuses existing Upstash Redis; at
+  ~1 KB/user × 3 lists = thousands of users on the free tier. New
+  failure mode = sync endpoint down → localStorage keeps working, no
+  user-visible breakage.
+- **Open questions:**
+  - Users without an HN account: no sync path in this model. Decision
+    deferred; revisit if real demand shows up.
+  - Conflict on edits within the debounce window: last-write-wins
+    per-id is coarse. Fine for add/remove; revisit if we ever store
+    richer per-item state (e.g., user notes).
+
+### 5d. Voting (future, order vs. 5e undecided)
 
 - `api/vote.ts`:
-  1. Require our session cookie.
-  2. `GET https://news.ycombinator.com/item?id=<id>` with the HN cookie → parse the page for the item's `auth` token. (Or, for list pages, the token is on `/news` etc.)
+  1. Require the `hn_session` cookie — 401 otherwise.
+  2. `GET https://news.ycombinator.com/item?id=<id>` with the HN cookie → parse the page for the item's `auth` token.
   3. `GET https://news.ycombinator.com/vote?id=<id>&how=<up|un>&auth=<token>&goto=news` with the HN cookie.
   4. Return 204 on success; 401/403 on auth issues.
 - Client:
-  - Story list / thread items render a vote arrow when logged in.
+  - Story list / thread items render a vote arrow when logged in — the slot already exists on `<StoryListItem>` behind the `isLoggedIn` prop but is currently inert.
   - Optimistic update via TanStack Query `onMutate`; rollback on failure.
 - Tests:
   - Auth-token scraper: given a fixture HTML page, returns the right token.
   - Serverless vote handler: mocks item fetch + vote fetch; asserts correct URL & cookie.
   - Client: optimistic update + rollback.
+- **Cost/reliability (rule 11):** no new infra; one extra HN fetch per vote (scrape + forward). Fragile point: HN HTML markup. Blast radius on break = voting stops working, toast shown, nothing else affected.
+
+### 5e. Comment submission (future, order vs. 5d undecided)
+
+Out of scope today; previously listed under *Non-Goals*, now softened to
+*deferred* in `SPEC.md` per a design change. Same mechanism as voting:
+HN cookie + scraped per-item `auth` token, posted to HN's `/comment`
+form endpoint. Not prioritised yet — decide after voting is in flight.
+
+### 5-infra. Shared helpers inside `api/` (chore, not feature-blocking)
+
+`api/summary.ts` carries a comment noting that Vercel's per-file
+function bundler "has been flaky about tracing shared modules" and so
+the HN fetch helper was inlined rather than imported. We've now
+duplicated HN-cookie parsing + session-cookie serialization across
+`api/login.ts`, `api/me.ts`, and `api/logout.ts`, and voting + sync
+would add two more files that need the same pieces.
+
+- [ ] **Fix `api/` cross-file sharing.** Investigate whether an
+  `api/_session.ts` (underscore-prefixed so Vercel doesn't route it),
+  an `api/lib/` subdirectory, or a Vite/tsconfig `paths` alias can
+  resolve the tracing issue reliably in both dev and prod. Once
+  proven, migrate the duplicated helpers (HN cookie parsing,
+  username validation, Set-Cookie serialization, allowed-Referer
+  list) into one place. Today's inlined copies are marked with
+  matching comments so the next touch doesn't miss a sibling.
 
 ## Phase 5.5 — Favorites + Pinned rename
 
@@ -207,5 +307,7 @@ Open:
 | M2 | Phase 2 | Browse all feeds (MVP-ready) |
 | M3 | Phase 3 | Read comments |
 | M4 | Phase 4 | Polish + user page (full MVP) |
-| M5 | Phase 5a | Login behind flag |
-| M6 | Phase 5b | Voting behind flag |
+| M5 | Phase 5a | HN login + header account chip (shipped) |
+| M6 | Phase 5b | Pinned stories visible on the home feed (next) |
+| M7 | Phase 5c | Cross-device sync of Pinned / Favorite / Ignored |
+| M8 | Phase 5d / 5e | Voting and comment submission (order undecided) |
