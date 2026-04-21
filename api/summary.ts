@@ -65,6 +65,7 @@ interface HNItem {
   type?: string;
   title?: string;
   url?: string;
+  score?: number;
   dead?: boolean;
   deleted?: boolean;
 }
@@ -345,6 +346,20 @@ export async function handleSummaryRequest(
   }
   if (!story || story.deleted || story.dead) {
     return json({ error: 'Story not available' }, 404);
+  }
+  // Anti-abuse floor. HN stories start at score 1 (the submitter's
+  // implicit self-upvote), so `> 1` means "at least one organic
+  // upvote beyond the submitter". Attackers can't just post a link and
+  // have us fetch + summarize it via Jina / Gemini on demand — the
+  // story has to earn a real upvote first. The feed itself hides
+  // score ≤ 1 rows (see StoryList.tsx), so in normal usage this
+  // endpoint will never even be invoked below the floor; the check is
+  // a belt-and-braces defense for direct requests.
+  if (!(typeof story.score === 'number' && story.score > 1)) {
+    return json(
+      { error: 'Story is not eligible for summary', reason: 'low_score' },
+      400,
+    );
   }
   if (!story.url || !isValidHttpUrl(story.url)) {
     return json(

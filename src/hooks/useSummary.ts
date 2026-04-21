@@ -14,6 +14,7 @@ export type SummaryErrorReason =
   | 'summarization_failed'
   | 'not_configured'
   | 'no_article'
+  | 'low_score'
   | 'story_unreachable';
 
 export class SummaryError extends Error {
@@ -32,6 +33,7 @@ function parseReason(value: unknown): SummaryErrorReason | undefined {
     value === 'summarization_failed' ||
     value === 'not_configured' ||
     value === 'no_article' ||
+    value === 'low_score' ||
     value === 'story_unreachable'
   ) {
     return value;

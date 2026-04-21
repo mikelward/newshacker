@@ -139,7 +139,11 @@ export function makeStory(
     title: `Story ${id}`,
     url: `https://example.com/${id}`,
     by: 'author',
-    score: id,
+    // Default to at least 2 so stories render under the feed's
+    // "score > 1 ⇒ at least one organic upvote" visibility rule. Tests
+    // that specifically want a sub-threshold story override `score`
+    // explicitly.
+    score: Math.max(id, 2),
     descendants: id,
     time: Math.floor(Date.now() / 1000) - id * 60,
     ...overrides,
