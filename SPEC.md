@@ -35,12 +35,21 @@ We achieve that by:
 
 ## Non-Goals (MVP)
 
-- Submitting comments or replies.
 - Submitting new stories.
 - Flagging stories or comments.
 - Moderation features (hide, mark as dupe, etc.).
 - Push notifications.
 - Background sync of offline votes/comments.
+
+Deferred rather than ruled out (see *Planned / not yet implemented*
+above for the shape we expect to ship):
+
+- **Voting / unvoting** — waiting on the per-item `auth`-token scraper.
+- **Cross-device sync** of Pinned / Favorite / Ignored — waiting on
+  login (now shipped) plus a thin `/api/sync` endpoint backed by the
+  existing Upstash Redis.
+- **Submitting comments and replies** — possible future feature once
+  voting is stable. Out of scope today.
 
 ## Users
 
@@ -96,21 +105,99 @@ other. The pinned-stories module performs a one-shot rename of the legacy
    - Top nav tabs for feed switching, integrated into the header.
    - Back button on thread/user pages.
 
-### Stretch (behind a feature flag)
+### Accounts (shipped)
 
-5. **Login**
-   - POST to `https://news.ycombinator.com/login` with `acct` + `pw` form fields.
-   - Store the returned `user` cookie client-side... but **the browser cannot set third-party cookies for news.ycombinator.com from our origin**. This means login must be proxied through our own serverless function so the cookie is attached to requests the server makes on the user's behalf. See *Architecture* below.
+5. **Login via HN**
+   - Users sign in with their existing news.ycombinator.com username and
+     password — we do **not** maintain our own identity system. Credentials
+     are posted through our `/api/login` serverless function to
+     `https://news.ycombinator.com/login` (form body `acct=<u>&pw=<p>&goto=news`).
+     On success HN returns a `Set-Cookie: user=<username>&<hash>` header;
+     we capture the value and re-set it on our own origin as an HTTP-only,
+     Secure, SameSite=Lax cookie named `hn_session`. The browser cannot
+     send cookies to news.ycombinator.com from our origin, so every future
+     write (vote, etc.) goes through a serverless function that attaches
+     the HN cookie server-side. The raw HN cookie value is **never**
+     exposed to client JS.
+   - The username is parsed from the HN cookie value (`username&hash`,
+     ampersand-separated) and returned in the login response. `GET /api/me`
+     returns `{ username }` when the session cookie is present, `401`
+     otherwise — used on client boot to rehydrate auth state without a
+     round trip to HN.
+   - `POST /api/logout` clears the cookie. Since the HN cookie lives on
+     news.ycombinator.com, logging out of newshacker does not log you out
+     of HN itself (by design).
+   - Credentials pass through our server in plaintext over TLS, as the
+     only way HN accepts them. We do not log, store, or cache the password
+     anywhere; only the resulting opaque HN cookie is persisted (as the
+     `hn_session` cookie on the user's browser). The login page carries
+     a short, honest disclosure to that effect.
 
-6. **Voting**
-   - Each story and comment's HN HTML contains a vote link like
-     `vote?id=12345&how=up&auth=<token>&goto=news`.
-   - To upvote we need:
-     1. The user's session cookie.
-     2. The per-item `auth` token, obtained by scraping the HN HTML for that item or list.
-   - Voting is therefore implemented as a serverless endpoint that scrapes the `auth` token and issues the GET to `/vote`.
+6. **Account UI** (header chip, not drawer). The sticky orange header
+   gains a single always-visible account control on the far right — one
+   extra tap target, 48×48 hit area, on every page. Surfacing auth
+   state in the header (rather than behind the drawer) means a first-time
+   visitor can see "this app has a login" without exploring the menu.
+   - **Logged out:** a text `Sign in` button that navigates to `/login`.
+   - **Logged in:** a 32 px circular **initial avatar** — the user's
+     first letter on a color-hashed disc (color deterministically
+     derived from the username hash, chosen from a non-orange palette
+     so it never clashes with the brand mark's orange `n`). Tapping
+     opens a small popover with the username, karma (via the existing
+     Firebase `getUser` path, cached through React Query), a link to
+     `/user/:username`, and a `Log out` button. Closes on Escape,
+     outside click, or after a menu selection.
+   - **Why the initial, not Gravatar.** Gravatar keys off an email
+     hash and HN doesn't expose users' emails, so a real-photo avatar
+     would require a separate signup step for email. An initial-on-
+     color disc is deterministic from the username, renders offline,
+     and costs no external request — a real picture via profile-
+     settings opt-in is a possible future add-on.
+   - **Why not also in the drawer.** The drawer's `App` section
+     already carries static entries (Help, About, Debug); the header
+     chip is the single canonical auth surface and the drawer stays
+     focused on navigation.
 
-7. **Unvote** (same mechanism, `how=un`).
+### Planned / not yet implemented
+
+7. **Voting & unvoting** (stretch). Each HN story and comment page carries
+   a per-user, per-item `auth` token in its vote links
+   (`vote?id=<id>&how=up&auth=<token>&goto=news`). To cast a vote we need
+   the user's session cookie (already have, from Login) **and** the
+   per-item `auth` token, scraped from the rendered HN HTML for that
+   item. Voting lands as a `/api/vote` serverless endpoint that does the
+   scrape + forward. The client-side vote arrow already has its reserved
+   slot in the story row layout (see *Story row layout*); currently it
+   never renders because no user is ever "logged in for voting" — the
+   slot appears only once voting ships. Unvote uses the same endpoint
+   with `how=un`.
+   - **Cost/reliability (rule 11):** no new infra; one extra HN fetch per
+     vote (scrape + forward = two HN requests). Fragile point: HN HTML
+     markup — parser breaks if HN restructures vote links. Blast radius
+     is small (voting fails with a toast), but it's an ongoing
+     maintenance tax the rest of the read path doesn't carry.
+
+8. **Cross-device sync of Pinned / Favorite / Ignored.** Today the three
+   lists live only in `localStorage`, so pinning a story on mobile does
+   not propagate to desktop. Planned: a `/api/sync` serverless endpoint
+   backed by the existing Upstash Redis (the same store powering the AI
+   summary cache). Identity is the HN username from the `hn_session`
+   cookie — no separate signup. Shape is three keyed lists of
+   `{ id, at, deleted? }` tuples; "deleted" is a tombstone so an unpin on
+   device A cannot be resurrected by device B's stale local pin. Merge
+   is last-write-wins per id, with the latest `at` winning. The client
+   debounces local changes (~2 s) before pushing. Fails open: if the
+   sync endpoint is down, `localStorage` keeps working exactly as today —
+   sync is purely additive.
+   - **Cost/reliability (rule 11):** reuses existing Upstash Redis; at
+     ~1 KB × 3 lists per user, thousands of users still fit the free
+     tier. New failure mode: sync endpoint down — localStorage still
+     works, no user-visible breakage.
+
+9. **Submitting comments and replies** is out of scope today (see
+   *Non-Goals* below) but is a candidate for a future phase once voting
+   is stable. Writing comments uses the same HN cookie + per-item `auth`
+   token pattern as voting.
 
 ## Data Sources
 
@@ -275,7 +362,7 @@ No dismiss/sweep toast: the Undo button is the recovery path. Dismissing is alwa
 | `/pinned` | pinned stories (active reading list) |
 | `/opened` | recently opened stories (7-day history) |
 | `/ignored` | recently dismissed stories (7-day history) |
-| `/login` | login form (stretch) |
+| `/login` | HN login form |
 
 ## Accessibility
 
