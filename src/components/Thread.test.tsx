@@ -248,7 +248,7 @@ describe('<Thread>', () => {
     expect(entry?.articleAt).toBeTruthy();
   });
 
-  it('toggles favorite state via the Favorite button in the header, independently of Pin', async () => {
+  it('toggles favorite state via the Favorite entry in the overflow menu, independently of Pin', async () => {
     installHNFetchMock({
       items: { 710: makeStory(710, { title: 'Lovable' }) },
     });
@@ -258,21 +258,27 @@ describe('<Thread>', () => {
       expect(screen.getByText('Lovable')).toBeInTheDocument();
     });
 
-    const fav = screen.getByTestId('thread-favorite');
-    expect(fav).toHaveAccessibleName(/^favorite$/i);
-    expect(fav).toHaveAttribute('aria-pressed', 'false');
+    // Favorite lives in the overflow menu — it's a keepsake action,
+    // less frequent than Done on the comments view.
+    expect(screen.queryByTestId('thread-favorite')).toBeNull();
 
-    await userEvent.click(fav);
-    expect(fav).toHaveAccessibleName(/unfavorite/i);
-    expect(fav).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(screen.getByTestId('thread-more'));
+    const favItem = screen.getByTestId('story-row-menu-favorite');
+    expect(favItem).toHaveTextContent(/^favorite$/i);
+    await userEvent.click(favItem);
     expect(
       window.localStorage.getItem('newshacker:favoriteStoryIds'),
     ).toContain('"id":710');
     // Pin is untouched by Favorite
     expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByTestId('story-row-menu')).toBeNull();
+    });
 
-    await userEvent.click(fav);
-    expect(fav).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(screen.getByTestId('thread-more'));
+    const unfavItem = screen.getByTestId('story-row-menu-favorite');
+    expect(unfavItem).toHaveTextContent(/^unfavorite$/i);
+    await userEvent.click(unfavItem);
     const storedFav = window.localStorage.getItem(
       'newshacker:favoriteStoryIds',
     );
@@ -282,7 +288,7 @@ describe('<Thread>', () => {
     expect(parsedFav.filter((e) => !e.deleted)).toEqual([]);
   });
 
-  it('toggles pinned state via the Pin entry in the overflow menu', async () => {
+  it('toggles pinned state via the Pin button on the bar', async () => {
     installHNFetchMock({
       items: { 700: makeStory(700, { title: 'Pinnable' }) },
     });
@@ -292,26 +298,20 @@ describe('<Thread>', () => {
       expect(screen.getByText('Pinnable')).toBeInTheDocument();
     });
 
-    // Pin/Unpin lives in the overflow menu — Done is the prominent
-    // "I'm finished with this thread" action in the bar; Pin (save for
-    // later) is secondary on the comments view.
-    expect(screen.queryByTestId('thread-pin')).toBeNull();
+    const pin = screen.getByTestId('thread-pin');
+    expect(pin).toHaveAccessibleName(/^pin$/i);
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
 
-    await userEvent.click(screen.getByTestId('thread-more'));
-    const pinItem = screen.getByTestId('story-row-menu-pin');
-    expect(pinItem).toHaveTextContent(/^pin$/i);
-    await userEvent.click(pinItem);
+    await userEvent.click(pin);
+    expect(pin).toHaveAccessibleName(/unpin/i);
+    expect(pin).toHaveAttribute('aria-pressed', 'true');
     expect(
       window.localStorage.getItem('newshacker:pinnedStoryIds'),
     ).toContain('"id":700');
-    await waitFor(() => {
-      expect(screen.queryByTestId('story-row-menu')).toBeNull();
-    });
 
-    await userEvent.click(screen.getByTestId('thread-more'));
-    const unpinItem = screen.getByTestId('story-row-menu-pin');
-    expect(unpinItem).toHaveTextContent(/^unpin$/i);
-    await userEvent.click(unpinItem);
+    await userEvent.click(pin);
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    expect(pin).toHaveAccessibleName(/^pin$/i);
     const storedPin = window.localStorage.getItem(
       'newshacker:pinnedStoryIds',
     );
@@ -321,7 +321,7 @@ describe('<Thread>', () => {
     expect(parsedPin.filter((e) => !e.deleted)).toEqual([]);
   });
 
-  it('toggles done state via the Done button in the header, and unpins on mark-done', async () => {
+  it('toggles done state via the Done button on the bar, and unpins on mark-done', async () => {
     installHNFetchMock({
       items: { 730: makeStory(730, { title: 'Finishable' }) },
     });

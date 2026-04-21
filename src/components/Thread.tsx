@@ -56,6 +56,38 @@ function OpenInNewIcon() {
   );
 }
 
+function PinIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m634-448 86 77v60H510v241l-30 30-30-30v-241H240v-60l80-77v-332h-50v-60h414v60h-50v332Zm-313 77h312l-59-55v-354H380v354l-59 55Zm156 0Z" />
+    </svg>
+  );
+}
+
+function PinFilledIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m634-448 86 77v60H510v241l-30 30-30-30v-241H240v-60l80-77v-333h-50v-60h414v60h-50v333Z" />
+    </svg>
+  );
+}
+
 function UpArrowIcon() {
   // Solid upward-pointing triangle — mirrors HN's `▲` vote arrow. We
   // rely on `.thread__action--active` toggling `currentColor` to HN
@@ -73,22 +105,6 @@ function UpArrowIcon() {
       focusable="false"
     >
       <path d="M480-720 220-320h520L480-720Z" />
-    </svg>
-  );
-}
-
-function HeartIcon() {
-  return (
-    <svg
-      className="thread__action-icon"
-      viewBox={MS_VIEWBOX}
-      fill="currentColor"
-      width="28"
-      height="28"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m480-121-41-37q-105.77-97.12-174.88-167.56Q195-396 154-451.5T96.5-552Q80-597 80-643q0-90.15 60.5-150.58Q201-854 290-854q57 0 105.5 27t84.5 78q42-54 89-79.5T670-854q89 0 149.5 60.42Q880-733.15 880-643q0 46-16.5 91T806-451.5Q765-396 695.88-325.56 626.77-255.12 521-158l-41 37Zm0-79q101.24-93 166.62-159.5Q712-426 750.5-476t54-89.14q15.5-39.13 15.5-77.72 0-66.14-42-108.64T670.22-794q-51.52 0-95.37 31.5T504-674h-49q-26-56-69.85-88-43.85-32-95.37-32Q224-794 182-751.5t-42 108.82q0 38.68 15.5 78.18 15.5 39.5 54 90T314-358q66 66 166 158Zm0-297Z" />
     </svg>
   );
 }
@@ -137,22 +153,6 @@ function DoneFilledIcon() {
       focusable="false"
     >
       <path d="M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm-56-216 280-280-56-56-224 224-114-114-56 56 170 170Z" />
-    </svg>
-  );
-}
-
-function HeartFilledIcon() {
-  return (
-    <svg
-      className="thread__action-icon"
-      viewBox={MS_VIEWBOX}
-      fill="currentColor"
-      width="28"
-      height="28"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m480-121-41-37q-106-97-175-167.5t-110-126Q113-507 96.5-552T80-643q0-90 60.5-150.5T290-854q57 0 105.5 27t84.5 78q42-54 89-79.5T670-854q89 0 149.5 60.5T880-643q0 46-16.5 91T806-451.5q-41 55.5-110 126T521-158l-41 37Z" />
     </svg>
   );
 }
@@ -511,11 +511,14 @@ export function Thread({ id }: Props) {
   const openMenu = useCallback(() => setMenuOpen(true), []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
+    // Bar carries the high-frequency toggles (Pin/Unpin and Done);
+    // Favorite is the "keepsake" action and lives in overflow because
+    // it's less frequent on the comments view than the queue/exit pair.
     const items: StoryRowMenuItem[] = [
       {
-        key: 'pin',
-        label: pinned ? 'Unpin' : 'Pin',
-        onSelect: handleTogglePinned,
+        key: 'favorite',
+        label: favorited ? 'Unfavorite' : 'Favorite',
+        onSelect: handleToggleFavorite,
       },
       {
         key: 'open-on-hn',
@@ -539,7 +542,7 @@ export function Thread({ id }: Props) {
       });
     }
     return items;
-  }, [id, item, pinned, handleTogglePinned, shareStory]);
+  }, [id, item, favorited, handleToggleFavorite, shareStory]);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
@@ -651,16 +654,16 @@ export function Thread({ id }: Props) {
             type="button"
             className={
               'thread__action thread__action--icon' +
-              (favorited ? ' thread__action--active' : '')
+              (pinned ? ' thread__action--active' : '')
             }
-            data-testid="thread-favorite"
-            aria-pressed={favorited}
-            tooltip={favorited ? 'Unfavorite' : 'Favorite'}
-            onClick={handleToggleFavorite}
+            data-testid="thread-pin"
+            aria-pressed={pinned}
+            tooltip={pinned ? 'Unpin' : 'Pin'}
+            onClick={handleTogglePinned}
           >
-            {favorited ? <HeartFilledIcon /> : <HeartIcon />}
+            {pinned ? <PinFilledIcon /> : <PinIcon />}
             <span className="visually-hidden">
-              {favorited ? 'Unfavorite' : 'Favorite'}
+              {pinned ? 'Unpin' : 'Pin'}
             </span>
           </TooltipButton>
           <TooltipButton
