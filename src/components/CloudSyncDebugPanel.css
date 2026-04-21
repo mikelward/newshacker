@@ -1,0 +1,28 @@
+.cloud-sync-debug {
+  display: block;
+}
+
+.cloud-sync-debug__requests {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+}
+
+.cloud-sync-debug__request {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.cloud-sync-debug__request-label {
+  font-weight: 600;
+}
+
+.cloud-sync-debug__request-detail {
+  color: var(--hn-meta);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

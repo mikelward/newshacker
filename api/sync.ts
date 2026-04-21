@@ -292,9 +292,13 @@ export async function POST(request: Request): Promise<Response> {
   return handleSyncRequest(request);
 }
 
-export default async function handler(request: Request): Promise<Response> {
-  return handleSyncRequest(request);
-}
+// No `default` export: Vercel's Node runtime invokes a module's default
+// export as a Node-style `(req, res) => void` handler, so the Fetch
+// `Request` we expect here would arrive as an IncomingMessage and
+// `request.headers.get(...)` would throw. Exporting only the named
+// GET/POST methods routes this through Vercel's Web-standard handler
+// path instead, matching the rest of api/ (api/me.ts, api/login.ts,
+// api/logout.ts).
 
 // Test-only exports — kept small and named with an underscore so they're
 // obviously not part of the public API.

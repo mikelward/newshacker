@@ -18,6 +18,7 @@ import {
   prefetchFeedStory,
 } from '../lib/feedStoryPrefetch';
 import { warmFeedSummaries } from '../lib/feedSummaryWarm';
+import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
 
@@ -247,7 +248,15 @@ export function StoryList({ feed }: Props) {
   }
 
   return (
-    <PullToRefresh onRefresh={refetch}>
+    <PullToRefresh
+      onRefresh={() =>
+        // Pull cross-device sync state alongside the HN feed — PTR is
+        // the user's "show me the latest" gesture and they'd expect
+        // pins from other devices to land here too. cloudSyncPullNow
+        // is a no-op when the user isn't signed in.
+        Promise.all([refetch(), cloudSyncPullNow()])
+      }
+    >
       <ol className="story-list">
         {offFeedPinnedStories.map((story) => (
           <li

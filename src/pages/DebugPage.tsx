@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
 import './DebugPage.css';
 
 interface ServiceStatus {
@@ -130,6 +131,8 @@ export function DebugPage() {
               {isFetching ? 'Refreshing…' : 'Refresh'}
             </button>
           </p>
+
+          <CloudSyncDebugPanel />
         </>
       )}
 

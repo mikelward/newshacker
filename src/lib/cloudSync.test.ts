@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getCloudSyncDebug,
   mergeEntries,
+  pullNow,
+  pushNow,
   startCloudSync,
   stopCloudSync,
+  subscribeCloudSyncDebug,
   _flushCloudSyncForTests,
   _getCloudSyncRuntimeForTests,
+  _resetCloudSyncDebugForTests,
   type SyncState,
 } from './cloudSync';
 import {
@@ -366,5 +371,261 @@ describe('cloudSync lifecycle', () => {
     expect(getAllPinnedEntries().map((e) => e.id)).toEqual([1]);
     expect(getAllFavoriteEntries().map((e) => e.id)).toEqual([2]);
     expect(getAllDismissedEntries().map((e) => e.id)).toEqual([3]);
+  });
+});
+
+describe('cloudSync debug API', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    stopCloudSync();
+    _resetCloudSyncDebugForTests();
+  });
+  afterEach(() => {
+    stopCloudSync();
+    _resetCloudSyncDebugForTests();
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  it('reports not-running when sync is stopped', () => {
+    const snap = getCloudSyncDebug();
+    expect(snap.running).toBe(false);
+    expect(snap.username).toBeNull();
+    expect(snap.lastPull).toBeNull();
+    expect(snap.lastPush).toBeNull();
+  });
+
+  it('records lastPull and lastPush with counts after a round-trip', async () => {
+    addPinnedId(1, T.T4);
+    const fetchMock = queuedFetch([
+      {
+        response: jsonResponse({
+          pinned: [{ id: 99, at: T.T1 }],
+          favorite: [],
+          ignored: [],
+        }),
+      }, // GET
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      }, // POST
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    const snap = getCloudSyncDebug();
+    expect(snap.running).toBe(true);
+    expect(snap.username).toBe('alice');
+    expect(snap.lastPull?.ok).toBe(true);
+    expect(snap.lastPull?.counts).toEqual({
+      pinned: 1,
+      favorite: 0,
+      ignored: 0,
+    });
+    expect(snap.lastPush?.ok).toBe(true);
+    expect(snap.lastPush?.counts).toEqual({
+      pinned: 1,
+      favorite: 0,
+      ignored: 0,
+    });
+    // High-water is advanced, so pending is empty.
+    expect(snap.pendingCount).toEqual({
+      pinned: 0,
+      favorite: 0,
+      ignored: 0,
+    });
+  });
+
+  it('records lastPull.error when the server returns 500', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ error: 'boom' }, 500) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    const snap = getCloudSyncDebug();
+    expect(snap.lastPull?.ok).toBe(false);
+    expect(snap.lastPull?.status).toBe(500);
+  });
+
+  it('records lastPush.error when the POST fails', async () => {
+    addPinnedId(1, T.T4);
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) },
+      { response: jsonResponse({ error: 'nope' }, 503) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    const snap = getCloudSyncDebug();
+    expect(snap.lastPush?.ok).toBe(false);
+    expect(snap.lastPush?.status).toBe(503);
+    expect(snap.lastPush?.counts).toEqual({
+      pinned: 1,
+      favorite: 0,
+      ignored: 0,
+    });
+    // Pending count reflects the still-unpushed entry.
+    expect(snap.pendingCount.pinned).toBe(1);
+  });
+
+  it('subscribeCloudSyncDebug fires on pull/push transitions', async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeCloudSyncDebug(listener);
+    try {
+      const fetchMock = queuedFetch([
+        { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) },
+      ]);
+      await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+      await drain();
+      expect(listener.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('pullNow forces a GET without waiting for debounce', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial start pull
+      {
+        response: jsonResponse({
+          pinned: [{ id: 42, at: T.T4 }],
+          favorite: [],
+          ignored: [],
+        }),
+      }, // manual pullNow
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await pullNow();
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getPinnedIds()).toEqual(new Set([42]));
+  });
+
+  it('pullNow is a no-op when sync is stopped', async () => {
+    await pullNow(); // should not throw
+    const snap = getCloudSyncDebug();
+    expect(snap.running).toBe(false);
+  });
+
+  it('pushNow flushes pending deltas immediately, bypassing debounce', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial GET
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 10_000 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    addPinnedId(1, T.T5);
+    // No drain yet — the 10s debounce hasn't fired.
+    await pushNow();
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.pinned).toEqual([{ id: 1, at: T.T5 }]);
+  });
+});
+
+describe('visibility-change pull', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    stopCloudSync();
+    _resetCloudSyncDebugForTests();
+  });
+  afterEach(() => {
+    stopCloudSync();
+    _resetCloudSyncDebugForTests();
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  function setVisibility(state: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => state,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  it('fires a pull when the tab becomes visible again', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial
+      {
+        response: jsonResponse({
+          pinned: [{ id: 77, at: T.T4 }],
+          favorite: [],
+          ignored: [],
+        }),
+      }, // after visibility
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Tab goes hidden, then visible again — but the gate requires 30s
+    // to have passed since the last pull. Force-rewind the gate.
+    const runtime = _getCloudSyncRuntimeForTests();
+    if (runtime) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (runtime as any).lastPullAttemptAt = 0;
+    }
+    setVisibility('hidden');
+    setVisibility('visible');
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getPinnedIds()).toEqual(new Set([77]));
+  });
+
+  it('does not fire a pull when transitioning to hidden', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    setVisibility('hidden');
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('gate: two quick visibility→visible transitions only trigger one pull', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // initial
+      { response: jsonResponse({ pinned: [], favorite: [], ignored: [] }) }, // first visibility pull
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    const runtime = _getCloudSyncRuntimeForTests();
+    if (runtime) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (runtime as any).lastPullAttemptAt = 0;
+    }
+    setVisibility('visible');
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Second transition within the gate window — should NOT pull.
+    // (lastPullAttemptAt has been reset to now by the previous pull.)
+    setVisibility('hidden');
+    setVisibility('visible');
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

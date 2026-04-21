@@ -8,6 +8,7 @@ import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
+import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import './StoryList.css';
 
@@ -82,7 +83,16 @@ export function LibraryStoryList({
   }
 
   return (
-    <PullToRefresh onRefresh={() => items.refetch()}>
+    <PullToRefresh
+      onRefresh={() =>
+        // Library pages (/pinned, /favorites, /ignored, /opened) read
+        // from localStorage — refetching items alone can't surface a
+        // story pinned on another device because the id isn't in the
+        // local list yet. Pull cloudSync first to bring in any new
+        // ids, then refetch the HN items.
+        cloudSyncPullNow().then(() => items.refetch())
+      }
+    >
       <ol className="story-list">
         {stories.map((story, idx) => (
           <li key={story.id} className="story-list__item">
