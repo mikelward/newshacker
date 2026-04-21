@@ -31,7 +31,7 @@ We achieve that by:
 - Familiar HN look & feel — orange `#ff6600` header, cream background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
-- Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
+- Optional: log in and upvote stories and comments via HN's existing web endpoints (from the thread page action bar, and from the expanded-comment action bar; story rows stay a two-tap-zone read surface).
 
 ## Non-Goals (MVP)
 
@@ -231,13 +231,18 @@ server-side with most-recent-first eviction.
      article summary, AI comment summary, the comments themselves),
      so an intentional tap on an action-bar button there is both
      easier to hit and a more deliberate act.
-   - **Not yet shipped (follow-ups):** voting on individual comments
-     (same mechanism, different tap target — see *Comment row layout*
-     for the reserved slot), downvoting comments (only available to
-     accounts with enough karma on HN, so the client needs to decide
-     when to render the second arrow), and a pending/animation state
-     during the in-flight POST (see `TODO.md` §
-     *Optimistic-action feedback*).
+   - **Comment upvoting (shipped).** The exact same `/api/vote`
+     endpoint and `useVote` hook drive the **Upvote ▲** button on each
+     expanded comment's action bar — HN treats stories and comments as
+     items indistinguishably, and the per-user voted-id set covers
+     both. See *Comment row layout* for the layout; see *Thread
+     action bar* for the story-row counterpart.
+   - **Not yet shipped (follow-ups):** downvoting comments (only
+     available to accounts with enough karma on HN, so the client
+     needs to decide when to render the second arrow; also requires
+     extending `/api/vote` to accept `how=down` / `how=undown`), and a
+     pending/animation state during the in-flight POST (see `TODO.md`
+     § *Optimistic-action feedback*).
    - **Cost/reliability (rule 11):** no new infra; two HN fetches per
      vote (item-page scrape + vote replay). Free on Vercel Hobby.
      Fragile point: HN HTML markup — the anchor scraper breaks if HN
@@ -423,7 +428,7 @@ Naming convention for share entries: a noun ("Share **article**") names *what* i
 
 ## Comment row layout
 
-Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, the **Reply on HN** link on expanded comments, and any future upvote/downvote buttons) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors.
+Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, and the expanded-only action bar with **Upvote** / **Reply on HN** / — eventually — **Downvote** buttons) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -445,7 +450,7 @@ Expanded state:
 
 - Background tints to `--hn-pressed` so the active node stands out in a long thread.
 - Body shows in full.
-- The meta row gains a muted `Reply on HN ↗` link (`news.ycombinator.com/reply?id=:id`, opens in a new tab) inline at its right-hand end, so the meta row doubles as the action row. The row is laid out as a flex row so upvote/downvote buttons can slot in alongside later.
+- A dedicated **action bar** renders below the meta row (not inline) with big 44px-min bordered pill buttons. Order, left to right: **Upvote ▲** (logged-in only, HN orange when voted, mirrors the thread action bar's vote button and shares the same `newshacker:votedStoryIds:<user>` set — HN treats stories and comments as items indistinguishably for voting), then **Reply on HN ↗** (opens `news.ycombinator.com/reply?id=:id` in a new tab). Reserved slots for future **Downvote ▼** (karma-gated, requires extending `/api/vote` with `how=down` / `how=undown`) and a `⋮` **More actions** overflow sit to the right; neither ships yet. The bar is a flex row with 8px gap so adding those later is a layout no-op.
 - Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
 - Cursor reverts to `default` (reading state).
 

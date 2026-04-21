@@ -1,13 +1,32 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../hooks/useAuth';
 import { useCommentItem } from '../hooks/useItemTree';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
+import { useVote } from '../hooks/useVote';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
+import { TooltipButton } from './TooltipButton';
 import './Comment.css';
+
+function UpArrowIcon() {
+  return (
+    <svg
+      className="comment__action-icon"
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      width="24"
+      height="24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M480-720 220-320h520L480-720Z" />
+    </svg>
+  );
+}
 
 interface Props {
   id: number;
@@ -18,6 +37,12 @@ export function Comment({ id }: Props) {
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
   const queryClient = useQueryClient();
+  const { isAuthenticated } = useAuth();
+  const { isVoted, toggleVote } = useVote();
+  const voted = isVoted(id);
+  const handleToggleVote = useCallback(() => {
+    toggleVote(id);
+  }, [id, toggleVote]);
 
   if (isLoading || !item) {
     return (
@@ -103,17 +128,39 @@ export function Comment({ id }: Props) {
         >
           {metaSuffix}
         </button>
-        {isExpanded ? (
+      </div>
+      {isExpanded ? (
+        <div className="comment__actions" data-testid="comment-actions">
+          {isAuthenticated ? (
+            <TooltipButton
+              type="button"
+              className={
+                'comment__action-button' +
+                (voted ? ' comment__action-button--active' : '')
+              }
+              data-testid="comment-vote"
+              aria-pressed={voted}
+              aria-label={voted ? 'Undo upvote' : 'Upvote comment'}
+              tooltip={voted ? 'Undo upvote' : 'Upvote'}
+              onClick={handleToggleVote}
+            >
+              <UpArrowIcon />
+              <span className="comment__action-label">
+                {voted ? 'Upvoted' : 'Upvote'}
+              </span>
+            </TooltipButton>
+          ) : null}
           <a
-            className="comment__action"
+            className="comment__action-button"
+            data-testid="comment-reply"
             href={`https://news.ycombinator.com/reply?id=${id}`}
             target="_blank"
             rel="noopener noreferrer"
           >
-            Reply on HN ↗
+            <span className="comment__action-label">Reply on HN ↗</span>
           </a>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {hasReplies && isExpanded ? (
         <ol className="comment__children">
           {kids.map((kidId) => (
