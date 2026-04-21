@@ -59,9 +59,13 @@ describe('<IgnoredPage>', () => {
       expect(screen.queryByText('Five')).toBeNull();
     });
 
-    expect(
-      window.localStorage.getItem('newshacker:dismissedStoryIds'),
-    ).toBe('[]');
+    const stored = window.localStorage.getItem(
+      'newshacker:dismissedStoryIds',
+    );
+    const parsed = stored
+      ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
+      : [];
+    expect(parsed.filter((e) => !e.deleted)).toEqual([]);
   });
 
   it('does not show a Forget all button when nothing is ignored', () => {

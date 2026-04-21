@@ -45,9 +45,6 @@ Deferred rather than ruled out (see *Planned / not yet implemented*
 above for the shape we expect to ship):
 
 - **Voting / unvoting** — waiting on the per-item `auth`-token scraper.
-- **Cross-device sync** of Pinned / Favorite / Ignored — waiting on
-  login (now shipped) plus a thin `/api/sync` endpoint backed by the
-  existing Upstash Redis.
 - **Submitting comments and replies** — possible future feature once
   voting is stable. Out of scope today.
 
@@ -178,18 +175,29 @@ other. The pinned-stories module performs a one-shot rename of the legacy
      is small (voting fails with a toast), but it's an ongoing
      maintenance tax the rest of the read path doesn't carry.
 
-8. **Cross-device sync of Pinned / Favorite / Ignored.** Today the three
-   lists live only in `localStorage`, so pinning a story on mobile does
-   not propagate to desktop. Planned: a `/api/sync` serverless endpoint
-   backed by the existing Upstash Redis (the same store powering the AI
-   summary cache). Identity is the HN username from the `hn_session`
-   cookie — no separate signup. Shape is three keyed lists of
-   `{ id, at, deleted? }` tuples; "deleted" is a tombstone so an unpin on
-   device A cannot be resurrected by device B's stale local pin. Merge
-   is last-write-wins per id, with the latest `at` winning. The client
-   debounces local changes (~2 s) before pushing. Fails open: if the
-   sync endpoint is down, `localStorage` keeps working exactly as today —
+8. **Cross-device sync of Pinned / Favorite / Ignored (shipped).**
+   Each of the three lists mirrors to a `/api/sync` serverless
+   endpoint backed by the existing Upstash Redis (the same store
+   powering the AI summary cache). Identity is the HN username from
+   the `hn_session` cookie — no separate signup. Shape is three keyed
+   lists of `{ id, at, deleted? }` tuples; "deleted" is a tombstone
+   so an unpin on device A cannot be resurrected by device B's stale
+   local pin. Merge is last-write-wins per id, with the latest `at`
+   winning. The client pulls on sign-in and on reconnect, and
+   debounces local changes (~2 s) into a single POST for whatever
+   changed since the last successful push. Fails open: if the sync
+   endpoint is down, `localStorage` keeps working exactly as today —
    sync is purely additive.
+   - **Opened/read history is out of scope for v1, and may stay that
+     way.** The `newshacker:openedStoryIds` store grows fast (one
+     entry per story tapped, unbounded in principle) and its
+     semantics are "noisy recent activity" rather than "curated
+     intent", so the utility of syncing it is unclear — it's not a
+     committed follow-up, just an open decision. `TODO.md` keeps
+     notes for a future self in case we ever do decide to tackle it
+     (cap ~5 k ids per user, probably whole-blob LWW per device
+     rather than per-id tombstones, since losing a read mark in a
+     conflict is cheap).
    - **Cost/reliability (rule 11):** reuses existing Upstash Redis; at
      ~1 KB × 3 lists per user, thousands of users still fit the free
      tier. New failure mode: sync endpoint down — localStorage still

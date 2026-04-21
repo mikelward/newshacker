@@ -121,50 +121,58 @@ from their home screen.
   pins is likely, with the full list still reachable at `/pinned`.
   Decide when the feature lands.
 
-### 5c. Cross-device sync (after 5b)
+### 5c. Cross-device sync (shipped)
 
-Motivation: today Pinned / Favorite / Ignored live only in
-`localStorage`, so pinning on mobile doesn't propagate to desktop.
-With 5b already surfacing pinned rows on the home feed, sync upgrades
-that into a cross-device curated feed.
+Shipped:
+- `api/sync.ts` serverless handler with `GET` (returns the user's
+  three lists from Redis) and `POST` (merges a delta of
+  `Array<{ id, at, deleted? }>` per list, per-id LWW on `at`, returns
+  the merged state). Uses the existing Upstash Redis store.
+  Per-list entry cap (10 000) and 256 KiB body ceiling guard against
+  runaway state.
+- Client-side tombstone support added to `lib/pinnedStories.ts`,
+  `lib/favorites.ts`, and `lib/dismissedStories.ts` — `remove*`
+  writes `{ id, at: now, deleted: true }` instead of dropping the
+  entry, so a subsequent server pull can't silently resurrect an
+  un-pin/un-favorite/un-ignore from a stale peer device.
+- `lib/cloudSync.ts` singleton owns the sync state machine: pulls on
+  sign-in and on reconnect, listens to the three
+  `newshacker:*Changed` events, debounces ~2 s, and POSTs the
+  `at > lastPushed` delta. Server's merged response is re-merged
+  into local stores.
+- `useCloudSync` hook in `App.tsx` (mounted once via a
+  `CloudSyncBridge` component) kicks the state machine on/off with
+  auth state.
+- Fail-open: any pull/push failure is swallowed; localStorage
+  remains authoritative for the UI. Unauthenticated users simply
+  don't sync.
+- Tests: serverless round-trip (empty → POST → GET), per-id LWW
+  including tombstones, body-validation and caps; client merge
+  logic, debounce coalescing, retry on failed POST, stop unbinds
+  listeners, tombstone propagation.
 
-- Identity: the HN username from the `hn_session` cookie (shipped in 5a).
-  No separate signup; users without an HN account don't get sync (a real
-  trade — see *Open questions* below).
-- `api/sync.ts` (Vercel serverless + existing Upstash Redis):
-  - `GET /api/sync` → `{ pinned, favorite, ignored }` where each list is
-    `Array<{ id, at, deleted? }>`. Reads one Redis hash keyed
-    `sync:<username>`.
-  - `POST /api/sync` → accepts a delta `{ list, id, at, deleted? }[]`,
-    merges into the per-user hash. Merge rule: per-id last-write-wins on
-    `at`; a deleted entry with a newer `at` masks an older additive
-    entry.
-- Client:
-  - New `useCloudSync` hook: on login or reconnect, `GET /api/sync` and
-    merge into the three `localStorage` stores with the same LWW rule.
-  - Hooks into the existing `newshacker:pinnedStoriesChanged`,
-    `newshacker:favoritesChanged`, and `newshacker:dismissedStoriesChanged`
-    events. Debounces ~2 s and `POST`s deltas.
-  - Fail-open: if `/api/sync` errors, localStorage still works — sync is
-    additive, never authoritative.
-  - Unpin/unfavorite/unignore writes a tombstone (`deleted: true, at: now`)
-    that replaces the additive entry locally and on the server so the
-    other device doesn't resurrect it on its next pull.
-- Tests:
-  - Serverless: GET on empty user returns empty lists; POST + GET round-trips
-    a delta; newer `at` wins; tombstone masks additive.
-  - Client: `useCloudSync` merges pulled state with local, debounces
-    pushes, no-ops when logged out.
-- **Cost/reliability (rule 11):** reuses existing Upstash Redis; at
-  ~1 KB/user × 3 lists = thousands of users on the free tier. New
-  failure mode = sync endpoint down → localStorage keeps working, no
-  user-visible breakage.
-- **Open questions:**
-  - Users without an HN account: no sync path in this model. Decision
-    deferred; revisit if real demand shows up.
-  - Conflict on edits within the debounce window: last-write-wins
-    per-id is coarse. Fine for add/remove; revisit if we ever store
-    richer per-item state (e.g., user notes).
+**Explicitly not in 5c: opened/read sync.** See `SPEC.md` § Planned /
+not yet implemented #8 and the `TODO.md` entry. Not a committed
+follow-up — may never ship; `TODO.md` just records the shape a
+future decision would probably take (capped list, whole-blob
+last-write-wins).
+
+**Cost/reliability (rule 11):** reuses existing Upstash Redis; at
+~1 KB/user × 3 lists = thousands of users on the free tier. New
+failure mode = sync endpoint down → localStorage keeps working, no
+user-visible breakage.
+
+**Known limitations / open questions:**
+- Users without an HN account: no sync path in this model. Decision
+  deferred; revisit if real demand shows up.
+- Conflict on edits within the debounce window: last-write-wins
+  per-id is coarse. Fine for add/remove; revisit if we ever store
+  richer per-item state (e.g., user notes).
+- Tombstones accumulate over time in each user's Redis blob. At
+  ~40 B/entry and a 10 000-entry cap the worst case is ~400 KB —
+  well under Upstash's 1 MB value limit — and when the cap bites
+  the oldest entries are pruned first. Not worth proactively GC'ing
+  yet.
 
 ### 5d. Voting (future, order vs. 5e undecided)
 
@@ -308,6 +316,6 @@ Open:
 | M3 | Phase 3 | Read comments |
 | M4 | Phase 4 | Polish + user page (full MVP) |
 | M5 | Phase 5a | HN login + header account chip (shipped) |
-| M6 | Phase 5b | Pinned stories visible on the home feed (next) |
-| M7 | Phase 5c | Cross-device sync of Pinned / Favorite / Ignored |
+| M6 | Phase 5b | Pinned stories visible on the home feed (shipped) |
+| M7 | Phase 5c | Cross-device sync of Pinned / Favorite / Ignored (shipped) |
 | M8 | Phase 5d / 5e | Voting and comment submission (order undecided) |

@@ -15,6 +15,11 @@ interface StatusBody {
       reachable?: boolean;
       latencyMs?: number;
     };
+    sync?: {
+      configured: boolean;
+      reachable?: boolean;
+      latencyMs?: number;
+    };
   };
 }
 
@@ -46,6 +51,7 @@ describe('<DebugPage>', () => {
         gemini: { configured: true },
         jina: { configured: false },
         redis: { configured: true, reachable: true, latencyMs: 4 },
+        sync: { configured: true, reachable: true, latencyMs: 4 },
       },
     });
     renderWithProviders(<DebugPage />, { route: '/debug' });
@@ -62,12 +68,35 @@ describe('<DebugPage>', () => {
 
     // Each service row renders with its own detail string.
     expect(screen.getByText('Gemini')).toBeInTheDocument();
-    expect(
-      screen.getByText(/configured · reachable · 4 ms/i),
-    ).toBeInTheDocument();
     expect(screen.getByText('Jina')).toBeInTheDocument();
     expect(screen.getByText(/^not configured$/i)).toBeInTheDocument();
+    // Sync is reported separately from Redis so operators can see at
+    // a glance whether cross-device sync will work.
+    expect(screen.getByText('Sync')).toBeInTheDocument();
   });
+
+  it('falls back to the Redis status for Sync when the server omits it', async () => {
+    mockStatus({
+      region: null,
+      build: null,
+      services: {
+        gemini: { configured: false },
+        jina: { configured: false },
+        redis: { configured: true, reachable: true, latencyMs: 2 },
+        // sync omitted — simulates an older deployment.
+      },
+    });
+    renderWithProviders(<DebugPage />, { route: '/debug' });
+    await waitFor(() => {
+      expect(screen.getByText('Sync')).toBeInTheDocument();
+    });
+    // The Sync row should surface the same "configured · reachable"
+    // state as Redis, not an empty/unknown line.
+    const syncRow = screen.getByText('Sync').closest('li');
+    expect(syncRow).not.toBeNull();
+    expect(syncRow).toHaveTextContent(/configured · reachable/i);
+  });
+
 
   it('shows an unreachable Redis cleanly without a latency number', async () => {
     mockStatus({
@@ -77,13 +106,15 @@ describe('<DebugPage>', () => {
         gemini: { configured: true },
         jina: { configured: false },
         redis: { configured: true, reachable: false },
+        sync: { configured: true, reachable: false },
       },
     });
     renderWithProviders(<DebugPage />, { route: '/debug' });
     await waitFor(() => {
+      // Both the Redis and Sync rows show the unreachable state.
       expect(
-        screen.getByText(/configured · unreachable/i),
-      ).toBeInTheDocument();
+        screen.getAllByText(/configured · unreachable/i).length,
+      ).toBeGreaterThan(0);
     });
     expect(screen.queryByText(/ms/)).not.toBeInTheDocument();
   });
@@ -117,28 +148,26 @@ describe('<DebugPage>', () => {
     let call = 0;
     const fetchMock = mockStatus(() => {
       call += 1;
+      const latency = call === 1 ? 4 : 9;
       return {
         region: 'iad1',
         build: null,
         services: {
           gemini: { configured: true },
           jina: { configured: false },
-          redis: {
-            configured: true,
-            reachable: true,
-            latencyMs: call === 1 ? 4 : 9,
-          },
+          redis: { configured: true, reachable: true, latencyMs: latency },
+          sync: { configured: true, reachable: true, latencyMs: latency },
         },
       };
     });
     renderWithProviders(<DebugPage />, { route: '/debug' });
     await waitFor(() =>
-      expect(screen.getByText(/4 ms/)).toBeInTheDocument(),
+      expect(screen.getAllByText(/4 ms/).length).toBeGreaterThan(0),
     );
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /refresh/i }));
     await waitFor(() =>
-      expect(screen.getByText(/9 ms/)).toBeInTheDocument(),
+      expect(screen.getAllByText(/9 ms/).length).toBeGreaterThan(0),
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
