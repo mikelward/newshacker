@@ -69,34 +69,47 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// Pull the auth token out of a `<a href="fave?id=<id>&auth=<token>">`
-// anchor on the item page. HN renders this only when the caller is
-// logged in and has not already favorited the item (for favorite) or
-// has already favorited it (for unfavorite, where the anchor includes
-// `&un=t`). We match both shapes and return the full href minus the
-// leading slash so the caller can build the absolute URL.
+// Pull the auth token out of the logged-in-user's favorite /
+// unfavorite anchor on the item page. HN renders:
+//   - `<a href="fave?id=<id>&auth=<tok>">favorite</a>` for items the
+//     user has NOT favorited yet, and
+//   - `<a href="fave?id=<id>&auth=<tok>&un=t">un-favorite</a>` for
+//     items the user already favorited
+// (query-string ordering can be either way — HN has been observed
+// emitting `&un=t` before OR after `&auth=…`, so we can't anchor on
+// a fixed order. Earlier strict-ordering regex caused the unfavorite
+// path to 502 in practice.)
 //
-// Regex is lenient about attribute order and the presence of `&un=t`
-// because the token itself (`auth=<hex>`) is the only value we need.
-// Exported for testing.
+// Strategy: find every `<a href=…>` anchor pointing at `fave?…`,
+// decode entities, parse as a URL, then check the query params.
+// The one whose `id` matches and whose `un=t` presence matches the
+// requested action is ours. Exported for testing.
 export function extractAuthToken(
   html: string,
   id: number,
   action: 'favorite' | 'unfavorite',
 ): string | null {
-  // `fave?id=<id>&…auth=<tok>` with `&un=t` present for unfavorite.
-  const hrefPattern =
-    action === 'favorite'
-      ? new RegExp(
-          `\\bhref=["'](?:https?://news\\.ycombinator\\.com/)?fave\\?id=${id}(?:&amp;|&)auth=([A-Za-z0-9_-]+)["']`,
-          'i',
-        )
-      : new RegExp(
-          `\\bhref=["'](?:https?://news\\.ycombinator\\.com/)?fave\\?id=${id}(?:&amp;|&)un=t(?:&amp;|&)auth=([A-Za-z0-9_-]+)["']`,
-          'i',
-        );
-  const m = hrefPattern.exec(html);
-  return m ? m[1] : null;
+  const anchorRe = /<a\b[^>]*\bhref=(?:"([^"]*)"|'([^']*)')[^>]*>/gi;
+  for (const m of html.matchAll(anchorRe)) {
+    const rawHref = m[1] ?? m[2] ?? '';
+    if (!rawHref) continue;
+    const href = rawHref.replace(/&amp;/gi, '&');
+    if (!/(^|\/)fave\?/.test(href)) continue;
+    let url: URL;
+    try {
+      url = new URL(href, 'https://news.ycombinator.com/');
+    } catch {
+      continue;
+    }
+    if (url.searchParams.get('id') !== String(id)) continue;
+    const auth = url.searchParams.get('auth');
+    if (!auth) continue;
+    const hasUn = url.searchParams.get('un') === 't';
+    if (action === 'unfavorite' && !hasUn) continue;
+    if (action === 'favorite' && hasUn) continue;
+    return auth;
+  }
+  return null;
 }
 
 export interface HnFavoriteBody {

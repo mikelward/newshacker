@@ -72,6 +72,34 @@ describe('extractAuthToken', () => {
   it('returns null when the anchor is missing', () => {
     expect(extractAuthToken('<html></html>', 42, 'favorite')).toBeNull();
   });
+
+  it('handles unfavorite links with auth BEFORE un=t (regression)', () => {
+    // HN has been observed emitting auth=… first and un=t second;
+    // the scraper must tolerate both orderings.
+    const html = `<a href="fave?id=42&amp;auth=tokAUTHFIRST&amp;un=t">un-favorite</a>`;
+    expect(extractAuthToken(html, 42, 'unfavorite')).toBe('tokAUTHFIRST');
+  });
+
+  it('handles unfavorite links with un=t before auth', () => {
+    const html = `<a href="fave?id=42&amp;un=t&amp;auth=tokUNFIRST">un-favorite</a>`;
+    expect(extractAuthToken(html, 42, 'unfavorite')).toBe('tokUNFIRST');
+  });
+
+  it('handles absolute-URL hrefs', () => {
+    const html =
+      `<a href="https://news.ycombinator.com/fave?id=42&amp;auth=tokABS">favorite</a>`;
+    expect(extractAuthToken(html, 42, 'favorite')).toBe('tokABS');
+  });
+
+  it('picks the right anchor when both favorite and unfavorite shapes appear', () => {
+    // (HN doesn't normally emit both, but the scraper must not get
+    // confused if it ever does — e.g. two items on a listing page.)
+    const html =
+      `<a href="fave?id=42&amp;auth=tokFAV">favorite</a>` +
+      `<a href="fave?id=42&amp;auth=tokUNFAV&amp;un=t">un-favorite</a>`;
+    expect(extractAuthToken(html, 42, 'favorite')).toBe('tokFAV');
+    expect(extractAuthToken(html, 42, 'unfavorite')).toBe('tokUNFAV');
+  });
 });
 
 describe('handleHnFavoriteRequest auth', () => {
