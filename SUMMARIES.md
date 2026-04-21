@@ -213,3 +213,98 @@ per constant) sat comfortably under the budget, so this is a tail
 risk. If it ever shows up in the field, the fix is to bump the
 relevant `EXPECTED_CHARS` constant and update the nearby comment with
 the new measurement cohort.
+
+## Tuning from live data: the `summary_layout` event
+
+The original device-measurement cohort (one phone + one tablet) was
+enough to get the skeleton reservations close, but any retune from
+here is more credible with real usage data. Both summary cards emit a
+`summary_layout` Vercel custom event once per card mount, after the
+real summary renders (`trackSummaryLayout` in `src/lib/analytics.ts`,
+called from each card's post-data `useEffect` in `Thread.tsx`).
+
+### Event properties
+
+All numeric fields are bucketed to the nearest 20 so the Vercel UI's
+top-N breakdown stays readable.
+
+- `kind` — `article` or `comments`.
+- `card_w` — measured card `clientWidth` at data-arrival time (px).
+- `summary_chars` — for `article`, `data.summary.length`; for
+  `comments`, the summed length of all insights.
+- `reserved_h` — skeleton content-block height the card committed to
+  at loading time, computed from `skeletonBlockHeightPx(lines)` or
+  `insightsBlockPx` depending on kind.
+- `rendered_h` — measured `offsetHeight` of the real content block
+  (the `<p>.thread__summary-body` for `article`, the
+  `<ul>.thread__summary-list` for `comments`).
+- `delta_h` — `rendered_h − reserved_h`. **Positive means the card
+  grew on arrival** (skeleton reserved too little, page jumped).
+  **Negative means the reservation was too large** (card renders
+  with a visible empty band).
+- `insight_count` — only on `kind=comments`; the actual number of
+  insights returned, which is capped at `EXPECTED_INSIGHT_COUNT`.
+
+### Reading the dashboard
+
+1. Vercel project → **Analytics** → **Events**.
+2. Filter to event name **`summary_layout`**.
+3. Break down by `card_w` first. Phone widths (≈320–414) and tablet
+   widths (≈640+) wrap the same char count to different line counts;
+   tuning a single global constant against a mixed distribution hides
+   the signal.
+
+### What to look for
+
+For each `(kind, card_w)` combination:
+
+- **`delta_h > 0` is bad.** The skeleton reserved less than the real
+  content needed, so the page jumped when the summary arrived. If
+  positive values show up in more than a small tail at a given
+  viewport, the corresponding expected-chars constant is too low.
+- **Large negative `delta_h` is also bad.** The card reserved much
+  more than needed and the bottom of the card is dead space. If this
+  dominates at a viewport, the constant is too high.
+- **Tight around zero is the target.** A small negative mode is fine
+  — the idea is to cover the long tail without over-reserving for
+  the median.
+
+Pair `delta_h` with `summary_chars` (and `insight_count` for the
+comments card) to decide how far to move the constant: e.g. if the
+~90th percentile of real `summary_chars` at `card_w=380` is 210 but
+the constant reserves for 230, trim toward 210. If the 90th
+percentile is 260 and positive `delta_h` is showing up, bump to
+around 270.
+
+Vercel's custom-event UI shows counts per bucket rather than true
+percentiles — read "p90" loosely, as the value that the 10% tallest
+events cluster around. For a tighter read, sum the top buckets until
+they cover ~90% of events for that viewport, and take the edge.
+
+### Making the tuning change
+
+1. Edit the relevant constant in `src/components/Thread.tsx` —
+   `ARTICLE_SUMMARY_EXPECTED_CHARS`, `INSIGHT_EXPECTED_CHARS`, or
+   `EXPECTED_INSIGHT_COUNT`.
+2. Replace the nearby provenance comment ("Measured on device (Pixel
+   10, Lenovo tablet)") with "Measured from N `summary_layout`
+   events, YYYY-MM-DD – YYYY-MM-DD" so future retunes can see the
+   cohort each value came from.
+3. Ship. The same telemetry will show whether `delta_h` tightened
+   around zero at the target viewport after the change — that's the
+   pass/fail signal for the retune.
+
+If the right value clearly differs across viewports — e.g. phones
+want 200 and tablets want 150 — that is the signal to split the
+constant per breakpoint rather than pick a single number. Hold off
+on that until single-number tuning has plateaued, to keep the code
+simple.
+
+### Cost and reliability
+
+At the current two-summaries-per-thread-open volume and single-digit
+daily unique visitors, `summary_layout` contributes comfortably
+within the Pro plan's 25k events/month free tier. `track()` is
+fire-and-forget with no user-visible impact if the beacon is blocked
+or Vercel's endpoint is down; the card itself does not depend on the
+event going through.

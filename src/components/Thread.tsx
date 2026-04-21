@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useItemTree } from '../hooks/useItemTree';
@@ -19,6 +19,7 @@ import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
 import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { estimateWrappedLines } from '../lib/skeletonSize';
+import { trackSummaryLayout } from '../lib/analytics';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
@@ -227,6 +228,24 @@ function SummaryCard({ storyId }: { storyId: number }) {
         skeletonBlockHeightPx(lines)
       : undefined;
 
+  const layoutFiredRef = useRef(false);
+  useEffect(() => {
+    if (layoutFiredRef.current) return;
+    if (!data || !cardRef.current || width <= 0) return;
+    const bodyEl = cardRef.current.querySelector<HTMLElement>(
+      '.thread__summary-body',
+    );
+    if (!bodyEl) return;
+    trackSummaryLayout({
+      kind: 'article',
+      cardWidthPx: width,
+      summaryChars: data.summary.length,
+      reservedContentHeightPx: skeletonBlockHeightPx(lines),
+      renderedContentHeightPx: bodyEl.offsetHeight,
+    });
+    layoutFiredRef.current = true;
+  }, [data, width, lines]);
+
   return (
     <div
       ref={cardRef}
@@ -321,6 +340,26 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
     width > 0
       ? SUMMARY_LABEL_HEIGHT_PX + SKELETON_PADDING_Y_PX + insightsBlockPx
       : undefined;
+
+  const layoutFiredRef = useRef(false);
+  useEffect(() => {
+    if (layoutFiredRef.current) return;
+    if (!data || !cardRef.current || width <= 0) return;
+    const listEl = cardRef.current.querySelector<HTMLElement>(
+      '.thread__summary-list',
+    );
+    if (!listEl) return;
+    const totalChars = data.insights.reduce((sum, s) => sum + s.length, 0);
+    trackSummaryLayout({
+      kind: 'comments',
+      cardWidthPx: width,
+      summaryChars: totalChars,
+      reservedContentHeightPx: insightsBlockPx,
+      renderedContentHeightPx: listEl.offsetHeight,
+      insightCount: data.insights.length,
+    });
+    layoutFiredRef.current = true;
+  }, [data, width, insightsBlockPx]);
 
   return (
     <div
