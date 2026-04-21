@@ -309,6 +309,86 @@ describe('<Thread>', () => {
     );
   });
 
+  it('opens an overflow menu with "Open on Hacker News" and "Share article" entries', async () => {
+    installHNFetchMock({
+      items: { 730: makeStory(730, { title: 'Mystery' }) },
+    });
+
+    const openSpy = vi.fn();
+    vi.stubGlobal('open', openSpy);
+    const shareSpy = vi.fn().mockResolvedValue(undefined);
+    const hadShare = 'share' in window.navigator;
+    Object.defineProperty(window.navigator, 'share', {
+      value: shareSpy,
+      configurable: true,
+    });
+
+    try {
+      renderWithProviders(<Thread id={730} />);
+      await waitFor(() => {
+        expect(screen.getByText('Mystery')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('story-row-menu')).toBeNull();
+
+      const more = screen.getByTestId('thread-more');
+      expect(more).toHaveAttribute('aria-haspopup', 'menu');
+      expect(more).toHaveAttribute('aria-expanded', 'false');
+
+      await userEvent.click(more);
+      expect(more).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('story-row-menu')).toBeInTheDocument();
+
+      await userEvent.click(screen.getByTestId('story-row-menu-open-on-hn'));
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://news.ycombinator.com/item?id=730',
+        '_blank',
+        'noopener,noreferrer',
+      );
+      // Selecting an item closes the sheet.
+      await waitFor(() => {
+        expect(screen.queryByTestId('story-row-menu')).toBeNull();
+      });
+
+      await userEvent.click(more);
+      await userEvent.click(screen.getByTestId('story-row-menu-share-article'));
+      await waitFor(() => {
+        expect(shareSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(shareSpy.mock.calls[0]?.[0]).toMatchObject({
+        title: 'Mystery',
+        url: 'https://example.com/730',
+      });
+    } finally {
+      if (hadShare) {
+        Object.defineProperty(window.navigator, 'share', {
+          value: undefined,
+          configurable: true,
+        });
+      } else {
+        // @ts-expect-error — clean up the stub we added.
+        delete (window.navigator as Navigator & { share?: unknown }).share;
+      }
+    }
+  });
+
+  it('hides the "Share article" entry on self-posts (no external url)', async () => {
+    installHNFetchMock({
+      items: {
+        740: makeStory(740, { title: 'Ask HN: anything?', url: undefined }),
+      },
+    });
+
+    renderWithProviders(<Thread id={740} />);
+    await waitFor(() => {
+      expect(screen.getByText('Ask HN: anything?')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId('thread-more'));
+    expect(screen.getByTestId('story-row-menu-open-on-hn')).toBeInTheDocument();
+    expect(screen.queryByTestId('story-row-menu-share-article')).toBeNull();
+  });
+
   it('auto-fetches and displays the summary card on mount', async () => {
     installHNFetchMock({
       items: {
