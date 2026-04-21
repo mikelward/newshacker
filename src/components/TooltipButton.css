@@ -35,15 +35,22 @@
 }
 
 /* Default placement: above the button. The anchor is the button's
-   top-center, so we translate up by the tooltip's full height + 8px. */
+   top-center, so we translate up by the tooltip's full height + 8px.
+   The `--tooltip-x-shift` custom property is set by the component's
+   measurement effect to nudge the tooltip back inside the viewport
+   when the button sits near a screen edge (e.g. the sweep button in
+   the app header's top-right). Default 0 means no nudge. */
 .tooltip-button__tooltip--above {
-  transform: translate(-50%, calc(-100% - 8px));
+  transform: translate(
+    calc(-50% + var(--tooltip-x-shift, 0px)),
+    calc(-100% - 8px)
+  );
 }
 
 /* Flipped placement when there isn't room above. Anchor is the
    button's bottom-center; translate down by 8px. */
 .tooltip-button__tooltip--below {
-  transform: translate(-50%, 8px);
+  transform: translate(calc(-50% + var(--tooltip-x-shift, 0px)), 8px);
 }
 
 @keyframes tooltip-button-fade-in {
