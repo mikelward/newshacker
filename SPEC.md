@@ -374,6 +374,22 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   - `HN_COOKIE_NAME=user` (matches HN's cookie name)
   - `SESSION_COOKIE_NAME=hn_session` (our own cookie name on our origin)
 
+## Analytics
+
+Vercel Web Analytics is mounted at the app root (`<Analytics />` from
+`@vercel/analytics/react` in `src/App.tsx`) to answer basic audience
+questions: visitors, pageviews, country, OS/browser, device type. It is
+cookieless (no consent banner needed in common jurisdictions) and
+self-hosted under `/_vercel/insights/*`, so no new third-party origin is
+added and ad-blocker breakage is the only user-visible failure mode —
+the app itself is unaffected if the beacon is blocked or Vercel's
+endpoint is down.
+
+Cost and reliability (per AGENTS.md rule 11): Pro plan includes 25k
+events/month; at current single-digit traffic this is effectively free.
+Beyond 25k, custom events are billed at Vercel's posted rate — revisit
+event volume before adding high-frequency custom events.
+
 ## Open Questions
 
 - Rate limiting: HN will throttle scraped requests. For MVP the read path doesn't touch HN's HTML (Firebase is the source), so this only matters once voting is enabled.
