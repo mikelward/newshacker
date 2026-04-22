@@ -195,21 +195,15 @@ function summaryErrorDetail(error: unknown): string {
   return '';
 }
 
-// Both summary cards render nothing while the request is in flight. The
-// shared Redis cache (see SPEC.md § "Shared server-side cache") serves
-// warmed summaries in single-digit ms, and the feed already warms the
-// summary and comments-summary endpoints on row-in-view, so by the time
-// the reader taps into a popular story the query usually resolves before
-// — or at most a frame after — the thread commits. Cold misses pay a
-// one-frame pop-in; we accept it as the cost of dropping the
-// skeleton-with-reservation machinery.
+// Both summary cards render nothing while the query is pending. Shared
+// Redis cache + on-view warming make the pop-in rare enough to accept;
+// see SUMMARIES.md for the tradeoff.
 function SummaryCard({ storyId }: { storyId: number }) {
   const { data, isFetching, isError, error, refetch } = useSummary(storyId, true);
   const online = useOnlineStatus();
-  const loading = isFetching && !data;
-  const offlineWithoutCache = !online && !data && !loading;
+  const offlineWithoutCache = !online && !data;
 
-  if (loading) return null;
+  if (isFetching && !data) return null;
   if (!data && !isError && !offlineWithoutCache) return null;
 
   return (
@@ -258,10 +252,9 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
     true,
   );
   const online = useOnlineStatus();
-  const loading = isFetching && !data;
-  const offlineWithoutCache = !online && !data && !loading;
+  const offlineWithoutCache = !online && !data;
 
-  if (loading) return null;
+  if (isFetching && !data) return null;
   if (!data && !isError && !offlineWithoutCache) return null;
 
   return (
