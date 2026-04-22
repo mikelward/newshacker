@@ -245,6 +245,10 @@ export function StoryList({ feed }: Props) {
 
   // Refresh == "pull the feed + cross-device sync state". Same
   // callback PullToRefresh uses — see onRefresh below.
+  // `cloudSyncPullNow` is an outer-scope module import, not a
+  // dependency of this hook — `react-hooks/exhaustive-deps` flags
+  // adding it (the value can't mutate in a way that would require
+  // a re-callback).
   const handleRefresh = useCallback(
     () => Promise.all([refetch(), cloudSyncPullNow()]),
     [refetch],

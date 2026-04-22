@@ -44,35 +44,37 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* Chevron: desktop-only affordance that signals the card is
-   expandable. Hidden by default so the mobile layout is unchanged;
-   revealed (and rotated between collapsed ▸ and expanded ▾ states)
-   only on true pointer devices, where tap-anywhere-to-toggle isn't
-   a universal expectation. */
-.comment__chevron {
-  display: none;
+.comment__toggle-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* +/− expand icon at the end of the meta row. Visible on every
+   device so the control is obvious regardless of whether the
+   reader taps the card body or aims for this icon. */
+.comment__toggle-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--hn-meta);
-  transition: transform 120ms ease-out;
+}
+
+.comment__toggle-icon svg {
+  display: block;
 }
 
 @media (hover: hover) {
-  .comment__chevron {
-    display: inline-block;
-    width: 0.85em;
-    text-align: center;
-    margin-right: 4px;
-    transform: rotate(0deg);
-  }
-  .comment__chevron[data-expanded='true'] {
-    transform: rotate(90deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .comment__chevron {
-    transition: none;
+  .comment__toggle:hover .comment__toggle-icon {
+    color: var(--hn-text);
   }
 }
 
