@@ -327,17 +327,26 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Thread comment filtering
 
-- **"New / all" comment filter on the thread page.** With each opened
-  story we now persist `commentsAt` (when the thread was last opened)
-  and `seenCommentCount` (the `descendants` at that moment). A toggle
-  on the thread header could filter to comments with `time >
-  commentsAt`, matching the "N new" badge the row already shows. The
-  state is already in `openedStories`; this is purely a UI add. Stays
-  out of the current change to keep the list-surface feature
-  self-contained. Eventually we might also promote the hand-curated
-  compound-eTLD list in `src/lib/format.ts` to the full Public Suffix
-  List if the coverage matters; the length cap is the backstop until
-  then.
+- **Surface new replies inside old top-level threads.** The shipped
+  "New / All" comments filter is **top-level only**: a new reply
+  nested under an old top-level comment won't pull its parent into
+  the "New" view, and won't get the `new` badge either. Picking this
+  up would need either (a) eagerly fetching the entire comment tree
+  on thread load — expensive for large threads — or (b) an Algolia
+  HN Search query for `story_{id}` with a `created_at_i` filter to
+  get a flat list of new comments, then mapping each back to its
+  top-level ancestor (the `parent_id` chain in Algolia's response
+  has this). Option (b) is cheap: Algolia is free for unauthenticated
+  reads and the query is O(new comments), not O(thread). We'd still
+  render the threaded tree, just with new-marked comments wherever
+  they sit. Do this once the v1 filter has enough usage to tell
+  whether the gap matters.
+
+- **PSL upgrade for domain trimming.** The hand-curated compound-eTLD
+  list in `src/lib/format.ts` covers the common HN cases
+  (`github.io`, `substack.com`, …). If we see a miss, the full
+  Public Suffix List is about 15KB of data; the length cap we ship
+  today is the backstop either way.
 
 ## Desktop layout
 

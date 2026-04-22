@@ -11,7 +11,7 @@ import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
-import { markCommentsOpenedId } from '../lib/openedStories';
+import { markCommentsSeenCount } from '../lib/openedStories';
 import './StoryList.css';
 
 interface Props {
@@ -52,10 +52,13 @@ export function LibraryStoryList({
     (it): it is NonNullable<typeof it> => it != null,
   );
 
+  // Row tap only updates seenCommentCount; commentsAt belongs to the
+  // thread-page mount (see Thread.tsx) so the "new / all" filter has a
+  // stable "last visit" reference point.
   const handleOpenThread = useCallback(
     (id: number) => {
       const story = stories.find((s) => s.id === id);
-      markCommentsOpenedId(id, Date.now(), story?.descendants ?? 0);
+      markCommentsSeenCount(id, story?.descendants ?? 0);
     },
     [stories],
   );

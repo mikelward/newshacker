@@ -4,12 +4,14 @@ import {
   addOpenedId,
   clearOpenedIds,
   getArticleOpenedIds,
+  getCommentsAt,
   getCommentsOpenedIds,
   getOpenedEntries,
   getOpenedIds,
   getSeenCommentCounts,
   markArticleOpenedId,
   markCommentsOpenedId,
+  markCommentsSeenCount,
   removeOpenedId,
 } from './openedStories';
 
@@ -207,6 +209,73 @@ describe('openedStories', () => {
     it('addOpenedId also records the snapshot', () => {
       addOpenedId(1, Date.now(), 7);
       expect(getSeenCommentCounts().get(1)).toBe(7);
+    });
+  });
+
+  describe('markCommentsSeenCount (count without touching commentsAt)', () => {
+    it('records the seen count without setting commentsAt', () => {
+      markCommentsSeenCount(1, 5);
+      expect(getSeenCommentCounts().get(1)).toBe(5);
+      expect(getCommentsAt(1)).toBeUndefined();
+      expect(getCommentsOpenedIds().has(1)).toBe(false);
+    });
+
+    it('updates the seen count on a subsequent call', () => {
+      markCommentsSeenCount(1, 3);
+      markCommentsSeenCount(1, 11);
+      expect(getSeenCommentCounts().get(1)).toBe(11);
+    });
+
+    it('leaves an existing commentsAt intact when called after markCommentsOpenedId', () => {
+      const then = Date.now() - 1000;
+      markCommentsOpenedId(1, then, 2);
+      markCommentsSeenCount(1, 9);
+      expect(getCommentsAt(1)).toBe(then);
+      expect(getSeenCommentCounts().get(1)).toBe(9);
+    });
+
+    it('does not collide with articleAt', () => {
+      markArticleOpenedId(1);
+      markCommentsSeenCount(1, 4);
+      expect(getArticleOpenedIds().has(1)).toBe(true);
+      expect(getCommentsOpenedIds().has(1)).toBe(false);
+    });
+
+    it('dispatches a change event so subscribers re-render', () => {
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:openedStoriesChanged', handler);
+      try {
+        markCommentsSeenCount(1, 4);
+        expect(events.length).toBe(1);
+      } finally {
+        window.removeEventListener(
+          'newshacker:openedStoriesChanged',
+          handler,
+        );
+      }
+    });
+  });
+
+  describe('getCommentsAt', () => {
+    it('returns undefined when the story has never been opened', () => {
+      expect(getCommentsAt(999)).toBeUndefined();
+    });
+
+    it('returns the commentsAt value set by markCommentsOpenedId', () => {
+      const then = Date.now() - 5000;
+      markCommentsOpenedId(5, then, 3);
+      expect(getCommentsAt(5)).toBe(then);
+    });
+
+    it('returns undefined when only the article has been opened', () => {
+      markArticleOpenedId(5);
+      expect(getCommentsAt(5)).toBeUndefined();
+    });
+
+    it('returns undefined when only the seen count has been recorded', () => {
+      markCommentsSeenCount(5, 2);
+      expect(getCommentsAt(5)).toBeUndefined();
     });
   });
 });

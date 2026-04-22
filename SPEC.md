@@ -484,6 +484,17 @@ Deleted, dead, and empty comments are not rendered at all — including their su
 
 Leading quote paragraphs (lines a commenter prefixes with `> ` to re-quote their parent) are stripped from the rendered body. The parent comment is already visible directly above, so the first line of the preview shouldn't be a duplicate of it — the reply's own content shows first instead. Stripping stops at the first non-quote paragraph, and a comment that is nothing but quotes is left alone rather than rendered empty.
 
+### "New / All" comments filter
+
+On a thread the reader has been to before and where at least one top-level comment has been posted since, a small **All / New (N)** segmented control appears between the Comments summary card and the comment list. It defaults to **All** — the toggle is an explicit opt-in, consistent with the "N new" row badge that drew the reader in. Tapping **New** restricts the list to top-level comments with `time > previousCommentsAt`, where `previousCommentsAt` is the `commentsAt` value stored in `newshacker:openedStoryIds` at the **moment the thread page mounted** (snapshotted before the mount effect overwrites it with `Date.now()`). Each new top-level comment is visually marked with a small orange `new` badge next to the author, so they're easy to pick out even in **All** mode.
+
+Two storage rules keep `previousCommentsAt` meaningful:
+
+1. **Row taps update `seenCommentCount` only, not `commentsAt`** (`markCommentsSeenCount`). If a row tap also moved `commentsAt` forward, the filter's reference window would collapse to zero every time the reader followed a "N new" badge into the thread — exactly the case where they most want to see what's new.
+2. **The thread page mount updates both** (`markCommentsOpenedId`), so subsequent visits measure "new since this page last actually rendered".
+
+v1 is **top-level only**: a new reply deep inside an otherwise-old top-level thread won't be surfaced, and won't carry the `new` badge. See `TODO.md § Thread comment filtering` for the follow-up (Algolia HN Search with `story_{id}` + `created_at_i` filter as the likely path).
+
 ## Top bar controls
 
 On feed pages the sticky orange header carries three feed-scoped action icons on the right, in order **Refresh → Undo → Sweep unpinned**. All three icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.

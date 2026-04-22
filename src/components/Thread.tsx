@@ -17,13 +17,14 @@ import { useCommentsSummary } from '../hooks/useCommentsSummary';
 import { useContentWidth } from '../hooks/useContentWidth';
 import { extractDomain, formatStoryMetaTail } from '../lib/format';
 import {
+  getCommentsAt,
   markArticleOpenedId,
   markCommentsOpenedId,
 } from '../lib/openedStories';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
-import { getItems } from '../lib/hn';
+import { getItems, type HNItem } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { hasSelfPostBody } from '../lib/selfPostBody';
 import { trackSummaryLayout } from '../lib/analytics';
@@ -473,6 +474,59 @@ function scrollThreadToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+interface CommentsFilterToggleProps {
+  mode: 'all' | 'new';
+  newCount: number;
+  onChange: (mode: 'all' | 'new') => void;
+}
+
+// "All" / "New" segmented control above the comments list. Appears
+// only when the reader has been here before AND there's at least one
+// new top-level comment — otherwise there's nothing meaningful to
+// switch to. Default stays "All" so the filter is always an explicit
+// opt-in; the N-new badge on the row is what signals the option.
+function CommentsFilterToggle({
+  mode,
+  newCount,
+  onChange,
+}: CommentsFilterToggleProps) {
+  return (
+    <div
+      className="thread__comments-filter"
+      role="tablist"
+      aria-label="Comment filter"
+      data-testid="comments-filter"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === 'all'}
+        className={
+          'thread__comments-filter-btn' +
+          (mode === 'all' ? ' thread__comments-filter-btn--active' : '')
+        }
+        data-testid="comments-filter-all"
+        onClick={() => onChange('all')}
+      >
+        All
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === 'new'}
+        className={
+          'thread__comments-filter-btn' +
+          (mode === 'new' ? ' thread__comments-filter-btn--active' : '')
+        }
+        data-testid="comments-filter-new"
+        onClick={() => onChange('new')}
+      >
+        New ({newCount})
+      </button>
+    </div>
+  );
+}
+
 function ThreadActionBar({
   itemId,
   articleUrl,
@@ -605,11 +659,19 @@ export function Thread({ id }: Props) {
   const { articleOpenedIds } = useOpenedStories();
   const articleOpened = articleOpenedIds.has(id);
   const item = data?.item;
+  // Snapshot the PREVIOUS commentsAt (in ms) before the effect below
+  // overwrites it. This is the "new / all" filter's reference point:
+  // any comment with `time` (HN unix seconds) > this / 1000 is new.
+  // Captured once per mount so the filter doesn't collapse to "nothing
+  // is new" the instant the effect fires.
+  const [previousCommentsAtMs] = useState<number | undefined>(() =>
+    getCommentsAt(id),
+  );
   // Snapshot the thread's comment count whenever it loads (or the
-  // background refetch brings in a fresher count). Row clicks in the
-  // feed already record an initial snapshot — this keeps it current
-  // for deep links and updates it after the user has actually seen
-  // every comment on the page.
+  // background refetch brings in a fresher count). This keeps
+  // commentsAt current while the reader is on the page and refreshes
+  // seenCommentCount so the row's "N new" badge clears naturally on
+  // return.
   const commentCount = item?.descendants;
   useEffect(() => {
     if (commentCount === undefined) return;
@@ -710,8 +772,43 @@ export function Thread({ id }: Props) {
   }, [id, item, favorited, handleToggleFavorite, shareStory]);
 
   const kidIds = data?.kidIds ?? [];
-  const shown = kidIds.slice(0, visibleCount);
-  const hasMore = visibleCount < kidIds.length;
+
+  // "New / All" filter: when the reader has been here before,
+  // optionally restrict the top-level list to comments posted since
+  // that visit. We read each kid's `time` from the React Query cache —
+  // `loadRoot` has already prefetched the first page of top-level
+  // items in one batch, so the common case is a synchronous cache hit.
+  // Kids whose item hasn't landed yet (later pages, still-in-flight
+  // refetches) are treated as "not known to be new" so we don't
+  // misleadingly shrink the count while data is still streaming in.
+  //
+  // v1 scope: top-level only. A new reply nested deep under an old
+  // top-level thread won't be surfaced by this filter; see TODO.md
+  // § Thread comment filtering for the follow-up.
+  const previousCommentsAtSec =
+    previousCommentsAtMs !== undefined
+      ? Math.floor(previousCommentsAtMs / 1000)
+      : undefined;
+  const isKidNew = useCallback(
+    (kidId: number): boolean => {
+      if (previousCommentsAtSec === undefined) return false;
+      const kid = queryClient.getQueryData<HNItem>(['comment', kidId]);
+      return !!kid?.time && kid.time > previousCommentsAtSec;
+    },
+    [queryClient, previousCommentsAtSec],
+  );
+  const newTopLevelCount = kidIds.reduce(
+    (n, kidId) => n + (isKidNew(kidId) ? 1 : 0),
+    0,
+  );
+  const [filterMode, setFilterMode] = useState<'all' | 'new'>('all');
+  const filterAvailable =
+    previousCommentsAtMs !== undefined && newTopLevelCount > 0;
+  const effectiveFilter: 'all' | 'new' = filterAvailable ? filterMode : 'all';
+  const filteredKidIds =
+    effectiveFilter === 'new' ? kidIds.filter(isKidNew) : kidIds;
+  const shown = filteredKidIds.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredKidIds.length;
 
   const loadingMoreRef = useRef(false);
 
@@ -841,10 +938,20 @@ export function Thread({ id }: Props) {
         ) : null}
       </header>
       {kidIds.length > 0 ? <CommentsSummaryCard storyId={id} /> : null}
+      {filterAvailable ? (
+        <CommentsFilterToggle
+          mode={effectiveFilter}
+          newCount={newTopLevelCount}
+          onChange={(mode) => {
+            setFilterMode(mode);
+            setVisibleCount(TOP_LEVEL_PAGE_SIZE);
+          }}
+        />
+      ) : null}
       <ol className="thread__comments">
         {shown.map((kidId) => (
           <li key={kidId}>
-            <Comment id={kidId} />
+            <Comment id={kidId} isNew={isKidNew(kidId)} />
           </li>
         ))}
       </ol>
