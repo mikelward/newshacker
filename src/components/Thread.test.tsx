@@ -94,17 +94,15 @@ describe('<Thread>', () => {
     await waitFor(() => {
       expect(screen.getByText('Parent')).toBeInTheDocument();
     });
-    // Action bar is duplicated (top + bottom of thread), so there are two
-    // "Read article" links. Both should point at the same href.
-    const readArticles = screen.getAllByRole('link', {
-      name: /read article/i,
-    });
-    expect(readArticles).toHaveLength(2);
-    for (const link of readArticles) {
-      expect(link).toHaveAttribute('href', 'https://example.com/100');
-      expect(link).toHaveTextContent(/^\s*Read article\s*$/);
-      expect(link).not.toHaveTextContent(/example\.com/);
-    }
+    // Only the top bar has "Read article"; the bottom bar's primary slot
+    // is "Back to top" instead.
+    const readArticle = screen.getByRole('link', { name: /read article/i });
+    expect(readArticle).toHaveAttribute('href', 'https://example.com/100');
+    expect(readArticle).toHaveTextContent(/^\s*Read article\s*$/);
+    expect(readArticle).not.toHaveTextContent(/example\.com/);
+    expect(
+      screen.getByRole('button', { name: /back to top/i }),
+    ).toBeInTheDocument();
     // Top-level comment body visible
     await waitFor(() => {
       expect(screen.getByText(/hello/)).toBeInTheDocument();
@@ -284,9 +282,7 @@ describe('<Thread>', () => {
       expect(screen.getByText('Readable')).toBeInTheDocument();
     });
 
-    // Either of the two "Read article" links (top or bottom bar) fires
-    // markArticleOpenedId; the top link is enough for this assertion.
-    const [link] = screen.getAllByRole('link', { name: /read article/i });
+    const link = screen.getByRole('link', { name: /read article/i });
     // jsdom follows hrefs — cancel navigation so the click handler still runs.
     link.addEventListener('click', (e) => e.preventDefault());
     await userEvent.click(link);
@@ -484,17 +480,63 @@ describe('<Thread>', () => {
     renderWithProviders(<Thread id={733} />);
     await screen.findByText('Doubled');
 
-    // Both bars present, with distinct test ids.
+    // Toggle buttons duplicated with distinct test ids.
     expect(screen.getByTestId('thread-done')).toBeInTheDocument();
     expect(screen.getByTestId('thread-done-bottom')).toBeInTheDocument();
     expect(screen.getByTestId('thread-pin')).toBeInTheDocument();
     expect(screen.getByTestId('thread-pin-bottom')).toBeInTheDocument();
     expect(screen.getByTestId('thread-more')).toBeInTheDocument();
     expect(screen.getByTestId('thread-more-bottom')).toBeInTheDocument();
-    // Both Read article links too.
-    expect(screen.getAllByRole('link', { name: /read article/i })).toHaveLength(
-      2,
-    );
+    // Primary slot differs: top = Read article link, bottom = Back to top
+    // button. Read article is NOT duplicated on the bottom bar.
+    expect(
+      screen.getAllByRole('link', { name: /read article/i }),
+    ).toHaveLength(1);
+    expect(screen.getByTestId('thread-back-to-top-bottom')).toBeInTheDocument();
+  });
+
+  it('bottom bar Back to top scrolls the window to the top', async () => {
+    installHNFetchMock({
+      items: { 735: makeStory(735, { title: 'ScrollyTop' }) },
+    });
+
+    const scrollToSpy = vi.fn();
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      writable: true,
+      value: scrollToSpy,
+    });
+
+    renderWithProviders(<Thread id={735} />);
+    await screen.findByText('ScrollyTop');
+
+    const backToTop = screen.getByTestId('thread-back-to-top-bottom');
+    expect(backToTop).toHaveAccessibleName(/back to top/i);
+    await userEvent.click(backToTop);
+
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+
+  it('bottom bar shows Back to top even on self-posts with no article url', async () => {
+    installHNFetchMock({
+      items: {
+        736: makeStory(736, {
+          title: 'Ask HN: no url',
+          url: undefined,
+          text: 'a self post',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={736} />);
+    await screen.findByText('Ask HN: no url');
+
+    // Self-post → no Read article on either bar.
+    expect(
+      screen.queryByRole('link', { name: /read article/i }),
+    ).toBeNull();
+    // But the bottom bar still offers Back to top.
+    expect(screen.getByTestId('thread-back-to-top-bottom')).toBeInTheDocument();
   });
 
   it('mark-done from the bottom action bar also navigates back', async () => {
