@@ -456,6 +456,17 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
+// Lowercased bare host, e.g. "example.com" — used as the `urlHost`
+// field on article-track logs for per-publisher rollups.
+function parseUrlHost(value: string | undefined): string | undefined {
+  if (!value || typeof value !== 'string') return undefined;
+  try {
+    return new URL(value).hostname.toLowerCase() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function clampContent(body: string): string | null {
   const trimmed =
     body.length > MAX_CONTENT_CHARS ? body.slice(0, MAX_CONTENT_CHARS) : body;
@@ -474,8 +485,20 @@ function isAbortError(err: unknown): boolean {
 
 type FetchFailure = 'timeout' | 'unreachable' | 'payment_required';
 type FetchOutcome =
-  | { ok: true; content: string }
+  | { ok: true; content: string; tokens?: number }
   | { ok: false; failure: FetchFailure };
+
+// Jina's JSON envelope: { code, status, data: { content, usage: { tokens } } }.
+// We ask for JSON (rather than plain text) so the response carries an
+// authoritative `usage.tokens` count — cheaper and more accurate than
+// estimating tokens from content length client-side. Mirrored in
+// api/summary.ts; keep the two in sync.
+interface JinaReaderEnvelope {
+  data?: {
+    content?: unknown;
+    usage?: { tokens?: unknown };
+  };
+}
 
 async function fetchViaJina(
   articleUrl: string,
@@ -490,7 +513,7 @@ async function fetchViaJina(
       signal: controller.signal,
       headers: {
         authorization: `Bearer ${jinaApiKey}`,
-        accept: 'text/plain',
+        accept: 'application/json',
         'x-return-format': 'markdown',
       },
     });
@@ -502,10 +525,23 @@ async function fetchViaJina(
       return { ok: false, failure: 'payment_required' };
     }
     if (!res.ok) return { ok: false, failure: 'unreachable' };
-    const content = clampContent(await res.text());
-    return content
-      ? { ok: true, content }
-      : { ok: false, failure: 'unreachable' };
+    let envelope: JinaReaderEnvelope;
+    try {
+      envelope = (await res.json()) as JinaReaderEnvelope;
+    } catch {
+      return { ok: false, failure: 'unreachable' };
+    }
+    const rawContent = envelope.data?.content;
+    if (typeof rawContent !== 'string') {
+      return { ok: false, failure: 'unreachable' };
+    }
+    const content = clampContent(rawContent);
+    if (!content) return { ok: false, failure: 'unreachable' };
+    const rawTokens = envelope.data?.usage?.tokens;
+    const tokens = typeof rawTokens === 'number' && Number.isFinite(rawTokens)
+      ? rawTokens
+      : undefined;
+    return { ok: true, content, tokens };
   } catch (err) {
     return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
   } finally {
@@ -638,6 +674,18 @@ export interface StoryLog {
   // "timestamp / cache-buster churn" (tiny delta, Jina's markdown
   // still flipped because the in-body timestamp moved).
   contentBytes?: number;
+  // Article track: Jina Reader's billed token count for this fetch
+  // (from the `usage.tokens` field of the JSON response). Missing when
+  // we didn't call Jina this tick (skipped_*, self-posts) or when Jina
+  // omitted the field. The run-level `articleTokensTotal` rolls these
+  // up so operators can watch for budget drift without post-processing
+  // the per-story lines.
+  tokens?: number;
+  // Article track: hostname of `story.url` when available. Populated
+  // on every article-track log line where the story carries a URL —
+  // including the skipped_* outcomes — so `grep urlHost` gives a
+  // per-publisher breakdown without re-joining against HN item data.
+  urlHost?: string;
   // Comments track analogues:
   //   commentCount    = usable top-level comments fed to the model
   //                     (≤ TOP_LEVEL_SAMPLE_SIZE; less when some were
@@ -669,6 +717,10 @@ export interface RunLog {
   topNRequested: number;
   feed: WarmFeed;
   knobs: WarmKnobs;
+  // Sum of per-story article-track `tokens` values for this run — the
+  // authoritative Jina-billed token count. Roll across runs to spot
+  // budget drift before the 402 / 429 cliff hits.
+  articleTokensTotal: number;
 }
 
 type Logger = (entry: StoryLog | RunLog) => void;
@@ -890,7 +942,13 @@ async function processArticleTrack(
   ctx: StoryContext,
 ): Promise<StoryLog> {
   const { deps, knobs, now, fetchFn, jinaApiKey, apiKey } = ctx;
-  const log = makeLog('article', storyId);
+  const baseLog = makeLog('article', storyId);
+  // Derive the URL host once so every outcome can carry it — including
+  // the skipped_* branches where we haven't done any Jina work. Lets
+  // `grep urlHost` produce a per-publisher breakdown from logs alone.
+  const urlHost = parseUrlHost(story?.url);
+  const log = (extra: Partial<StoryLog>): StoryLog =>
+    baseLog(urlHost ? { urlHost, ...extra } : extra);
 
   if (existing) {
     const { skip, stableFor } = shouldSkipByBackoff(existing, now, knobs);
@@ -923,6 +981,7 @@ async function processArticleTrack(
 
   let content: string;
   let prompt: string;
+  let jinaTokens: number | undefined;
   if (hasArticleUrl) {
     const articleUrl = story.url!;
     if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
@@ -934,6 +993,7 @@ async function processArticleTrack(
       return log({ outcome: 'skipped_unreachable' });
     }
     content = res.content;
+    jinaTokens = res.tokens;
     prompt = buildPrompt(articleUrl, content);
   } else {
     // Self-post: body is already in the HN item, no Jina fetch needed.
@@ -957,10 +1017,11 @@ async function processArticleTrack(
       stableForMinutes: minutes(now - existing.lastChangedAt),
       sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
       contentBytes,
+      tokens: jinaTokens,
     });
   }
 
-  if (!apiKey) return log({ outcome: 'error' });
+  if (!apiKey) return log({ outcome: 'error', tokens: jinaTokens });
 
   const client: SummaryClient = deps.createClient
     ? deps.createClient(apiKey)
@@ -976,7 +1037,7 @@ async function processArticleTrack(
   } catch {
     // falls through
   }
-  if (!summary) return log({ outcome: 'error' });
+  if (!summary) return log({ outcome: 'error', tokens: jinaTokens });
 
   const summaryChanged = !!existing && existing.summary !== summary;
   const record: SummaryRecord = {
@@ -993,7 +1054,7 @@ async function processArticleTrack(
     // best-effort
   }
   if (!existing) {
-    return log({ outcome: 'first_seen', contentBytes });
+    return log({ outcome: 'first_seen', contentBytes, tokens: jinaTokens });
   }
   return log({
     outcome: 'changed',
@@ -1002,6 +1063,7 @@ async function processArticleTrack(
     sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
     summaryChanged,
     contentBytes,
+    tokens: jinaTokens,
   });
 }
 
@@ -1218,6 +1280,7 @@ export async function handleWarmRequest(
       topNRequested: n,
       feed,
       knobs,
+      articleTokensTotal: 0,
     };
     logger(entry);
     return json({ error: 'Store not configured', reason: 'no_store' }, 503);
@@ -1251,6 +1314,7 @@ export async function handleWarmRequest(
   const outcomes = emptyTrackOutcomes();
   let processed = 0;
   let storyCount = 0;
+  let articleTokensTotal = 0;
 
   const logGroups = await runPool(
     selected,
@@ -1277,6 +1341,9 @@ export async function handleWarmRequest(
       outcomes[entry.track][entry.outcome] =
         (outcomes[entry.track][entry.outcome] ?? 0) + 1;
       processed += 1;
+      if (entry.track === 'article' && typeof entry.tokens === 'number') {
+        articleTokensTotal += entry.tokens;
+      }
     }
   }
 
@@ -1289,6 +1356,7 @@ export async function handleWarmRequest(
     topNRequested: n,
     feed,
     knobs,
+    articleTokensTotal,
   };
   logger(runEntry);
 

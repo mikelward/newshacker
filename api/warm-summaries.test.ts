@@ -106,6 +106,18 @@ function createFakeFetch(routes: Record<string, FakeFetchResult>) {
   });
 }
 
+// Wraps a markdown body in Jina Reader's JSON envelope so the mock
+// matches what production Jina returns now that we request
+// `accept: application/json`. Tokens default to a non-zero sentinel so
+// the `tokens` / `articleTokensTotal` rollup is easy to assert.
+function jinaBody(content: string, tokens = 123): string {
+  return JSON.stringify({
+    code: 200,
+    status: 20000,
+    data: { content, usage: { tokens } },
+  });
+}
+
 function createFakeClient(responses: Array<{ text: string | null } | Error>) {
   const queue = [...responses];
   const generateContent = vi.fn(async () => {
@@ -350,7 +362,7 @@ describe('handleWarmRequest', () => {
     const articleUrl = 'https://example.com/first';
     const articleBody = 'body v1';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: articleBody },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(articleBody) },
     });
     const fetchItem = fetchItemFor({
       1001: { id: 1001, type: 'story', url: articleUrl, score: 42 },
@@ -378,11 +390,21 @@ describe('handleWarmRequest', () => {
     const article = stories.find((s) => s.track === 'article')!;
     const comments = stories.find((s) => s.track === 'comments')!;
     expect(article.outcome).toBe('first_seen');
+    // The Jina-billed token count (from `usage.tokens` in the JSON
+    // envelope) is surfaced on the per-story log so operators can spot
+    // per-publisher token hogs; and the URL host is carried alongside
+    // so per-domain grep works without re-joining against HN item
+    // data.
+    expect(article.tokens).toBe(123);
+    expect(article.urlHost).toBe('example.com');
     expect(comments.outcome).toBe('skipped_no_content');
     expect(runs).toHaveLength(1);
     expect(runs[0]!.outcomes.article.first_seen).toBe(1);
     expect(runs[0]!.outcomes.comments.skipped_no_content).toBe(1);
     expect(runs[0]!.storyCount).toBe(1);
+    // The run log rolls token counts up so you can watch total Jina
+    // spend per tick without post-processing the per-story lines.
+    expect(runs[0]!.articleTokensTotal).toBe(123);
 
     const record = store.map.get(1001)!;
     expect(record.summary).toBe('summary v1');
@@ -390,6 +412,97 @@ describe('handleWarmRequest', () => {
     expect(record.firstSeenAt).toBe(now);
     expect(record.lastChangedAt).toBe(now);
     expect(record.lastCheckedAt).toBe(now);
+  });
+
+  it('rolls articleTokensTotal across multiple stories and tags each log with urlHost, even on skipped_interval', async () => {
+    // Two stories: one is fresh (will be fetched from Jina and bill
+    // tokens), the other has an existing record inside the fresh
+    // interval (skipped_interval — no Jina call, no billed tokens this
+    // tick). Both should carry `urlHost` so per-publisher grep works
+    // on every log line; only the fresh one contributes to the run's
+    // `articleTokensTotal`.
+    const freshUrl = 'https://fresh.example.com/a';
+    const skipUrl = 'https://stable.example.org/b';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${freshUrl}`]: { body: jinaBody('fresh body', 250) },
+    });
+    const fetchItem = fetchItemFor({
+      3001: { id: 3001, type: 'story', url: freshUrl, score: 10 },
+      3002: { id: 3002, type: 'story', url: skipUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    // Prepopulated record inside the fresh interval → skipped_interval.
+    store.map.set(3002, {
+      summary: 'old',
+      articleHash: 'old-hash',
+      firstSeenAt: now - 5 * MINUTES,
+      summaryGeneratedAt: now - 5 * MINUTES,
+      lastCheckedAt: now - 5 * MINUTES,
+      lastChangedAt: now - 5 * MINUTES,
+    });
+    const client = createFakeClient([{ text: 'fresh summary' }]);
+    const { logger, stories, runs } = captureLogger();
+
+    const res = await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [3001, 3002],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+    expect(res.status).toBe(200);
+
+    const articles = stories.filter((s) => s.track === 'article');
+    const fresh = articles.find((s) => s.storyId === 3001)!;
+    const skipped = articles.find((s) => s.storyId === 3002)!;
+    expect(fresh.outcome).toBe('first_seen');
+    expect(fresh.tokens).toBe(250);
+    expect(fresh.urlHost).toBe('fresh.example.com');
+    expect(skipped.outcome).toBe('skipped_interval');
+    expect(skipped.tokens).toBeUndefined();
+    expect(skipped.urlHost).toBe('stable.example.org');
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.articleTokensTotal).toBe(250);
+  });
+
+  it('logs skipped_unreachable (and no tokens) when Jina returns a malformed JSON envelope', async () => {
+    // Regression guard for the JSON-response migration: if Jina's
+    // envelope shape drifts (or we hit an edge that returns HTML /
+    // non-JSON / missing `data.content`), the handler must treat it
+    // as unreachable rather than throwing or logging garbage tokens.
+    const articleUrl = 'https://example.com/bad-envelope';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: {
+        body: JSON.stringify({ code: 200, status: 20000, data: {} }),
+      },
+    });
+    const fetchItem = fetchItemFor({
+      4001: { id: 4001, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([]);
+    const { logger, stories, runs } = captureLogger();
+
+    const res = await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [4001],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+    expect(res.status).toBe(200);
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('skipped_unreachable');
+    expect(article.tokens).toBeUndefined();
+    expect(article.urlHost).toBe('example.com');
+    expect(runs[0]!.articleTokensTotal).toBe(0);
   });
 
   it('warms a self-post article summary from story.text without calling Jina', async () => {
@@ -439,7 +552,7 @@ describe('handleWarmRequest', () => {
     const articleUrl = 'https://example.com/same';
     const body = 'stable body';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(body) },
     });
     const fetchItem = fetchItemFor({
       1002: { id: 1002, type: 'story', url: articleUrl, score: 10 },
@@ -485,7 +598,7 @@ describe('handleWarmRequest', () => {
     const oldBody = 'before';
     const newBody = 'after the update';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: newBody },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
     });
     const fetchItem = fetchItemFor({
       1003: { id: 1003, type: 'story', url: articleUrl, score: 10 },
@@ -646,8 +759,8 @@ describe('handleWarmRequest', () => {
       3: { id: 3, type: 'story', url: 'https://example.com/3', score: 10 },
     });
     const fetchImpl = createFakeFetch({
-      'https://r.jina.ai/https://example.com/1': { body: '1' },
-      'https://r.jina.ai/https://example.com/2': { body: '2' },
+      'https://r.jina.ai/https://example.com/1': { body: jinaBody('1') },
+      'https://r.jina.ai/https://example.com/2': { body: jinaBody('2') },
     });
     const store = createTestStore();
     const { logger, stories } = captureLogger();
@@ -679,7 +792,7 @@ describe('handleWarmRequest', () => {
       3: { id: 3, type: 'story', url: 'https://example.com/c', score: 0 }, // low score → both tracks
     });
     const fetchImpl = createFakeFetch({
-      'https://r.jina.ai/https://example.com/a': { body: 'A' },
+      'https://r.jina.ai/https://example.com/a': { body: jinaBody('A') },
     });
     const store = createTestStore();
     const client = createFakeClient([{ text: 'sa' }]);
@@ -942,7 +1055,7 @@ describe('handleWarmRequest', () => {
       3002: { id: 3002, type: 'comment', text: 'a thought', time: 1 },
     });
     const fetchImpl = createFakeFetch({
-      'https://r.jina.ai/https://example.com/x': { body: 'article' },
+      'https://r.jina.ai/https://example.com/x': { body: jinaBody('article') },
     });
     const store = createTestStore();
     const commentsStore = createCommentsTestStore();
