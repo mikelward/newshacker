@@ -359,3 +359,117 @@ describe('StoryListItem long-press menu', () => {
     expect(onOpenThread).not.toHaveBeenCalled();
   });
 });
+
+describe('StoryListItem right-click menu (pointer devices)', () => {
+  function withPointerDevice(matches: boolean) {
+    const original = window.matchMedia;
+    window.matchMedia = (query: string) =>
+      ({
+        matches: query.includes('hover: hover') ? matches : false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }) as unknown as MediaQueryList;
+    return () => {
+      window.matchMedia = original;
+    };
+  }
+
+  it('opens the row menu on right-click when `(hover: hover)` matches', () => {
+    const restore = withPointerDevice(true);
+    try {
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          onPin={vi.fn()}
+          onHide={vi.fn()}
+          onShare={vi.fn()}
+        />,
+      );
+      const row = screen.getByTestId('story-row');
+      const evt = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        row.dispatchEvent(evt);
+      });
+      expect(evt.defaultPrevented).toBe(true);
+      expect(screen.getByTestId('story-row-menu')).toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
+  it('does NOT open on right-click when `(hover: hover)` is false (touch devices already have long-press)', () => {
+    const restore = withPointerDevice(false);
+    try {
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          onPin={vi.fn()}
+          onHide={vi.fn()}
+          onShare={vi.fn()}
+        />,
+      );
+      const row = screen.getByTestId('story-row');
+      act(() => {
+        row.dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(screen.queryByTestId('story-row-menu')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('is a no-op when the row has no menu actions configured', () => {
+    const restore = withPointerDevice(true);
+    try {
+      // No onPin/onUnpin/onHide/onShare — the Share/Pin/Hide menu would
+      // be empty; the right-click should not open an empty menu.
+      renderWithProviders(<StoryListItem story={baseStory} />);
+      const row = screen.getByTestId('story-row');
+      act(() => {
+        row.dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(screen.queryByTestId('story-row-menu')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('renders the menu as an anchored popover (data-variant="popover") on pointer devices', () => {
+    const restore = withPointerDevice(true);
+    try {
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          onPin={vi.fn()}
+          onHide={vi.fn()}
+        />,
+      );
+      const row = screen.getByTestId('story-row');
+      act(() => {
+        row.dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(screen.getByTestId('story-row-menu')).toHaveAttribute(
+        'data-variant',
+        'popover',
+      );
+      // Popover variant has no bottom-sheet Cancel button.
+      expect(screen.queryByTestId('story-row-menu-cancel')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});

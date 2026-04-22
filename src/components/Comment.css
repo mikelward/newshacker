@@ -46,6 +46,36 @@
   cursor: pointer;
 }
 
+/* Chevron: desktop-only affordance that signals the card is
+   expandable. Hidden by default so the mobile layout is unchanged;
+   revealed (and rotated between collapsed ▸ and expanded ▾ states)
+   only on true pointer devices, where tap-anywhere-to-toggle isn't
+   a universal expectation. */
+.comment__chevron {
+  display: none;
+  color: var(--hn-meta);
+  transition: transform 120ms ease-out;
+}
+
+@media (hover: hover) {
+  .comment__chevron {
+    display: inline-block;
+    width: 0.85em;
+    text-align: center;
+    margin-right: 4px;
+    transform: rotate(0deg);
+  }
+  .comment__chevron[data-expanded='true'] {
+    transform: rotate(90deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comment__chevron {
+    transition: none;
+  }
+}
+
 .comment__body {
   font-size: 15px;
   line-height: 1.5;

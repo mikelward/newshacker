@@ -74,6 +74,12 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
     } | null>(null);
     const showTimerRef = useRef<number | null>(null);
     const hideTimerRef = useRef<number | null>(null);
+    // True while the tooltip is up for long-press reasons (touch).
+    // False while it's up for hover reasons (mouse). We track it
+    // because the two modes have different hide rules: long-press
+    // auto-hides after a duration and swallows the follow-up click;
+    // hover persists until mouseleave and does not swallow clicks.
+    const longPressShownRef = useRef(false);
     const activatedRef = useRef(false);
 
     const clearShowTimer = useCallback(() => {
@@ -128,45 +134,52 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
       if (nextShift !== xShift) setXShift(nextShift);
     }, [open, position, xShift]);
 
-    const showTooltip = useCallback(() => {
-      const btn = buttonRef.current;
-      if (!btn) return;
-      const rect = btn.getBoundingClientRect();
-      // Use the visual viewport when available so we stay inside the
-      // *visible* area as the mobile address bar collapses.
-      const vv =
-        typeof window !== 'undefined' ? window.visualViewport : null;
-      const viewportWidth =
-        vv?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
-      const viewportHeight =
-        vv?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0);
-      const SPACE_NEEDED = 44; // 6+13 line-height*~1.3 + 10 padding + 8 gap + slack
-      const preferAbove = rect.top >= SPACE_NEEDED;
-      const placement: 'above' | 'below' =
-        preferAbove || viewportHeight - rect.bottom < SPACE_NEEDED
-          ? 'above'
-          : 'below';
-      const MARGIN = 8;
-      const rawLeft = rect.left + rect.width / 2;
-      const left = Math.min(
-        Math.max(rawLeft, MARGIN),
-        Math.max(MARGIN, viewportWidth - MARGIN),
-      );
-      setPosition({
-        top: placement === 'above' ? rect.top : rect.bottom,
-        left,
-        placement,
-      });
-      // Reset any pre-existing horizontal shift from a previous show so
-      // the measurement effect can re-compute from the ideal center.
-      setXShift(0);
-      setOpen(true);
-      clearHideTimer();
-      hideTimerRef.current = window.setTimeout(() => {
-        hideTimerRef.current = null;
-        setOpen(false);
-      }, tooltipDurationMs);
-    }, [tooltipDurationMs, clearHideTimer]);
+    const showTooltip = useCallback(
+      (mode: 'longpress' | 'hover') => {
+        const btn = buttonRef.current;
+        if (!btn) return;
+        const rect = btn.getBoundingClientRect();
+        // Use the visual viewport when available so we stay inside the
+        // *visible* area as the mobile address bar collapses.
+        const vv =
+          typeof window !== 'undefined' ? window.visualViewport : null;
+        const viewportWidth =
+          vv?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
+        const viewportHeight =
+          vv?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0);
+        const SPACE_NEEDED = 44; // 6+13 line-height*~1.3 + 10 padding + 8 gap + slack
+        const preferAbove = rect.top >= SPACE_NEEDED;
+        const placement: 'above' | 'below' =
+          preferAbove || viewportHeight - rect.bottom < SPACE_NEEDED
+            ? 'above'
+            : 'below';
+        const MARGIN = 8;
+        const rawLeft = rect.left + rect.width / 2;
+        const left = Math.min(
+          Math.max(rawLeft, MARGIN),
+          Math.max(MARGIN, viewportWidth - MARGIN),
+        );
+        setPosition({
+          top: placement === 'above' ? rect.top : rect.bottom,
+          left,
+          placement,
+        });
+        // Reset any pre-existing horizontal shift from a previous show so
+        // the measurement effect can re-compute from the ideal center.
+        setXShift(0);
+        setOpen(true);
+        clearHideTimer();
+        longPressShownRef.current = mode === 'longpress';
+        if (mode === 'longpress') {
+          hideTimerRef.current = window.setTimeout(() => {
+            hideTimerRef.current = null;
+            setOpen(false);
+          }, tooltipDurationMs);
+        }
+        // Hover mode has no auto-hide timer — mouseleave/blur hides it.
+      },
+      [tooltipDurationMs, clearHideTimer],
+    );
 
     const handlePointerDown = useCallback(
       (e: PointerEvent<HTMLButtonElement>) => {
@@ -178,8 +191,8 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         // are harmless to ancestors since those listeners key off
         // state they set in their own pointerdown handler.
         e.stopPropagation();
-        // Desktop mouse already gets the native `title` tooltip on hover;
-        // only fire the long-press behavior for touch/pen.
+        // Mouse gets the hover-triggered tooltip via mouseenter; only
+        // fire the long-press behavior for touch/pen.
         if (e.pointerType === 'mouse') return;
         startRef.current = {
           x: e.clientX,
@@ -191,7 +204,7 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         showTimerRef.current = window.setTimeout(() => {
           showTimerRef.current = null;
           activatedRef.current = true;
-          showTooltip();
+          showTooltip('longpress');
         }, tooltipDelayMs);
       },
       [onPointerDown, tooltipDelayMs, clearShowTimer, showTooltip],
@@ -229,9 +242,49 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         clearHideTimer();
         setOpen(false);
         activatedRef.current = false;
+        longPressShownRef.current = false;
       },
       [onPointerCancel, clearShowTimer, clearHideTimer],
     );
+
+    // Mouse hover / keyboard focus: desktop equivalent of the
+    // touch-long-press tooltip. Shows the same styled tooltip after
+    // the same delay; hides on leave/blur (no auto-timeout).
+    // onPointerEnter is used instead of onMouseEnter so we can gate
+    // on pointerType — we don't want to re-show the tooltip on a
+    // synthetic mouseenter that follows a touch gesture.
+    const hoverActiveRef = useRef(false);
+    const hideHoverTooltip = useCallback(() => {
+      hoverActiveRef.current = false;
+      clearShowTimer();
+      if (!longPressShownRef.current) {
+        clearHideTimer();
+        setOpen(false);
+      }
+    }, [clearShowTimer, clearHideTimer]);
+    const handlePointerEnter = useCallback(
+      (e: PointerEvent<HTMLButtonElement>) => {
+        if (e.pointerType !== 'mouse') return;
+        hoverActiveRef.current = true;
+        clearShowTimer();
+        showTimerRef.current = window.setTimeout(() => {
+          showTimerRef.current = null;
+          if (!hoverActiveRef.current) return;
+          showTooltip('hover');
+        }, tooltipDelayMs);
+      },
+      [tooltipDelayMs, clearShowTimer, showTooltip],
+    );
+    const handlePointerLeave = useCallback(
+      (e: PointerEvent<HTMLButtonElement>) => {
+        if (e.pointerType !== 'mouse') return;
+        hideHoverTooltip();
+      },
+      [hideHoverTooltip],
+    );
+    const handleBlur = useCallback(() => {
+      hideHoverTooltip();
+    }, [hideHoverTooltip]);
 
     const handleContextMenu = useCallback(
       (e: MouseEvent<HTMLButtonElement>) => {
@@ -265,17 +318,26 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
     const portalTarget =
       typeof document !== 'undefined' ? document.body : null;
 
+    // Our styled tooltip now covers both the touch long-press and
+    // mouse hover paths, so we no longer emit a native `title`
+    // attribute — that would double up with our portal tooltip on
+    // desktop. Consumers that pass an explicit `title` prop still
+    // win (it's a raw HTML escape hatch for cases like an exact
+    // string other code needs to read).
     return (
       <>
         <button
           ref={buttonRef}
           className={mergedClassName}
-          title={title ?? tooltip}
+          title={title}
           aria-describedby={open ? tooltipId : undefined}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={handlePointerLeave}
+          onBlur={handleBlur}
           onContextMenu={handleContextMenu}
           onClick={handleClick}
           {...rest}

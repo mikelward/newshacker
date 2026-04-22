@@ -1,6 +1,24 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
+
+function setHoverDevice(matches: boolean) {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    ({
+      matches: query.includes('hover: hover') ? matches : false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList;
+  return () => {
+    window.matchMedia = original;
+  };
+}
 
 function items(handlers: Partial<Record<string, () => void>> = {}) {
   return [
@@ -101,5 +119,146 @@ describe('StoryRowMenu', () => {
     );
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('StoryRowMenu popover mode (pointer devices)', () => {
+  let restore: () => void;
+  beforeEach(() => {
+    restore = setHoverDevice(true);
+  });
+  afterEach(() => {
+    restore();
+  });
+
+  it('renders as a popover when `(hover: hover)` matches and an anchor is supplied', () => {
+    const anchor = document.createElement('button');
+    anchor.getBoundingClientRect = () =>
+      ({
+        top: 100,
+        left: 200,
+        right: 248,
+        bottom: 148,
+        width: 48,
+        height: 48,
+        x: 200,
+        y: 100,
+        toJSON() {},
+      }) as DOMRect;
+    document.body.appendChild(anchor);
+    try {
+      render(
+        <StoryRowMenu
+          open
+          title="A story"
+          items={items()}
+          anchorEl={anchor}
+          onClose={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId('story-row-menu')).toHaveAttribute(
+        'data-variant',
+        'popover',
+      );
+      // No backdrop and no Cancel button in popover mode.
+      expect(screen.queryByTestId('story-row-menu-backdrop')).toBeNull();
+      expect(screen.queryByTestId('story-row-menu-cancel')).toBeNull();
+    } finally {
+      document.body.removeChild(anchor);
+    }
+  });
+
+  it('falls back to the bottom sheet when no anchor is provided', () => {
+    render(
+      <StoryRowMenu
+        open
+        title="A story"
+        items={items()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('story-row-menu')).toHaveAttribute(
+      'data-variant',
+      'sheet',
+    );
+    expect(screen.getByTestId('story-row-menu-backdrop')).toBeInTheDocument();
+    expect(screen.getByTestId('story-row-menu-cancel')).toBeInTheDocument();
+  });
+
+  it('closes when a mousedown lands outside both the menu and the anchor', () => {
+    const anchor = document.createElement('button');
+    anchor.getBoundingClientRect = () =>
+      ({
+        top: 0,
+        left: 0,
+        right: 48,
+        bottom: 48,
+        width: 48,
+        height: 48,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      }) as DOMRect;
+    document.body.appendChild(anchor);
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+    const onClose = vi.fn();
+    try {
+      render(
+        <StoryRowMenu
+          open
+          title="A story"
+          items={items()}
+          anchorEl={anchor}
+          onClose={onClose}
+        />,
+      );
+      act(() => {
+        outside.dispatchEvent(
+          new MouseEvent('mousedown', { bubbles: true }),
+        );
+      });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      document.body.removeChild(outside);
+      document.body.removeChild(anchor);
+    }
+  });
+
+  it('does NOT close when a mousedown lands inside the anchor (the trigger owns toggling)', () => {
+    const anchor = document.createElement('button');
+    anchor.getBoundingClientRect = () =>
+      ({
+        top: 0,
+        left: 0,
+        right: 48,
+        bottom: 48,
+        width: 48,
+        height: 48,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      }) as DOMRect;
+    document.body.appendChild(anchor);
+    const onClose = vi.fn();
+    try {
+      render(
+        <StoryRowMenu
+          open
+          title="A story"
+          items={items()}
+          anchorEl={anchor}
+          onClose={onClose}
+        />,
+      );
+      act(() => {
+        anchor.dispatchEvent(
+          new MouseEvent('mousedown', { bubbles: true }),
+        );
+      });
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeChild(anchor);
+    }
   });
 });

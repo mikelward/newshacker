@@ -2,6 +2,9 @@
   position: fixed;
   inset: 0;
   z-index: 200;
+}
+
+.story-menu--sheet {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -28,6 +31,22 @@
   animation: story-menu-slide 180ms ease-out;
 }
 
+.story-menu__sheet--popover {
+  /* Anchored popover — inline coordinates set top/left from JS. The
+     menu is a compact card next to its trigger, not a full-width
+     bottom sheet. */
+  position: fixed;
+  width: auto;
+  max-width: min(280px, calc(100vw - 16px));
+  min-width: 160px;
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid var(--hn-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  animation: story-menu-pop 120ms ease-out;
+}
+
 .story-menu__title {
   font-size: 13px;
   color: var(--hn-meta);
@@ -35,6 +54,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.story-menu__sheet--popover .story-menu__title {
+  padding: 6px 10px 6px;
+  font-size: 12px;
 }
 
 .story-menu__list {
@@ -55,6 +79,14 @@
   padding: 14px 16px;
   min-height: var(--tap-min);
   border-radius: 8px;
+}
+
+.story-menu__sheet--popover .story-menu__item {
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 10px;
+  min-height: 0;
+  border-radius: 6px;
 }
 
 .story-menu__item:hover,
@@ -102,6 +134,17 @@
   }
   to {
     transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes story-menu-pop {
+  from {
+    transform: translateY(-4px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
     opacity: 1;
   }
 }

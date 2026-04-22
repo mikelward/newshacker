@@ -17,6 +17,38 @@ function commentFixture(id: number, overrides: Partial<HNItem> = {}): HNItem {
   };
 }
 
+describe('<Comment> chevron affordance', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('renders a chevron inside the toggle whose data-expanded flips on click', async () => {
+    const items: Record<number, HNItem> = {
+      7100: commentFixture(7100, { kids: [] }),
+    };
+    installHNFetchMock({ items });
+    renderWithProviders(<Comment id={7100} />);
+    await waitFor(() => {
+      expect(screen.getByText('body 7100')).toBeInTheDocument();
+    });
+    const toggle = screen.getByRole('button', { name: /expand comment/i });
+    const chevron = toggle.querySelector('.comment__chevron');
+    expect(chevron).not.toBeNull();
+    expect(chevron).toHaveAttribute('data-expanded', 'false');
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    await waitFor(() => {
+      expect(
+        toggle.querySelector('.comment__chevron'),
+      ).toHaveAttribute('data-expanded', 'true');
+    });
+  });
+});
+
 describe('<Comment> expand batching', () => {
   beforeEach(() => {
     window.localStorage.clear();

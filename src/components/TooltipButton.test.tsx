@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { TooltipButton } from './TooltipButton';
 
 type PointerType = 'touch' | 'pen' | 'mouse';
@@ -75,19 +75,16 @@ describe('TooltipButton', () => {
     expect(btn).toHaveTextContent('icon');
   });
 
-  it('sets title to the tooltip so desktop hover shows the same copy', () => {
+  it('omits a native title by default so our styled tooltip does not double up with the browser tooltip on hover', () => {
     render(
       <TooltipButton tooltip="Dismiss unpinned" data-testid="btn">
         x
       </TooltipButton>,
     );
-    expect(screen.getByTestId('btn')).toHaveAttribute(
-      'title',
-      'Dismiss unpinned',
-    );
+    expect(screen.getByTestId('btn')).not.toHaveAttribute('title');
   });
 
-  it('lets the consumer override title while keeping the tooltip text', () => {
+  it('lets the consumer pass an explicit title through when they need one', () => {
     render(
       <TooltipButton tooltip="Pin" title="Pin (custom)" data-testid="btn">
         x
@@ -96,7 +93,92 @@ describe('TooltipButton', () => {
     expect(screen.getByTestId('btn')).toHaveAttribute('title', 'Pin (custom)');
   });
 
-  it('does NOT show the tooltip for mouse input (desktop hover uses title)', () => {
+  it('shows the tooltip on mouse hover after the delay', () => {
+    render(
+      <TooltipButton tooltip="Refresh" data-testid="btn">
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn');
+    const restore = mockRect(btn, {
+      top: 12,
+      left: 40,
+      width: 48,
+      height: 48,
+      right: 88,
+      bottom: 60,
+    });
+    act(() => {
+      fireEvent.pointerEnter(btn, { pointerType: 'mouse', pointerId: 1 });
+    });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Refresh');
+    restore();
+  });
+
+  it('hides the hover tooltip on mouse leave', () => {
+    render(
+      <TooltipButton tooltip="Refresh" data-testid="btn">
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn');
+    const restore = mockRect(btn, {
+      top: 12,
+      left: 40,
+      width: 48,
+      height: 48,
+      right: 88,
+      bottom: 60,
+    });
+    act(() => {
+      fireEvent.pointerEnter(btn, { pointerType: 'mouse', pointerId: 1 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    act(() => {
+      fireEvent.pointerLeave(btn, { pointerType: 'mouse', pointerId: 1 });
+    });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    restore();
+  });
+
+  it('does NOT auto-hide the hover tooltip on a timer', () => {
+    render(
+      <TooltipButton tooltip="Refresh" data-testid="btn" tooltipDurationMs={300}>
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn');
+    const restore = mockRect(btn, {
+      top: 12,
+      left: 40,
+      width: 48,
+      height: 48,
+      right: 88,
+      bottom: 60,
+    });
+    act(() => {
+      fireEvent.pointerEnter(btn, { pointerType: 'mouse', pointerId: 1 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    // Still up — hover tooltips persist until the pointer leaves.
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    restore();
+  });
+
+  it('does NOT fire the hover tooltip from a pointerdown on a mouse', () => {
     render(
       <TooltipButton tooltip="Pin" data-testid="btn">
         x

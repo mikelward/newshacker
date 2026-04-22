@@ -101,6 +101,16 @@ export function Comment({ id }: Props) {
           aria-label={isExpanded ? 'Collapse comment' : 'Expand comment'}
           onClick={toggle}
         >
+          {/* Chevron affordance for pointer devices so the comment
+              looks clickable at a glance; hidden on touch, where
+              tap-anywhere-on-the-card is the primary interaction. */}
+          <span
+            className="comment__chevron"
+            aria-hidden="true"
+            data-expanded={isExpanded ? 'true' : 'false'}
+          >
+            ▸
+          </span>
           {metaSuffix}
         </button>
         {isExpanded ? (
