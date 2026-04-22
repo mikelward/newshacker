@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractDomain,
+  formatDisplayDomain,
   formatStoryMetaTail,
   formatTimeAgo,
   pluralize,
@@ -18,6 +19,71 @@ describe('extractDomain', () => {
   it('returns empty string for missing or invalid url', () => {
     expect(extractDomain(undefined)).toBe('');
     expect(extractDomain('not a url')).toBe('');
+  });
+});
+
+describe('formatDisplayDomain', () => {
+  it('returns empty string for missing or invalid url', () => {
+    expect(formatDisplayDomain(undefined)).toBe('');
+    expect(formatDisplayDomain('not a url')).toBe('');
+  });
+
+  it('strips leading www.', () => {
+    expect(formatDisplayDomain('https://www.example.com/path')).toBe(
+      'example.com',
+    );
+  });
+
+  it('always trims leading subdomains to the registrable domain', () => {
+    expect(formatDisplayDomain('https://blog.example.com/x')).toBe(
+      'example.com',
+    );
+    expect(formatDisplayDomain('https://sport.bbc.co.uk/x')).toBe(
+      'bbc.co.uk',
+    );
+  });
+
+  it('drops leading subdomains on long hostnames', () => {
+    expect(
+      formatDisplayDomain('https://fingfx.thomsonreuters.com/foo'),
+    ).toBe('thomsonreuters.com');
+  });
+
+  it('preserves nested ccTLDs when trimming subdomains', () => {
+    expect(
+      formatDisplayDomain('https://news.entertainment.9news.com.au/x'),
+    ).toBe('9news.com.au');
+    expect(formatDisplayDomain('https://a.b.asahi.co.jp/x')).toBe(
+      'asahi.co.jp',
+    );
+  });
+
+  it('does not trim a nested-ccTLD hostname that is already minimal', () => {
+    expect(formatDisplayDomain('https://9news.com.au/story')).toBe(
+      '9news.com.au',
+    );
+  });
+
+  it('preserves user subdomains on compound effective TLDs like github.io', () => {
+    // jasoneckert.github.io is the owner — trimming to github.io would
+    // lose the author identity, so it must stay intact.
+    expect(
+      formatDisplayDomain('https://jasoneckert.github.io/project'),
+    ).toBe('jasoneckert.github.io');
+  });
+
+  it('ellipsizes when the registrable domain is itself too long', () => {
+    const long = 'https://some-really-long-publishing-company.com/x';
+    const out = formatDisplayDomain(long, 22);
+    expect(out.length).toBeLessThanOrEqual(22);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out.startsWith('some-really-long-publ')).toBe(true);
+  });
+
+  it('ellipsizes the registrable domain itself when it exceeds maxLength', () => {
+    expect(formatDisplayDomain('https://blog.example.com/x', 5)).toBe(
+      'exam…',
+    );
   });
 });
 

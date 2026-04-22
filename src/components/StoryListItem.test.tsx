@@ -48,6 +48,28 @@ describe('StoryListItem', () => {
     expect(screen.queryByTestId('comments-btn')).toBeNull();
   });
 
+  it('trims long hostnames to the registrable domain', () => {
+    const story: HNItem = {
+      ...baseStory,
+      url: 'https://fingfx.thomsonreuters.com/a',
+    };
+    renderWithProviders(<StoryListItem story={story} />);
+    const meta = screen.getByTestId('story-meta');
+    expect(meta).toHaveTextContent(/thomsonreuters\.com/);
+    expect(meta.textContent ?? '').not.toContain('fingfx');
+  });
+
+  it('keeps nested ccTLDs intact (9news.com.au stays 9news.com.au)', () => {
+    const story: HNItem = {
+      ...baseStory,
+      url: 'https://www.9news.com.au/path',
+    };
+    renderWithProviders(<StoryListItem story={story} />);
+    expect(screen.getByTestId('story-meta')).toHaveTextContent(
+      /9news\.com\.au/,
+    );
+  });
+
   it('renders a pin button that toggles pinned state via onPin / onUnpin', () => {
     const onPin = vi.fn();
     const onUnpin = vi.fn();

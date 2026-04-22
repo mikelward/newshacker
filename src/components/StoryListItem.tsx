@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
-import { extractDomain, formatStoryMetaTail } from '../lib/format';
+import { formatDisplayDomain, formatStoryMetaTail } from '../lib/format';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 import { TooltipButton } from './TooltipButton';
@@ -34,7 +34,7 @@ export function StoryListItem({
   onOpenThread,
 }: Props) {
   const hasExternalUrl = !!story.url;
-  const domain = extractDomain(story.url);
+  const domain = formatDisplayDomain(story.url);
 
   const title = story.title ?? '[untitled]';
   const domainLabel = hasExternalUrl ? domain : 'self post';
