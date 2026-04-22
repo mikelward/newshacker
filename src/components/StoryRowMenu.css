@@ -56,11 +56,6 @@
   text-overflow: ellipsis;
 }
 
-.story-menu__sheet--popover .story-menu__title {
-  padding: 6px 10px 6px;
-  font-size: 12px;
-}
-
 .story-menu__list {
   list-style: none;
   margin: 0;
@@ -81,12 +76,23 @@
   border-radius: 8px;
 }
 
-.story-menu__sheet--popover .story-menu__item {
-  font-size: 14px;
-  font-weight: 500;
-  padding: 8px 10px;
-  min-height: 0;
-  border-radius: 6px;
+/* Popover items match sheet sizing on touch (the popover is now the
+   default for both long-press and ⋮ on mobile), so each row still
+   meets the ≥48×48 tap target rule. On pointer devices the item
+   shrinks because a cursor doesn't need the extra room. */
+@media (hover: hover) {
+  .story-menu__sheet--popover .story-menu__title {
+    padding: 6px 10px 6px;
+    font-size: 12px;
+  }
+
+  .story-menu__sheet--popover .story-menu__item {
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 10px;
+    min-height: 0;
+    border-radius: 6px;
+  }
 }
 
 .story-menu__item:hover,

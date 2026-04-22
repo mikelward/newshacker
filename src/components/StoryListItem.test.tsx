@@ -473,3 +473,53 @@ describe('StoryListItem right-click menu (pointer devices)', () => {
     }
   });
 });
+
+describe('StoryListItem long-press menu variant', () => {
+  function dispatch(
+    target: Element,
+    type: 'pointerdown' | 'pointermove' | 'pointerup',
+    clientX: number,
+    clientY: number,
+  ) {
+    const evt = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(evt, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX,
+      clientY,
+      button: 0,
+      isPrimary: true,
+    });
+    act(() => {
+      target.dispatchEvent(evt);
+    });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders as an anchored popover on touch too — no more full-width bottom sheet', () => {
+    vi.useFakeTimers();
+    renderWithProviders(
+      <StoryListItem
+        story={baseStory}
+        onPin={vi.fn()}
+        onHide={vi.fn()}
+        onShare={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId('story-row');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(screen.getByTestId('story-row-menu')).toHaveAttribute(
+      'data-variant',
+      'popover',
+    );
+    // Popover variant has no backdrop and no Cancel button.
+    expect(screen.queryByTestId('story-row-menu-backdrop')).toBeNull();
+    expect(screen.queryByTestId('story-row-menu-cancel')).toBeNull();
+  });
+});
