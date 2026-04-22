@@ -586,8 +586,8 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - **App shell**: precached at build time so the app boots offline. Navigation falls back to precached `index.html`; React Router takes over client-side.
 - **HN items** (`/item/:id.json`): StaleWhileRevalidate, 7-day TTL, 500 entries.
 - **Feed lists** (`topstories`, `newstories`, etc.): NetworkFirst with 10s timeout, 1-day TTL, 10 entries. The longer timeout stops ordinary mobile-data latency from flipping the strategy to "serve last-known list" on reload.
-- **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries.
-- **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side TTL is freshness-aware — 30 min for stories < 2 h old, 1 h otherwise — so hot front-page threads keep pace with the comment rush. React Query TTL on the client is 1 h.
+- **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, summary records live in KV for **30 days** and freshness is owned by the warm-summaries cron (see *Scheduled warming and change analytics* below) rather than a short per-record TTL. The user-facing handler returns any present record unconditionally.
+- **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, comment-summary records also live in KV for **30 days** and freshness is owned by the same warm-summaries cron. React Query TTL on the client is 1 h.
 - **Items batch proxy** (`/api/items`): NetworkFirst with 10s timeout, 1-day TTL, 50 entries. The batch URL keys on the exact id set, which means a refresh of the same feed page hits the same cache entry — SWR here would silently repaint yesterday's score/comment counts. NetworkFirst still falls back to the cache when the user is genuinely offline, so `/pinned` and friends keep working.
 
 **Shared server-side cache (Redis via Vercel Storage Marketplace).**
@@ -596,8 +596,12 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 `KV_REST_API_URL` / `KV_REST_API_TOKEN` into every deployment) as the
 cross-instance cache. The handler reads the key on entry and returns
 immediately on hit; on miss it generates via Gemini and writes the
-result with the same TTL as before — article summary 1 h, comments
-summary 30 min for stories <2 h old, 1 h otherwise. Reads from a
+result. **Both article and comment summaries** live 30 days and rely
+on the cron for in-window freshness — the cron re-hashes the source
+(article body for `/api/summary`, top-20-transcript for
+`/api/comments-summary`) and only burns Gemini tokens when the hash
+changes. See *Scheduled warming and change analytics* below.
+Reads from a
 function in the same AWS region as the Redis primary are single-digit
 ms — fast enough that the per-instance in-memory `Map` we used to keep
 alongside the previous edge-CDN layer was removed (it just created
@@ -681,7 +685,47 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 
 ### Warm-on-view server summary cache
 - When a story row scrolls fully into the viewport, `StoryList` fires fire-and-forget requests to `/api/summary?id=…` and `/api/comments-summary?id=…` via `warmFeedSummaries` (`src/lib/feedSummaryWarm.ts`). Both endpoints short-circuit on a KV hit without touching Gemini, so the steady-state cost is one Redis read per view; only the first viewer of a not-yet-cached story pays a Gemini generation, and every subsequent viewer (and every subsequent page load) is served from KV.
-- Replaces the scheduled "summarize every front-page story every 30 minutes" cron we almost built. Impressions are the pacing signal, so we only pay for summaries people actually looked at.
+- Covers the long tail of stories the scheduled warmer doesn't touch (anything outside the top-30). Impressions pace the cost for those.
+- Complemented by `/api/warm-summaries` (next section) for the hot top-30 slice, where the cron keeps records fresh even before a user scrolls the row into view.
+
+### Scheduled warming and change analytics
+- **What it does.** `/api/warm-summaries` is a Vercel cron that runs every 10 minutes against `?feed=top&n=30`, fetches the feed, takes the first N eligible ids (`score > 1`, not dead/deleted), and for each one runs **two independent tracks in parallel**:
+  - **Article track.** Re-fetches the article (Jina first, raw HTML fallback), SHA-256 hashes it, compares against `articleHash` on the stored record. Unchanged → bump `lastCheckedAt`. Changed → regenerate the one-sentence summary via Gemini and overwrite the record.
+  - **Comments track.** Fetches the top-20 top-level kids, builds the exact same transcript `/api/comments-summary` would feed to Gemini, SHA-256 hashes it, compares against `transcriptHash` on the stored record. Unchanged → bump `lastCheckedAt`. Changed → regenerate the insights via Gemini and overwrite the record.
+  One HN item fetch serves both tracks (article needs `url`, comments needs `kids` + `title`). Each track has its own cache record and its own tiered-backoff state so a chatty thread and a stable article don't block each other.
+- **Query params.** `?feed=top|new|best|ask|show|jobs` (default `top`) and `?n=<int>` (default `WARM_TOP_N`, hard ceiling 100). The cron URL in `vercel.json` is explicit — `/api/warm-summaries?feed=top&n=30` — so a future second cron (e.g. `?feed=new&n=10`) reuses the same handler without a code change.
+- **Why both a cron and impression-driven warming exist.** The on-view warmer pays for what users look at; it can't keep a popular summary fresh if nobody has loaded the story page for it since an edit. The cron handles the top-30 slice where "the card matches the current article / the bullets match the current thread" matters most, without waiting for a user to trip the cache miss. Outside top-30, impressions still pace everything.
+- **Shared cache records** (Upstash JSON, 30-day TTL, written by both user-facing handlers and the cron):
+  - Article: `newshacker:summary:article:<id>` → `{ summary, articleHash, firstSeenAt, summaryGeneratedAt, lastCheckedAt, lastChangedAt }`
+  - Comments: `newshacker:summary:comments:<id>` → `{ insights, transcriptHash, firstSeenAt, summaryGeneratedAt, lastCheckedAt, lastChangedAt }`
+
+  Legacy pre-schema entries (plain summary string / bare `string[]` of insights) are treated as absent on read and silently overwritten by the next regeneration. The user-facing endpoints return any present record unconditionally — the cron owns freshness.
+- **Tiered backoff (the knob these analytics exist to tune).** All values are env-overridable and apply **identically to both tracks** today:
+  - `WARM_REFRESH_CHECK_INTERVAL_SECONDS` (default **30 min**): re-check cadence while the content is "fresh".
+  - `WARM_STABLE_CHECK_INTERVAL_SECONDS` (default **2 h**): re-check cadence once the content has been unchanged for ≥ `WARM_STABLE_THRESHOLD_SECONDS`.
+  - `WARM_STABLE_THRESHOLD_SECONDS` (default **6 h**): how long unchanged before we treat content as stable and back off to the longer interval.
+  - `WARM_MAX_STORY_AGE_SECONDS` (default **48 h**): stop re-checking entirely past this. Past this point the user-facing endpoints still serve the cached summary / insights until Upstash itself evicts the record at the 30-day boundary.
+  - `WARM_TOP_N` (default **30**): how many feed ids to consider per tick when `?n=` isn't supplied.
+  No article-vs-comments asymmetry is baked in yet; if the analytics show comments churn systematically faster, we'll split into `WARM_ARTICLE_*` / `WARM_COMMENTS_*` pairs (see TODO.md).
+- **Auth.** Vercel Cron passes `Authorization: Bearer $CRON_SECRET`. The handler requires a match whenever `CRON_SECRET` is set; missing `CRON_SECRET` falls through to open access for local dev.
+- **Structured JSON logs (per story-and-track + per run).** Each story emits **two** lines per tick (one per track):
+  ```
+  {type: "warm-story", track: "article"|"comments", storyId, outcome,
+   ageMinutes?, stableForMinutes?, sinceLastCheckMinutes?,
+   // article track:
+   summaryChanged?, source? ("jina"|"raw"), contentBytes?,
+   // comments track:
+   insightsChanged?, commentCount?, transcriptBytes?}
+  ```
+  where `outcome ∈ {first_seen, unchanged, changed, skipped_age, skipped_interval, skipped_low_score, skipped_no_content, skipped_unreachable, skipped_budget, error}`. The enrichment fields exist so the analyst can separate real changes from noisy ones. For articles, Jina returns clean markdown (stable hashes when nothing changed) while raw-HTML fallback includes ads + analytics + timestamps (hashes flip every request even when the article body is identical) — so `outcome="changed" AND source="raw"` rows should be discounted in "how often do articles really change" analysis. `contentBytes` lets you spot "hash flipped but the body barely moved" (cache-buster noise) vs "hash flipped with a multi-KB delta" (real edit). On the comments side, `commentCount < 20` flags mass-deletions / empty-bodied slots, and `transcriptBytes` serves the same role as `contentBytes`. Each run emits a summary `{type: "warm-run", durationMs, processed, storyCount, outcomes: {article: {...}, comments: {...}}, topNRequested, feed, knobs}`. Grep the per-story lines out of Vercel logs after a week and you have per-track scatterplots of (age, did-it-change) that tell you whether the stable / max-age knobs can be pushed further out without missing real changes.
+- **Cost/reliability (rule 11).**
+  - **Jina** (article track only). Top-30 × 6 ticks/hour × 24 = 4,320 calls/day worst case (every story at the fresh interval). With the 30-min interval, tier-1 stories settle at 48 calls/story/day; the 6-h stable threshold knocks most of the long tail down to ~12 calls/story/day. Realistic ballpark: **1,500–3,000 Jina calls/day, ~45k–90k/month**. Free-tier Reader coverage is adequate at this volume; paid tier is a few dollars/month if exceeded.
+  - **HN Firebase** (comments track). Each processed story adds up to 20 child-item fetches. Worst case: 30 × 20 × 6 ticks/h × 24 = 86.4k/day. Firebase HN API is free and unauthenticated, no rate-limit concern at this scale.
+  - **Gemini.** Fires only on actual content change (article-hash for articles, transcript-hash for comments). Articles churn ~10–30% of ticks; comments churn more on young threads but settle once HN ranks reshuffle stops. Realistic combined estimate: **~$3–5/month** at expected traffic, **~$15/month** worst-case if every tick changes for every story.
+  - **Upstash.** Two keys per story instead of one. Still small — well under free-tier quotas.
+  - **Vercel Cron.** Sub-daily cadence requires Pro ($20/month — already paid for this project).
+  - **New failure modes:** (1) cron silently fails — mitigated by the per-run `warm-run` log; absence is easy to notice. (2) Jina rate-limited or down → article track logs `skipped_unreachable`, keeps the stored record, next tick tries again. Comments track is unaffected. (3) HN Firebase slow → both tracks degrade gracefully. (4) Runaway work — guarded by `WALL_CLOCK_BUDGET_MS = 50 s`, per-fetch timeouts (Jina 15 s, raw 8 s), and concurrency cap of 5 stories-at-a-time.
+- **What's explicitly not done.** Regenerating summary / insights when only the model output drifts but the source hash is unchanged — by construction we trust that unchanged source implies still-correct output. Flagging / moderation / submission are out of scope (AGENTS.md rule 7). Per-track knob splits aren't implemented yet; planned as a TODO once analytics justify.
 - Session-scoped dedup via a `Set` in `StoryList` prevents the same row firing twice as it scrolls back into view. Ask-HN / Show-HN / job posts (no `url`) skip `/api/summary` but still warm `/api/comments-summary`.
 - Score-gated to `> 1` on the client (cheap short-circuit) and on the server (authoritative). Combined with the feed-level `score > 1` visibility rule, a score-1 row never renders and therefore never triggers a warm.
 

@@ -2,7 +2,10 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   handleSummaryRequest,
+  hashArticle,
   isAllowedReferer,
+  parseRecord,
+  type SummaryRecord,
   type SummaryStore,
 } from './summary';
 
@@ -49,9 +52,9 @@ function fetchItemFor(items: Record<number, HNItemFixture | null>) {
 // In-memory SummaryStore used in tests in place of a real Upstash client.
 // Honors TTL via an injectable `now` so expiration tests still work.
 function createTestStore(now: () => number = Date.now): SummaryStore & {
-  map: Map<number, { value: string; expiresAt: number }>;
+  map: Map<number, { record: SummaryRecord; expiresAt: number }>;
 } {
-  const map = new Map<number, { value: string; expiresAt: number }>();
+  const map = new Map<number, { record: SummaryRecord; expiresAt: number }>();
   return {
     map,
     async get(storyId) {
@@ -61,11 +64,11 @@ function createTestStore(now: () => number = Date.now): SummaryStore & {
         map.delete(storyId);
         return null;
       }
-      return entry.value;
+      return entry.record;
     },
-    async set(storyId, summary, ttlSeconds) {
+    async set(storyId, record, ttlSeconds) {
       map.set(storyId, {
-        value: summary,
+        record,
         expiresAt: now() + ttlSeconds * 1000,
       });
     },
@@ -603,28 +606,39 @@ describe('handleSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
-  it('writes the summary to the shared store with the expected TTL', async () => {
+  it('writes a full record to the shared store with a 30d TTL', async () => {
     const articleUrl = 'https://example.com/ttl-set';
+    const articleBody = '<article>body</article>';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [articleUrl]: { body: articleBody },
     });
     const fetchItem = fetchItemFor({
       155: { id: 155, type: 'story', url: articleUrl, score: 10 },
     });
     const get = vi.fn<SummaryStore['get']>(async () => null);
     const set = vi.fn<SummaryStore['set']>(async () => undefined);
+    const now = 1_700_000_000_000;
     await handleSummaryRequest(makeRequest(155), {
       createClient: () => createFakeClient([{ text: 'ok' }]),
       fetchImpl,
       fetchItem,
       store: { get, set },
+      now: () => now,
     });
     expect(set).toHaveBeenCalledTimes(1);
-    const [id, summary, ttlSeconds] = set.mock.calls[0]!;
+    const [id, record, ttlSeconds] = set.mock.calls[0]!;
     expect(id).toBe(155);
-    expect(summary).toBe('ok');
-    // 1h TTL.
-    expect(ttlSeconds).toBe(60 * 60);
+    expect(record.summary).toBe('ok');
+    // Hash is the SHA-256 of the article content the handler saw.
+    expect(record.articleHash).toBe(hashArticle(articleBody));
+    // On a cache miss we treat "now" as both first-seen and last-changed —
+    // there's no prior state to diff against.
+    expect(record.firstSeenAt).toBe(now);
+    expect(record.summaryGeneratedAt).toBe(now);
+    expect(record.lastCheckedAt).toBe(now);
+    expect(record.lastChangedAt).toBe(now);
+    // 30d TTL — the cron owns freshness inside that window.
+    expect(ttlSeconds).toBe(60 * 60 * 24 * 30);
   });
 
   it('sets no-store Cache-Control on successful responses', async () => {
@@ -658,6 +672,9 @@ describe('handleSummaryRequest', () => {
   });
 
   it('re-fetches after the shared-store ttl expires', async () => {
+    // 30d TTL under the cron-owned freshness model: the user-facing
+    // read path returns whatever is in the cache, and only regenerates
+    // on a real cache miss (record absent or Upstash evicted).
     const articleUrl = 'https://example.com/expire';
     let now = 1_000_000;
     const store = createTestStore(() => now);
@@ -673,9 +690,10 @@ describe('handleSummaryRequest', () => {
       fetchImpl,
       fetchItem,
       store,
+      now: () => now,
     });
 
-    now += 60 * 60 * 1000 + 1;
+    now += 60 * 60 * 24 * 30 * 1000 + 1;
     const client2 = createFakeClient([{ text: 'v2' }]);
     const fetchImpl2 = createFakeFetch({
       [articleUrl]: { body: '<article>body</article>' },
@@ -685,9 +703,70 @@ describe('handleSummaryRequest', () => {
       fetchImpl: fetchImpl2,
       fetchItem,
       store,
+      now: () => now,
     });
     expect(await res2.json()).toEqual({ summary: 'v2' });
     expect(client2.models.generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the cached record untouched on any hit within the 30d TTL', async () => {
+    // Regression guard for the new "cron owns freshness" model: the
+    // user-facing path must not regenerate just because the old 1h
+    // summary TTL has passed. Only a real eviction triggers work.
+    const articleUrl = 'https://example.com/still-cached';
+    let now = 1_000_000;
+    const store = createTestStore(() => now);
+    const fetchImpl = createFakeFetch({
+      [articleUrl]: { body: '<article>body</article>' },
+    });
+    const fetchItem = fetchItemFor({
+      181: { id: 181, type: 'story', url: articleUrl, score: 10 },
+    });
+    const client = createFakeClient([{ text: 'v1' }]);
+    await handleSummaryRequest(makeRequest(181), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+      now: () => now,
+    });
+
+    // 24h later — well past the old 1h TTL, well inside the new 30d one.
+    now += 24 * 60 * 60 * 1000;
+    const client2 = createFakeClient([]);
+    const res2 = await handleSummaryRequest(makeRequest(181), {
+      createClient: () => client2,
+      fetchImpl,
+      fetchItem,
+      store,
+      now: () => now,
+    });
+    expect(await res2.json()).toEqual({ summary: 'v1', cached: true });
+    expect(client2.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('parseRecord rejects legacy string entries and malformed objects', () => {
+    // Pre-schema entries were plain strings; we treat them as absent so
+    // the next hit writes a fresh record, which silently migrates them.
+    expect(parseRecord('old-string-summary')).toBeNull();
+    expect(parseRecord(null)).toBeNull();
+    expect(parseRecord(undefined)).toBeNull();
+    expect(parseRecord({})).toBeNull();
+    expect(
+      parseRecord({ summary: 'ok', articleHash: 'x' }),
+    ).toBeNull();
+
+    const good: SummaryRecord = {
+      summary: 'ok',
+      articleHash: 'x',
+      firstSeenAt: 1,
+      summaryGeneratedAt: 1,
+      lastCheckedAt: 1,
+      lastChangedAt: 1,
+    };
+    expect(parseRecord(good)).toEqual(good);
+    // Strings round-trip through JSON.
+    expect(parseRecord(JSON.stringify(good))).toEqual(good);
   });
 
   it('falls through to live generation when the shared store throws (fail-open)', async () => {

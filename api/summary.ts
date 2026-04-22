@@ -1,13 +1,18 @@
 import { GoogleGenAI } from '@google/genai';
 import { Redis } from '@upstash/redis';
+import { createHash } from 'node:crypto';
 
 const MODEL = 'gemini-2.5-flash-lite';
-const CACHE_TTL_SECONDS = 60 * 60;
+// Upstash records live 30 days. The cron (/api/warm-summaries) owns
+// freshness for top-30 stories; anything that ages out of the cron's
+// MAX_STORY_AGE window is served from whatever is in the cache until
+// Upstash itself evicts it.
+const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_URL_LEN = 2048;
 const MAX_CONTENT_CHARS = 200_000;
 
 // Cache-Control on success. We deliberately do NOT use the edge CDN as
-// the shared cache anymore — Vercel's CDN is regional, so popular stories
+// the shared cache — Vercel's CDN is regional, so popular stories
 // would still pay one Gemini call per region. The shared cache lives in
 // KV (see SummaryStore below); the edge would just hide stale-by-region
 // data behind it. `private, no-store` keeps the function in the request
@@ -95,19 +100,41 @@ function parseStoryId(raw: string | null): number | null {
 // Upstash database expose the same REST shape — we accept either env
 // var pair so the same code works regardless of how the store was
 // provisioned. If neither is set, we degrade silently to no shared
-// cache (the per-instance Map is intentionally gone — a 5ms KV read is
-// the right shared-cache latency, and keeping a process-local Map next
-// to it just creates incoherent state across instances).
+// cache.
 //
 // Cache key is the HN story id, not the article URL. Two HN posts
 // pointing at the same external URL pay independently — accepted trade
 // for not letting any caller pin arbitrary cache keys (and burn
 // Gemini/Jina spend) via a `?url=` of their choosing.
-const KV_KEY_PREFIX = 'newshacker:summary:article:';
+//
+// NOTE: the cache record shape (SummaryRecord) is shared with
+// api/warm-summaries.ts. Any schema change needs to land in both files
+// in the same commit. Vercel's bundler doesn't reliably share modules
+// between sibling `api/*.ts` handlers (see AGENTS.md § "Vercel api/
+// gotchas"), which is why the two copies exist.
+export const KV_KEY_PREFIX = 'newshacker:summary:article:';
+
+export interface SummaryRecord {
+  summary: string;
+  articleHash: string;
+  // Epoch ms. `firstSeenAt` is set once and never changes.
+  firstSeenAt: number;
+  // Epoch ms of the most recent Gemini regeneration.
+  summaryGeneratedAt: number;
+  // Epoch ms of the most recent article re-fetch (changed or not).
+  lastCheckedAt: number;
+  // Epoch ms of the most recent article hash change; initialised to
+  // firstSeenAt on the very first record.
+  lastChangedAt: number;
+}
 
 export interface SummaryStore {
-  get(storyId: number): Promise<string | null>;
-  set(storyId: number, summary: string, ttlSeconds: number): Promise<void>;
+  get(storyId: number): Promise<SummaryRecord | null>;
+  set(
+    storyId: number,
+    record: SummaryRecord,
+    ttlSeconds: number,
+  ): Promise<void>;
 }
 
 let defaultStore: SummaryStore | null | undefined;
@@ -122,18 +149,20 @@ function createDefaultStore(): SummaryStore | null {
   return {
     async get(storyId) {
       try {
-        const value = await redis.get<string>(`${KV_KEY_PREFIX}${storyId}`);
-        return value ?? null;
+        const raw = await redis.get<unknown>(`${KV_KEY_PREFIX}${storyId}`);
+        return parseRecord(raw);
       } catch {
         // Fail-open: KV unreachable falls through to live generation.
         return null;
       }
     },
-    async set(storyId, summary, ttlSeconds) {
+    async set(storyId, record, ttlSeconds) {
       try {
-        await redis.set(`${KV_KEY_PREFIX}${storyId}`, summary, {
-          ex: ttlSeconds,
-        });
+        await redis.set(
+          `${KV_KEY_PREFIX}${storyId}`,
+          JSON.stringify(record),
+          { ex: ttlSeconds },
+        );
       } catch {
         // Best-effort write; a missed set is no worse than a cache miss.
       }
@@ -144,6 +173,49 @@ function createDefaultStore(): SummaryStore | null {
 function getDefaultStore(): SummaryStore | null {
   if (defaultStore === undefined) defaultStore = createDefaultStore();
   return defaultStore;
+}
+
+// Pre-schema entries were plain strings. Treat them as absent so the
+// next generation writes a fresh record. Also guards against partial
+// writes and schema drift.
+export function parseRecord(raw: unknown): SummaryRecord | null {
+  if (raw == null) return null;
+  // Upstash's JS client auto-decodes JSON; string callers can still arrive
+  // from legacy entries.
+  const obj =
+    typeof raw === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return null;
+          }
+        })()
+      : raw;
+  if (!obj || typeof obj !== 'object') return null;
+  const r = obj as Partial<SummaryRecord>;
+  if (
+    typeof r.summary !== 'string' ||
+    typeof r.articleHash !== 'string' ||
+    typeof r.firstSeenAt !== 'number' ||
+    typeof r.summaryGeneratedAt !== 'number' ||
+    typeof r.lastCheckedAt !== 'number' ||
+    typeof r.lastChangedAt !== 'number'
+  ) {
+    return null;
+  }
+  return {
+    summary: r.summary,
+    articleHash: r.articleHash,
+    firstSeenAt: r.firstSeenAt,
+    summaryGeneratedAt: r.summaryGeneratedAt,
+    lastCheckedAt: r.lastCheckedAt,
+    lastChangedAt: r.lastChangedAt,
+  };
+}
+
+export function hashArticle(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -206,6 +278,7 @@ export interface SummaryDeps {
   // `null` = explicitly disable the shared cache for this request;
   // `undefined` = use the default (lazy-initialised) Upstash store.
   store?: SummaryStore | null;
+  now?: () => number;
 }
 
 function clampContent(body: string): string | null {
@@ -326,9 +399,11 @@ export async function handleSummaryRequest(
     // Fail-open at the handler layer too: if the store implementation
     // forgets to catch (the default Upstash one does, but tests and
     // future stores might not), KV trouble must not break the endpoint.
+    // Any record present means "return it" — freshness is owned by the
+    // cron, not by this read path.
     try {
       const cached = await store.get(storyId);
-      if (cached) return json({ summary: cached, cached: true });
+      if (cached) return json({ summary: cached.summary, cached: true });
     } catch {
       // fall through to live generation
     }
@@ -438,8 +513,17 @@ export async function handleSummaryRequest(
   }
 
   if (store) {
+    const now = (deps.now ?? Date.now)();
+    const record: SummaryRecord = {
+      summary,
+      articleHash: hashArticle(content),
+      firstSeenAt: now,
+      summaryGeneratedAt: now,
+      lastCheckedAt: now,
+      lastChangedAt: now,
+    };
     try {
-      await store.set(storyId, summary, CACHE_TTL_SECONDS);
+      await store.set(storyId, record, RECORD_TTL_SECONDS);
     } catch {
       // best-effort write
     }
