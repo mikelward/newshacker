@@ -347,6 +347,20 @@ function isAbortError(err: unknown): boolean {
 // Jina's Reader API (r.jina.ai) handles JS-rendered pages, paywalls, and
 // bot-blocked sites that our raw fetch can't reach. Returns clean markdown
 // that we can feed to Gemini directly. Free tier via API key is generous.
+//
+// We request JSON so the response carries `usage.tokens` (authoritative
+// billed-token count). The cron handler in api/warm-summaries.ts logs
+// this; this handler doesn't surface it anywhere yet, but keeping the
+// request shape identical means the two paths report the same billed
+// tokens for the same URL and stay easy to reconcile. Kept duplicated
+// with api/warm-summaries.ts per AGENTS.md § "Vercel api/ gotchas".
+interface JinaReaderEnvelope {
+  data?: {
+    content?: unknown;
+    usage?: { tokens?: unknown };
+  };
+}
+
 async function fetchViaJina(
   articleUrl: string,
   jinaApiKey: string,
@@ -361,7 +375,7 @@ async function fetchViaJina(
       signal: controller.signal,
       headers: {
         authorization: `Bearer ${jinaApiKey}`,
-        accept: 'text/plain',
+        accept: 'application/json',
         'x-return-format': 'markdown',
       },
     });
@@ -374,7 +388,17 @@ async function fetchViaJina(
       return { ok: false, failure: 'payment_required' };
     }
     if (!res.ok) return { ok: false, failure: 'unreachable' };
-    const content = clampContent(await res.text());
+    let envelope: JinaReaderEnvelope;
+    try {
+      envelope = (await res.json()) as JinaReaderEnvelope;
+    } catch {
+      return { ok: false, failure: 'unreachable' };
+    }
+    const rawContent = envelope.data?.content;
+    if (typeof rawContent !== 'string') {
+      return { ok: false, failure: 'unreachable' };
+    }
+    const content = clampContent(rawContent);
     return content
       ? { ok: true, content }
       : { ok: false, failure: 'unreachable' };

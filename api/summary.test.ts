@@ -122,6 +122,17 @@ function createFakeFetch(routes: Record<string, FakeFetchResult>) {
   });
 }
 
+// Mirrors api/warm-summaries.test.ts: wraps markdown content in Jina
+// Reader's JSON envelope so the mock matches what the production fetch
+// path now expects (accept: application/json).
+function jinaBody(content: string, tokens = 123): string {
+  return JSON.stringify({
+    code: 200,
+    status: 20000,
+    data: { content, usage: { tokens } },
+  });
+}
+
 describe('handleSummaryRequest', () => {
   const origGoogle = process.env.GOOGLE_API_KEY;
   const origJina = process.env.JINA_API_KEY;
@@ -156,7 +167,7 @@ describe('handleSummaryRequest', () => {
 
   it('accepts Referers from localhost and vercel.app previews', async () => {
     const fetchImpl = createFakeFetch({
-      'https://r.jina.ai/https://example.com/a': { body: 'hi' },
+      'https://r.jina.ai/https://example.com/a': { body: jinaBody('hi') },
     });
     const fetchItem = fetchItemFor({
       1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
@@ -180,7 +191,7 @@ describe('handleSummaryRequest', () => {
       {
         createClient: () => createFakeClient([{ text: 'ok' }]),
         fetchImpl: createFakeFetch({
-          'https://r.jina.ai/https://example.com/a': { body: 'hi' },
+          'https://r.jina.ai/https://example.com/a': { body: jinaBody('hi') },
         }),
         fetchItem,
         store: createTestStore(),
@@ -442,8 +453,8 @@ describe('handleSummaryRequest', () => {
     process.env.JINA_API_KEY = 'jina-test-key';
     const fetchImpl = createFakeFetch({
       'https://r.jina.ai/https://www.theverge.com/foo': {
-        body: '# Article\n\nMain body text.',
-        contentType: 'text/plain; charset=utf-8',
+        body: jinaBody('# Article\n\nMain body text.'),
+        contentType: 'application/json; charset=utf-8',
       },
     });
     const fetchItem = fetchItemFor({
@@ -479,7 +490,7 @@ describe('handleSummaryRequest', () => {
   it('instructs the model to write in the author voice and skip meta-framing', async () => {
     const articleUrl = 'https://example.com/voice';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const fetchItem = fetchItemFor({
       66: { id: 66, type: 'story', url: articleUrl, score: 10 },
@@ -603,7 +614,7 @@ describe('handleSummaryRequest', () => {
   it('returns 502 when the model returns an empty string', async () => {
     const articleUrl = 'https://example.com/b';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const fetchItem = fetchItemFor({
       120: { id: 120, type: 'story', url: articleUrl, score: 10 },
@@ -625,7 +636,7 @@ describe('handleSummaryRequest', () => {
   it('returns 502 when the model throws', async () => {
     const articleUrl = 'https://example.com/c';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const fetchItem = fetchItemFor({
       130: { id: 130, type: 'story', url: articleUrl, score: 10 },
@@ -648,8 +659,8 @@ describe('handleSummaryRequest', () => {
     const articleUrl = 'https://example.com/via-deps';
     const fetchImpl = createFakeFetch({
       [`https://r.jina.ai/${articleUrl}`]: {
-        body: 'Article text.',
-        contentType: 'text/plain',
+        body: jinaBody('Article text.'),
+        contentType: 'application/json',
       },
     });
     const fetchItem = fetchItemFor({
@@ -672,7 +683,7 @@ describe('handleSummaryRequest', () => {
   it('serves a cached summary on a repeat request via the shared store', async () => {
     const articleUrl = 'https://example.com/cached';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'first' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('first') },
     });
     const fetchItem = fetchItemFor({
       150: { id: 150, type: 'story', url: articleUrl, score: 10 },
@@ -705,7 +716,7 @@ describe('handleSummaryRequest', () => {
     const articleUrl = 'https://example.com/ttl-set';
     const articleBody = 'body';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: articleBody },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(articleBody) },
     });
     const fetchItem = fetchItemFor({
       155: { id: 155, type: 'story', url: articleUrl, score: 10 },
@@ -739,7 +750,7 @@ describe('handleSummaryRequest', () => {
   it('sets no-store Cache-Control on successful responses', async () => {
     const articleUrl = 'https://example.com/cc';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const fetchItem = fetchItemFor({
       160: { id: 160, type: 'story', url: articleUrl, score: 10 },
@@ -774,7 +785,7 @@ describe('handleSummaryRequest', () => {
     let now = 1_000_000;
     const store = createTestStore(() => now);
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const fetchItem = fetchItemFor({
       180: { id: 180, type: 'story', url: articleUrl, score: 10 },
@@ -791,7 +802,7 @@ describe('handleSummaryRequest', () => {
     now += 60 * 60 * 24 * 30 * 1000 + 1;
     const client2 = createFakeClient([{ text: 'v2' }]);
     const fetchImpl2 = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const res2 = await handleSummaryRequest(makeRequest(180), {
       createClient: () => client2,
@@ -812,7 +823,7 @@ describe('handleSummaryRequest', () => {
     let now = 1_000_000;
     const store = createTestStore(() => now);
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const fetchItem = fetchItemFor({
       181: { id: 181, type: 'story', url: articleUrl, score: 10 },
@@ -871,7 +882,7 @@ describe('handleSummaryRequest', () => {
     // handler's belt-and-braces try/catch.
     const articleUrl = 'https://example.com/kv-down';
     const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
     });
     const fetchItem = fetchItemFor({
       190: { id: 190, type: 'story', url: articleUrl, score: 10 },
