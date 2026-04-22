@@ -1043,6 +1043,29 @@ describe('<Thread>', () => {
     expect(screen.queryByTestId('thread-summary-card')).toBeNull();
   });
 
+  it('does not render a summary card when a self-post body is effectively empty', async () => {
+    // Regression: `<p> </p>` is truthy but the server returns 400
+    // `no_article` after HTML strip + trim. Rendering the card anyway
+    // would surface a retryable "Could not summarize" error for a
+    // post that was never summarizable.
+    installHNFetchMock({
+      items: {
+        852: makeStory(852, {
+          title: 'Whitespace body',
+          url: undefined,
+          text: '<p>   </p>',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={852} />);
+    await waitFor(() => {
+      expect(screen.getByText('Whitespace body')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('thread-summary-card')).toBeNull();
+  });
+
   it('shows domain (not author) in the meta line for link posts', async () => {
     installHNFetchMock({
       items: {

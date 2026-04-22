@@ -45,6 +45,16 @@ describe('warmFeedSummaries', () => {
     expect(urls).toContain('/api/comments-summary?id=3');
   });
 
+  it('skips /api/summary when the self-post body is empty after HTML strip', () => {
+    // Mirrors the server's `no_article` predicate: `<p> </p>` strips
+    // down to whitespace and the endpoint 400s. No point burning a
+    // request on it.
+    warmFeedSummaries({ id: 5, score: 10, text: '<p>   </p>' });
+    const urls = fetchSpy.mock.calls.map((c) => c[0]);
+    expect(urls).not.toContain('/api/summary?id=5');
+    expect(urls).toContain('/api/comments-summary?id=5');
+  });
+
   it('does not warm anything for stories below the score floor', () => {
     warmFeedSummaries({ id: 4, score: 1, url: 'https://example.com/' });
     expect(fetchSpy).not.toHaveBeenCalled();

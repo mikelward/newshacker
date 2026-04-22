@@ -1,4 +1,5 @@
 import type { HNItem } from './hn';
+import { hasSelfPostBody } from './selfPostBody';
 
 // Fire-and-forget warm for the server-side Gemini summary caches
 // (/api/summary and /api/comments-summary, both Upstash-backed).
@@ -33,9 +34,11 @@ export function warmFeedSummaries(
   // Warm /api/summary when the story has *something* to summarize: an
   // external URL (article path, via Jina) OR a self-post body (Ask HN,
   // Show HN, etc. — summarized directly from `text`). Stories with
-  // neither (rare: a titled-only job post with no URL and no body)
-  // would 400 `no_article`, so skip the call rather than burn a request.
-  if (story.url || story.text) {
+  // neither (rare: a titled-only job post with no URL and no body),
+  // or whose body is effectively empty after HTML strip (e.g.
+  // `<p> </p>`), would 400 `no_article`, so skip the call rather
+  // than burn a request.
+  if (story.url || hasSelfPostBody(story.text)) {
     void fetch(`/api/summary?id=${story.id}`).catch(() => {});
   }
   void fetch(`/api/comments-summary?id=${story.id}`).catch(() => {});
