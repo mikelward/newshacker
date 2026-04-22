@@ -466,7 +466,7 @@ Comments match the "fewer tap targets" rule: the whole row is one tap zone that 
 Collapsed state (default):
 
 - Body clamped to 3 lines (CSS `-webkit-line-clamp: 3`), 15px to match the AI summary card.
-- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The meta row hugs the body above it (no `margin-top`; the toggle button's own 4px top padding is the only gap) so it reads as belonging to the comment it follows, not the one below. The comment's 10px bottom padding sits between the meta and the next comment's top border. When the comment is expanded, the children list adds a matching 10px `margin-top` so the gap before the first nested reply's border matches the gap between sibling comments (the parent's own `padding-bottom` only takes effect after all children).
+- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The meta row hugs the body above it (no `margin-top`; the toggle button's own 4px top padding is the only gap) so it reads as belonging to the comment it follows, not the one below. The comment's 6px bottom padding sits between the meta and the next comment's top border. When the comment is expanded, the children list adds a matching 6px `margin-top` so the gap before the first nested reply's border matches the gap between sibling comments (the parent's own `padding-bottom` only takes effect after all children).
 - No action row, no children.
 - Cursor is `pointer`.
 
