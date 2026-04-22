@@ -7,6 +7,7 @@ import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { BackToTopButton } from './BackToTopButton';
 import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
@@ -334,6 +335,7 @@ export function StoryList({ feed }: Props) {
           </button>
         </div>
       ) : null}
+      <BackToTopButton />
     </PullToRefresh>
   );
 }
