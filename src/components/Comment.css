@@ -1,5 +1,11 @@
 .comment {
-  padding: 10px 12px;
+  /* Asymmetric on purpose: the trailing .comment__header's author
+     and toggle buttons carry an internal 4px vertical padding (for
+     tap-target height), so a 4px padding-bottom here plus that 4px
+     internal padding visually matches the 8px gap above the body
+     text. Using symmetric 10/10 made the bottom gap read noticeably
+     larger than the top. */
+  padding: 8px 12px 4px;
   border-top: 1px solid var(--hn-border);
   background: var(--hn-bg-card);
   color: var(--hn-text);
@@ -138,10 +144,11 @@
 .comment__children {
   /* Compensate for the parent card's padding-bottom not applying above
      nested replies, so the gap before a child's border matches the gap
-     between sibling comments. Visual hierarchy comes from each
-     comment's own left stripe (see .comment box-shadow), so this list
-     adds no left offset of its own. */
-  margin: 10px 0 0;
+     between sibling comments. Kept in sync with `.comment`'s
+     padding-bottom — see SPEC.md's Collapsed state note. Visual
+     hierarchy comes from each comment's own left stripe (see .comment
+     box-shadow), so this list adds no left offset of its own. */
+  margin: 4px 0 0;
   padding: 0;
   list-style: none;
 }
