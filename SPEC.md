@@ -509,6 +509,8 @@ Every scrolling list view — feed pages (`/top`, `/new`, `/best`, etc.) and lib
 
 Library pages therefore show only the Back-to-top slot; feed pages show all three when a next page is available and the header sweep is enabled, or Back-to-top + Hide-unpinned when the feed's id list has been exhausted, etc. Reaching the end of any long scroll shouldn't require a manual fling to get back up top — Back to top is always there, matching where the thread page puts it.
 
+**Sizing — More is the one that stretches.** On the feed footer (`.story-list__footer--feed`), More is the action a returning reader came for ("give me the next page of stories"), so it's the one that grows to absorb the row's free space and becomes the biggest target. Back to top stays at its natural size — it's a nice-to-have escape hatch, not the reason the reader scrolled to the bottom. Hide unpinned stays at its fixed 56×56 square, right-pinned via `margin-left: auto`. When the feed has exhausted its id list and More is absent, Back to top still stays natural-width and `margin-left: auto` on the sweep button takes over the right-pinning on its own. Library footers don't carry the `--feed` modifier, so Back to top grows to fill the row there (it's the only button — a full-width target beats a small one stranded on the left edge).
+
 ## Visual Design
 
 - Primary color: `#ff6600` (HN orange) for the header and accents.
