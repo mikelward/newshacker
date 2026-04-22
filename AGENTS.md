@@ -152,53 +152,29 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Safe vs. risky actions
 
-- Safe: edit files, add dependencies, run tests, run the dev server.
-- Ask first before: force-pushing, rewriting git history, deleting branches, changing Vercel project settings, changing CI secrets, adding paid/third-party services.
+- Safe: edit files, add dependencies, run tests, run the dev server,
+  creating new `claude/<short-topic>` feature branches, creating PRs
+  via `mcp__github__create_pull_request` once the user has asked you
+  to open one (and for subsequent follow-up PRs in the same thread —
+  don't keep re-asking), `git push --force-with-lease` to your own
+  live feature branch after a rebase (this is normal hygiene, not a
+  risky action).
+- Ask first before: force-pushing to `main`/`master` or to a merged
+  branch, rewriting history on shared branches, deleting branches
+  you didn't create, changing Vercel project settings, changing CI
+  secrets, adding paid/third-party services.
 
 ## Branching
 
-- **Normal flow.** Short-lived branch off `origin/main` → GitHub PR →
-  land on main via rebase or squash (linear history, no merge
-  commits). Never commit to `main` directly. One PR per branch, one
-  branch per topic — follow-up work after a merge goes on a new
-  branch. Commit with clear messages. Don't open PRs unless asked.
-
-- **Cues that require action before you write more code.** Always
-  check the current PR's state via the GitHub MCP tools before acting
-  — trust the state, not just the word.
-  - **"merged" / "I merged"** — the PR landed; the branch is retired.
-    `git fetch origin`, cut a new branch off `origin/main`'s tip with
-    a fresh `claude/<short-topic>` name, tell the user you're
-    switching, delete the old remote ref, open a new PR when ready.
-    The delete step is usually a no-op because this repo has
-    auto-delete-on-merge enabled, but run it anyway so the rule is
-    robust if the setting ever changes. Never force-push new work
-    onto a merged branch — it rewrites the merged PR's history.
-  - **"sync" / "rebase" / "pull main" / "update from main"** — the
-    branch is still alive. `git fetch origin`, rebase onto
-    `origin/main`, `git push --force-with-lease`. Same branch, same
-    PR.
-  - **State doesn't match the word** (e.g. "rebase" but the PR has
-    already merged, or PR is closed-unmerged): follow the "merged"
-    path for a merged PR and flag it; ask the user for the
-    closed-unmerged case.
-- **End every reply with the currently-open PR link.** Chat footer
-  is the reviewer's source of truth; the Claude Code "View PR"
-  button (especially on mobile) may stay pinned to a closed PR after
-  a merge. Never link to a closed or merged PR. No open PR for the
-  current branch → `.../compare/main...<branch>`, swap to the PR URL
-  the moment one is opened. Between PRs (detached on main after a
-  merge) → omit the footer or link to
-  `.../pulls?q=is%3Aopen+is%3Apr`. Re-verify via MCP after any
-  "merged" / "closed" cue before reusing a URL.
-- **Never commit directly to `main` (or `master`).** The only write
-  operation allowed on the default branch is a fast-forward merge / push
-  of already-reviewed commits. No direct commits, no rebases that rewrite
-  main's history, no force-pushes, no amendments. When you start work,
-  branch off `origin/main` — if the assigned branch is behind, rebase it
-  onto `origin/main` first. If you find yourself on `main` locally (`git
-  branch --show-current` says `main`/`master`), stop and switch to a
-  feature branch before editing anything.
+- **Workflow.** `claude/<short-topic>` branch off `origin/main` → PR → merge via rebase or squash. One topic per branch. Follow-up work after a merge goes on a new branch. Never commit to `main` / `master`.
+- **One commit per PR.** After new work or review-fix commits on an open PR, `git reset --soft origin/main && git commit` to re-squash before pushing. Don't rely on merge-time squash to clean up your working history.
+- **Check state before you push or branch.** Query the branch's PR via the GitHub MCP first.
+  - No PR yet, or PR open → `git push` (`--force-with-lease` to your own feature branch after a rebase is fine; don't ask).
+  - PR merged / closed → don't push. Merge-path hygiene: `git fetch origin`, cut a fresh `claude/<short-topic>` branch off `origin/main`, announce the switch.
+- **Merge cue (`merged` / `I merged` / `landed` / merge webhook) runs hygiene *before* engaging with the rest of the message.**
+- Creating new `claude/<short-topic>` branches and creating PRs via `mcp__github__create_pull_request` (once the user has asked for one in the thread) are safe — don't re-ask.
+- Sandbox git proxy can't delete branches (HTTP 403). Flag it and move on; auto-delete-on-merge handles GitHub's side.
+- End every reply with the open-PR link (or `.../compare/main...<branch>` until a PR exists). Never link to a closed or merged PR.
 
 ## When in doubt
 
