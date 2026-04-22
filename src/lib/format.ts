@@ -154,8 +154,9 @@ export interface StoryMetaInput {
   descendants?: number;
   /**
    * Number of comments posted since the reader last opened the thread.
-   * When > 0, a trailing ` · N new` segment is appended. 0 or undefined
-   * suppresses it.
+   * When > 0, the comments segment becomes `"{N}/{M} comment(s)"` so the
+   * new-count piggybacks on the existing meta item rather than adding a
+   * fourth one. 0 or undefined renders the plain `"{M} comment(s)"` form.
    */
   newCommentCount?: number;
 }
@@ -174,9 +175,8 @@ export function formatStoryMetaTail(item: StoryMetaInput, now?: Date): string {
   const points = item.score ?? 0;
   parts.push(`${points} ${pluralize(points, 'point')}`);
   const comments = item.descendants ?? 0;
-  parts.push(`${comments} ${pluralize(comments, 'comment')}`);
-  if (item.newCommentCount && item.newCommentCount > 0) {
-    parts.push(`${item.newCommentCount} new`);
-  }
+  const newCount = item.newCommentCount ?? 0;
+  const countText = newCount > 0 ? `${newCount}/${comments}` : `${comments}`;
+  parts.push(`${countText} ${pluralize(comments, 'comment')}`);
   return parts.join(' · ');
 }
