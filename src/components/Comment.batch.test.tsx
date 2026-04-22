@@ -17,7 +17,7 @@ function commentFixture(id: number, overrides: Partial<HNItem> = {}): HNItem {
   };
 }
 
-describe('<Comment> chevron affordance', () => {
+describe('<Comment> expand/collapse icon affordance', () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -25,7 +25,7 @@ describe('<Comment> chevron affordance', () => {
     window.localStorage.clear();
   });
 
-  it('renders a chevron inside the toggle whose data-expanded flips on click', async () => {
+  it('renders a +/- icon at the end of the toggle whose data-expanded flips on click', async () => {
     const items: Record<number, HNItem> = {
       7100: commentFixture(7100, { kids: [] }),
     };
@@ -35,15 +35,20 @@ describe('<Comment> chevron affordance', () => {
       expect(screen.getByText('body 7100')).toBeInTheDocument();
     });
     const toggle = screen.getByRole('button', { name: /expand comment/i });
-    const chevron = toggle.querySelector('.comment__chevron');
-    expect(chevron).not.toBeNull();
-    expect(chevron).toHaveAttribute('data-expanded', 'false');
+    const icon = toggle.querySelector('.comment__toggle-icon');
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('data-expanded', 'false');
+    // Collapsed state renders the "add" (+) icon — the meta-text span
+    // sits before the icon so the +/− lands at the end of the line.
+    const iconParent = icon!.parentElement as HTMLElement;
+    const children = Array.from(iconParent.children);
+    expect(children[children.length - 1]).toBe(icon);
     act(() => {
       fireEvent.click(toggle);
     });
     await waitFor(() => {
       expect(
-        toggle.querySelector('.comment__chevron'),
+        toggle.querySelector('.comment__toggle-icon'),
       ).toHaveAttribute('data-expanded', 'true');
     });
   });

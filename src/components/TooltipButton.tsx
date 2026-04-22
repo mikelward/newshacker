@@ -247,12 +247,16 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
       [onPointerCancel, clearShowTimer, clearHideTimer],
     );
 
-    // Mouse hover / keyboard focus: desktop equivalent of the
-    // touch-long-press tooltip. Shows the same styled tooltip after
-    // the same delay; hides on leave/blur (no auto-timeout).
-    // onPointerEnter is used instead of onMouseEnter so we can gate
-    // on pointerType — we don't want to re-show the tooltip on a
-    // synthetic mouseenter that follows a touch gesture.
+    // Mouse hover / keyboard focus: desktop equivalents of the
+    // touch-long-press tooltip. Both paths show the same styled
+    // tooltip after the same delay and hide it on leave/blur (no
+    // auto-timeout). onPointerEnter is used instead of onMouseEnter
+    // so we can gate on pointerType — we don't want to re-show the
+    // tooltip on a synthetic mouseenter that follows a touch
+    // gesture. onFocus is gated on `:focus-visible` so tab-driven
+    // focus shows the tooltip but a plain mouse click doesn't
+    // (click already focuses the button; we don't want a tooltip
+    // to appear every time the user activates an action).
     const hoverActiveRef = useRef(false);
     const hideHoverTooltip = useCallback(() => {
       hoverActiveRef.current = false;
@@ -262,18 +266,21 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         setOpen(false);
       }
     }, [clearShowTimer, clearHideTimer]);
+    const startHoverShow = useCallback(() => {
+      hoverActiveRef.current = true;
+      clearShowTimer();
+      showTimerRef.current = window.setTimeout(() => {
+        showTimerRef.current = null;
+        if (!hoverActiveRef.current) return;
+        showTooltip('hover');
+      }, tooltipDelayMs);
+    }, [tooltipDelayMs, clearShowTimer, showTooltip]);
     const handlePointerEnter = useCallback(
       (e: PointerEvent<HTMLButtonElement>) => {
         if (e.pointerType !== 'mouse') return;
-        hoverActiveRef.current = true;
-        clearShowTimer();
-        showTimerRef.current = window.setTimeout(() => {
-          showTimerRef.current = null;
-          if (!hoverActiveRef.current) return;
-          showTooltip('hover');
-        }, tooltipDelayMs);
+        startHoverShow();
       },
-      [tooltipDelayMs, clearShowTimer, showTooltip],
+      [startHoverShow],
     );
     const handlePointerLeave = useCallback(
       (e: PointerEvent<HTMLButtonElement>) => {
@@ -282,6 +289,15 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
       },
       [hideHoverTooltip],
     );
+    const handleFocus = useCallback(() => {
+      const btn = buttonRef.current;
+      // :focus-visible matches when focus arrived via keyboard or
+      // another non-pointer source. When it doesn't match (mouse
+      // click / touch tap brought focus here), skip — users who
+      // just clicked the button don't need a tooltip.
+      if (!btn || (btn.matches && !btn.matches(':focus-visible'))) return;
+      startHoverShow();
+    }, [startHoverShow]);
     const handleBlur = useCallback(() => {
       hideHoverTooltip();
     }, [hideHoverTooltip]);
@@ -337,6 +353,7 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
           onPointerCancel={handlePointerCancel}
           onPointerEnter={handlePointerEnter}
           onPointerLeave={handlePointerLeave}
+          onFocus={handleFocus}
           onBlur={handleBlur}
           onContextMenu={handleContextMenu}
           onClick={handleClick}

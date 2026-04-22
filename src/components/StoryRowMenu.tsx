@@ -75,12 +75,16 @@ export function StoryRowMenu({
   // Measure anchor + own size and place the popover right-aligned
   // below the anchor, flipping above when there's no room below.
   // Re-runs on resize and scroll so the menu follows its anchor if
-  // the page shifts while open.
+  // the page shifts while open. Scroll-driven updates are
+  // rAF-throttled, and we skip `setPos` entirely when the computed
+  // coordinates haven't changed, so a scroll that doesn't move the
+  // anchor by >1px never triggers a re-render.
   useLayoutEffect(() => {
     if (!popover || !anchorEl || !sheetRef.current) {
       setPos(null);
       return;
     }
+    let rafId = 0;
     const place = () => {
       if (!sheetRef.current || !anchorEl) return;
       const a = anchorEl.getBoundingClientRect();
@@ -101,16 +105,34 @@ export function StoryRowMenu({
           : Math.max(pad, a.top - m.height - margin);
       let left = a.right - m.width;
       left = Math.max(pad, Math.min(left, Math.max(pad, vw - m.width - pad)));
-      setPos({ top, left, placement });
+      setPos((prev) => {
+        if (
+          prev &&
+          prev.top === top &&
+          prev.left === left &&
+          prev.placement === placement
+        ) {
+          return prev;
+        }
+        return { top, left, placement };
+      });
     };
     place();
-    const onResize = () => place();
-    const onScroll = () => place();
+    const scheduleRaf = () => {
+      if (rafId) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        place();
+      });
+    };
+    const onResize = () => scheduleRaf();
+    const onScroll = () => scheduleRaf();
     window.addEventListener('resize', onResize);
     window.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll, true);
+      if (rafId) window.cancelAnimationFrame(rafId);
     };
   }, [popover, anchorEl, items]);
 
@@ -181,8 +203,14 @@ export function StoryRowMenu({
       )}
       <div
         ref={sheetRef}
+        // Popover: the whole card IS the menu — announce it as such
+        // (role="menu"), so screen readers route arrow-key nav to the
+        // items and don't treat the popover like a modal dialog.
+        // Sheet (touch): keep the dialog framing — the darkened
+        // backdrop + Cancel button really is modal, and aria-modal="true"
+        // matches that experience.
         className={sheetClass}
-        role="dialog"
+        role={popover ? 'menu' : 'dialog'}
         aria-modal={popover ? undefined : 'true'}
         aria-label={title}
         style={sheetStyle}
@@ -191,7 +219,13 @@ export function StoryRowMenu({
         <div className="story-menu__title" title={title}>
           {title}
         </div>
-        <ul className="story-menu__list" role="menu">
+        <ul
+          className="story-menu__list"
+          // Inner list is purely presentational when the outer card
+          // already carries role="menu"; otherwise (sheet), the list
+          // itself is the menu nested inside the dialog.
+          role={popover ? 'presentation' : 'menu'}
+        >
           {items.map((item) => (
             <li key={item.key} role="none">
               <button

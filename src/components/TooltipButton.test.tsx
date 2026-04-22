@@ -192,6 +192,69 @@ describe('TooltipButton', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
+  it('shows the tooltip on keyboard focus (:focus-visible), and hides on blur', () => {
+    render(
+      <TooltipButton tooltip="Refresh" data-testid="btn">
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn') as HTMLButtonElement;
+    const restore = mockRect(btn, {
+      top: 12,
+      left: 40,
+      width: 48,
+      height: 48,
+      right: 88,
+      bottom: 60,
+    });
+    // Force :focus-visible to match so the focus path fires (jsdom
+    // is conservative about :focus-visible heuristics).
+    const originalMatches = btn.matches;
+    btn.matches = (sel: string) =>
+      sel === ':focus-visible' ? true : originalMatches.call(btn, sel);
+    try {
+      act(() => {
+        btn.focus();
+        fireEvent.focus(btn);
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Refresh');
+      act(() => {
+        fireEvent.blur(btn);
+      });
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    } finally {
+      btn.matches = originalMatches;
+      restore();
+    }
+  });
+
+  it('does NOT show the tooltip on focus that is not :focus-visible (mouse-click focus)', () => {
+    render(
+      <TooltipButton tooltip="Pin" data-testid="btn">
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn') as HTMLButtonElement;
+    const originalMatches = btn.matches;
+    btn.matches = (sel: string) =>
+      sel === ':focus-visible' ? false : originalMatches.call(btn, sel);
+    try {
+      act(() => {
+        btn.focus();
+        fireEvent.focus(btn);
+      });
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    } finally {
+      btn.matches = originalMatches;
+    }
+  });
+
   it('does NOT show the tooltip on a short touch tap', () => {
     const onClick = vi.fn();
     render(
