@@ -209,7 +209,7 @@ At defaults with 5-min cadence:
 
 - **Vercel invocations:** 288 per day. Well inside Pro's limits.
 - **HN Firebase:** ≤8,640 top-story fetches/day + comments child-fetches. Free, no rate limits.
-- **Jina Reader:** ~1,500–3,000/day realistic, ~45–90k/month. Covered by Jina's free tier at our volume.
+- **Jina Reader:** ~1,500–3,000/day realistic, ~45–90k/month. The free tier is a one-time 10M-token grant per key that does not refresh daily or monthly — expect it to cover a few weeks of steady cron traffic, then top up (~$0.02/M tokens, a few dollars/month for ongoing use) or rotate the key. The handler returns 503 `summary_budget_exhausted` and the cron logs `skipped_payment_required` between top-ups; see `SPEC.md` § "Scheduled warming and change analytics" for the full cost breakdown.
 - **Gemini:** ~$3–5/month realistic, ~$15/month worst case.
 - **Upstash:** Two keys per story. Well inside the free tier.
 
