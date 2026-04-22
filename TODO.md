@@ -101,24 +101,24 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   efficiency win, not a correctness bug; punt until analytics show
   it matters.
 
-- **Warm-summaries analytics surface.** Today the `warm-story` /
-  `warm-run` JSON lines ride in Vercel function logs. That's enough
-  for a weeks-long "eyeball the scatterplot" pass — grep + jq + a
-  Python script. Three upgrades, ordered cheapest-first, to consider
-  only if the logs turn out to be genuinely useful (not if the answer
-  is "knobs are fine, stop looking"):
-  (a) **Log sink.** Vercel keeps function logs ~1 day. Shipping to
-      Axiom / Logtail / BetterStack (all have generous free tiers for
-      our volume) gets weeks-to-months of retention. ~1 h setup.
-  (b) **Aggregation endpoint.** `/api/warm-summaries-stats` that
+- **Warm-summaries analytics surface.** The `warm-story` /
+  `warm-run` JSON lines ride in Vercel function logs and are being
+  forwarded to **Axiom** via the Vercel integration (done — scoped to
+  newshacker only; APL query templates in CRON.md § "Useful APL
+  queries"). That covers retention and ad-hoc querying. Two further
+  upgrades, to consider only if the logs turn out to be genuinely
+  useful (not if the answer is "knobs are fine, stop looking"):
+  (a) **Aggregation endpoint.** `/api/warm-summaries-stats` that
       reads rollups (counts per outcome, per age-bucket, per track,
       per hour/day) from a pre-aggregated Upstash sorted-set. Needs
       a second hourly cron that scans the last hour's `warm-story`
-      lines and increments the counters. ~2 h.
-  (c) **Visual dashboard.** Anything from a static HTML page
-      rendering (b)'s JSON as charts to a Grafana board pointed at
-      (a). Only worth it if we're iterating on the knobs regularly.
-      1–4 h depending on polish.
+      lines and increments the counters. ~2 h. Lower-effort
+      alternative: save the CRON.md APL queries as Axiom starred
+      queries and skip the endpoint entirely.
+  (b) **Visual dashboard.** Either an Axiom dashboard (point-and-
+      click on the APL queries in CRON.md — probably 20 min) or
+      something custom rendered from (a). Only worth it if we're
+      iterating on the knobs regularly.
   Don't pre-build these — the MVP logs answer "is there a real
   signal here" in a week of data. Invest based on the answer.
 
