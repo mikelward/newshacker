@@ -15,22 +15,22 @@
   color: var(--hn-text);
 }
 
+/* Single-row layout at every phone width. flex-wrap: wrap is retained
+   as a safety net for absurdly narrow viewports (<300px, no real
+   device), but the primary/stretch slot has `flex: 1; min-width: 0`
+   and its label truncates via `.thread__action-label` when space gets
+   tight — so Pin/Done/⋮ never get pushed to a second row on anything
+   the size of a real phone. See Thread.toolbarLayout.test.tsx for the
+   regression guard (an earlier design forced a wrap at ≤480px, which
+   broke in two ways: Pixel-10-class phones lost tap-target real
+   estate to a gratuitous 2-row layout, and the top/bottom bars
+   disagreed about whether to wrap whenever the two labels had
+   different natural widths). */
 .thread__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 12px;
-}
-
-/* Narrow phones can't fit the full "Read article" primary button plus
-   the icon buttons on one row — letting the primary grow to the full
-   row width on narrow screens keeps it tappable and lets the icons
-   flow onto their own row below. Wider viewports keep the whole bar
-   on one row. */
-@media (max-width: 480px) {
-  .thread__action--primary {
-    flex-basis: 100%;
-  }
 }
 
 .thread__action {
@@ -69,30 +69,23 @@
   color: #fff;
 }
 
-/* Grows a text action to fill the row's primary slot without inheriting
+/* Grows an action to fill the row's primary slot without inheriting
    --primary's orange. The bottom bar's Back to top uses this so Pin/
    Done/⋮ end up at the same x-position as their top-bar counterparts —
-   a reader's thumb learns one location instead of two. Matches
-   --primary's narrow-viewport wrap so the icon row drops below the
-   stretched button on ≤480px screens, mirroring the top bar exactly. */
+   a reader's thumb learns one location instead of two. Shares
+   --primary's `flex: 1; min-width: 0` so the label ellipsis-truncates
+   rather than pushing the icon row onto a second row on phones. */
 .thread__action--stretch {
   flex: 1;
   min-width: 0;
 }
 
-@media (max-width: 480px) {
-  .thread__action--stretch {
-    flex-basis: 100%;
-  }
-}
-
 /* Stacked on --primary after the article has been opened once. Keeps the
-   layout of the primary button (flex: 1, min-width: 0, narrow-viewport
-   row-wrap) but drops the HN orange down to the neutral secondary
-   palette, so a re-visit to the same thread doesn't keep shouting
-   "read this!" at a reader who already has. The rules below override
-   the --primary declarations, so ordering in the .css matters:
-   --read must appear after --primary. */
+   layout of the primary button (flex: 1, min-width: 0) but drops the HN
+   orange down to the neutral secondary palette, so a re-visit to the
+   same thread doesn't keep shouting "read this!" at a reader who
+   already has. The rules below override the --primary declarations, so
+   ordering in the .css matters: --read must appear after --primary. */
 .thread__action--read {
   background: var(--hn-bg-card);
   border-color: var(--hn-border);

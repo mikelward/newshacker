@@ -539,7 +539,10 @@ function ThreadActionBar({
         // same primary-slot width as Read article does at the top.
         // That keeps Pin/Done/⋮ in the same on-screen position top
         // and bottom, so the reader's thumb doesn't have to relearn
-        // where they are at the end of a long thread.
+        // where they are at the end of a long thread. The label
+        // ellipsis-truncates via .thread__action-label when space
+        // gets tight, so the bar stays on a single row at every
+        // phone width (see Thread.toolbarLayout.test.tsx).
         <button
           type="button"
           className="thread__action thread__action--stretch"
