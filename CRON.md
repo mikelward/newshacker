@@ -46,7 +46,7 @@ also warm the cache). Redeploy after any change.
 
 | Name | What it's for |
 |---|---|
-| `CRON_SECRET` | Auto-set by Vercel when you enable a cron. The handler requires a matching `Authorization: Bearer <secret>` header. If the env var is missing, the handler **fails closed in production-like environments** (returns 403) and only allows open access when `NODE_ENV` is `development`/`test` or `VERCEL_ENV` is `development` — so a misconfigured prod deploy that dropped the var can't accidentally expose the warmer publicly. |
+| `CRON_SECRET` | Shared secret Vercel Cron sends in the `Authorization: Bearer <secret>` header when firing the job. **You have to set this yourself** — Vercel does not auto-generate it. Without it set (and scoped to the environment the cron is firing in), every scheduled invocation will hit the handler with no `Authorization` header and our fail-closed check returns 403 silently. Any long random string works; `openssl rand -hex 32` is fine. |
 | `GOOGLE_API_KEY` | Gemini 2.5 Flash-Lite. Used by both user-facing summary endpoints and the cron. |
 | `JINA_API_KEY` | Jina Reader. Required — no fallback. |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` *or* `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Upstash credentials. Either pair works. Vercel Storage Marketplace auto-injects the `KV_REST_*` pair; a direct Upstash project uses `UPSTASH_REDIS_REST_*`. |
@@ -79,20 +79,40 @@ The cron is declared in `vercel.json`:
 }
 ```
 
-1. Push the PR that introduces (or re-introduces) the entry to `main`.
-2. Let Vercel deploy production.
-3. Open **Vercel → Project → Settings → Cron Jobs**. You should see
-   the entry listed with its next run time.
+There is no dashboard toggle — on deploy, Vercel reads the `crons`
+field and registers the schedule. The Settings → Cron Jobs page is a
+read-only listing.
 
-That's it — Vercel picks up the `crons` field on deploy. There's no
-separate "enable" toggle.
+Steps for a fresh project:
+
+1. **Set `CRON_SECRET`** in **Vercel → Project → Settings →
+   Environment Variables**. Any long random string works; a common
+   choice is `openssl rand -hex 32`. Scope it to **Production** (and
+   **Preview** too if you want preview deploys to also warm the
+   cache). Save the value locally — Vercel's UI won't let you read
+   it back later.
+2. **Set the other required env vars** from the table above
+   (`GOOGLE_API_KEY`, `JINA_API_KEY`, Upstash credentials).
+3. **Deploy to production** — env var changes don't apply to
+   existing deployments, and the `crons` entry is only registered
+   by a fresh build.
+4. **Verify** in **Vercel → Project → Settings → Cron Jobs**: you
+   should see `/api/warm-summaries?feed=top&n=30` with its next run
+   time. First scheduled invocation lands within 5 minutes.
+
+If `CRON_SECRET` is left unset at step 1, Vercel Cron still fires
+but without an `Authorization` header, and our fail-closed check
+returns 403 on every tick. The symptom is "the cron runs but
+nothing gets warmed" — see Troubleshooting below.
 
 ## Verifying it works
 
 ### Manual trigger
 
 ```bash
-# Grab CRON_SECRET from Vercel first.
+# Use the same CRON_SECRET value you set in Vercel. Vercel's UI
+# doesn't let you read it back, so this is the value you saved
+# locally at enablement time.
 curl -i -X GET \
   -H "Authorization: Bearer $CRON_SECRET" \
   "https://newshacker.app/api/warm-summaries?feed=top&n=3"
@@ -196,7 +216,8 @@ redeploy.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | No `warm-run` lines in logs | Cron not firing. | Check Pro tier, `vercel.json` has `crons` entry, deployment succeeded, Cron Jobs dashboard lists it. |
-| `/api/warm-summaries` returns 403 on Vercel-initiated calls | `CRON_SECRET` env var drift — Vercel signed with one value, handler checks another. | Delete the project's `CRON_SECRET` env var and let Vercel regenerate it on the next deploy. Or set one manually and ensure Vercel uses it. |
+| Cron Jobs dashboard shows invocations but every one is a 403 | `CRON_SECRET` not set in the project env, or set only for a different environment (e.g. Production ticked but the cron is hitting a Preview deployment). Vercel fires with no `Authorization` header and the handler fail-closed returns 403. | Set `CRON_SECRET` in **Settings → Environment Variables**, scope it to the environment the cron fires in, redeploy so the env change takes effect. |
+| Manual `curl` with the secret works but scheduled runs 403 | The `CRON_SECRET` value in the Vercel env doesn't match what you typed locally (env var drift, or the project was redeployed without the var saved). | In the Vercel UI, re-save `CRON_SECRET` with a known value and redeploy. Vercel can't show you the existing value, so "just check what's set" isn't an option — overwrite and re-record. |
 | 503 `{"error":"Store not configured","reason":"no_store"}` | Upstash env vars unset or typo. | Check both `KV_REST_API_URL` / `KV_REST_API_TOKEN` pair (or `UPSTASH_REDIS_REST_URL` / `..._TOKEN` pair) are set for the environment serving the cron. |
 | Every article-track story logs `skipped_unreachable` | `JINA_API_KEY` missing or invalid. | Re-run the Jina sanity-check from INSTALL.md. Note: `skipped_unreachable` is also the right outcome if Jina is genuinely down — check their status page before assuming a config issue. |
 | Gemini spend climbing faster than expected | Articles or comments churning more than forecast, or a publisher's page has rotating content Jina can't strip (e.g., an always-changing timestamp in the body). | Grep `warm-story` lines for the high-churn `storyId`s — `contentBytes` barely moving across "changed" rows is the timestamp-rotation signature. If it's a single publisher domain, file it to the article-fetch-fallback allowlist TODO. |
