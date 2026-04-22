@@ -31,7 +31,7 @@ We achieve that by:
 - Familiar HN look & feel — orange `#ff6600` header, cream background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
-- Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
+- Optional: log in and upvote stories via HN's existing web endpoints (from the inline triangle next to the story's points in the thread page meta row; the story rows stay a two-tap-zone read surface).
 
 ## Non-Goals (MVP)
 
@@ -222,8 +222,9 @@ server-side with most-recent-first eviction.
    need the user's session cookie (already have, from Login) **and**
    the per-item `auth` token, scraped from the rendered HN HTML for
    that item. `/api/vote` does the scrape + forward; the client calls
-   it optimistically — the **Upvote button on the thread page action
-   bar** (see *Thread action bar*) flips to orange on tap, a
+   it optimistically — the **inline upvote triangle next to the points
+   count** in the thread page meta row (see *Thread action bar*) flips
+   to orange on tap, a
    localStorage-backed per-user set (`newshacker:votedStoryIds:<user>`)
    keeps the arrow orange across reloads, and a failure (401 session
    expired, 502 HN HTML changed or item locked) rolls the local state
@@ -405,9 +406,9 @@ Tap zones — there are never more than three, and the shipped UI uses two:
 - **Row body** — the title and meta line share a single stretched `<Link to="/item/:id">`, so a tap anywhere on the row opens the thread. The article itself is opened from a prominent "Read article" button on the thread page. Self-posts behave the same way (they've never had an external article to begin with).
 - **Pin button** — a real icon button on the right, not an inline text link. Tapping toggles pinned state. Has its own 48×48px hit area and ≥8px horizontal gap from the row body.
 
-A third slot is reserved between the row body and the pin button for at most one additional per-row action. It's currently unused — voting took the slot in an earlier design and has since been moved to the thread page action bar (see below). Any future use of the slot has to clear a high bar: the action has to be something the reader actually wants to do from a scrolling feed without opening the story, not merely something we're capable of adding.
+A third slot is reserved between the row body and the pin button for at most one additional per-row action. It's currently unused — voting took the slot in an earlier design and has since been moved to the thread page (as an inline triangle next to the points count in the meta row; see *Thread action bar* below). Any future use of the slot has to clear a high bar: the action has to be something the reader actually wants to do from a scrolling feed without opening the story, not merely something we're capable of adding.
 
-**Voting deliberately lives on the thread page, not the row.** An earlier draft reserved a third tap zone on the left for the vote arrow (visible only when logged in). We dropped it: the row stays a pure browsing surface, and upvoting becomes an intentional act on the page where the reader has context — title, domain, points, article summary, comment summary, comments themselves. See *Thread action bar* below.
+**Voting deliberately lives on the thread page, not the row.** An earlier draft reserved a third tap zone on the left for the vote arrow (visible only when logged in). We dropped it: the row stays a pure browsing surface, and upvoting becomes an intentional act on the page where the reader has context — title, domain, points, article summary, comment summary, comments themselves. See *Thread action bar* below for where the upvote lives today (inline in the meta row, next to points).
 
 Everything else is display-only:
 
@@ -427,11 +428,13 @@ Spacing / sizing:
 - Min dead space between adjacent tap zones: 8px.
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
 
-Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Upvote (logged-in only), Pin/Unpin, Done, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the icon row, and a single primary tap target per comment row. See *Comment row layout* below.
+Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Pin/Unpin, Done, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the icon row, and a single primary tap target per comment row. See *Comment row layout* below. Upvote does not sit on this bar — it lives inline in the story meta row next to the points count (see *Thread action bar* below), so the bar stays at four slots and voting reads as metadata rather than a primary CTA.
 
 ### Thread action bar
 
-Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin/Unpin** → **Done** → **More actions ⋮**. Each icon button is 48×48px with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--hn-meta` by default and `--hn-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
+Row order, left-to-right: **Read article** (hidden on self-posts) → **Pin/Unpin** → **Done** → **More actions ⋮**. Each icon button is 48×48px with ≥8px spacing. Upvote is intentionally *not* on this bar — a large orange triangle alongside Read article made voting feel like the primary action and pushed the row out to five slots. The upvote lives inline in the story meta row instead (see below), which mirrors HN's own layout and demotes the control to metadata without taking away the one-tap gesture.
+
+**Inline upvote.** When logged in, a small HN-style triangle (`▲`, 14px glyph inside a 48×48 hit target supplied by an absolutely-positioned `::before` pseudo so the tap area doesn't grow the line height) renders immediately before the "`N points`" text in the `.thread__meta` row, colored `--hn-meta` by default and `--hn-orange` when voted. Tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure — see item 7 under *Features* for the full round-trip. Logged-out users see the points text with no triangle. The inline upvote appears only on the top meta row (there is no meta row duplicated at the bottom); the bottom action bar is for queue/exit actions only.
 
 The **Pin/Unpin** button (Material Symbols `push_pin`, outline → filled on toggle) is the same pinned state as the row-level pin on feeds; label and tooltip flip between "Pin" and "Unpin" based on current state. Reachable from the thread page so stories opened directly from a share link (where there's no feed row to tap) can be pinned and unpinned in the same place. The **Done** button (Material Symbols `done`, outline → filled on toggle) sits immediately right of Pin/Unpin and marks the thread complete: the story is filtered out of every feed (see *Pinned vs. Favorite vs. Done* above) and added to the synced Done list. Tapping Done on a pinned story also unpins it; Done and Pin are mutually exclusive. Tapping **Mark done** also closes the thread — it pops back to the previous entry (usually the feed) via `navigate(-1)`, or lands on the home feed if there's no in-app history (deep link, refresh, shared URL). This mirrors the "mark read" gesture on Apollo-style Reddit clients: the Done tap is "I'm finished, move on". **Unmark done** does *not* navigate — the user is usually on the thread deliberately to revisit a completed item, so yanking them away would be hostile. Browser back is the recovery path for an accidental mark-done; there is no Done toast — the button state (and the story's disappearance from feeds) is the single source of truth, matching Pin.
 

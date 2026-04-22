@@ -282,6 +282,50 @@
   }
 }
 
+/* Inline upvote button in the meta row, next to the "N points" text.
+   The triangle itself is small so it reads as metadata, not a primary
+   action, but the hit area is pushed out to 48×48 via a ::before
+   pseudo so it still meets the tap-target rule. */
+.thread__meta-vote {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: 0 6px 0 0;
+  vertical-align: -5px;
+  background: transparent;
+  border: none;
+  color: var(--hn-meta);
+  cursor: pointer;
+}
+
+.thread__meta-vote::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+}
+
+.thread__meta-vote--voted {
+  color: var(--hn-orange);
+}
+
+@media (hover: hover) {
+  .thread__meta-vote:hover {
+    color: var(--hn-orange);
+  }
+}
+
+.thread__meta-vote:active {
+  filter: brightness(0.85);
+}
+
+.thread__meta-vote-icon {
+  display: block;
+}
+
 .thread__text {
   font-size: 15px;
   line-height: 1.5;
