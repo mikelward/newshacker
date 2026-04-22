@@ -681,10 +681,12 @@ export interface StoryLog {
   // up so operators can watch for budget drift without post-processing
   // the per-story lines.
   tokens?: number;
-  // Article track: hostname of `story.url` when available. Populated
-  // on every article-track log line where the story carries a URL —
-  // including the skipped_* outcomes — so `grep urlHost` gives a
-  // per-publisher breakdown without re-joining against HN item data.
+  // Article track: `story.url`'s lowercased hostname. Present on
+  // every line where the HN item was loaded and the story has a
+  // valid URL — first_seen / unchanged / changed and the in-function
+  // skipped_* outcomes. Absent on the two pre-fetch fallbacks
+  // (skipped_budget and the runPool error) which fire before the
+  // story is fetched.
   urlHost?: string;
   // Comments track analogues:
   //   commentCount    = usable top-level comments fed to the model
@@ -943,9 +945,10 @@ async function processArticleTrack(
 ): Promise<StoryLog> {
   const { deps, knobs, now, fetchFn, jinaApiKey, apiKey } = ctx;
   const baseLog = makeLog('article', storyId);
-  // Derive the URL host once so every outcome can carry it — including
-  // the skipped_* branches where we haven't done any Jina work. Lets
-  // `grep urlHost` produce a per-publisher breakdown from logs alone.
+  // Derive the host once so every outcome this function emits can
+  // carry it, including the skipped_* branches that don't hit Jina.
+  // The two pre-fetch fallbacks (skipped_budget, runPool error) fire
+  // before this function and miss urlHost; see StoryLog.urlHost.
   const urlHost = parseUrlHost(story?.url);
   const log = (extra: Partial<StoryLog>): StoryLog =>
     baseLog(urlHost ? { urlHost, ...extra } : extra);
