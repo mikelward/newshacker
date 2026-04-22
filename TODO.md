@@ -262,14 +262,19 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   the brand, and a two-tier header eats vertical space on a phone.
   Needs a design pass.
 
-- **Bottom-sheet vs anchored popover on touch (item #1 follow-up).**
-  The desktop-layout pass shipped the anchored-popover variant of
-  `StoryRowMenu` for `(hover: hover)` pointer devices while
-  keeping the bottom sheet for touch. The sheet is an iOS
-  convention; Android PopupMenu is already the same anchored
-  style we now ship on desktop. Re-evaluate whether the popover
-  should be the mobile default too, once we have a chance to try
-  it on real devices at Pixel 10 screen size.
+- **Bottom-sheet fallback still carries the sheet CSS and Cancel
+  button — worth a cleanup pass once the popover has stuck on
+  touch.** We flipped `StoryRowMenu` so the anchored popover is
+  the default on both pointer and touch devices whenever an
+  anchor is supplied, matching Android's PopupMenu convention.
+  The bottom-sheet variant remains as the no-anchor fallback
+  (darkened backdrop + Cancel button); in practice every real
+  trigger supplies an anchor, so the sheet path is currently
+  only exercised by tests. If a few weeks of Pixel/iPhone usage
+  don't surface a reason to bring the sheet back for any trigger,
+  the sheet markup, CSS, and `--sheet` class branch can all go —
+  `StoryRowMenu` collapses to a single anchored-popover component
+  and the `role="dialog"`/`aria-modal` branch disappears with it.
 
 - **Desktop-specific layout ideas parked for later.** The
   following were suggested in the same pass but intentionally

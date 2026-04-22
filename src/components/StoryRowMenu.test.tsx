@@ -1,24 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
-
-function setHoverDevice(matches: boolean) {
-  const original = window.matchMedia;
-  window.matchMedia = (query: string) =>
-    ({
-      matches: query.includes('hover: hover') ? matches : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }) as unknown as MediaQueryList;
-  return () => {
-    window.matchMedia = original;
-  };
-}
 
 function items(handlers: Partial<Record<string, () => void>> = {}) {
   return [
@@ -122,16 +104,8 @@ describe('StoryRowMenu', () => {
   });
 });
 
-describe('StoryRowMenu popover mode (pointer devices)', () => {
-  let restore: () => void;
-  beforeEach(() => {
-    restore = setHoverDevice(true);
-  });
-  afterEach(() => {
-    restore();
-  });
-
-  it('renders as a popover when `(hover: hover)` matches and an anchor is supplied', () => {
+describe('StoryRowMenu popover mode (anchor supplied)', () => {
+  it('renders as a popover whenever an anchor is supplied — pointer or touch', () => {
     const anchor = document.createElement('button');
     anchor.getBoundingClientRect = () =>
       ({

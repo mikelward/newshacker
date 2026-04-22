@@ -1,13 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { usePointerDevice } from '../hooks/usePointerDevice';
 import './StoryRowMenu.css';
-
-// TODO: re-evaluate the bottom-sheet fallback on touch. The sheet is
-// an iOS convention; Android (and likely most touch devices) would
-// feel more native with the anchored popover that desktop already
-// uses. Kept for now so we land the desktop change without a
-// simultaneous mobile UX shift.
 
 export interface StoryRowMenuItem {
   key: string;
@@ -20,13 +13,14 @@ interface Props {
   title: string;
   items: StoryRowMenuItem[];
   /**
-   * On `(hover: hover)` pointer-device browsers, when an anchor
-   * element is supplied the menu renders as an anchored popover near
-   * it instead of the mobile bottom sheet. Pass the element that
-   * triggered the open — a `<button>`, or the row itself for a
-   * row-level right-click / long-press — and the menu positions
-   * itself below (or above, flipped) that element, right-aligned to
-   * its right edge.
+   * When an anchor element is supplied the menu renders as an
+   * anchored popover near it, on both touch and pointer devices.
+   * Pass the element that triggered the open — a `<button>`, or the
+   * row itself for a row-level right-click / long-press — and the
+   * menu positions itself below (or above, flipped) that element,
+   * right-aligned to its right edge. When no anchor is supplied, the
+   * menu falls back to the bottom-sheet variant with a darkened
+   * backdrop and a Cancel button.
    */
   anchorEl?: HTMLElement | null;
   onClose: () => void;
@@ -47,8 +41,7 @@ export function StoryRowMenu({
 }: Props) {
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocused = useRef<Element | null>(null);
-  const pointerDevice = usePointerDevice();
-  const popover = open && pointerDevice && !!anchorEl;
+  const popover = open && !!anchorEl;
   const [pos, setPos] = useState<PopoverPosition | null>(null);
 
   useEffect(() => {
