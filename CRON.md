@@ -46,7 +46,7 @@ also warm the cache). Redeploy after any change.
 
 | Name | What it's for |
 |---|---|
-| `CRON_SECRET` | Auto-set by Vercel when you enable a cron. Also readable from the `Authorization: Bearer <secret>` header the cron sends. The handler requires a match when this is set; absent = open (dev only). Keep it set in prod. |
+| `CRON_SECRET` | Auto-set by Vercel when you enable a cron. The handler requires a matching `Authorization: Bearer <secret>` header. If the env var is missing, the handler **fails closed in production-like environments** (returns 403) and only allows open access when `NODE_ENV` is `development`/`test` or `VERCEL_ENV` is `development` — so a misconfigured prod deploy that dropped the var can't accidentally expose the warmer publicly. |
 | `GOOGLE_API_KEY` | Gemini 2.5 Flash-Lite. Used by both user-facing summary endpoints and the cron. |
 | `JINA_API_KEY` | Jina Reader. Required — no fallback. |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` *or* `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Upstash credentials. Either pair works. Vercel Storage Marketplace auto-injects the `KV_REST_*` pair; a direct Upstash project uses `UPSTASH_REDIS_REST_*`. |

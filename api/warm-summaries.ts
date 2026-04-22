@@ -540,11 +540,24 @@ export interface SummaryClient {
 
 // Auth for the cron endpoint. Vercel sends `Authorization: Bearer
 // <CRON_SECRET>` when the env var is set; requests without a matching
-// secret are rejected. If CRON_SECRET isn't set we assume local dev and
-// allow anything — production deploys are expected to set it.
+// secret are rejected. If CRON_SECRET is missing, fail *closed* in
+// production-like environments — a misconfigured deploy that dropped
+// the env var should not expose this expensive warmer publicly. Only
+// explicit dev / test modes (NODE_ENV=development|test or
+// VERCEL_ENV=development) fall back to open access so local runs and
+// `vercel dev` previews keep working without Vercel-Cron signing
+// requests.
+function isOpenCronAccessAllowed(): boolean {
+  return (
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.VERCEL_ENV === 'development'
+  );
+}
+
 export function isAuthorizedCronRequest(request: Request): boolean {
   const expected = process.env.CRON_SECRET;
-  if (!expected) return true;
+  if (!expected) return isOpenCronAccessAllowed();
   const header = request.headers.get('authorization');
   if (!header) return false;
   const match = /^Bearer\s+(.+)$/i.exec(header);
@@ -699,8 +712,12 @@ export interface WarmDeps {
   fetchFeedIds?: (feed: WarmFeed, signal?: AbortSignal) => Promise<number[]>;
   fetchItem?: (id: number, signal?: AbortSignal) => Promise<HNItem | null>;
   jinaApiKey?: string;
-  // `null` = disable; `undefined` = use the lazy-initialised Upstash
-  // store. Two stores so tests can disable one track at a time.
+  // `undefined` = use the lazy-initialised Upstash store for that
+  // track. `null` explicitly disables that store. Both stores are
+  // required for a successful run — passing `null` for either
+  // short-circuits the whole handler to 503, it does not run only
+  // the other track. (Per-track disable would be a feature addition,
+  // not a current contract.)
   store?: SummaryStore | null;
   commentsStore?: CommentsSummaryStore | null;
   now?: () => number;
@@ -750,19 +767,27 @@ function minutes(ms: number): number {
 }
 
 // Simple promise pool. Keeps at most `concurrency` workers in flight;
-// returns an array in input order. Each task is isolated — one failure
-// doesn't cancel the others.
+// returns an array in input order. Each task is isolated — one
+// exception doesn't cancel the others. The `onError` hook turns a
+// thrown error into a value of the same shape the worker returns, so
+// the caller gets a uniform results array without having to know which
+// entries failed.
 async function runPool<T, R>(
   inputs: T[],
   concurrency: number,
   worker: (input: T, index: number) => Promise<R>,
+  onError: (error: unknown, input: T, index: number) => R,
 ): Promise<R[]> {
   const results: R[] = new Array(inputs.length);
   let cursor = 0;
   async function step(): Promise<void> {
     while (cursor < inputs.length) {
       const i = cursor++;
-      results[i] = await worker(inputs[i]!, i);
+      try {
+        results[i] = await worker(inputs[i]!, i);
+      } catch (err) {
+        results[i] = onError(err, inputs[i]!, i);
+      }
     }
   }
   const workers = Array.from(
@@ -780,6 +805,10 @@ interface StoryContext {
   fetchFn: typeof fetch;
   jinaApiKey: string | undefined;
   apiKey: string | null;
+  // Propagated from request.signal so a Vercel-level function abort
+  // (wall-clock or otherwise) cancels in-flight HN and Jina fetches
+  // instead of letting them hang to completion.
+  signal?: AbortSignal;
 }
 
 function makeLog(track: WarmTrack, storyId: number) {
@@ -970,7 +999,7 @@ async function processCommentsTrack(
   const rawComments = await Promise.all(
     kidIds.map(async (id) => {
       try {
-        return await fetchItem(id);
+        return await fetchItem(id, ctx.signal);
       } catch {
         return null;
       }
@@ -1082,7 +1111,7 @@ async function processStory(
   const [existing, existingComments, story] = await Promise.all([
     store.get(storyId).catch(() => null),
     commentsStore.get(storyId).catch(() => null),
-    fetchItem(storyId).catch(() => null),
+    fetchItem(storyId, ctx.signal).catch(() => null),
   ]);
 
   const [articleLog, commentsLog] = await Promise.all([
@@ -1168,21 +1197,30 @@ export async function handleWarmRequest(
     fetchFn,
     jinaApiKey,
     apiKey,
+    signal: request.signal,
   };
 
   const outcomes = emptyTrackOutcomes();
   let processed = 0;
   let storyCount = 0;
 
-  const logGroups = await runPool(selected, CONCURRENCY, async (storyId) => {
-    if ((deps.now ?? Date.now)() - startedAt > WALL_CLOCK_BUDGET_MS) {
-      return [
-        makeLog('article', storyId)({ outcome: 'skipped_budget' }),
-        makeLog('comments', storyId)({ outcome: 'skipped_budget' }),
-      ];
-    }
-    return processStory(storyId, store, commentsStore, ctx);
-  });
+  const logGroups = await runPool(
+    selected,
+    CONCURRENCY,
+    async (storyId) => {
+      if ((deps.now ?? Date.now)() - startedAt > WALL_CLOCK_BUDGET_MS) {
+        return [
+          makeLog('article', storyId)({ outcome: 'skipped_budget' }),
+          makeLog('comments', storyId)({ outcome: 'skipped_budget' }),
+        ];
+      }
+      return processStory(storyId, store, commentsStore, ctx);
+    },
+    (_err, storyId) => [
+      makeLog('article', storyId)({ outcome: 'error' }),
+      makeLog('comments', storyId)({ outcome: 'error' }),
+    ],
+  );
 
   for (const group of logGroups) {
     storyCount += 1;

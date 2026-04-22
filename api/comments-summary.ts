@@ -72,10 +72,11 @@ export const TOP_LEVEL_SAMPLE_SIZE = 20;
 
 // Cron owns freshness (see SPEC.md § "Scheduled warming and change
 // analytics"): records live 30 days in Upstash and the warm cron
-// re-hashes the top-20 transcript every tick, regenerating insights
-// only when the hash changes. The old freshness-aware TTL (30 min
-// young / 1 h older) is gone; user-facing /api/comments-summary now
-// returns any present record unconditionally.
+// re-hashes the top-20 transcript on ticks when the tiered backoff
+// says a check is due, regenerating insights only when the hash
+// changes. The old freshness-aware TTL (30 min young / 1 h older)
+// is gone; user-facing /api/comments-summary now returns any present
+// record unconditionally.
 const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 // Cache-Control on success. Same rationale as api/summary.ts: the shared

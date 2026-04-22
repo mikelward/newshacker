@@ -139,14 +139,45 @@ const MINUTES = 60 * SECONDS;
 const HOURS = 60 * MINUTES;
 
 describe('isAuthorizedCronRequest', () => {
-  const orig = process.env.CRON_SECRET;
+  const origSecret = process.env.CRON_SECRET;
+  const origNodeEnv = process.env.NODE_ENV;
+  const origVercelEnv = process.env.VERCEL_ENV;
   afterEach(() => {
-    if (orig === undefined) delete process.env.CRON_SECRET;
-    else process.env.CRON_SECRET = orig;
+    if (origSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = origSecret;
+    if (origNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = origNodeEnv;
+    if (origVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = origVercelEnv;
   });
 
-  it('allows any request when CRON_SECRET is unset (local dev)', () => {
+  it('allows any request when CRON_SECRET is unset in dev/test mode', () => {
     delete process.env.CRON_SECRET;
+    // Vitest runs under NODE_ENV=test by default, so this is also the
+    // path the other tests in this file implicitly rely on.
+    process.env.NODE_ENV = 'test';
+    expect(isAuthorizedCronRequest(makeRequest({ secret: null }))).toBe(true);
+  });
+
+  it('fails closed when CRON_SECRET is unset in a production-like env', () => {
+    // Guards against a misconfigured prod deploy dropping the env var
+    // and silently opening the expensive warmer to the world.
+    delete process.env.CRON_SECRET;
+    process.env.NODE_ENV = 'production';
+    delete process.env.VERCEL_ENV;
+    expect(isAuthorizedCronRequest(makeRequest({ secret: null }))).toBe(false);
+
+    process.env.VERCEL_ENV = 'production';
+    expect(isAuthorizedCronRequest(makeRequest({ secret: null }))).toBe(false);
+
+    process.env.VERCEL_ENV = 'preview';
+    expect(isAuthorizedCronRequest(makeRequest({ secret: null }))).toBe(false);
+  });
+
+  it('allows a vercel local-dev preview when CRON_SECRET is unset', () => {
+    delete process.env.CRON_SECRET;
+    process.env.NODE_ENV = 'production';
+    process.env.VERCEL_ENV = 'development';
     expect(isAuthorizedCronRequest(makeRequest({ secret: null }))).toBe(true);
   });
 

@@ -84,6 +84,23 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Backend / infrastructure
 
+- **Max-story-age should use HN `story.time`, not `firstSeenAt`.**
+  Today the cron's `shouldSkipByBackoff` ages out a story when
+  `now - record.firstSeenAt > WARM_MAX_STORY_AGE_SECONDS`. That's
+  the age *since we first warmed the story*, not the age since HN
+  received the submission. For steady-state top-30 stories the two
+  are within minutes, so the current behavior is mostly fine. The
+  edge case: a story that entered the warmed slice late (cron was
+  offline, or it bubbled up into top-30 after 10 h on `/new`) will
+  get re-checked for 48 h from `firstSeenAt`, which could be 58 h
+  from HN's perspective. Fix: when `story.time` is present, prefer
+  `now - story.time*1000 > maxAge`. Falls back to `firstSeenAt`
+  when the HN item is unreachable. Would require either storing
+  `time` in the cache record or passing the fresh `story` into
+  `shouldSkipByBackoff` (the orchestrator already has it). Small
+  efficiency win, not a correctness bug; punt until analytics show
+  it matters.
+
 - **Warm-summaries analytics surface.** Today the `warm-story` /
   `warm-run` JSON lines ride in Vercel function logs. That's enough
   for a weeks-long "eyeball the scatterplot" pass — grep + jq + a

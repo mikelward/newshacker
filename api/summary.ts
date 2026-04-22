@@ -28,7 +28,8 @@ const JINA_TIMEOUT_MS = 15_000;
 // hygiene and invites well-earned blocks. If we bring it back it
 // should be gated to a curated domain allowlist with an honest,
 // identifiable User-Agent. Jina is now a hard dependency for this
-// endpoint; deployments without JINA_API_KEY will 502.
+// endpoint; deployments without JINA_API_KEY return 503
+// `not_configured`.
 
 const DEFAULT_ALLOWED_HOSTS = ['newshacker.app', 'hnews.app'];
 
