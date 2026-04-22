@@ -146,7 +146,7 @@ and is its `processed` > 0? If yes, the cron is alive.
 
 For quick spot-checks against the last 24 h of Vercel function logs
 before they age out. Copy the logs down (CLI: `vercel logs production
---since 1h | grep warm-story > warm.jsonl`) and poke around:
+--since 24h | grep warm-story > warm.jsonl`) and poke around:
 
 ```bash
 # Outcome histogram per track
@@ -167,22 +167,25 @@ jq -r 'select(.type=="warm-run") | [.durationMs, .processed, .storyCount] | @tsv
 For longer-window analysis (up to the Axiom retention tier) once the
 **Axiom Vercel integration** is wired up. See
 [axiom.co/docs/apps/vercel](https://axiom.co/docs/apps/vercel) for
-install steps. Two setup gotchas worth spelling out:
+install steps. Three setup gotchas worth spelling out (all three are
+baked into the templates below, but call them out here so the
+queries make sense):
 
-- **The integration ships logs from *every* Vercel project it has
-  access to by default.** If you've added it at the team level or
-  have other projects, every query must filter to `newshacker` or
-  you'll be reading someone else's logs. The templates below all
-  include the filter.
-- **Vercel emits three distinct log sources.** Build logs
-  (`vercel.source == "build"`), static/edge cache logs (`"static"`),
-  and function runtime logs (`"lambda"`). Cron output lives only in
-  `"lambda"` logs. The filter below gates on that.
 - **APL nested-field syntax.** The ingested schema has dotted field
   names like `vercel.source` and `vercel.projectName`. Because the
   dataset itself is also called `vercel`, bare `vercel.source`
   confuses the parser; use the bracket-and-quote form:
-  `['vercel.source']`. Learned the hard way.
+  `['vercel.source']`. This one comes first because the next two
+  gotchas both reference fields that need this treatment.
+- **The integration ships logs from *every* Vercel project it has
+  access to by default.** If you've added it at the team level or
+  have other projects, every query must filter
+  `['vercel.projectName'] == "newshacker"` or you'll be reading
+  someone else's logs. The templates below all include the filter.
+- **Vercel emits three distinct log sources.** Build logs
+  (`['vercel.source'] == "build"`), static/edge cache logs
+  (`"static"`), and function runtime logs (`"lambda"`). Cron output
+  lives only in `"lambda"` logs. The filter below gates on that.
 
 Paste any of these into the Axiom query console:
 
