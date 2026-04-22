@@ -35,8 +35,11 @@
 }
 
 .comment__toggle {
-  flex: 1;
-  min-width: 0;
+  /* Content-sized (not flex: 1) so the +/− icon inside sits
+     immediately after the last meta piece — "12 replies [+]" —
+     rather than being pushed to the far right of a stretched
+     button. The `Reply on HN` link uses `margin-left: auto` to
+     pin itself to the right edge instead. */
   padding: 4px 2px;
   border: 0;
   background: transparent;
@@ -44,22 +47,22 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .comment__toggle-text {
-  flex: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* +/− expand icon at the end of the meta row. Visible on every
-   device so the control is obvious regardless of whether the
-   reader taps the card body or aims for this icon. */
+/* +/− expand icon, rendered immediately after the meta text.
+   Visible on every device so the control is obvious regardless of
+   whether the reader taps the card body or aims for the icon. */
 .comment__toggle-icon {
   flex-shrink: 0;
   display: inline-flex;
@@ -120,6 +123,10 @@
   color: var(--hn-meta);
   text-decoration: none;
   padding: 4px 2px;
+  /* The toggle button is now content-sized so the +/− lands next
+     to the meta text; push Reply on HN to the right edge of the
+     header row instead. */
+  margin-left: auto;
 }
 
 @media (hover: hover) {
