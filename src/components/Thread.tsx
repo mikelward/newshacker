@@ -184,6 +184,8 @@ function summaryErrorDetail(error: unknown): string {
         return "The article site didn't respond in time — it may be overloaded. Try opening the link directly.";
       case 'source_unreachable':
         return "We couldn't reach the article site. It may be down or blocking automated readers. Try opening the link directly.";
+      case 'source_captcha':
+        return 'The article site returned a CAPTCHA page instead of the article. Try opening the link directly.';
       case 'summarization_failed':
         return 'Something went wrong summarizing the article. Try again in a moment.';
       case 'not_configured':
