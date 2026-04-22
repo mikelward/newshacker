@@ -215,17 +215,25 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 - **Comment expand/collapse button — iterate on position and icon.**
   The first desktop pass shipped a Material `add` / `remove` (+/−)
-  icon at the end of the meta line, right after "N replies", visible
-  on every device. Known alternatives we want to try before
+  icon immediately after the meta ("alice · 4m · 12 replies [+]"),
+  visible on every device. Known alternatives we want to try before
   committing:
-  - Position: to the **left** of the meta (before the author link /
-    age), or as a leading affordance flush with the card edge, so the
-    expand control reads as a row-level control rather than a
-    trailing meta decoration.
-  - Icon: Material `expand_more` / `expand_less` directional chevrons
-    (the "Google material expand buttons" pattern) instead of +/−.
-    Directional icons signal the *outcome* of the tap (↓ expands,
-    ↑ collapses) more clearly than a symbolic +/−.
+  - Position: to the **left** of the card / meta (before the author
+    link, in its own narrow gutter) so the expand control reads as
+    a row-level control rather than a trailing meta decoration. The
+    gutter can stay narrow (~20 px) if the tap target extends into
+    the card via invisible padding so the visible icon is small but
+    the hit area is still 48×48.
+  - Icon: Material `expand_circle_down` / `expand_circle_up` — a
+    semantic circled chevron that reads as "expand this" at a
+    glance instead of a symbolic +/−. Heavier visual weight than
+    +/− when sitting inline with meta text, so this one likely
+    pairs with a left-gutter position rather than the current
+    end-of-meta position. Plain `expand_more` / `expand_less`
+    chevrons are *out* — too easily confused with directional
+    "next" controls. So are `add_circle`, `add_box`, and the
+    other non-directional decorators — those compete with the
+    meta text for attention without adding semantic value.
   - Gating: whether the icon should be visible everywhere (current)
     or only on `(hover: hover)` pointer devices, where tap-anywhere
     discoverability matters less on mobile.
