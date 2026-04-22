@@ -1,34 +1,7 @@
-.back-to-top {
-  display: flex;
-  justify-content: center;
-  padding: 16px;
-}
-
-.back-to-top-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: var(--tap-min);
-  padding: 10px 20px;
-  background: var(--hn-bg-card);
-  border: 1px solid var(--hn-border);
-  border-radius: 8px;
-  color: var(--hn-text);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .back-to-top-btn:hover {
-    background: var(--hn-pressed);
-  }
-}
-
-.back-to-top-btn:active {
-  background: var(--hn-border);
-}
-
+/* The `.back-to-top-btn` layout (size, background, hover/active) lives in
+   StoryList.css alongside the sibling footer buttons, so the three share a
+   single source of truth that mirrors `.thread__action`. Only the icon's
+   display override lives here with the component. */
 .back-to-top-btn__icon {
   display: block;
 }

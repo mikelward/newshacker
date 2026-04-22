@@ -26,16 +26,14 @@ function scrollToTop() {
 
 export function BackToTopButton() {
   return (
-    <div className="back-to-top">
-      <button
-        type="button"
-        className="back-to-top-btn"
-        data-testid="back-to-top"
-        onClick={scrollToTop}
-      >
-        <VerticalAlignTopIcon />
-        <span>Back to top</span>
-      </button>
-    </div>
+    <button
+      type="button"
+      className="back-to-top-btn"
+      data-testid="back-to-top"
+      onClick={scrollToTop}
+    >
+      <VerticalAlignTopIcon />
+      <span>Back to top</span>
+    </button>
   );
 }
