@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Regression guard for a bug that only surfaces at Vercel deploy time.
 //
 // On at least two occasions, a refactor has tried to de-duplicate

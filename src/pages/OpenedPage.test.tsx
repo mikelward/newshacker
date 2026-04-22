@@ -59,7 +59,8 @@ describe('<OpenedPage>', () => {
     });
     addOpenedId(11);
     addOpenedId(22);
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmSpy);
 
     renderWithProviders(<OpenedPage />);
     await waitFor(() => {
@@ -90,7 +91,7 @@ describe('<OpenedPage>', () => {
       items: { 7: makeStory(7, { title: 'Seven' }) },
     });
     addOpenedId(7);
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.stubGlobal('confirm', vi.fn(() => false));
 
     renderWithProviders(<OpenedPage />);
     await waitFor(() => {
@@ -119,7 +120,7 @@ describe('<OpenedPage>', () => {
       'newshacker:pinnedStoryIds',
       JSON.stringify([{ id: 99, at: Date.now() }]),
     );
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.stubGlobal('confirm', vi.fn(() => true));
 
     renderWithProviders(<OpenedPage />);
     await waitFor(() => {

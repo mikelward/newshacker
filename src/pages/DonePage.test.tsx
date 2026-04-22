@@ -101,7 +101,8 @@ describe('<DonePage>', () => {
     });
     addDoneId(1);
     addDoneId(2);
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmSpy);
 
     renderWithProviders(<DonePage />);
     await waitFor(() => {
@@ -128,7 +129,7 @@ describe('<DonePage>', () => {
       items: { 1: makeStory(1, { title: 'Alpha' }) },
     });
     addDoneId(1);
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.stubGlobal('confirm', vi.fn(() => false));
 
     renderWithProviders(<DonePage />);
     await waitFor(() => {

@@ -85,7 +85,8 @@ describe('<HiddenPage>', () => {
     });
     addHiddenId(1);
     addHiddenId(2);
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmSpy);
 
     renderWithProviders(<HiddenPage />);
     await waitFor(() => {
@@ -114,7 +115,7 @@ describe('<HiddenPage>', () => {
       items: { 1: makeStory(1, { title: 'Alpha' }) },
     });
     addHiddenId(1);
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.stubGlobal('confirm', vi.fn(() => false));
 
     renderWithProviders(<HiddenPage />);
     await waitFor(() => {
@@ -139,7 +140,7 @@ describe('<HiddenPage>', () => {
       'newshacker:pinnedStoryIds',
       JSON.stringify([{ id: 99, at: Date.now() }]),
     );
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.stubGlobal('confirm', vi.fn(() => true));
 
     renderWithProviders(<HiddenPage />);
     await waitFor(() => {
