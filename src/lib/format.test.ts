@@ -161,16 +161,25 @@ describe('formatStoryMetaTail', () => {
     );
   });
 
-  it('appends " · N new" when newCommentCount is > 0', () => {
+  it('formats the comments segment as "n/m comments" when newCommentCount is > 0', () => {
     expect(
       formatStoryMetaTail(
         { time: nowS - 60 * 60, score: 10, descendants: 8, newCommentCount: 3 },
         now,
       ),
-    ).toBe('1h · 10 points · 8 comments · 3 new');
+    ).toBe('1h · 10 points · 3/8 comments');
   });
 
-  it('omits the new segment when newCommentCount is 0 or missing', () => {
+  it('pluralizes the n/m comments segment based on the total count', () => {
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60, score: 10, descendants: 1, newCommentCount: 1 },
+        now,
+      ),
+    ).toBe('1h · 10 points · 1/1 comment');
+  });
+
+  it('falls back to the plain comments segment when newCommentCount is 0 or missing', () => {
     expect(
       formatStoryMetaTail(
         { time: nowS - 60 * 60, score: 10, descendants: 8, newCommentCount: 0 },
