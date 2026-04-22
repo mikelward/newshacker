@@ -213,6 +213,24 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Desktop layout
 
+- **Comment expand/collapse button — iterate on position and icon.**
+  The first desktop pass shipped a Material `add` / `remove` (+/−)
+  icon at the end of the meta line, right after "N replies", visible
+  on every device. Known alternatives we want to try before
+  committing:
+  - Position: to the **left** of the meta (before the author link /
+    age), or as a leading affordance flush with the card edge, so the
+    expand control reads as a row-level control rather than a
+    trailing meta decoration.
+  - Icon: Material `expand_more` / `expand_less` directional chevrons
+    (the "Google material expand buttons" pattern) instead of +/−.
+    Directional icons signal the *outcome* of the tap (↓ expands,
+    ↑ collapses) more clearly than a symbolic +/−.
+  - Gating: whether the icon should be visible everywhere (current)
+    or only on `(hover: hover)` pointer devices, where tap-anywhere
+    discoverability matters less on mobile.
+  Come back once we have actual usage data from the first pass.
+
 - **Wider reading column on desktop (item #4 of the desktop-layout
   pass).** The app is capped at 720px everywhere, which is fine on
   mobile but wastes pixels and eye-distance on a 1440+ monitor.
