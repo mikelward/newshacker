@@ -84,20 +84,53 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Backend / infrastructure
 
-- **Re-evaluate server-side prefetch of summaries.** Currently
-  rejected in `SUMMARIES.md` § "Alternatives considered" on
-  cost-plus-complexity grounds — the edge CDN and service worker
-  already absorb the common case, and a cron prefetching the top 30
-  stories would multiply Gemini spend against items no reader opens.
-  Re-open the question if any of these signals show up: (a)
-  consistently high time-to-summary on fresh `summary_layout` events
-  from low-`score` stories (those are the cold-cache cases nothing
-  else warmed), (b) a material share of thread-page sessions where
-  the summary is still loading when the reader navigates away, (c)
-  Gemini pricing where prefetching top-N stories is cheaper than
-  the current on-demand model. A positive decision here also opens
-  the KV question below, since "which stories have we warmed in the
-  last N minutes" is the kind of state a cron needs.
+- **Pre-fetch short-circuits for the warm cron.** The MVP warms via a
+  "fetch → hash → compare" loop every time the tiered backoff says a
+  re-check is due. We pay the bandwidth + the SHA hash even when
+  nothing changed. Two follow-ups worth trying once analytics reveal
+  the steady-state churn rate:
+  (a) **Article track: conditional HTTP.** On the raw-HTML fallback
+      path, save the origin's `ETag` / `Last-Modified` into the
+      `SummaryRecord` next to `articleHash`. On the next re-check,
+      send `If-None-Match` / `If-Modified-Since`; a 304 lets us
+      bump `lastCheckedAt` and skip the hash + Gemini entirely. Does
+      **not** help the Jina Reader path — Jina re-renders, so upstream
+      validators don't pass through. Savings scale with how often we
+      fall back to raw fetch, which is the minority path.
+  (b) **Comments track: kid-id pre-check.** Before fetching 20 child
+      items and building the transcript, compare `story.kids.slice(0, 20)`
+      and `story.descendants` to values recorded last tick. If
+      identical, the transcript can't have changed (HN ranks kids by
+      score, so a reshuffle would change the slice) — skip straight
+      to "unchanged" without the 20 child fetches. HN item JSON doesn't
+      set ETag / Last-Modified, so HTTP-level conditionals don't
+      apply here.
+  Neither is urgent. Ship the MVP, let the `warm-story` logs tell
+  us how many ticks per day hit the "unchanged" outcome, and cost
+  these against the estimated Jina + Firebase spend before investing.
+
+- **Tune the scheduled-warmer knobs once analytics are in.** The
+  cron at `/api/warm-summaries` logs a `warm-story` line per id and
+  a `warm-run` line per tick (see `SPEC.md` § "Scheduled warming
+  and change analytics"). After a week or two of real traffic, grep
+  the `warm-story` lines out of Vercel logs, filter to `outcome
+  ∈ {unchanged, changed}`, and look at `stableForMinutes` vs
+  `summaryChanged`. If articles reliably settle within 3–4 h, push
+  `WARM_STABLE_CHECK_INTERVAL_SECONDS` up (e.g. 2 h → 4 h) or pull
+  `WARM_STABLE_THRESHOLD_SECONDS` down. If stories past 24 h almost
+  never change, pull `WARM_MAX_STORY_AGE_SECONDS` from 48 h down
+  to 24 h. Both tweaks are env-var-only, no code change.
+
+- **Consider alternate slices for the warmer.** Today the cron hits
+  `topstories` first-30. Worth revisiting once the analytics are
+  in: should `/new` or `/best` also be warmed? `/new` in particular
+  is cold-cache-heavy (readers arriving at a freshly-submitted story
+  currently pay a full Gemini generation), but most `/new` stories
+  die at low score before anyone reads them — warming them would be
+  waste. Possible shape: "top-30 ∪ best-10 ∪ new-stories-with-
+  score>5" to catch rising stories before they're hot without
+  paying for the whole firehose. Needs a cost pass before doing
+  anything.
 
 - **Redis (Vercel Storage Marketplace) is now in use** (summary
   endpoints, shipped). `AGENTS.md` rule 6 was satisfied by the

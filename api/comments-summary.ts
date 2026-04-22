@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { Redis } from '@upstash/redis';
+import { createHash } from 'node:crypto';
 
 const MODEL = 'gemini-2.5-flash-lite';
 
@@ -67,16 +68,15 @@ async function defaultFetchItem(
 // describes the same batch the reader sees without scrolling. Going
 // higher would raise per-call token spend and latency without much
 // improvement in signal — the loudest voices sit at the top.
-const TOP_LEVEL_SAMPLE_SIZE = 20;
+export const TOP_LEVEL_SAMPLE_SIZE = 20;
 
-// Freshness-aware server TTL. A young, front-paged story gains comments
-// rapidly in its first couple of hours, so the summary goes stale fast
-// — re-run every 30 min. Older stories have settled conversations and
-// can ride the cheaper 1h cadence. TTLs are seconds because that's what
-// Redis EX takes; the wall-clock comparison below uses ms.
-const YOUNG_STORY_WINDOW_MS = 2 * 60 * 60 * 1000;
-const YOUNG_STORY_TTL_SECONDS = 30 * 60;
-const OLDER_STORY_TTL_SECONDS = 60 * 60;
+// Cron owns freshness (see SPEC.md § "Scheduled warming and change
+// analytics"): records live 30 days in Upstash and the warm cron
+// re-hashes the top-20 transcript every tick, regenerating insights
+// only when the hash changes. The old freshness-aware TTL (30 min
+// young / 1 h older) is gone; user-facing /api/comments-summary now
+// returns any present record unconditionally.
+const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 // Cache-Control on success. Same rationale as api/summary.ts: the shared
 // cache lives in KV (Upstash), not the edge CDN, because the CDN is
@@ -88,18 +88,33 @@ const NO_STORE_HEADER = 'private, no-store';
 
 // Max per-comment plaintext length fed into the prompt. Long comments
 // are truncated to keep total prompt size bounded and predictable.
-const MAX_COMMENT_CHARS = 2000;
+export const MAX_COMMENT_CHARS = 2000;
 
 // Shared backend cache: see api/summary.ts for the rationale on Upstash
 // over Vercel edge CDN, on the env-var fallback chain, and on why the
 // per-instance Map was removed in favor of a single shared store.
-const KV_KEY_PREFIX = 'newshacker:summary:comments:';
+//
+// NOTE: the record shape is shared with api/warm-summaries.ts. Any
+// schema change needs to land in both files in the same commit. Vercel's
+// bundler doesn't reliably share modules between sibling `api/*.ts`
+// handlers (see AGENTS.md § "Vercel api/ gotchas").
+export const KV_KEY_PREFIX = 'newshacker:summary:comments:';
+
+export interface CommentsSummaryRecord {
+  insights: string[];
+  // SHA-256 of the transcript fed to Gemini. See buildTranscript below.
+  transcriptHash: string;
+  firstSeenAt: number;
+  summaryGeneratedAt: number;
+  lastCheckedAt: number;
+  lastChangedAt: number;
+}
 
 export interface CommentsSummaryStore {
-  get(storyId: number): Promise<string[] | null>;
+  get(storyId: number): Promise<CommentsSummaryRecord | null>;
   set(
     storyId: number,
-    insights: string[],
+    record: CommentsSummaryRecord,
     ttlSeconds: number,
   ): Promise<void>;
 }
@@ -116,17 +131,19 @@ function createDefaultStore(): CommentsSummaryStore | null {
   return {
     async get(storyId) {
       try {
-        const value = await redis.get<string[]>(`${KV_KEY_PREFIX}${storyId}`);
-        return value ?? null;
+        const raw = await redis.get<unknown>(`${KV_KEY_PREFIX}${storyId}`);
+        return parseCommentsRecord(raw);
       } catch {
         return null;
       }
     },
-    async set(storyId, insights, ttlSeconds) {
+    async set(storyId, record, ttlSeconds) {
       try {
-        await redis.set(`${KV_KEY_PREFIX}${storyId}`, insights, {
-          ex: ttlSeconds,
-        });
+        await redis.set(
+          `${KV_KEY_PREFIX}${storyId}`,
+          JSON.stringify(record),
+          { ex: ttlSeconds },
+        );
       } catch {
         // Best-effort write; a missed set is no worse than a cache miss.
       }
@@ -139,6 +156,50 @@ function getDefaultStore(): CommentsSummaryStore | null {
   return defaultStore;
 }
 
+// Pre-schema entries stored a bare `string[]`. Treat them as absent so
+// the next cache-miss write overwrites with a full record. Also guards
+// against schema drift and partial writes.
+export function parseCommentsRecord(
+  raw: unknown,
+): CommentsSummaryRecord | null {
+  if (raw == null) return null;
+  const obj =
+    typeof raw === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return null;
+          }
+        })()
+      : raw;
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const r = obj as Partial<CommentsSummaryRecord>;
+  if (
+    !Array.isArray(r.insights) ||
+    !r.insights.every((s) => typeof s === 'string') ||
+    typeof r.transcriptHash !== 'string' ||
+    typeof r.firstSeenAt !== 'number' ||
+    typeof r.summaryGeneratedAt !== 'number' ||
+    typeof r.lastCheckedAt !== 'number' ||
+    typeof r.lastChangedAt !== 'number'
+  ) {
+    return null;
+  }
+  return {
+    insights: r.insights,
+    transcriptHash: r.transcriptHash,
+    firstSeenAt: r.firstSeenAt,
+    summaryGeneratedAt: r.summaryGeneratedAt,
+    lastCheckedAt: r.lastCheckedAt,
+    lastChangedAt: r.lastChangedAt,
+  };
+}
+
+export function hashTranscript(transcript: string): string {
+  return createHash('sha256').update(transcript).digest('hex');
+}
+
 function parseStoryId(raw: string | null): number | null {
   if (!raw || !/^\d+$/.test(raw)) return null;
   const n = Number(raw);
@@ -146,22 +207,11 @@ function parseStoryId(raw: string | null): number | null {
   return n;
 }
 
-function computeTtlSeconds(
-  storyTimeSec: number | undefined,
-  nowMs: number,
-): number {
-  if (!storyTimeSec) return OLDER_STORY_TTL_SECONDS;
-  const ageMs = nowMs - storyTimeSec * 1000;
-  return ageMs < YOUNG_STORY_WINDOW_MS
-    ? YOUNG_STORY_TTL_SECONDS
-    : OLDER_STORY_TTL_SECONDS;
-}
-
 // Minimal HTML-to-plaintext. HN comment bodies use a constrained subset
 // (<p>, <i>, <b>, <a>, <pre>, <code>, <br>), so a tag strip + entity
 // decode is enough to feed a language model — we don't need DOMPurify
 // server-side.
-function htmlToPlainText(input: string | undefined): string {
+export function htmlToPlainText(input: string | undefined): string {
   if (!input) return '';
   return input
     .replace(/<\s*br\s*\/?\s*>/gi, '\n')
@@ -177,6 +227,18 @@ function htmlToPlainText(input: string | undefined): string {
     .replace(/\s+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+// The exact string fed to Gemini. Exported so the warm cron can hash
+// the same input and detect meaningful changes (top-20 reorderings,
+// edits, deletions, newly-ranked comments).
+export function buildTranscript(comments: HNItem[]): string {
+  return comments
+    .map((comment, index) => {
+      const body = htmlToPlainText(comment.text).slice(0, MAX_COMMENT_CHARS);
+      return `[#${index + 1}]\n${body}`;
+    })
+    .join('\n\n');
 }
 
 function buildPrompt(title: string | undefined, transcript: string): string {
@@ -279,10 +341,12 @@ export async function handleCommentsSummaryRequest(
     // Fail-open at the handler layer too: if the store implementation
     // forgets to catch (the default Upstash one does, but tests and
     // future stores might not), KV trouble must not break the endpoint.
+    // Any record present means "return it" — freshness is owned by the
+    // cron, not by this read path.
     try {
       const cached = await store.get(storyId);
-      if (cached && cached.length > 0) {
-        return json({ insights: cached, cached: true });
+      if (cached && cached.insights.length > 0) {
+        return json({ insights: cached.insights, cached: true });
       }
     } catch {
       // fall through to live generation
@@ -337,12 +401,7 @@ export async function handleCommentsSummaryRequest(
     return json({ error: 'No comments to summarize' }, 404);
   }
 
-  const transcript = usableComments
-    .map((comment, index) => {
-      const body = htmlToPlainText(comment.text).slice(0, MAX_COMMENT_CHARS);
-      return `[#${index + 1}]\n${body}`;
-    })
-    .join('\n\n');
+  const transcript = buildTranscript(usableComments);
 
   const client: SummaryClient = deps.createClient
     ? deps.createClient(apiKey)
@@ -370,10 +429,18 @@ export async function handleCommentsSummaryRequest(
     return json({ error: 'Summarization failed' }, 502);
   }
 
-  const ttlSeconds = computeTtlSeconds(story.time, now());
   if (store) {
+    const nowMs = now();
+    const record: CommentsSummaryRecord = {
+      insights,
+      transcriptHash: hashTranscript(transcript),
+      firstSeenAt: nowMs,
+      summaryGeneratedAt: nowMs,
+      lastCheckedAt: nowMs,
+      lastChangedAt: nowMs,
+    };
     try {
-      await store.set(storyId, insights, ttlSeconds);
+      await store.set(storyId, record, RECORD_TTL_SECONDS);
     } catch {
       // best-effort write
     }

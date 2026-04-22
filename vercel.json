@@ -1,5 +1,8 @@
 {
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/warm-summaries?feed=top&n=30", "schedule": "*/10 * * * *" }
   ]
 }

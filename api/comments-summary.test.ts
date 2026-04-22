@@ -1,7 +1,11 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
+  buildTranscript,
   handleCommentsSummaryRequest,
+  hashTranscript,
+  parseCommentsRecord,
+  type CommentsSummaryRecord,
   type CommentsSummaryStore,
 } from './comments-summary';
 // Local type mirrors the handler's internal HNItem — duplicated
@@ -64,13 +68,16 @@ function fetchItemFrom(items: Record<number, HNItem | null>) {
 }
 
 // In-memory CommentsSummaryStore for tests. Honors TTL via an injectable
-// `now` so the freshness-aware expiration tests still work.
+// `now` so expiration tests still work.
 function createTestStore(
   now: () => number = Date.now,
 ): CommentsSummaryStore & {
-  map: Map<number, { value: string[]; expiresAt: number }>;
+  map: Map<number, { record: CommentsSummaryRecord; expiresAt: number }>;
 } {
-  const map = new Map<number, { value: string[]; expiresAt: number }>();
+  const map = new Map<
+    number,
+    { record: CommentsSummaryRecord; expiresAt: number }
+  >();
   return {
     map,
     async get(storyId) {
@@ -80,11 +87,11 @@ function createTestStore(
         map.delete(storyId);
         return null;
       }
-      return entry.value;
+      return entry.record;
     },
-    async set(storyId, insights, ttlSeconds) {
+    async set(storyId, record, ttlSeconds) {
       map.set(storyId, {
-        value: insights,
+        record,
         expiresAt: now() + ttlSeconds * 1000,
       });
     },
@@ -467,8 +474,9 @@ describe('handleCommentsSummaryRequest', () => {
     });
     expect(await r1.json()).toEqual({ insights: ['one'] });
 
-    // 30 min later — within the 1h older-story TTL.
-    now += 30 * 60 * 1000;
+    // 24 h later — under the new cron-owned model, any record hit
+    // returns cached regardless of the old "1 h stale" clock.
+    now += 24 * 60 * 60 * 1000;
     const client2 = createFakeClient([{ text: 'two' }]);
     const r2 = await handleCommentsSummaryRequest(makeRequest('1000'), {
       fetchItem,
@@ -483,7 +491,8 @@ describe('handleCommentsSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
-  it('writes older-story insights to the shared store with the 1h TTL', async () => {
+  it('writes a full record to the shared store with a 30d TTL', async () => {
+    const commentText = 'hi';
     const fetchItem = fetchItemFrom({
       1300: {
         id: 1300,
@@ -492,47 +501,39 @@ describe('handleCommentsSummaryRequest', () => {
         time: OLD_STORY_TIME,
         score: 10,
       },
-      1301: { id: 1301, type: 'comment', by: 'x', text: 'hi', time: 1 },
-    });
-    const get = vi.fn<CommentsSummaryStore['get']>(async () => null);
-    const set = vi.fn<CommentsSummaryStore['set']>(async () => undefined);
-    await handleCommentsSummaryRequest(makeRequest('1300'), {
-      fetchItem,
-      createClient: () => createFakeClient([{ text: 'ok' }]),
-      now: () => 1_700_000_000_000,
-      store: { get, set },
-    });
-    expect(set).toHaveBeenCalledTimes(1);
-    const [id, insights, ttlSeconds] = set.mock.calls[0]!;
-    expect(id).toBe(1300);
-    expect(insights).toEqual(['ok']);
-    expect(ttlSeconds).toBe(60 * 60);
-  });
-
-  it('writes young-story insights to the shared store with the 30min TTL', async () => {
-    const now = 1_700_000_000_000;
-    const youngStoryTime = Math.floor(now / 1000) - 30 * 60;
-    const fetchItem = fetchItemFrom({
-      1310: {
-        id: 1310,
-        type: 'story',
-        kids: [1311],
-        time: youngStoryTime,
-        score: 10,
+      1301: {
+        id: 1301,
+        type: 'comment',
+        by: 'x',
+        text: commentText,
+        time: 1,
       },
-      1311: { id: 1311, type: 'comment', by: 'x', text: 'hi', time: 1 },
     });
     const get = vi.fn<CommentsSummaryStore['get']>(async () => null);
     const set = vi.fn<CommentsSummaryStore['set']>(async () => undefined);
-    await handleCommentsSummaryRequest(makeRequest('1310'), {
+    const now = 1_700_000_000_000;
+    await handleCommentsSummaryRequest(makeRequest('1300'), {
       fetchItem,
       createClient: () => createFakeClient([{ text: 'ok' }]),
       now: () => now,
       store: { get, set },
     });
     expect(set).toHaveBeenCalledTimes(1);
-    const [, , ttlSeconds] = set.mock.calls[0]!;
-    expect(ttlSeconds).toBe(30 * 60);
+    const [id, record, ttlSeconds] = set.mock.calls[0]!;
+    expect(id).toBe(1300);
+    expect(record.insights).toEqual(['ok']);
+    // Hash the same transcript shape the handler builds.
+    expect(record.transcriptHash).toBe(
+      hashTranscript(
+        buildTranscript([{ id: 1301, text: commentText } as never]),
+      ),
+    );
+    expect(record.firstSeenAt).toBe(now);
+    expect(record.summaryGeneratedAt).toBe(now);
+    expect(record.lastCheckedAt).toBe(now);
+    expect(record.lastChangedAt).toBe(now);
+    // 30d TTL — cron owns freshness inside that window.
+    expect(ttlSeconds).toBe(60 * 60 * 24 * 30);
   });
 
   it('sets no-store Cache-Control on successful responses', async () => {
@@ -567,7 +568,10 @@ describe('handleCommentsSummaryRequest', () => {
     expect(r400.headers.get('cache-control') ?? '').toMatch(/no-store/);
   });
 
-  it('re-fetches after the older-story 1h TTL expires', async () => {
+  it('re-fetches only after the 30d Upstash TTL expires, not sooner', async () => {
+    // Cron-owned freshness model: the user-facing path never regenerates
+    // on a still-present record. Only a true Upstash eviction (TTL or
+    // manual delete) triggers work.
     const fetchItem = fetchItemFrom({
       1100: {
         id: 1100,
@@ -588,7 +592,7 @@ describe('handleCommentsSummaryRequest', () => {
       store,
     });
 
-    now += 60 * 60 * 1000 + 1;
+    now += 60 * 60 * 24 * 30 * 1000 + 1;
     const client2 = createFakeClient([{ text: 'v2' }]);
     const res = await handleCommentsSummaryRequest(makeRequest('1100'), {
       fetchItem,
@@ -599,56 +603,28 @@ describe('handleCommentsSummaryRequest', () => {
     expect(await res.json()).toEqual({ insights: ['v2'] });
   });
 
-  it('uses the shorter 30-min TTL for young (< 2h old) stories', async () => {
-    let now = 1_700_000_000_000;
-    const youngStoryTime = Math.floor(now / 1000) - 30 * 60; // 30 min old
-    const fetchItem = fetchItemFrom({
-      1200: {
-        id: 1200,
-        type: 'story',
-        kids: [1201],
-        time: youngStoryTime,
-        score: 10,
-      },
-      1201: { id: 1201, type: 'comment', by: 'x', text: 'hi', time: 1 },
-    });
-    const store = createTestStore(() => now);
+  it('parseCommentsRecord rejects legacy string-array entries and bad shapes', () => {
+    // Pre-schema entries stored a bare string[] of insights. Treat as
+    // absent so the next write silently migrates them.
+    expect(parseCommentsRecord(['one', 'two'])).toBeNull();
+    expect(parseCommentsRecord(null)).toBeNull();
+    expect(parseCommentsRecord(undefined)).toBeNull();
+    expect(parseCommentsRecord({})).toBeNull();
+    expect(
+      parseCommentsRecord({ insights: ['ok'], transcriptHash: 'x' }),
+    ).toBeNull();
 
-    // First call populates cache.
-    const client1 = createFakeClient([{ text: 'v1' }]);
-    await handleCommentsSummaryRequest(makeRequest('1200'), {
-      fetchItem,
-      createClient: () => client1,
-      now: () => now,
-      store,
-    });
-
-    // 29 min later — still cached (< 30min TTL).
-    now += 29 * 60 * 1000;
-    const clientStillCached = createFakeClient([{ text: 'v-noop' }]);
-    const rCached = await handleCommentsSummaryRequest(makeRequest('1200'), {
-      fetchItem,
-      createClient: () => clientStillCached,
-      now: () => now,
-      store,
-    });
-    expect(await rCached.json()).toMatchObject({
-      insights: ['v1'],
-      cached: true,
-    });
-    expect(clientStillCached.models.generateContent).not.toHaveBeenCalled();
-
-    // Bump past 30 min — should re-run (proving TTL is 30min, not 1h).
-    now += 2 * 60 * 1000;
-    const client2 = createFakeClient([{ text: 'v2' }]);
-    const res = await handleCommentsSummaryRequest(makeRequest('1200'), {
-      fetchItem,
-      createClient: () => client2,
-      now: () => now,
-      store,
-    });
-    expect(await res.json()).toEqual({ insights: ['v2'] });
-    expect(client2.models.generateContent).toHaveBeenCalledTimes(1);
+    const good: CommentsSummaryRecord = {
+      insights: ['a', 'b'],
+      transcriptHash: 'x',
+      firstSeenAt: 1,
+      summaryGeneratedAt: 1,
+      lastCheckedAt: 1,
+      lastChangedAt: 1,
+    };
+    expect(parseCommentsRecord(good)).toEqual(good);
+    // JSON round-trips.
+    expect(parseCommentsRecord(JSON.stringify(good))).toEqual(good);
   });
 
   it('falls through to live generation when the shared store throws (fail-open)', async () => {
