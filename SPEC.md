@@ -579,7 +579,7 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
 ### Service worker
-- Registered with `registerType: 'prompt'`: a new build downloads in the background, then we surface a non-blocking "New version available — Reload" toast (via the existing `ToastProvider`). The user picks when to reload; no forced reloads.
+- Registered with `registerType: 'autoUpdate'`: a new build downloads in the background and the new service worker silently activates on the next navigation. No prompt, no toast, no forced reload of the page the user is currently viewing. The 'prompt' variant was tried first — it strands updates on devices whose users never accept the prompt, which broke the rollout of the `/api/telemetry` wiring (devices kept running the pre-deploy bundle and never emitted telemetry). A reader app has no in-progress state to lose on refresh, so silent updates are the safer default.
 - Disabled in `npm run dev` (devOptions.enabled: false) so iteration is unaffected. Active in `npm run build && npm run preview` and in production.
 
 ### Caching strategy
