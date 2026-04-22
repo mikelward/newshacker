@@ -102,7 +102,10 @@ describe('<StoryList> server summary cache warming', () => {
     ).toBe(false);
   });
 
-  it('skips /api/summary for stories with no URL (Ask HN, job posts) but still warms comments', async () => {
+  it('warms /api/summary for self-posts with a text body (Ask HN, Show HN) alongside /api/comments-summary', async () => {
+    // Self-posts are summarized directly from `story.text` now, so the
+    // warmer must fire for them. Regression guard for the old behaviour
+    // which excluded anything without `url`.
     const ids = [42];
     const items = {
       42: makeStory(42, {
@@ -115,6 +118,7 @@ describe('<StoryList> server summary cache warming', () => {
     const fetchMock = installHNFetchMock({
       feeds: { topstories: ids },
       items,
+      summaries: { 42: { summary: 'self-post summary' } },
       commentsSummaries: { 42: { insights: ['x'] } },
     });
 
@@ -128,14 +132,49 @@ describe('<StoryList> server summary cache warming', () => {
       const calls = fetchMock.mock.calls.map(([input]) =>
         typeof input === 'string' ? input : input.toString(),
       );
+      expect(calls.some((u) => u.includes('/api/summary?id=42'))).toBe(true);
       expect(
         calls.some((u) => u.includes('/api/comments-summary?id=42')),
+      ).toBe(true);
+    });
+  });
+
+  it('skips /api/summary for stories with neither url nor text but still warms comments', async () => {
+    // A titled-only job stub with no body and no URL — /api/summary would
+    // 400 no_article, so the warmer skips it. Comments track still warms.
+    const ids = [43];
+    const items = {
+      43: makeStory(43, {
+        title: 'Empty stub',
+        score: 10,
+        url: undefined,
+        text: undefined,
+      }),
+    };
+    const fetchMock = installHNFetchMock({
+      feeds: { topstories: ids },
+      items,
+      commentsSummaries: { 43: { insights: ['x'] } },
+    });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(1);
+    });
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.map(([input]) =>
+        typeof input === 'string' ? input : input.toString(),
+      );
+      expect(
+        calls.some((u) => u.includes('/api/comments-summary?id=43')),
       ).toBe(true);
     });
 
     const calls = fetchMock.mock.calls.map(([input]) =>
       typeof input === 'string' ? input : input.toString(),
     );
-    expect(calls.some((u) => u.includes('/api/summary?id=42'))).toBe(false);
+    expect(calls.some((u) => u.includes('/api/summary?id=43'))).toBe(false);
   });
 });

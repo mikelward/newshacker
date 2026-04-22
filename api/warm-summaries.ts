@@ -526,6 +526,23 @@ function buildPrompt(articleUrl: string, content: string): string {
   );
 }
 
+// Kept in lockstep with api/summary.ts — self-post variant used when a
+// story has no external URL but does have `text`. See the comment there
+// for rationale.
+function buildSelfPostPrompt(title: string, content: string): string {
+  return (
+    `Summarize the Hacker News self-post below in a single, concise sentence without using bullet points or introductory text. ` +
+    `The title is "${title}". ` +
+    `Write the sentence as a direct assertion of the post's main point or question, in the voice of the submitter — ` +
+    `as if the submitter is stating the claim or asking the question themselves. ` +
+    `Do not refer to "the article", "the author", "the submitter", "the piece", "the post", "this story", or similar. ` +
+    `Do not begin with meta-framing such as "The post asks", "The submitter claims", "The author wonders", ` +
+    `"This post describes", or any variant. Just state the point or the question directly. ` +
+    `There is no external article — the body below is the full submission.\n\n` +
+    `--- BEGIN POST ---\n${content}\n--- END POST ---`
+  );
+}
+
 interface GenerateRequest {
   model: string;
   contents: string;
@@ -896,20 +913,33 @@ async function processArticleTrack(
   if (!(typeof story.score === 'number' && story.score > 1)) {
     return log({ outcome: 'skipped_low_score' });
   }
-  if (!story.url || !isValidHttpUrl(story.url)) {
+  const hasArticleUrl = !!story.url && isValidHttpUrl(story.url);
+  const selfPostBody = hasArticleUrl
+    ? ''
+    : clampContent(htmlToPlainText(story.text)) ?? '';
+  if (!hasArticleUrl && !selfPostBody) {
     return log({ outcome: 'skipped_no_content' });
   }
-  const articleUrl = story.url;
 
-  if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
-  const res = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
-  if (!res.ok) {
-    if (res.failure === 'payment_required') {
-      return log({ outcome: 'skipped_payment_required' });
+  let content: string;
+  let prompt: string;
+  if (hasArticleUrl) {
+    const articleUrl = story.url!;
+    if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
+    const res = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
+    if (!res.ok) {
+      if (res.failure === 'payment_required') {
+        return log({ outcome: 'skipped_payment_required' });
+      }
+      return log({ outcome: 'skipped_unreachable' });
     }
-    return log({ outcome: 'skipped_unreachable' });
+    content = res.content;
+    prompt = buildPrompt(articleUrl, content);
+  } else {
+    // Self-post: body is already in the HN item, no Jina fetch needed.
+    content = selfPostBody;
+    prompt = buildSelfPostPrompt(story.title ?? '', content);
   }
-  const content = res.content;
 
   const newHash = hashArticle(content);
   const contentBytes = Buffer.byteLength(content, 'utf8');
@@ -939,7 +969,7 @@ async function processArticleTrack(
   try {
     const res = await client.models.generateContent({
       model: MODEL,
-      contents: buildPrompt(articleUrl, content),
+      contents: prompt,
       config: { thinkingConfig: { thinkingBudget: 0 } },
     });
     summary = (res.text ?? '').trim();

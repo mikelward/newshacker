@@ -27,13 +27,15 @@ import type { HNItem } from './hn';
 // anyway (see the score filter in StoryList.tsx), so this branch is
 // primarily for defensive consistency with the server.
 export function warmFeedSummaries(
-  story: Pick<HNItem, 'id' | 'url' | 'score'>,
+  story: Pick<HNItem, 'id' | 'url' | 'score' | 'text'>,
 ): void {
   if (!(typeof story.score === 'number' && story.score > 1)) return;
-  // Text-only posts (Ask HN, job posts, etc.) have no article to
-  // summarize; /api/summary would reject with 400 `no_article`. Skip
-  // the call rather than burning a request.
-  if (story.url) {
+  // Warm /api/summary when the story has *something* to summarize: an
+  // external URL (article path, via Jina) OR a self-post body (Ask HN,
+  // Show HN, etc. — summarized directly from `text`). Stories with
+  // neither (rare: a titled-only job post with no URL and no body)
+  // would 400 `no_article`, so skip the call rather than burn a request.
+  if (story.url || story.text) {
     void fetch(`/api/summary?id=${story.id}`).catch(() => {});
   }
   void fetch(`/api/comments-summary?id=${story.id}`).catch(() => {});

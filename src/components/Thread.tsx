@@ -826,7 +826,7 @@ export function Thread({ id }: Props) {
     <article className="thread">
       <header className="thread__header">
         <h1 className="thread__title">{item.title ?? '[untitled]'}</h1>
-        {item.url ? <SummaryCard storyId={id} /> : null}
+        {item.url || item.text ? <SummaryCard storyId={id} /> : null}
         <ThreadActionBar
           itemId={item.id}
           articleUrl={item.url}

@@ -16,6 +16,7 @@ interface HNItemFixture {
   type?: string;
   title?: string;
   url?: string;
+  text?: string;
   score?: number;
   dead?: boolean;
   deleted?: boolean;
@@ -282,9 +283,11 @@ describe('handleSummaryRequest', () => {
     }
   });
 
-  it('returns 400 with no_article reason for a self-post', async () => {
+  it('returns 400 with no_article when the story has neither url nor text', async () => {
+    // e.g. a job post stub with nothing but a title. Previously all
+    // self-posts hit this branch; now only truly empty ones do.
     const fetchItem = fetchItemFor({
-      33: { id: 33, type: 'story', title: 'Ask HN', score: 10 },
+      33: { id: 33, type: 'story', title: 'Empty', score: 10 },
     });
     const res = await handleSummaryRequest(makeRequest(33), {
       fetchItem,
@@ -295,6 +298,94 @@ describe('handleSummaryRequest', () => {
       error: 'Story has no article to summarize',
       reason: 'no_article',
     });
+  });
+
+  it('summarizes a self-post body when the story has no url but has text', async () => {
+    // Real-world example: https://news.ycombinator.com/item?id=47825673
+    // (Ask-HN-style body comparing Opus 4.7 vs 4.6). No URL, substantive
+    // text. Previously returned no_article; now routed through Gemini
+    // without touching Jina.
+    const fetchItem = fetchItemFor({
+      34: {
+        id: 34,
+        type: 'story',
+        title: 'Ask HN: Opus 4.7 vs. 4.6 after 3 days',
+        // The body uses HN's constrained HTML subset — the handler must
+        // strip it before prompting Gemini.
+        text: '<p>I spent some time today comparing Opus 4.6 and 4.7 using my own usage data to see how they actually behave side by side.</p><p>4.7 also uses fewer tools per turn than 4.6.</p>',
+        score: 10,
+      },
+    });
+    const client = createFakeClient([
+      { text: "4.7 trades slightly fewer errors for meaningfully fewer tools per turn." },
+    ]);
+    // Jina must NOT be called for self-posts — the body is in-hand.
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('Jina should not be called for self-posts');
+    });
+    const res = await handleSummaryRequest(makeRequest(34), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      summary:
+        '4.7 trades slightly fewer errors for meaningfully fewer tools per turn.',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    const prompt = client.models.generateContent.mock.calls[0]![0].contents;
+    // The HTML tags must be stripped from what Gemini sees.
+    expect(prompt).not.toContain('<p>');
+    expect(prompt).toContain('behave side by side');
+    // Self-post prompts include the title and acknowledge the no-article shape.
+    expect(prompt).toContain('Ask HN: Opus 4.7 vs. 4.6');
+    expect(prompt).toContain('no external article');
+  });
+
+  it('summarizes a self-post even when JINA_API_KEY is unset', async () => {
+    // Self-posts don't touch Jina, so the missing-jina-key check that
+    // gates the article path must not reject them.
+    delete process.env.JINA_API_KEY;
+    const fetchItem = fetchItemFor({
+      35: {
+        id: 35,
+        type: 'story',
+        title: 'Ask HN: no jina needed',
+        text: '<p>Body text of the post.</p>',
+        score: 10,
+      },
+    });
+    const client = createFakeClient([{ text: 'A summary.' }]);
+    const res = await handleSummaryRequest(makeRequest(35), {
+      createClient: () => client,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ summary: 'A summary.' });
+  });
+
+  it('returns 400 no_article when a self-post has only whitespace in text', async () => {
+    // After HTML strip + trim, a body of `<p> </p>` is effectively empty
+    // and has nothing to summarize.
+    const fetchItem = fetchItemFor({
+      36: {
+        id: 36,
+        type: 'story',
+        title: 'Empty body',
+        text: '<p>   </p>',
+        score: 10,
+      },
+    });
+    const res = await handleSummaryRequest(makeRequest(36), {
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('no_article');
   });
 
   it('returns 502 with story_unreachable when the HN fetch throws', async () => {
