@@ -152,8 +152,14 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Safe vs. risky actions
 
-- Safe: edit files, add dependencies, run tests, run the dev server.
-- Ask first before: force-pushing, rewriting git history, deleting branches, changing Vercel project settings, changing CI secrets, adding paid/third-party services.
+- Safe: edit files, add dependencies, run tests, run the dev server,
+  creating new `claude/<short-topic>` feature branches,
+  `git push --force-with-lease` to your own live feature branch after
+  a rebase (this is normal hygiene, not a risky action).
+- Ask first before: force-pushing to `main`/`master` or to a merged
+  branch, rewriting history on shared branches, deleting branches
+  you didn't create, changing Vercel project settings, changing CI
+  secrets, adding paid/third-party services.
 
 ## Branching
 
@@ -172,8 +178,12 @@ If any of the above fails, fix it — don't disable the check.
     switching, delete the old remote ref, open a new PR when ready.
     The delete step is usually a no-op because this repo has
     auto-delete-on-merge enabled, but run it anyway so the rule is
-    robust if the setting ever changes. Never force-push new work
-    onto a merged branch — it rewrites the merged PR's history.
+    robust if the setting ever changes. If the sandbox's git proxy
+    refuses the delete with HTTP 403 (and no `delete_branch` MCP
+    tool is available), flag it to the user and move on —
+    auto-delete-on-merge takes care of it on GitHub's side. Never
+    force-push new work onto a merged branch — it rewrites the
+    merged PR's history.
   - **"sync" / "rebase" / "pull main" / "update from main"** — the
     branch is still alive. `git fetch origin`, rebase onto
     `origin/main`, `git push --force-with-lease`. Same branch, same
