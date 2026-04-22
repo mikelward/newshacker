@@ -16,7 +16,15 @@ export default defineConfig({
   plugins: [
     react(),
     !isTest && VitePWA({
-      registerType: 'prompt',
+      // autoUpdate silently activates a new service worker on the next
+      // navigation (no prompt, no toast). Previously 'prompt' required an
+      // explicit user acceptance to pick up a new bundle, which stranded
+      // telemetry fixes (and other updates) on devices whose users hadn't
+      // seen or dismissed the prompt — the symptom that forced incognito
+      // testing while debugging /api/telemetry wiring. A reader app has
+      // no in-progress state to lose on refresh, so the simpler behavior
+      // wins.
+      registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'newshacker',
@@ -131,18 +139,6 @@ export default defineConfig({
       },
     }),
   ],
-  resolve: {
-    alias: isTest
-      ? {
-          // The PWA plugin is skipped under vitest (see above), so the
-          // `virtual:pwa-register` module it normally provides isn't
-          // resolvable. Point it at a no-op stub so `src/lib/pwa.ts`
-          // still imports cleanly — SW registration is a browser-only
-          // concern anyway.
-          'virtual:pwa-register': '/src/test/pwaRegisterStub.ts',
-        }
-      : undefined,
-  },
   test: {
     globals: true,
     // Default to happy-dom for component/hook/page tests — it's the
