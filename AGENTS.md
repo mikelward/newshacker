@@ -167,7 +167,7 @@ If any of the above fails, fix it — don't disable the check.
 ## Branching
 
 - **Workflow.** `claude/<short-topic>` branch off `origin/main` → PR → merge via rebase or squash. One topic per branch. Follow-up work after a merge goes on a new branch. Never commit to `main` / `master`.
-- **One commit per PR.** After new work or review-fix commits on an open PR, `git reset --soft origin/main && git commit` to re-squash before pushing. Don't rely on merge-time squash to clean up your working history.
+- **One commit per logical surviving change on the branch.** Rewrite unmerged commits freely (squash, amend, reorder, split with `git rebase -i` / `git reset --soft`) so each landing commit is one coherent change, with fix-ups and review responses folded into the commit they belong to. A PR can be a single commit or a short series — but review-fix noise doesn't survive into `main`.
 - **Check state before you push or branch.** Query the branch's PR via the GitHub MCP first.
   - No PR yet, or PR open → `git push` (`--force-with-lease` to your own feature branch after a rebase is fine; don't ask).
   - PR merged / closed → don't push. Merge-path hygiene: `git fetch origin`, cut a fresh `claude/<short-topic>` branch off `origin/main`, announce the switch.
