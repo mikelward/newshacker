@@ -144,7 +144,8 @@ and is its `processed` > 0? If yes, the cron is alive.
 
 ### Useful `jq` queries
 
-Copy the last hour of Vercel logs (CLI: `vercel logs production
+For quick spot-checks against the last 24 h of Vercel function logs
+before they age out. Copy the logs down (CLI: `vercel logs production
 --since 1h | grep warm-story > warm.jsonl`) and poke around:
 
 ```bash
@@ -161,8 +162,136 @@ jq -r 'select(.type=="warm-story" and .track=="article" and (.outcome=="unchange
 jq -r 'select(.type=="warm-run") | [.durationMs, .processed, .storyCount] | @tsv' warm.jsonl
 ```
 
-If you're doing this regularly, see the "analytics surface" TODO —
-there's a sketch for a log sink + aggregation endpoint.
+### Useful APL queries (Axiom)
+
+For longer-window analysis (up to the Axiom retention tier) once the
+**Axiom Vercel integration** is wired up. See
+[axiom.co/docs/apps/vercel](https://axiom.co/docs/apps/vercel) for
+install steps. Two setup gotchas worth spelling out:
+
+- **The integration ships logs from *every* Vercel project it has
+  access to by default.** If you've added it at the team level or
+  have other projects, every query must filter to `newshacker` or
+  you'll be reading someone else's logs. The templates below all
+  include the filter.
+- **Vercel emits three distinct log sources.** Build logs
+  (`vercel.source == "build"`), static/edge cache logs (`"static"`),
+  and function runtime logs (`"lambda"`). Cron output lives only in
+  `"lambda"` logs. The filter below gates on that.
+- **APL nested-field syntax.** The ingested schema has dotted field
+  names like `vercel.source` and `vercel.projectName`. Because the
+  dataset itself is also called `vercel`, bare `vercel.source`
+  confuses the parser; use the bracket-and-quote form:
+  `['vercel.source']`. Learned the hard way.
+
+Paste any of these into the Axiom query console:
+
+```apl
+// Outcome histogram per track, last 24 h. The equivalent of the first
+// jq query above.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| summarize count() by track=tostring(e.track), outcome=tostring(e.outcome)
+| sort by track asc, count_ desc
+```
+
+```apl
+// Change rate by article age bucket (hours). Tells you whether
+// articles past N hours settle down — if the changed/total ratio
+// plummets past 4-6 h, WARM_STABLE_CHECK_INTERVAL_SECONDS can push
+// out further.
+['vercel']
+| where _time > ago(7d)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article"
+| where tostring(e.outcome) in ("changed", "unchanged")
+| extend ageHours = bin(todouble(e.ageMinutes) / 60, 1)
+| summarize
+    changed = countif(tostring(e.outcome) == "changed"),
+    unchanged = countif(tostring(e.outcome) == "unchanged"),
+    total = count()
+  by ageHours
+| extend changeRate = round(todouble(changed) / todouble(total), 3)
+| sort by ageHours asc
+```
+
+```apl
+// Inspect article-"changed" rows to check for Jina rendering noise.
+// Two successive rows for the same storyId with contentBytes delta
+// under ~100 almost certainly indicate a dynamic element in the
+// article body (timestamp, ad slot, related-items widget) flipping
+// the hash without a real edit. Real edits are usually multi-KB.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article" and tostring(e.outcome) == "changed"
+| project
+    _time,
+    storyId = toint(e.storyId),
+    ageMinutes = todouble(e.ageMinutes),
+    stableForMinutes = todouble(e.stableForMinutes),
+    contentBytes = toint(e.contentBytes)
+| sort by storyId asc, _time asc
+```
+
+```apl
+// Per-run summary: how long is each tick taking and how much did it
+// do? durationMs approaching 50 000 means we're hitting the
+// WALL_CLOCK_BUDGET_MS guard; expect trailing stories to log
+// skipped_budget.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-run"
+| extend e = parse_json(message)
+| project
+    _time,
+    durationMs = toint(e.durationMs),
+    storyCount = toint(e.storyCount),
+    processed = toint(e.processed)
+| sort by _time desc
+```
+
+```apl
+// Young-story comments: is the 10-min aggressive interval actually
+// buying us extra `changed` events in the first 2 h after HN
+// submission? If young-window changed rate isn't materially higher
+// than older-window changed rate, drop WARM_YOUNG_STORY_REFRESH_
+// INTERVAL_SECONDS back to 30 min and let the default fresh interval
+// handle everything.
+['vercel']
+| where _time > ago(7d)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "comments"
+| where tostring(e.outcome) in ("changed", "unchanged")
+| extend isYoung = iff(todouble(e.ageMinutes) < 120, "young", "older")
+| summarize
+    changed = countif(tostring(e.outcome) == "changed"),
+    unchanged = countif(tostring(e.outcome) == "unchanged"),
+    total = count()
+  by isYoung
+| extend changeRate = round(todouble(changed) / todouble(total), 3)
+```
+
+Save any of these as **Starred queries** in Axiom (star icon on a
+run) so you can re-run them with one click instead of re-pasting.
+The `warm-summaries` analytics dashboard sketched in TODO.md §
+"Warm-summaries analytics surface" would wrap these into one chart
+view; the queries above are the building blocks.
 
 ## Tuning the knobs
 
