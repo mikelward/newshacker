@@ -25,6 +25,7 @@ import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
 import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
+import { hasSelfPostBody } from '../lib/selfPostBody';
 import { estimateWrappedLines } from '../lib/skeletonSize';
 import { trackSummaryLayout } from '../lib/analytics';
 import { Comment } from './Comment';
@@ -826,7 +827,9 @@ export function Thread({ id }: Props) {
     <article className="thread">
       <header className="thread__header">
         <h1 className="thread__title">{item.title ?? '[untitled]'}</h1>
-        {item.url || item.text ? <SummaryCard storyId={id} /> : null}
+        {item.url || hasSelfPostBody(item.text) ? (
+          <SummaryCard storyId={id} />
+        ) : null}
         <ThreadActionBar
           itemId={item.id}
           articleUrl={item.url}
