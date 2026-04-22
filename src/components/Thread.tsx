@@ -160,6 +160,22 @@ function DoneFilledIcon() {
   );
 }
 
+function VerticalAlignTopIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M240-760v-80h480v80H240Zm200 640v-446L336-462l-56-58 200-200 200 200-56 58-104-104v446h-80Z" />
+    </svg>
+  );
+}
+
 function summaryErrorDetail(error: unknown): string {
   if (error instanceof SummaryError) {
     switch (error.reason) {
@@ -482,7 +498,18 @@ interface ThreadActionBarProps {
   onTogglePinned: () => void;
   onToggleDone: () => void;
   onOpenMenu: () => void;
+  // 'top' (default) renders Read article (when the story has a url) as
+  // the primary button. 'bottom' renders Back to top instead — the reader
+  // is at the end of a long thread, so a quick jump up is more useful
+  // than the article link (which is still reachable via the top bar).
+  variant?: 'top' | 'bottom';
   testIdSuffix?: '' | '-bottom';
+}
+
+function scrollThreadToTop() {
+  // Browsers that support prefers-reduced-motion fall back to an instant
+  // scroll for this when the user opts out.
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function ThreadActionBar({
@@ -497,11 +524,22 @@ function ThreadActionBar({
   onTogglePinned,
   onToggleDone,
   onOpenMenu,
+  variant = 'top',
   testIdSuffix = '',
 }: ThreadActionBarProps) {
   return (
     <div className="thread__actions">
-      {articleUrl ? (
+      {variant === 'bottom' ? (
+        <button
+          type="button"
+          className="thread__action thread__action--primary"
+          data-testid={`thread-back-to-top${testIdSuffix}`}
+          onClick={scrollThreadToTop}
+        >
+          <VerticalAlignTopIcon />
+          <span className="thread__action-label">Back to top</span>
+        </button>
+      ) : articleUrl ? (
         <a
           className="thread__action thread__action--primary"
           href={articleUrl}
@@ -831,6 +869,7 @@ export function Thread({ id }: Props) {
           onTogglePinned={handleTogglePinned}
           onToggleDone={handleToggleDone}
           onOpenMenu={openMenu}
+          variant="bottom"
           testIdSuffix="-bottom"
         />
       </footer>
