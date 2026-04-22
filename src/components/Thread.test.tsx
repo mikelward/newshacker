@@ -949,6 +949,33 @@ describe('<Thread>', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows a temporarily-unavailable message when Jina quota is exhausted', async () => {
+    // 503 summary_budget_exhausted is the user-facing surface of the
+    // Jina 402 handling. Render friendly "try again later" copy rather
+    // than the permanent "aren't available" or misleading
+    // "article is unreachable" messages.
+    installHNFetchMock({
+      items: {
+        813: makeStory(813, { title: 'Paywalled Quota', url: 'https://example.com/813' }),
+      },
+      summaries: {
+        813: {
+          error: 'Summaries are temporarily unavailable',
+          reason: 'summary_budget_exhausted',
+          status: 503,
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={813} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/temporarily unavailable/i),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('shows an unreachable-specific message when the source site blocks us', async () => {
     installHNFetchMock({
       items: {

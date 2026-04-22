@@ -288,7 +288,7 @@ function clampContent(body: string): string | null {
   return clean || null;
 }
 
-type FetchFailure = 'timeout' | 'unreachable';
+type FetchFailure = 'timeout' | 'unreachable' | 'payment_required';
 type FetchOutcome =
   | { ok: true; content: string }
   | { ok: false; failure: FetchFailure };
@@ -323,6 +323,14 @@ async function fetchViaJina(
         'x-return-format': 'markdown',
       },
     });
+    // 402 Payment Required / 429 Too Many Requests from Jina mean our
+    // account has run out of paid credit or blown its rate-limit quota.
+    // Surface this as its own failure mode so the handler can return a
+    // distinct reason (operator-visible, client-visible) instead of
+    // masquerading as "the article is unreachable".
+    if (res.status === 402 || res.status === 429) {
+      return { ok: false, failure: 'payment_required' };
+    }
     if (!res.ok) return { ok: false, failure: 'unreachable' };
     const content = clampContent(await res.text());
     return content
@@ -425,6 +433,26 @@ export async function handleSummaryRequest(
           reason: 'source_timeout',
         },
         504,
+      );
+    }
+    if (jinaResult.failure === 'payment_required') {
+      // Jina rejected the fetch with 402 / 429 — our paid quota is
+      // exhausted. Log loudly so operators notice; the endpoint returns
+      // 503 rather than crashing so clients can render a graceful
+      // "summaries temporarily unavailable" message.
+      console.error(
+        JSON.stringify({
+          type: 'summary-jina-payment-required',
+          storyId,
+          articleUrl,
+        }),
+      );
+      return json(
+        {
+          error: 'Summaries are temporarily unavailable',
+          reason: 'summary_budget_exhausted',
+        },
+        503,
       );
     }
     return json(
