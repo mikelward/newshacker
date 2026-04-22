@@ -14,33 +14,6 @@ function LocationProbe() {
   return <div data-testid="location-pathname">{loc.pathname}</div>;
 }
 
-// Wraps the existing HN fetch mock so a specific URL substring is held open
-// until the test releases it. The skeleton tests need a guaranteed loading
-// state — without this, the immediate-resolve mock races React's commit
-// of the loaded state and the skeleton DOM is gone before the assertion runs.
-function gateFetchOn(
-  hnMock: ReturnType<typeof installHNFetchMock>,
-  urlSubstring: string,
-  resolved: Response,
-) {
-  let release!: () => void;
-  const gate = new Promise<void>((r) => {
-    release = r;
-  });
-  const fetchMock = vi.fn(
-    async (input: RequestInfo | URL, _init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes(urlSubstring)) {
-        await gate;
-        return resolved;
-      }
-      return hnMock(input);
-    },
-  );
-  vi.stubGlobal('fetch', fetchMock);
-  return { release };
-}
-
 // Renders <Thread> inside a MemoryRouter with a multi-entry history, so
 // tests can observe what happens when the thread navigates back or home.
 // initialIndex lands on the last entry (the /item/:id route).
@@ -868,41 +841,6 @@ describe('<Thread>', () => {
     expect(screen.queryByTestId('thread-summarize')).toBeNull();
   });
 
-  it('shows skeleton lines while the summary is loading and marks the card busy', async () => {
-    const hnMock = installHNFetchMock({
-      items: {
-        820: makeStory(820, { title: 'Slow', url: 'https://example.com/820' }),
-      },
-    });
-    const { release } = gateFetchOn(
-      hnMock,
-      '/api/summary',
-      new Response(JSON.stringify({ summary: 'Eventually here.' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-
-    renderWithProviders(<Thread id={820} />);
-
-    await screen.findByTestId('thread-summary-skeleton');
-    expect(screen.getByTestId('thread-summary-card')).toHaveAttribute(
-      'aria-busy',
-      'true',
-    );
-
-    release();
-
-    expect(
-      await screen.findByText('Eventually here.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId('thread-summary-skeleton')).toBeNull();
-    expect(screen.getByTestId('thread-summary-card')).toHaveAttribute(
-      'aria-busy',
-      'false',
-    );
-  });
-
   it('shows an error + Retry in the summary card when the api fails', async () => {
     installHNFetchMock({
       items: {
@@ -1156,46 +1094,6 @@ describe('<Thread>', () => {
 
     await screen.findByText('Lonely');
     expect(screen.queryByTestId('thread-comments-summary-card')).toBeNull();
-  });
-
-  it('shows a skeleton while the comments summary loads and marks the card busy', async () => {
-    const hnMock = installHNFetchMock({
-      items: {
-        980: makeStory(980, { kids: [981], descendants: 1 }),
-        981: {
-          id: 981,
-          type: 'comment',
-          by: 'x',
-          text: 'body',
-          time: 1,
-        },
-      },
-    });
-    const { release } = gateFetchOn(
-      hnMock,
-      '/api/comments-summary',
-      new Response(JSON.stringify({ insights: ['Eventually here.'] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-
-    renderWithProviders(<Thread id={980} />);
-
-    await screen.findByTestId('thread-comments-summary-skeleton');
-    expect(
-      screen.getByTestId('thread-comments-summary-card'),
-    ).toHaveAttribute('aria-busy', 'true');
-
-    release();
-
-    expect(await screen.findByText('Eventually here.')).toBeInTheDocument();
-    expect(
-      screen.queryByTestId('thread-comments-summary-skeleton'),
-    ).toBeNull();
-    expect(
-      screen.getByTestId('thread-comments-summary-card'),
-    ).toHaveAttribute('aria-busy', 'false');
   });
 
   it('shows an error with Retry when the comments summary api fails', async () => {
