@@ -715,7 +715,7 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   {type: "warm-story", track: "article"|"comments", storyId, outcome,
    ageMinutes?, stableForMinutes?, sinceLastCheckMinutes?,
    // article track:
-   summaryChanged?, source? ("jina"|"raw"), contentBytes?,
+   summaryChanged?, contentBytes?,
    // comments track:
    insightsChanged?, commentCount?, transcriptBytes?}
   ```
