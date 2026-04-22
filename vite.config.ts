@@ -146,11 +146,12 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    // Default to jsdom for component/hook/page tests. Pure-logic tests
-    // under src/lib and api/ don't touch the DOM, so we route them to
-    // the node environment via environmentMatchGlobs — spinning up
-    // jsdom per-file is the single biggest cost in `npm test`.
-    environment: 'jsdom',
+    // Default to happy-dom for component/hook/page tests — it's the
+    // same DOM contract testing-library needs but spins up noticeably
+    // faster per file than jsdom, which was ~95% of `npm test` cost.
+    // Pure-logic tests under src/lib and api/ still route to the node
+    // environment via environmentMatchGlobs below.
+    environment: 'happy-dom',
     environmentMatchGlobs: [
       ['api/**/*.test.ts', 'node'],
       ['src/lib/analytics.test.ts', 'node'],
