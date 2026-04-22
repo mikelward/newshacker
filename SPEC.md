@@ -495,6 +495,10 @@ On non-feed pages (thread, `/pinned`, `/done`, `/hidden`, etc.) these icons do n
 
 No hide/sweep toast: the Undo button is the recovery path. Hiding is always deliberate (swipe right, broom, or menu Hide) — scroll-past does not auto-hide. Pin/unpin don't toast either; the pin button's pressed state is the single source of truth for pinned state.
 
+## Back to top
+
+Every scrolling list view — feed pages (`/top`, `/new`, `/best`, etc.), library pages (`/pinned`, `/favorites`, `/done`, `/hidden`, `/opened`), and the bottom of the thread page — offers a **Back to top** button at the very bottom. On lists it sits below the "More" (load-more) button when one is present; on threads it's the primary slot of the bottom action bar. Reaching the end of any long scroll shouldn't require a manual fling to get back up top. The button (Material Symbols `vertical_align_top`) calls `window.scrollTo({ top: 0, behavior: 'smooth' })`, which major browsers short-circuit to an instant scroll when the user has `prefers-reduced-motion: reduce` set. Same component (`<BackToTopButton>`) is used on feeds and library pages; the thread bottom bar has its own primary-styled variant for consistency with the Read-article button it replaces.
+
 ## Visual Design
 
 - Primary color: `#ff6600` (HN orange) for the header and accents.
