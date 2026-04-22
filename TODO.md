@@ -84,6 +84,82 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Backend / infrastructure
 
+- **Warm-summaries analytics surface.** Today the `warm-story` /
+  `warm-run` JSON lines ride in Vercel function logs. That's enough
+  for a weeks-long "eyeball the scatterplot" pass — grep + jq + a
+  Python script. Three upgrades, ordered cheapest-first, to consider
+  only if the logs turn out to be genuinely useful (not if the answer
+  is "knobs are fine, stop looking"):
+  (a) **Log sink.** Vercel keeps function logs ~1 day. Shipping to
+      Axiom / Logtail / BetterStack (all have generous free tiers for
+      our volume) gets weeks-to-months of retention. ~1 h setup.
+  (b) **Aggregation endpoint.** `/api/warm-summaries-stats` that
+      reads rollups (counts per outcome, per age-bucket, per track,
+      per hour/day) from a pre-aggregated Upstash sorted-set. Needs
+      a second hourly cron that scans the last hour's `warm-story`
+      lines and increments the counters. ~2 h.
+  (c) **Visual dashboard.** Anything from a static HTML page
+      rendering (b)'s JSON as charts to a Grafana board pointed at
+      (a). Only worth it if we're iterating on the knobs regularly.
+      1–4 h depending on polish.
+  Don't pre-build these — the MVP logs answer "is there a real
+  signal here" in a week of data. Invest based on the answer.
+
+- **Article-fetch fallback.** We used to have a server-side raw-HTML
+  fallback (plain `GET` with a spoofed desktop Chrome UA) that kicked
+  in when Jina Reader failed or wasn't configured. It was removed
+  because (a) the UA spoof is poor hygiene — it blends in with real
+  browsers specifically to get past anti-bot heuristics, which is
+  exactly what those heuristics are there to prevent, and (b) the
+  practical hit rate was tiny (Jina handles nearly every site we
+  care about; when Jina fails it's usually a site that needs JS
+  rendering or is paywalled — a plain GET from a Vercel IP won't
+  succeed there anyway). Jina is now a hard dependency for
+  `/api/summary` and the cron. If we ever want the fallback back,
+  do it with two safety rails: (1) a curated domain allowlist
+  (GitHub, arXiv, Wikipedia, plain-text blogs — sites that clearly
+  welcome a plain `GET`) rather than an open any-URL fetch, and
+  (2) an identifiable User-Agent like
+  `newshacker-warmer/1.0 (+https://newshacker.app/about-bot)` so
+  publishers can block us via `robots.txt` or UA allowlist if they
+  want. Stealthy bots > nothing, but honest bots > stealthy bots.
+
+- **Jina retry strategy.** Today a single Jina failure (5xx, timeout,
+  rate-limit) returns `source_unreachable` / `source_timeout` on the
+  user-facing path immediately, and logs `skipped_unreachable` on the
+  cron. The cron effectively retries on the next tick (every 5 min),
+  so transient Jina blips self-heal within ~5 min for warmed stories.
+  For user-facing requests there's no retry — the card renders an
+  error state. If that proves user-visible in practice, options are
+  (a) in-handler exponential backoff on Jina 5xx (2–3 attempts with
+  jitter, capped at maybe 3 s total — Jina itself already retries
+  internally, so layering more is mostly belt-and-braces), or
+  (b) have the client retry after a short delay on first failure.
+  Not urgent.
+
+- **Multi-region / multi-instance replication story.** Today everything
+  runs in `us-east-1` (Vercel functions + Upstash primary). If we scale
+  out to multiple function regions or multiple concurrent cron
+  instances, two concerns: (1) last-write-wins on the Upstash record
+  can cause two regenerations to race for the same story ("write 1
+  generates summary A, write 2 generates summary B, both overwrite the
+  other's `lastChangedAt`" — harmless but wasteful); (2) the tiered
+  backoff assumes a single lock-step sequence of `lastCheckedAt`
+  timestamps, which multi-region writes can reorder. Mitigations to
+  consider when that happens: a per-story Redis SETNX lock with a
+  short TTL before processing, or pin the cron to a single region via
+  `vercel.json` `crons[i].region`. No action needed while we're
+  single-region.
+
+- **Cron jitter.** `*/5 * * * *` fires on the nose of the wall clock
+  — hh:00, hh:05, hh:10, etc. At current volume publishers won't
+  notice, but if we scale up (more stories, more cadence, more feeds)
+  the burst pattern makes us a trivially-identifiable bot. Cheap fix:
+  `setTimeout(randomInt(0, 60_000))` at the top of the handler so
+  per-tick work spreads over the first minute. Track whether any
+  publisher's logs flag us before bothering — no data yet that this
+  matters.
+
 - **Pre-fetch short-circuits for the warm cron.** The MVP warms via a
   "fetch → hash → compare" loop every time the tiered backoff says a
   re-check is due. We pay the bandwidth + the SHA hash even when

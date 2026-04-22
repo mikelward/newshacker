@@ -22,14 +22,13 @@ const NO_STORE_HEADER = 'private, no-store';
 
 const JINA_ENDPOINT = 'https://r.jina.ai/';
 const JINA_TIMEOUT_MS = 15_000;
-
-const RAW_FETCH_TIMEOUT_MS = 8_000;
-// A realistic desktop User-Agent for the raw-fetch fallback. Some publishers
-// serve a bot-blocked page to bare UAs; this isn't a spoof, it's just polite
-// defaults that match what any real browser sends.
-const RAW_FETCH_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+// The server-side raw-HTML fallback was deliberately removed. See
+// TODO.md § "Article-fetch fallback" for the rationale — mainly that it
+// spoofed a Chrome UA to get past anti-bot heuristics, which is poor
+// hygiene and invites well-earned blocks. If we bring it back it
+// should be gated to a curated domain allowlist with an honest,
+// identifiable User-Agent. Jina is now a hard dependency for this
+// endpoint; deployments without JINA_API_KEY will 502.
 
 const DEFAULT_ALLOWED_HOSTS = ['newshacker.app', 'hnews.app'];
 
@@ -335,49 +334,6 @@ async function fetchViaJina(
   }
 }
 
-// Last-ditch fallback: fetch the article ourselves with a browser-like UA.
-// Only catches the subset of sites that return usable HTML to a plain GET,
-// which is a strict subset of what Jina handles — but it costs nothing and
-// keeps things working if Jina is down or unconfigured.
-async function fetchRawHtml(
-  articleUrl: string,
-  deps: SummaryDeps,
-): Promise<FetchOutcome> {
-  const fetchFn = deps.fetchImpl ?? fetch;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), RAW_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetchFn(articleUrl, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: {
-        'user-agent': RAW_FETCH_USER_AGENT,
-        accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'accept-language': 'en-US,en;q=0.9',
-      },
-    });
-    if (!res.ok) return { ok: false, failure: 'unreachable' };
-    const contentType = res.headers.get('content-type') ?? '';
-    if (
-      !contentType.includes('text/html') &&
-      !contentType.includes('text/plain') &&
-      !contentType.includes('application/xhtml')
-    ) {
-      return { ok: false, failure: 'unreachable' };
-    }
-    const content = clampContent(await res.text());
-    return content
-      ? { ok: true, content }
-      : { ok: false, failure: 'unreachable' };
-  } catch (err) {
-    return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export async function handleSummaryRequest(
   request: Request,
   deps: SummaryDeps = {},
@@ -453,20 +409,15 @@ export async function handleSummaryRequest(
   }
 
   const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
-  let content: string | null = null;
-  let sawTimeout = false;
-  if (jinaApiKey) {
-    const result = await fetchViaJina(articleUrl, jinaApiKey, deps);
-    if (result.ok) content = result.content;
-    else if (result.failure === 'timeout') sawTimeout = true;
+  if (!jinaApiKey) {
+    return json(
+      { error: 'Summary is not configured', reason: 'not_configured' },
+      503,
+    );
   }
-  if (!content) {
-    const result = await fetchRawHtml(articleUrl, deps);
-    if (result.ok) content = result.content;
-    else if (result.failure === 'timeout') sawTimeout = true;
-  }
-  if (!content) {
-    if (sawTimeout) {
+  const jinaResult = await fetchViaJina(articleUrl, jinaApiKey, deps);
+  if (!jinaResult.ok) {
+    if (jinaResult.failure === 'timeout') {
       return json(
         {
           error: "The article site didn't respond in time",
@@ -483,6 +434,7 @@ export async function handleSummaryRequest(
       502,
     );
   }
+  const content = jinaResult.content;
 
   const client: SummaryClient = deps.createClient
     ? deps.createClient(apiKey)
