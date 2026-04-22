@@ -69,6 +69,19 @@
   color: #fff;
 }
 
+/* Stacked on --primary after the article has been opened once. Keeps the
+   layout of the primary button (flex: 1, min-width: 0, narrow-viewport
+   row-wrap) but drops the HN orange down to the neutral secondary
+   palette, so a re-visit to the same thread doesn't keep shouting
+   "read this!" at a reader who already has. The rules below override
+   the --primary declarations, so ordering in the .css matters:
+   --read must appear after --primary. */
+.thread__action--read {
+  background: var(--hn-bg-card);
+  border-color: var(--hn-border);
+  color: var(--hn-text);
+}
+
 .thread__action-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -79,6 +92,10 @@
   .thread__action--primary:hover {
     background: var(--hn-orange);
     filter: brightness(0.95);
+  }
+  .thread__action--read:hover {
+    background: var(--hn-pressed);
+    filter: none;
   }
 }
 

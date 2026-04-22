@@ -8,6 +8,7 @@ import { useDoneStories } from '../hooks/useDoneStories';
 import { useFavorites } from '../hooks/useFavorites';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useShareStory } from '../hooks/useShareStory';
 import { useVote } from '../hooks/useVote';
@@ -489,6 +490,7 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
 interface ThreadActionBarProps {
   itemId: number;
   articleUrl?: string;
+  articleOpened: boolean;
   canVote: boolean;
   voted: boolean;
   pinned: boolean;
@@ -515,6 +517,7 @@ function scrollThreadToTop() {
 function ThreadActionBar({
   itemId,
   articleUrl,
+  articleOpened,
   canVote,
   voted,
   pinned,
@@ -545,7 +548,11 @@ function ThreadActionBar({
         </button>
       ) : articleUrl ? (
         <a
-          className="thread__action thread__action--primary"
+          className={
+            'thread__action thread__action--primary' +
+            (articleOpened ? ' thread__action--read' : '')
+          }
+          data-testid={`thread-read-article${testIdSuffix}`}
           href={articleUrl}
           target="_blank"
           rel="noopener noreferrer"
@@ -628,6 +635,8 @@ export function Thread({ id }: Props) {
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
   const { isPinned, pin, unpin } = usePinnedStories();
   const pinned = isPinned(id);
+  const { articleOpenedIds } = useOpenedStories();
+  const articleOpened = articleOpenedIds.has(id);
   const item = data?.item;
   // Snapshot the thread's comment count whenever it loads (or the
   // background refetch brings in a fresher count). Row clicks in the
@@ -795,6 +804,7 @@ export function Thread({ id }: Props) {
         <ThreadActionBar
           itemId={item.id}
           articleUrl={item.url}
+          articleOpened={articleOpened}
           canVote={isAuthenticated}
           voted={voted}
           pinned={pinned}
@@ -864,6 +874,7 @@ export function Thread({ id }: Props) {
         <ThreadActionBar
           itemId={item.id}
           articleUrl={item.url}
+          articleOpened={articleOpened}
           canVote={isAuthenticated}
           voted={voted}
           pinned={pinned}
