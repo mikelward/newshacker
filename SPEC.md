@@ -412,7 +412,7 @@ A third slot is reserved between the row body and the pin button for at most one
 Everything else is display-only:
 
 - Points, age, comment count — plain text inline in the metadata row inside the row link.
-- Domain — plain text in the metadata row, not a link. (We intentionally do not let users tap a domain to filter by site; that's a power-user feature incompatible with the "few targets" goal.)
+- Domain — plain text in the metadata row, not a link. (We intentionally do not let users tap a domain to filter by site; that's a power-user feature incompatible with the "few targets" goal.) **The display domain is always trimmed to the registrable domain** (`fingfx.thomsonreuters.com` → `thomsonreuters.com`, `sport.bbc.co.uk` → `bbc.co.uk`, `old.reddit.com` → `reddit.com`) — subdomains rarely carry reader-facing identity on a small row, and the thread page still shows the full hostname for anyone who wants the detail. The trim is ccTLD-aware (`9news.com.au` stays `9news.com.au`, never `9news`) and preserves owner-identifying subdomains on a hand-curated list of compound effective TLDs (`jasoneckert.github.io` stays intact). If the registrable domain itself exceeds 22 characters we fall back to a trailing-ellipsis truncation. The compound-eTLD list is a pragmatic subset of the Public Suffix List — a future change may swap it for the full PSL; the length cap is the backstop either way.
 
 What is deliberately **not** rendered:
 
