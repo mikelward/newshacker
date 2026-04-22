@@ -103,9 +103,11 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 - **Warm-summaries analytics surface.** The `warm-story` /
   `warm-run` JSON lines ride in Vercel function logs and are being
-  forwarded to **Axiom** via the Vercel integration (done — scoped to
-  newshacker only; APL query templates in CRON.md § "Useful APL
-  queries"). That covers retention and ad-hoc querying. Two further
+  forwarded to **Axiom** via the Vercel integration (done; the APL
+  query templates in CRON.md § "Useful APL queries" are scoped to
+  `newshacker` via the `['vercel.projectName']` filter — the
+  integration itself ships all projects the Vercel team has access
+  to). That covers retention and ad-hoc querying. Two further
   upgrades, to consider only if the logs turn out to be genuinely
   useful (not if the answer is "knobs are fine, stop looking"):
   (a) **Aggregation endpoint.** `/api/warm-summaries-stats` that
