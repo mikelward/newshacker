@@ -13,6 +13,9 @@
     "typecheck": "tsc -b --noEmit",
     "icons:generate": "node scripts/generate-icons.mjs"
   },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "dependencies": {
     "@google/genai": "^1.50.1",
     "@tanstack/query-sync-storage-persister": "^5.99.1",

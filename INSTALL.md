@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js `^20.19.0 || >=22.12.0` (the `engines` in `package.json`; matches `@vitejs/plugin-react` 5.x)
 - npm
 - Git
 
