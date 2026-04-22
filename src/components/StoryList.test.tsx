@@ -29,6 +29,13 @@ describe('<StoryList>', () => {
     });
 
     const more = screen.getByRole('button', { name: /^more$/i });
+    // Back to top renders below the More control at the end of the feed.
+    const backToTop = screen.getByTestId('back-to-top');
+    expect(backToTop).toBeInTheDocument();
+    expect(
+      more.compareDocumentPosition(backToTop) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     await userEvent.click(more);
 
     await waitFor(() => {

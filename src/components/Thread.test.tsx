@@ -501,11 +501,7 @@ describe('<Thread>', () => {
     });
 
     const scrollToSpy = vi.fn();
-    Object.defineProperty(window, 'scrollTo', {
-      configurable: true,
-      writable: true,
-      value: scrollToSpy,
-    });
+    vi.stubGlobal('scrollTo', scrollToSpy);
 
     renderWithProviders(<Thread id={735} />);
     await screen.findByText('ScrollyTop');
