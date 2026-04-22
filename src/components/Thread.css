@@ -3,8 +3,22 @@
 }
 
 .thread__header {
-  padding: 16px 16px 4px;
+  padding: 16px 16px 8px;
   border-bottom: 1px solid var(--hn-border);
+}
+
+/* Zero the last child's own margin-bottom so the gap between the
+   last in-header element (thread__meta, or thread__text on self
+   posts) and the header's border-bottom comes solely from the
+   header's padding-bottom — otherwise meta's 12px margin stacks
+   with the padding and the bottom gap balloons past what the other
+   top-level boxes use. Narrowed to meta/text on purpose: the
+   deleted/dead render path (Thread.tsx) puts just a thread__title
+   in the header, and that case should keep its declared 12px margin
+   rather than silently de-stacking here. */
+.thread__header > .thread__meta:last-child,
+.thread__header > .thread__text:last-child {
+  margin-bottom: 0;
 }
 
 .thread__title {
@@ -178,7 +192,7 @@
 
 .thread__summary-card--comments {
   margin-top: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 
 /* Loading-state variants: the probe <p>/<ul> renders the real body/list
