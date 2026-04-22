@@ -54,6 +54,26 @@ If a command above doesn't exist yet (early in the project), add it to `package.
 
 If any of the above fails, fix it — don't disable the check.
 
+- **Fix any preexisting test failures as the *first* commit of the series.**
+  If `npm test` is already red when you start a task, don't stack your work
+  on top of a broken baseline. Land the fix first, on its own commit, so the
+  reason each test goes red is attributable to a single change. If the
+  failure is genuinely unrelated and out of scope, say so in the first
+  response and confirm with the user before skipping past it — don't
+  silently report a task "done" with the tree still red.
+- **Avoid racy / flaky tests.** Never paper over a timing race with
+  `await new Promise(r => setTimeout(r, 500))`, a retry loop, or a bumped
+  `findBy*` timeout. If a test depends on ordering (async resolution,
+  render commit, effect flush, layout measurement), make the ordering
+  explicit: resolve a controlled promise, advance fake timers, wrap in
+  `act(...)`, or hold the in-flight fetch open behind a gate you
+  release from the test (see `gateFetchOn` in `Thread.test.tsx` for the
+  canonical pattern — it exists specifically so React 18's
+  `useSyncExternalStore` doesn't swallow intermediate loading-state
+  renders by re-reading a since-settled snapshot at commit time). A
+  test that passes "most of the time" is broken; rewrite it or fix the
+  underlying cause.
+
 ## Code style
 
 - TypeScript `strict` mode on. No `any` unless justified in a comment.
@@ -139,6 +159,28 @@ If any of the above fails, fix it — don't disable the check.
 
 - Develop on the branch the harness assigns (see the session instructions — currently `claude/hackernews-mobile-app-E2eoZ`).
 - Commit with clear messages. Don't create PRs unless the user asks.
+- **ALWAYS end every reply with the PR link.** Once a PR exists for
+  the current branch, every single assistant reply in the session
+  must finish with the plain GitHub PR URL
+  (`https://github.com/<org>/<repo>/pull/<n>`) on its own final line —
+  including replies where you did no pushing, where the user just
+  asked a question, where you only read files, or where you're saying
+  "done". The Claude Code "open PR" / "view work" button in the UI
+  stops working once the branch has been merged (and is brittle
+  across force-pushes in general), so the repeated link in chat is
+  the only reliable way the reviewer can find the diff later. If no
+  PR exists yet for the branch, link to the branch-compare URL
+  (`https://github.com/<org>/<repo>/tree/<branch>` or
+  `.../compare/main...<branch>`) instead, and switch to the PR URL
+  the moment one is opened.
+- **Never commit directly to `main` (or `master`).** The only write
+  operation allowed on the default branch is a fast-forward merge / push
+  of already-reviewed commits. No direct commits, no rebases that rewrite
+  main's history, no force-pushes, no amendments. When you start work,
+  branch off `origin/main` — if the assigned branch is behind, rebase it
+  onto `origin/main` first. If you find yourself on `main` locally (`git
+  branch --show-current` says `main`/`master`), stop and switch to a
+  feature branch before editing anything.
 
 ## When in doubt
 
