@@ -36,10 +36,10 @@ const MAX_CONTENT_CHARS = 200_000;
 
 const JINA_ENDPOINT = 'https://r.jina.ai/';
 const JINA_TIMEOUT_MS = 15_000;
-const RAW_FETCH_TIMEOUT_MS = 8_000;
-const RAW_FETCH_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+// The raw-HTML fallback (plain GET with a spoofed Chrome UA) was
+// removed along with the matching path in api/summary.ts. See
+// TODO.md § "Article-fetch fallback" for context. Jina is the only
+// article-fetch path now.
 
 const HN_ITEM_URL = (id: number) =>
   `https://hacker-news.firebaseio.com/v0/item/${id}.json`;
@@ -73,12 +73,27 @@ const TOP_LEVEL_SAMPLE_SIZE = 20;
 const MAX_COMMENT_CHARS = 2000;
 
 // Default knobs. All env-tunable so the backoff can be dialled without
-// a redeploy. Units are seconds.
+// a redeploy. Units are seconds (except TOP_N / MIN_KIDS).
 const DEFAULT_REFRESH_CHECK_INTERVAL = 60 * 30; // 30 min for fresh stories
 const DEFAULT_STABLE_CHECK_INTERVAL = 60 * 60 * 2; // 2 h for stable stories
 const DEFAULT_STABLE_THRESHOLD = 60 * 60 * 6; // "stable" = unchanged ≥ 6 h
 const DEFAULT_MAX_STORY_AGE = 60 * 60 * 48; // give up after 48 h
 const DEFAULT_TOP_N = 30;
+// Young-story tuning: hot threads on HN grow fast in their first
+// couple of hours. For the *comments* track only, re-check a live
+// thread more aggressively while the story is young — otherwise the
+// 30-min fresh interval leaves the cached insights lagging behind
+// real comment churn. Articles don't grow after publication, so
+// this doesn't apply to the article track.
+const DEFAULT_YOUNG_STORY_AGE = 60 * 60 * 2; // "young" = HN-submitted < 2 h ago
+const DEFAULT_YOUNG_STORY_REFRESH_INTERVAL = 60 * 10; // 10 min
+// Minimum usable top-level comments required before the *cron*
+// creates a comments-summary record (first_seen). Stops the cron from
+// burning Gemini on a 2-comment thread that will look completely
+// different in 20 minutes. User-facing /api/comments-summary is not
+// gated by this — a human who navigates to a thin thread still gets
+// whatever summary is possible.
+const DEFAULT_COMMENTS_MIN_KIDS = 5;
 
 // Upper bound on how long a single cron tick may spend. Pro functions
 // default to 60s; we leave headroom so the logger can flush.
@@ -94,6 +109,10 @@ export interface WarmKnobs {
   stableThresholdSeconds: number;
   maxStoryAgeSeconds: number;
   topN: number;
+  // Comments-track-specific tuning (see defaults above).
+  youngStoryAgeSeconds: number;
+  youngStoryRefreshIntervalSeconds: number;
+  commentsMinKids: number;
 }
 
 export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
@@ -115,6 +134,18 @@ export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
       DEFAULT_MAX_STORY_AGE,
     ),
     topN: parsePositiveInt(env.WARM_TOP_N, DEFAULT_TOP_N),
+    youngStoryAgeSeconds: parsePositiveInt(
+      env.WARM_YOUNG_STORY_AGE_SECONDS,
+      DEFAULT_YOUNG_STORY_AGE,
+    ),
+    youngStoryRefreshIntervalSeconds: parsePositiveInt(
+      env.WARM_YOUNG_STORY_REFRESH_INTERVAL_SECONDS,
+      DEFAULT_YOUNG_STORY_REFRESH_INTERVAL,
+    ),
+    commentsMinKids: parsePositiveInt(
+      env.WARM_COMMENTS_MIN_KIDS,
+      DEFAULT_COMMENTS_MIN_KIDS,
+    ),
   };
 }
 
@@ -475,44 +506,6 @@ async function fetchViaJina(
   }
 }
 
-async function fetchRawHtml(
-  articleUrl: string,
-  fetchFn: typeof fetch,
-): Promise<FetchOutcome> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), RAW_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetchFn(articleUrl, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: {
-        'user-agent': RAW_FETCH_USER_AGENT,
-        accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'accept-language': 'en-US,en;q=0.9',
-      },
-    });
-    if (!res.ok) return { ok: false, failure: 'unreachable' };
-    const contentType = res.headers.get('content-type') ?? '';
-    if (
-      !contentType.includes('text/html') &&
-      !contentType.includes('text/plain') &&
-      !contentType.includes('application/xhtml')
-    ) {
-      return { ok: false, failure: 'unreachable' };
-    }
-    const content = clampContent(await res.text());
-    return content
-      ? { ok: true, content }
-      : { ok: false, failure: 'unreachable' };
-  } catch (err) {
-    return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 function buildPrompt(articleUrl: string, content: string): string {
   return (
     `Summarize the article below in a single, concise sentence without using bullet points or introductory text. ` +
@@ -568,6 +561,11 @@ export type CheckOutcome =
   // Article-track only: the story has no external URL.
   // Comments-track only: the story has no kids[] at all.
   | 'skipped_no_content'
+  // Comments-track only: the cron won't create a first_seen record
+  // until there are at least WARM_COMMENTS_MIN_KIDS usable top-level
+  // comments. Stops us from caching insights generated from 2 comments
+  // that will be unrecognisable 20 minutes later.
+  | 'skipped_low_volume'
   | 'skipped_unreachable'
   | 'skipped_budget'
   | 'first_seen'
@@ -592,18 +590,11 @@ export interface StoryLog {
   summaryChanged?: boolean;
   // Comments track: whether the regenerated insights differ from prior.
   insightsChanged?: boolean;
-  // Article track: which fetcher produced the bytes we hashed. Jina
-  // returns clean *markdown* (ads / nav / scripts stripped) — its
-  // hash is a reliable proxy for "did the article body change". Raw
-  // HTML includes ads, analytics, CSRF tokens, rotating timestamps;
-  // its hash is noisy, so `outcome="changed"` paired with `source="raw"`
-  // should be weighted lower when estimating real edit rates. Absent
-  // for non-fetch outcomes (skipped_* / error).
-  source?: 'jina' | 'raw';
-  // Article track: post-clamp byte length of the content we hashed
-  // this tick. Cross-correlate successive lines for the same storyId
-  // to distinguish "real edit" (multi-KB delta) from "cache-buster /
-  // timestamp churn" (tiny delta).
+  // Article track: post-clamp byte length of the clean markdown Jina
+  // produced this tick. Cross-correlate successive lines for the same
+  // storyId to distinguish "real edit" (multi-KB delta) from
+  // "timestamp / cache-buster churn" (tiny delta, Jina's markdown
+  // still flipped because the in-body timestamp moved).
   contentBytes?: number;
   // Comments track analogues:
   //   commentCount    = usable top-level comments fed to the model
@@ -652,6 +643,7 @@ function emptyOutcomeCounts(): Record<CheckOutcome, number> {
     skipped_interval: 0,
     skipped_low_score: 0,
     skipped_no_content: 0,
+    skipped_low_volume: 0,
     skipped_unreachable: 0,
     skipped_budget: 0,
     first_seen: 0,
@@ -673,17 +665,31 @@ interface BackoffState {
   lastCheckedAt: number;
 }
 
+export interface DecideIntervalOptions {
+  // Comments track passes `true` when the HN story was submitted less
+  // than youngStoryAgeSeconds ago, to trigger the shorter refresh
+  // interval. Article track always leaves this false.
+  isYoungStory?: boolean;
+}
+
 export function decideInterval(
   record: BackoffState,
   now: number,
   knobs: WarmKnobs,
+  options: DecideIntervalOptions = {},
 ): { shouldCheck: boolean; stableFor: number } {
   const stableFor = Math.max(0, now - record.lastChangedAt);
   const sinceLastCheck = Math.max(0, now - record.lastCheckedAt);
-  const interval =
-    stableFor >= knobs.stableThresholdSeconds * 1000
-      ? knobs.stableCheckIntervalSeconds * 1000
-      : knobs.refreshCheckIntervalSeconds * 1000;
+  let interval: number;
+  if (stableFor >= knobs.stableThresholdSeconds * 1000) {
+    // Stable wins even for young stories — a comments thread that's
+    // been unchanged for 6+ hours doesn't need the aggressive cadence.
+    interval = knobs.stableCheckIntervalSeconds * 1000;
+  } else if (options.isYoungStory) {
+    interval = knobs.youngStoryRefreshIntervalSeconds * 1000;
+  } else {
+    interval = knobs.refreshCheckIntervalSeconds * 1000;
+  }
   return { shouldCheck: sinceLastCheck >= interval, stableFor };
 }
 
@@ -790,14 +796,31 @@ function shouldSkipByBackoff(
   existing: BackoffState & { firstSeenAt: number },
   now: number,
   knobs: WarmKnobs,
+  options: DecideIntervalOptions = {},
 ): { skip: CheckOutcome | null; stableFor: number } {
   const ageMs = now - existing.firstSeenAt;
   if (ageMs > knobs.maxStoryAgeSeconds * 1000) {
     return { skip: 'skipped_age', stableFor: 0 };
   }
-  const { shouldCheck, stableFor } = decideInterval(existing, now, knobs);
+  const { shouldCheck, stableFor } = decideInterval(
+    existing,
+    now,
+    knobs,
+    options,
+  );
   if (!shouldCheck) return { skip: 'skipped_interval', stableFor };
   return { skip: null, stableFor };
+}
+
+// True when the HN submission time falls inside the "young story"
+// window. `story.time` is a Unix epoch in seconds per the HN API.
+function isYoungStory(
+  story: HNItem | null,
+  now: number,
+  knobs: WarmKnobs,
+): boolean {
+  if (!story || typeof story.time !== 'number') return false;
+  return now - story.time * 1000 < knobs.youngStoryAgeSeconds * 1000;
 }
 
 async function processArticleTrack(
@@ -836,23 +859,10 @@ async function processArticleTrack(
   }
   const articleUrl = story.url;
 
-  let content: string | null = null;
-  let source: 'jina' | 'raw' | null = null;
-  if (jinaApiKey) {
-    const res = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
-    if (res.ok) {
-      content = res.content;
-      source = 'jina';
-    }
-  }
-  if (!content) {
-    const res = await fetchRawHtml(articleUrl, fetchFn);
-    if (res.ok) {
-      content = res.content;
-      source = 'raw';
-    }
-  }
-  if (!content || !source) return log({ outcome: 'skipped_unreachable' });
+  if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
+  const res = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
+  if (!res.ok) return log({ outcome: 'skipped_unreachable' });
+  const content = res.content;
 
   const newHash = hashArticle(content);
   const contentBytes = Buffer.byteLength(content, 'utf8');
@@ -869,7 +879,6 @@ async function processArticleTrack(
       ageMinutes: minutes(now - existing.firstSeenAt),
       stableForMinutes: minutes(now - existing.lastChangedAt),
       sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
-      source,
       contentBytes,
     });
   }
@@ -907,7 +916,7 @@ async function processArticleTrack(
     // best-effort
   }
   if (!existing) {
-    return log({ outcome: 'first_seen', source, contentBytes });
+    return log({ outcome: 'first_seen', contentBytes });
   }
   return log({
     outcome: 'changed',
@@ -915,7 +924,6 @@ async function processArticleTrack(
     stableForMinutes: minutes(now - existing.lastChangedAt),
     sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
     summaryChanged,
-    source,
     contentBytes,
   });
 }
@@ -931,8 +939,12 @@ async function processCommentsTrack(
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
   const log = makeLog('comments', storyId);
 
+  const young = isYoungStory(story, now, knobs);
+
   if (existing) {
-    const { skip, stableFor } = shouldSkipByBackoff(existing, now, knobs);
+    const { skip, stableFor } = shouldSkipByBackoff(existing, now, knobs, {
+      isYoungStory: young,
+    });
     if (skip === 'skipped_age') {
       return log({ outcome: 'skipped_age', ageMinutes: minutes(now - existing.firstSeenAt) });
     }
@@ -969,6 +981,18 @@ async function processCommentsTrack(
       !!c && !c.deleted && !c.dead && typeof c.text === 'string',
   );
   if (usable.length === 0) return log({ outcome: 'skipped_no_content' });
+
+  // Min-kids gate: the cron refuses to be the one to create a
+  // first_seen record for a thin thread — wait until at least N
+  // usable top-level comments are in. An existing record is never
+  // re-gated, so a thread that drops from 10 → 2 comments still
+  // gets regenerated on hash change rather than silently going stale.
+  if (!existing && usable.length < knobs.commentsMinKids) {
+    return log({
+      outcome: 'skipped_low_volume',
+      commentCount: usable.length,
+    });
+  }
 
   const transcript = buildTranscript(usable);
   const newHash = hashTranscript(transcript);
@@ -1041,9 +1065,9 @@ async function processCommentsTrack(
 }
 
 // Orchestrates one story across both tracks. Reads both cache records
-// first so we can short-circuit without an HN item fetch when both
-// tracks are inside their backoff window. Otherwise fetches the item
-// once and fans out to both track processors in parallel; each track
+// in parallel, fetches the HN item once (needed for `story.time` to
+// compute isYoungStory, which the comments-track backoff depends on),
+// then fans out to both track processors in parallel. Each track
 // checks its own backoff gate before touching the story fields, so a
 // null story still yields the correct skip outcome per-track.
 async function processStory(
@@ -1052,30 +1076,14 @@ async function processStory(
   commentsStore: CommentsSummaryStore,
   ctx: StoryContext,
 ): Promise<StoryLog[]> {
-  const { deps, now, knobs } = ctx;
+  const { deps } = ctx;
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
 
-  const [existing, existingComments] = await Promise.all([
+  const [existing, existingComments, story] = await Promise.all([
     store.get(storyId).catch(() => null),
     commentsStore.get(storyId).catch(() => null),
+    fetchItem(storyId).catch(() => null),
   ]);
-
-  const articleSkip = existing
-    ? shouldSkipByBackoff(existing, now, knobs).skip
-    : null;
-  const commentsSkip = existingComments
-    ? shouldSkipByBackoff(existingComments, now, knobs).skip
-    : null;
-  const needsFetch = !articleSkip || !commentsSkip;
-
-  let story: HNItem | null = null;
-  if (needsFetch) {
-    try {
-      story = await fetchItem(storyId);
-    } catch {
-      story = null;
-    }
-  }
 
   const [articleLog, commentsLog] = await Promise.all([
     processArticleTrack(storyId, story, existing, store, ctx),

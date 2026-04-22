@@ -222,6 +222,9 @@ describe('decideInterval', () => {
     stableThresholdSeconds: 6 * 60 * 60,
     maxStoryAgeSeconds: 48 * 60 * 60,
     topN: 30,
+    youngStoryAgeSeconds: 2 * 60 * 60,
+    youngStoryRefreshIntervalSeconds: 10 * 60,
+    commentsMinKids: 5,
   };
 
   it('waits for the fresh-interval when the article is not yet stable', () => {
@@ -279,7 +282,10 @@ describe('handleWarmRequest', () => {
 
   beforeEach(() => {
     process.env.GOOGLE_API_KEY = 'test-key';
-    delete process.env.JINA_API_KEY;
+    // Jina is a hard dependency after the raw-HTML fallback was
+    // removed (TODO.md § "Article-fetch fallback"). Tests that
+    // assert the "no Jina configured" behavior delete this locally.
+    process.env.JINA_API_KEY = 'test-jina-key';
     delete process.env.CRON_SECRET;
   });
   afterEach(() => {
@@ -311,8 +317,9 @@ describe('handleWarmRequest', () => {
 
   it('first-seen: creates a record and logs first_seen for a new story', async () => {
     const articleUrl = 'https://example.com/first';
+    const articleBody = 'body v1';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body v1</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: articleBody },
     });
     const fetchItem = fetchItemFor({
       1001: { id: 1001, type: 'story', url: articleUrl, score: 42 },
@@ -348,7 +355,7 @@ describe('handleWarmRequest', () => {
 
     const record = store.map.get(1001)!;
     expect(record.summary).toBe('summary v1');
-    expect(record.articleHash).toBe(hashArticle('<article>body v1</article>'));
+    expect(record.articleHash).toBe(hashArticle(articleBody));
     expect(record.firstSeenAt).toBe(now);
     expect(record.lastChangedAt).toBe(now);
     expect(record.lastCheckedAt).toBe(now);
@@ -356,8 +363,10 @@ describe('handleWarmRequest', () => {
 
   it('unchanged: bumps lastCheckedAt but does not call Gemini', async () => {
     const articleUrl = 'https://example.com/same';
-    const body = '<article>stable body</article>';
-    const fetchImpl = createFakeFetch({ [articleUrl]: { body } });
+    const body = 'stable body';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body },
+    });
     const fetchItem = fetchItemFor({
       1002: { id: 1002, type: 'story', url: articleUrl, score: 10 },
     });
@@ -399,9 +408,11 @@ describe('handleWarmRequest', () => {
 
   it('changed: regenerates summary and records a new hash + lastChangedAt', async () => {
     const articleUrl = 'https://example.com/edited';
-    const oldBody = '<article>before</article>';
-    const newBody = '<article>after the update</article>';
-    const fetchImpl = createFakeFetch({ [articleUrl]: { body: newBody } });
+    const oldBody = 'before';
+    const newBody = 'after the update';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: newBody },
+    });
     const fetchItem = fetchItemFor({
       1003: { id: 1003, type: 'story', url: articleUrl, score: 10 },
     });
@@ -520,8 +531,8 @@ describe('handleWarmRequest', () => {
       3: { id: 3, type: 'story', url: 'https://example.com/3', score: 10 },
     });
     const fetchImpl = createFakeFetch({
-      'https://example.com/1': { body: '1' },
-      'https://example.com/2': { body: '2' },
+      'https://r.jina.ai/https://example.com/1': { body: '1' },
+      'https://r.jina.ai/https://example.com/2': { body: '2' },
     });
     const store = createTestStore();
     const { logger, stories } = captureLogger();
@@ -553,7 +564,7 @@ describe('handleWarmRequest', () => {
       3: { id: 3, type: 'story', url: 'https://example.com/c', score: 0 }, // low score → both tracks
     });
     const fetchImpl = createFakeFetch({
-      'https://example.com/a': { body: 'A' },
+      'https://r.jina.ai/https://example.com/a': { body: 'A' },
     });
     const store = createTestStore();
     const client = createFakeClient([{ text: 'sa' }]);
@@ -684,6 +695,9 @@ describe('handleWarmRequest', () => {
       store: createTestStore(),
       commentsStore,
       logger,
+      // Drop the min-kids gate for this focused test — it's covered
+      // in its own test below.
+      knobs: { commentsMinKids: 1 },
       now: () => now,
     });
 
@@ -813,7 +827,7 @@ describe('handleWarmRequest', () => {
       3002: { id: 3002, type: 'comment', text: 'a thought', time: 1 },
     });
     const fetchImpl = createFakeFetch({
-      'https://example.com/x': { body: 'article' },
+      'https://r.jina.ai/https://example.com/x': { body: 'article' },
     });
     const store = createTestStore();
     const commentsStore = createCommentsTestStore();
@@ -838,6 +852,7 @@ describe('handleWarmRequest', () => {
       store,
       commentsStore,
       logger,
+      knobs: { commentsMinKids: 1 },
       now: () => now,
     });
 
@@ -847,5 +862,162 @@ describe('handleWarmRequest', () => {
     expect(comments.outcome).toBe('first_seen');
     // Article was skipped by backoff, so Jina must not have been called.
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('comments skipped_low_volume: cron refuses to create a first_seen record for thin threads', async () => {
+    const fetchItem = fetchItemFor({
+      4001: {
+        id: 4001,
+        type: 'story',
+        title: 't',
+        score: 10,
+        kids: [4002, 4003], // fewer than min (5)
+      },
+      4002: { id: 4002, type: 'comment', text: 'hi', time: 1 },
+      4003: { id: 4003, type: 'comment', text: 'ok', time: 2 },
+    });
+    const commentsStore = createCommentsTestStore();
+    const client = createFakeClient([]); // must not be called
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchItem,
+      fetchFeedIds: async () => [4001],
+      createClient: () => client,
+      store: createTestStore(),
+      commentsStore,
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+    const comments = stories.find((s) => s.track === 'comments')!;
+    expect(comments.outcome).toBe('skipped_low_volume');
+    expect(comments.commentCount).toBe(2);
+    expect(commentsStore.map.get(4001)).toBeUndefined(); // no record written
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('comments skipped_low_volume only gates first_seen — existing records still regenerate on change', async () => {
+    // A thread that was healthy (N >= 5) and then had comments deleted
+    // down to 2 should still re-run when the transcript hash flips —
+    // stale is worse than thin.
+    const fetchItem = fetchItemFor({
+      4010: {
+        id: 4010,
+        type: 'story',
+        title: 't',
+        score: 10,
+        kids: [4011, 4012], // only 2 usable now
+      },
+      4011: { id: 4011, type: 'comment', text: 'remaining one', time: 1 },
+      4012: { id: 4012, type: 'comment', text: 'remaining two', time: 2 },
+    });
+    const commentsStore = createCommentsTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    commentsStore.map.set(4010, {
+      insights: ['old insight'],
+      transcriptHash: 'stale-hash',
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+    });
+    const client = createFakeClient([{ text: 'fresh a\nfresh b' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchItem,
+      fetchFeedIds: async () => [4010],
+      createClient: () => client,
+      store: createTestStore(),
+      commentsStore,
+      logger,
+      now: () => now,
+    });
+    const comments = stories.find((s) => s.track === 'comments')!;
+    expect(comments.outcome).toBe('changed');
+    expect(commentsStore.map.get(4010)!.insights).toEqual(['fresh a', 'fresh b']);
+  });
+
+  it('comments young-story interval: a young thread re-checks at 10 min instead of 30 min', async () => {
+    const now = 1_700_000_000_000;
+    // Submitted 30 min ago → inside the 2 h young window.
+    const storyTime = Math.floor((now - 30 * MINUTES) / 1000);
+    const fetchItem = fetchItemFor({
+      5001: {
+        id: 5001,
+        type: 'story',
+        title: 't',
+        score: 10,
+        time: storyTime,
+        kids: [5002],
+      },
+      5002: { id: 5002, type: 'comment', text: 'a', time: 1 },
+    });
+    const commentsStore = createCommentsTestStore();
+    // Last checked 15 min ago: > 10 min young interval, < 30 min
+    // default fresh interval. Fresh-story baseline would skip; young-
+    // story baseline should proceed.
+    commentsStore.map.set(5001, {
+      insights: ['x'],
+      transcriptHash: hashTranscript('[#1]\na'),
+      firstSeenAt: now - 20 * MINUTES,
+      summaryGeneratedAt: now - 20 * MINUTES,
+      lastCheckedAt: now - 15 * MINUTES,
+      lastChangedAt: now - 20 * MINUTES,
+    });
+    const client = createFakeClient([]); // hash stable → no Gemini call
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchItem,
+      fetchFeedIds: async () => [5001],
+      createClient: () => client,
+      store: createTestStore(),
+      commentsStore,
+      logger,
+      now: () => now,
+    });
+    const comments = stories.find((s) => s.track === 'comments')!;
+    // The young interval triggered a recheck; the hash was unchanged
+    // so it short-circuited to 'unchanged' without calling Gemini.
+    expect(comments.outcome).toBe('unchanged');
+  });
+
+  it('comments NOT young: old story falls back to the standard 30-min fresh interval', async () => {
+    const now = 1_700_000_000_000;
+    // Submitted 3 h ago → past the 2 h young window.
+    const storyTime = Math.floor((now - 3 * HOURS) / 1000);
+    const fetchItem = fetchItemFor({
+      5010: {
+        id: 5010,
+        type: 'story',
+        title: 't',
+        score: 10,
+        time: storyTime,
+        kids: [5011],
+      },
+      5011: { id: 5011, type: 'comment', text: 'a', time: 1 },
+    });
+    const commentsStore = createCommentsTestStore();
+    // Last checked 15 min ago: skipped under non-young 30-min interval.
+    commentsStore.map.set(5010, {
+      insights: ['x'],
+      transcriptHash: hashTranscript('[#1]\na'),
+      firstSeenAt: now - 3 * HOURS,
+      summaryGeneratedAt: now - 3 * HOURS,
+      lastCheckedAt: now - 15 * MINUTES,
+      lastChangedAt: now - 3 * HOURS,
+    });
+    const client = createFakeClient([]);
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchItem,
+      fetchFeedIds: async () => [5010],
+      createClient: () => client,
+      store: createTestStore(),
+      commentsStore,
+      logger,
+      now: () => now,
+    });
+    const comments = stories.find((s) => s.track === 'comments')!;
+    expect(comments.outcome).toBe('skipped_interval');
   });
 });

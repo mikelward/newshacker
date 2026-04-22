@@ -127,7 +127,10 @@ describe('handleSummaryRequest', () => {
 
   beforeEach(() => {
     process.env.GOOGLE_API_KEY = 'test-key';
-    delete process.env.JINA_API_KEY;
+    // Jina is a hard dependency after the raw-HTML fallback was
+    // removed (TODO.md § "Article-fetch fallback"). Tests that assert
+    // the not_configured branch delete this locally.
+    process.env.JINA_API_KEY = 'test-jina-key';
   });
   afterEach(() => {
     if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
@@ -152,7 +155,7 @@ describe('handleSummaryRequest', () => {
 
   it('accepts Referers from localhost and vercel.app previews', async () => {
     const fetchImpl = createFakeFetch({
-      'https://example.com/a': { body: '<article>hi</article>' },
+      'https://r.jina.ai/https://example.com/a': { body: 'hi' },
     });
     const fetchItem = fetchItemFor({
       1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
@@ -176,7 +179,7 @@ describe('handleSummaryRequest', () => {
       {
         createClient: () => createFakeClient([{ text: 'ok' }]),
         fetchImpl: createFakeFetch({
-          'https://example.com/a': { body: '<article>hi</article>' },
+          'https://r.jina.ai/https://example.com/a': { body: 'hi' },
         }),
         fetchItem,
         store: createTestStore(),
@@ -321,6 +324,29 @@ describe('handleSummaryRequest', () => {
     expect(res.status).toBe(503);
   });
 
+  it('returns 503 not_configured when JINA_API_KEY is unset', async () => {
+    // Raw-HTML fallback is gone — without a Jina key there is no
+    // source-of-content path at all. The deploy surface must notice.
+    delete process.env.JINA_API_KEY;
+    const fetchItem = fetchItemFor({
+      201: {
+        id: 201,
+        type: 'story',
+        url: 'https://example.com/a',
+        score: 10,
+      },
+    });
+    const res = await handleSummaryRequest(makeRequest(201), {
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'Summary is not configured',
+      reason: 'not_configured',
+    });
+  });
+
   it('fetches via Jina when JINA_API_KEY is set and summarizes the result', async () => {
     process.env.JINA_API_KEY = 'jina-test-key';
     const fetchImpl = createFakeFetch({
@@ -362,7 +388,7 @@ describe('handleSummaryRequest', () => {
   it('instructs the model to write in the author voice and skip meta-framing', async () => {
     const articleUrl = 'https://example.com/voice';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const fetchItem = fetchItemFor({
       66: { id: 66, type: 'story', url: articleUrl, score: 10 },
@@ -379,60 +405,10 @@ describe('handleSummaryRequest', () => {
     expect(prompt).toMatch(/The article argues/);
   });
 
-  it('falls back to raw fetch when Jina fails, then summarizes', async () => {
-    process.env.JINA_API_KEY = 'jina-test-key';
-    const articleUrl = 'https://example.com/a';
-    const fetchImpl = createFakeFetch({
-      [`https://r.jina.ai/${articleUrl}`]: { status: 503 },
-      [articleUrl]: {
-        body: '<html><body><article>Plain HTML body.</article></body></html>',
-      },
-    });
-    const fetchItem = fetchItemFor({
-      77: { id: 77, type: 'story', url: articleUrl, score: 10 },
-    });
-    const client = createFakeClient([{ text: 'Raw-fetch summary.' }]);
-    const res = await handleSummaryRequest(makeRequest(77), {
-      createClient: () => client,
-      fetchImpl,
-      fetchItem,
-      store: null,
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ summary: 'Raw-fetch summary.' });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    const rawInit = fetchImpl.mock.calls[1]![1]!;
-    const rawHeaders = (rawInit.headers ?? {}) as Record<string, string>;
-    expect(rawHeaders['user-agent']).toMatch(/Mozilla/);
-  });
-
-  it('skips Jina entirely when no JINA_API_KEY is configured', async () => {
-    const articleUrl = 'https://example.com/plain';
-    const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>Raw HTML.</article>' },
-    });
-    const fetchItem = fetchItemFor({
-      88: { id: 88, type: 'story', url: articleUrl, score: 10 },
-    });
-    const client = createFakeClient([{ text: 'Plain summary.' }]);
-    const res = await handleSummaryRequest(makeRequest(88), {
-      createClient: () => client,
-      fetchImpl,
-      fetchItem,
-      store: null,
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ summary: 'Plain summary.' });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl.mock.calls[0]![0]).toBe(articleUrl);
-  });
-
-  it('returns 502 with a descriptive message when both Jina and raw fetch fail', async () => {
-    process.env.JINA_API_KEY = 'jina-test-key';
+  it('returns 502 with source_unreachable when Jina fails', async () => {
     const articleUrl = 'https://paywalled.example.com/story';
     const fetchImpl = createFakeFetch({
       [`https://r.jina.ai/${articleUrl}`]: { status: 500 },
-      [articleUrl]: { status: 403 },
     });
     const fetchItem = fetchItemFor({
       111: { id: 111, type: 'story', url: articleUrl, score: 10 },
@@ -452,15 +428,13 @@ describe('handleSummaryRequest', () => {
     expect(client.models.generateContent).not.toHaveBeenCalled();
   });
 
-  it('returns 504 with source_timeout when both Jina and raw fetch abort', async () => {
-    process.env.JINA_API_KEY = 'jina-test-key';
+  it('returns 504 with source_timeout when Jina aborts', async () => {
     const articleUrl = 'https://slow.example.com/story';
     const abortErr = Object.assign(new Error('aborted'), {
       name: 'AbortError',
     });
     const fetchImpl = createFakeFetch({
       [`https://r.jina.ai/${articleUrl}`]: { throws: abortErr },
-      [articleUrl]: { throws: abortErr },
     });
     const fetchItem = fetchItemFor({
       112: { id: 112, type: 'story', url: articleUrl, score: 10 },
@@ -480,35 +454,10 @@ describe('handleSummaryRequest', () => {
     expect(client.models.generateContent).not.toHaveBeenCalled();
   });
 
-  it('returns 504 when only the raw fetch times out (no Jina configured)', async () => {
-    const articleUrl = 'https://slow.example.com/only-raw';
-    const abortErr = Object.assign(new Error('aborted'), {
-      name: 'AbortError',
-    });
-    const fetchImpl = createFakeFetch({
-      [articleUrl]: { throws: abortErr },
-    });
-    const fetchItem = fetchItemFor({
-      113: { id: 113, type: 'story', url: articleUrl, score: 10 },
-    });
-    const client = createFakeClient([]);
-    const res = await handleSummaryRequest(makeRequest(113), {
-      createClient: () => client,
-      fetchImpl,
-      fetchItem,
-      store: null,
-    });
-    expect(res.status).toBe(504);
-    expect(await res.json()).toEqual({
-      error: "The article site didn't respond in time",
-      reason: 'source_timeout',
-    });
-  });
-
   it('returns 502 when the model returns an empty string', async () => {
     const articleUrl = 'https://example.com/b';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const fetchItem = fetchItemFor({
       120: { id: 120, type: 'story', url: articleUrl, score: 10 },
@@ -530,7 +479,7 @@ describe('handleSummaryRequest', () => {
   it('returns 502 when the model throws', async () => {
     const articleUrl = 'https://example.com/c';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const fetchItem = fetchItemFor({
       130: { id: 130, type: 'story', url: articleUrl, score: 10 },
@@ -577,7 +526,7 @@ describe('handleSummaryRequest', () => {
   it('serves a cached summary on a repeat request via the shared store', async () => {
     const articleUrl = 'https://example.com/cached';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>first</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'first' },
     });
     const fetchItem = fetchItemFor({
       150: { id: 150, type: 'story', url: articleUrl, score: 10 },
@@ -608,9 +557,9 @@ describe('handleSummaryRequest', () => {
 
   it('writes a full record to the shared store with a 30d TTL', async () => {
     const articleUrl = 'https://example.com/ttl-set';
-    const articleBody = '<article>body</article>';
+    const articleBody = 'body';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: articleBody },
+      [`https://r.jina.ai/${articleUrl}`]: { body: articleBody },
     });
     const fetchItem = fetchItemFor({
       155: { id: 155, type: 'story', url: articleUrl, score: 10 },
@@ -644,7 +593,7 @@ describe('handleSummaryRequest', () => {
   it('sets no-store Cache-Control on successful responses', async () => {
     const articleUrl = 'https://example.com/cc';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const fetchItem = fetchItemFor({
       160: { id: 160, type: 'story', url: articleUrl, score: 10 },
@@ -679,7 +628,7 @@ describe('handleSummaryRequest', () => {
     let now = 1_000_000;
     const store = createTestStore(() => now);
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const fetchItem = fetchItemFor({
       180: { id: 180, type: 'story', url: articleUrl, score: 10 },
@@ -696,7 +645,7 @@ describe('handleSummaryRequest', () => {
     now += 60 * 60 * 24 * 30 * 1000 + 1;
     const client2 = createFakeClient([{ text: 'v2' }]);
     const fetchImpl2 = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const res2 = await handleSummaryRequest(makeRequest(180), {
       createClient: () => client2,
@@ -717,7 +666,7 @@ describe('handleSummaryRequest', () => {
     let now = 1_000_000;
     const store = createTestStore(() => now);
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const fetchItem = fetchItemFor({
       181: { id: 181, type: 'story', url: articleUrl, score: 10 },
@@ -776,7 +725,7 @@ describe('handleSummaryRequest', () => {
     // handler's belt-and-braces try/catch.
     const articleUrl = 'https://example.com/kv-down';
     const fetchImpl = createFakeFetch({
-      [articleUrl]: { body: '<article>body</article>' },
+      [`https://r.jina.ai/${articleUrl}`]: { body: 'body' },
     });
     const fetchItem = fetchItemFor({
       190: { id: 190, type: 'story', url: articleUrl, score: 10 },
