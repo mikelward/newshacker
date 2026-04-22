@@ -530,9 +530,13 @@ function ThreadActionBar({
   return (
     <div className="thread__actions">
       {variant === 'bottom' ? (
+        // Intentionally not --primary: the bottom bar's Back to top is a
+        // utility, not the main CTA for the page. Keeps the HN orange
+        // reserved for Read article at the top, where "go read the
+        // article" really is the primary action.
         <button
           type="button"
-          className="thread__action thread__action--primary"
+          className="thread__action"
           data-testid={`thread-back-to-top${testIdSuffix}`}
           onClick={scrollThreadToTop}
         >
