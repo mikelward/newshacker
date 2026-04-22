@@ -40,9 +40,13 @@ Put local values in `.env.local` at the repo root (git-ignored). On Vercel, set 
 
 | Name | Required | Applies to | What it's for |
 |---|---|---|---|
-| `GOOGLE_API_KEY` | Yes, for `/api/summary` | Production + Preview (and locally if you use `vercel dev` and want live summaries) | Google AI Studio key used to call Gemini 2.5 Flash-Lite from `/api/summary`. Without it, the endpoint returns `503 { "error": "Summary is not configured" }` and the UI shows "Could not summarize. Summary is not configured." |
-| `JINA_API_KEY` | Recommended for `/api/summary` | Production + Preview | Jina Reader (`r.jina.ai`) key. When set, `/api/summary` fetches article text via Jina before summarizing — this handles JS-rendered pages, soft paywalls, and sites that block bare UAs (e.g. theverge.com). If unset, the endpoint falls back to a plain server-side `fetch` with a browser User-Agent, which works for simpler sites but misses the trickier ones. |
+| `GOOGLE_API_KEY` | Yes, for `/api/summary` and `/api/comments-summary` | Production + Preview (and locally if you use `vercel dev` and want live summaries) | Google AI Studio key used to call Gemini 2.5 Flash-Lite. Without it, the endpoints return `503 { "error": "Summary is not configured" }` and the UI shows "Could not summarize." |
+| `JINA_API_KEY` | **Yes**, for `/api/summary` and the warm-summaries cron | Production + Preview | Jina Reader (`r.jina.ai`) key. `/api/summary` hits Jina to fetch article text before summarising; there is no server-side fallback. Without this, `/api/summary` returns `503 not_configured` and the cron's article track logs `skipped_unreachable`. (The raw-HTML fallback was removed — see TODO.md § "Article-fetch fallback" for rationale.) |
+| `KV_REST_API_URL` + `KV_REST_API_TOKEN` *or* `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Yes for the shared summary cache | Production + Preview | Upstash Redis credentials. Vercel's Storage Marketplace auto-injects the `KV_REST_*` pair; a direct Upstash project uses `UPSTASH_REDIS_REST_*`. Either pair works; the handlers accept either. Without it, every request regenerates via Gemini (handler fails open for correctness, but you pay per-request). |
+| `CRON_SECRET` | Yes for the warm-summaries cron | Production | Bearer token Vercel Cron sends with scheduled requests. Auto-generated when you enable a cron in Vercel. Keep it set in production so only Vercel can trigger the cron. |
 | `SUMMARY_REFERER_ALLOWLIST` | No | Production + Preview | Comma-separated list of hostnames allowed to call `/api/summary`. Overrides the default (`newshacker.app,hnews.app`). `localhost`, `127.0.0.1`, and any `*.vercel.app` subdomain are always allowed. |
+
+Operating the scheduled cache warmer (`/api/warm-summaries`) — enabling it, verifying it, tuning the backoff knobs, disabling it — lives in its own playbook at `CRON.md`. Start there the first time you deploy.
 
 ### Getting a Google API key
 
@@ -84,6 +88,7 @@ Pushing to the main branch (or opening a PR) deploys via Vercel's GitHub integra
 
 ## Troubleshooting
 
-- **"Could not summarize. Summary is not configured."** — `GOOGLE_API_KEY` is unset for the environment serving the request. Check the correct environment is ticked in Vercel, then redeploy.
+- **"Could not summarize. Summary is not configured."** — either `GOOGLE_API_KEY` or `JINA_API_KEY` is unset for the environment serving the request. Check the correct environment is ticked in Vercel, then redeploy.
 - **`/api/summary` returns 403 `Forbidden`.** — The `Referer` header isn't on the allowlist. For local dev this means you're calling the function from somewhere other than `localhost`, a `*.vercel.app` preview, or a host in `SUMMARY_REFERER_ALLOWLIST`.
 - **`npm run dev` returns 404 on `/api/summary`.** — Vite alone doesn't run serverless functions. Use `npx vercel dev` instead.
+- **Cron-specific symptoms (no `warm-run` logs, unexpected Gemini spend, etc.).** — see `CRON.md` § "Troubleshooting".

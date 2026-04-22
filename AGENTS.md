@@ -180,4 +180,6 @@ If any of the above fails, fix it — don't disable the check.
 
 - Check `SPEC.md` for product decisions.
 - Check `IMPLEMENTATION_PLAN.md` for phase ordering.
-- If a task seems to conflict with either doc, flag it and ask rather than silently diverging.
+- Check `CRON.md` for warm-summaries cron operating questions (enable, verify, tune, disable, troubleshoot).
+- Check `INSTALL.md` for env-var / API-key setup.
+- If a task seems to conflict with any of these docs, flag it and ask rather than silently diverging.
