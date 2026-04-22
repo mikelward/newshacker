@@ -7,10 +7,16 @@ import { VitePWA } from 'vite-plugin-pwa';
 // while offline". The SW cache is additive to the React Query persister —
 // RQ hydrates the UI from localStorage on cold start, and Workbox serves
 // any fetches RQ decides to make.
+//
+// `process.env.VITEST` is set when vitest boots; we skip the PWA plugin
+// in tests because it adds noticeable startup cost per worker and has
+// no behavior the unit tests exercise.
+const isTest = process.env.VITEST === 'true';
+
 export default defineConfig({
   plugins: [
     react(),
-    VitePWA({
+    !isTest && VitePWA({
       registerType: 'prompt',
       includeAssets: ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'],
       manifest: {
@@ -126,10 +132,42 @@ export default defineConfig({
       },
     }),
   ],
+  resolve: {
+    alias: isTest
+      ? {
+          // The PWA plugin is skipped under vitest (see above), so the
+          // `virtual:pwa-register` module it normally provides isn't
+          // resolvable. Point it at a no-op stub so `src/lib/pwa.ts`
+          // still imports cleanly — SW registration is a browser-only
+          // concern anyway.
+          'virtual:pwa-register': '/src/test/pwaRegisterStub.ts',
+        }
+      : undefined,
+  },
   test: {
     globals: true,
+    // Default to jsdom for component/hook/page tests. Pure-logic tests
+    // under src/lib and api/ don't touch the DOM, so we route them to
+    // the node environment via environmentMatchGlobs — spinning up
+    // jsdom per-file is the single biggest cost in `npm test`.
     environment: 'jsdom',
+    environmentMatchGlobs: [
+      ['api/**/*.test.ts', 'node'],
+      ['src/lib/analytics.test.ts', 'node'],
+      ['src/lib/commentPrefetch.test.ts', 'node'],
+      ['src/lib/favoriteStoryPrefetch.test.ts', 'node'],
+      ['src/lib/feedStoryPrefetch.test.ts', 'node'],
+      ['src/lib/feeds.test.ts', 'node'],
+      ['src/lib/format.test.ts', 'node'],
+      ['src/lib/pinnedStoryPrefetch.test.ts', 'node'],
+      ['src/lib/queryCacheSync.test.ts', 'node'],
+      ['src/lib/sanitize.test.ts', 'node'],
+      ['src/lib/vote.test.ts', 'node'],
+    ],
     setupFiles: ['./vitest.setup.ts'],
+    // Threads are cheaper to spawn than forks and we don't use any
+    // native modules that require process isolation.
+    pool: 'threads',
     css: false,
   },
 });
