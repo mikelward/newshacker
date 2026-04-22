@@ -13,6 +13,16 @@
   --skeleton-highlight: #e4e4e4;
   --tap-min: 48px;
 
+  /* Vertical gap between any two comment borders — the distance a
+     reader sees between the last visible element of one comment and
+     the border-top of the comment that follows. Used by .comment's
+     padding-bottom (sibling → sibling case) and .comment__children's
+     margin-top (parent → first-child case); those two rules MUST
+     share this value or the two transitions drift apart. Keeping
+     them in one token rather than two bare numbers is what makes the
+     invariant self-enforcing instead of prose-enforced. */
+  --comment-stack-gap: 4px;
+
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
 
