@@ -533,13 +533,16 @@ function ThreadActionBar({
   return (
     <div className="thread__actions">
       {variant === 'bottom' ? (
-        // Intentionally not --primary: the bottom bar's Back to top is a
-        // utility, not the main CTA for the page. Keeps the HN orange
-        // reserved for Read article at the top, where "go read the
-        // article" really is the primary action.
+        // Not --primary (that slot's orange is reserved for "Read
+        // article" at the top, where "go read the article" really is
+        // the primary action) — but --stretch so the button fills the
+        // same primary-slot width as Read article does at the top.
+        // That keeps Pin/Done/⋮ in the same on-screen position top
+        // and bottom, so the reader's thumb doesn't have to relearn
+        // where they are at the end of a long thread.
         <button
           type="button"
-          className="thread__action"
+          className="thread__action thread__action--stretch"
           data-testid={`thread-back-to-top${testIdSuffix}`}
           onClick={scrollThreadToTop}
         >

@@ -69,6 +69,23 @@
   color: #fff;
 }
 
+/* Grows a text action to fill the row's primary slot without inheriting
+   --primary's orange. The bottom bar's Back to top uses this so Pin/
+   Done/⋮ end up at the same x-position as their top-bar counterparts —
+   a reader's thumb learns one location instead of two. Matches
+   --primary's narrow-viewport wrap so the icon row drops below the
+   stretched button on ≤480px screens, mirroring the top bar exactly. */
+.thread__action--stretch {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .thread__action--stretch {
+    flex-basis: 100%;
+  }
+}
+
 /* Stacked on --primary after the article has been opened once. Keeps the
    layout of the primary button (flex: 1, min-width: 0, narrow-viewport
    row-wrap) but drops the HN orange down to the neutral secondary

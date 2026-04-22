@@ -522,6 +522,25 @@ describe('<Thread>', () => {
     expect(screen.getByTestId('thread-back-to-top-bottom')).toBeInTheDocument();
   });
 
+  it('bottom bar Back to top stretches like the top bar primary slot so icon buttons align', async () => {
+    // Regression: the bottom Back to top previously didn't grow, so
+    // Pin/Done/⋮ clustered to the left instead of sitting under their
+    // top-bar counterparts. --stretch gives it the same flex-grow as
+    // --primary (without the orange), keeping icon positions aligned
+    // top-to-bottom.
+    installHNFetchMock({
+      items: { 7351: makeStory(7351, { title: 'StretchTest' }) },
+    });
+
+    renderWithProviders(<Thread id={7351} />);
+    await screen.findByText('StretchTest');
+
+    const bottomBackToTop = screen.getByTestId('thread-back-to-top-bottom');
+    expect(bottomBackToTop.className).toContain('thread__action--stretch');
+    // Not --primary (reserved for the top bar's Read article).
+    expect(bottomBackToTop.className).not.toContain('thread__action--primary');
+  });
+
   it('bottom bar Back to top scrolls the window to the top', async () => {
     installHNFetchMock({
       items: { 735: makeStory(735, { title: 'ScrollyTop' }) },
