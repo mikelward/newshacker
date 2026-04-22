@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
@@ -26,7 +26,6 @@ import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
 import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { hasSelfPostBody } from '../lib/selfPostBody';
-import { estimateWrappedLines } from '../lib/skeletonSize';
 import { trackSummaryLayout } from '../lib/analytics';
 import { Comment } from './Comment';
 import { ThreadSkeleton } from './Skeletons';
@@ -199,58 +198,34 @@ function summaryErrorDetail(error: unknown): string {
   return '';
 }
 
-// Canvas font shorthand for the summary body text — kept in sync with
-// .thread__summary-body / .thread__summary-list in Thread.css. Used only to
-// estimate wrapped-line counts for the loading skeletons; a small drift
-// from the real computed font is fine because the goal is a ballpark
-// reservation, not pixel-perfect matching. overflow-anchor: none on the
-// card absorbs the residual shift when real content replaces the skeleton.
-const SUMMARY_FONT =
-  "400 15px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
-
-// Typical article summary is "a single, concise sentence" per the Gemini
-// prompt. Measured on device (Pixel 10, Lenovo tablet): summaries cluster
-// around 100–210 chars with occasional excursions to ~240. Reserving for
-// 230 chars covers the long-tail case on narrow mobile widths without
-// growing on arrival; on tablets it still resolves to 3 lines for typical
-// output.
+// Expected content lengths that the loading skeleton reserves for. These
+// are content knobs only — the skeleton uses the real `.thread__summary-body`
+// and `.thread__summary-list` CSS with placeholder text of this length, so
+// the browser does the actual wrap and we don't carry any line-height,
+// line-gap, or indent constants that have to be kept in sync with CSS.
+// Picking these is a content-distribution problem (how long are summaries
+// in practice?) that the /api/telemetry pipeline answers — tune from live
+// data, not from device-side guesswork.
 const ARTICLE_SUMMARY_EXPECTED_CHARS = 230;
-
-// The prompt caps each insight at 13 words. Measured Flash-Lite output
-// under that cap maxed at 71 chars in a 10-story benchmark; 75 gives a
-// small cushion for between-run variance while still rounding down to
-// one line per insight on tablet (≥640px card width) — the 85-char
-// bound it replaces was right at the round-up edge on some browsers,
-// leaving ~3 rows of empty space at the bottom of the card. Phone
-// (≤~400px card width) still resolves to two lines, unchanged.
 const INSIGHT_EXPECTED_CHARS = 75;
-
-// The prompt asks for up to 5 insights (fewer if the discussion is
-// thin). Reserve for the max so rich threads render with zero
-// whitespace; on thin threads the card keeps its loading-state height
-// and leaves blank space at the bottom instead of reflowing.
 const EXPECTED_INSIGHT_COUNT = 5;
 
-// The insight <ul> has padding-left for bullet indentation — subtract so
-// the skeleton lines align with where the real insight text will render.
-const INSIGHT_LIST_INDENT_PX = 20;
+// Probe prose used to fill the skeleton to approximately the right number
+// of characters. The string is rendered transparent with a shimmer
+// gradient clipped to the glyph outlines (see .thread__summary-body--loading
+// in Thread.css), so end users never read it. The only people who ever
+// see the raw text are developers poking at the DOM via devtools — hence
+// self-describing copy rather than a fake user-facing placeholder. The
+// word-length distribution is still normal English so the browser's
+// line-break algorithm produces realistic wraps.
+const SKELETON_PROBE_PROSE =
+  'Summary is loading. This text is used to determine how much vertical space to reserve so the page does not shift when the real content arrives.';
 
-// Pixel dimensions of the skeleton state, used to compute a min-height for
-// the card so a shorter real summary never causes the card to shrink on
-// load. Kept in TS (not CSS) because the line count is runtime-computed.
-const SKELETON_LINE_HEIGHT_PX = 14;
-const SKELETON_LINE_GAP_PX = 8;
-const SKELETON_PADDING_Y_PX = 6; // 3px top + 3px bottom on .thread__summary-skeleton
-const SUMMARY_LABEL_HEIGHT_PX = 24; // "Summarizing…" font-size 13 + 8px margin-bottom, rounded up
-const INSIGHT_BLOCK_GAP_PX = 12;
-const INSIGHT_LINE_GAP_PX = 6;
-
-function skeletonBlockHeightPx(lines: number): number {
-  if (lines <= 0) return 0;
-  return (
-    lines * SKELETON_LINE_HEIGHT_PX +
-    Math.max(0, lines - 1) * SKELETON_LINE_GAP_PX
-  );
+function probeText(chars: number): string {
+  if (chars <= 0) return '';
+  let out = '';
+  while (out.length < chars) out += SKELETON_PROBE_PROSE + ' ';
+  return out.slice(0, chars).trimEnd();
 }
 
 function SummaryCard({ storyId }: { storyId: number }) {
@@ -260,39 +235,44 @@ function SummaryCard({ storyId }: { storyId: number }) {
   const offlineWithoutCache = !online && !data && !loading;
   const cardRef = useRef<HTMLDivElement>(null);
   const width = useContentWidth(cardRef);
-  const lines = estimateWrappedLines(
-    ARTICLE_SUMMARY_EXPECTED_CHARS,
-    width,
-    SUMMARY_FONT,
+  const articleProbe = useMemo(
+    () => probeText(ARTICLE_SUMMARY_EXPECTED_CHARS),
+    [],
   );
-  // Pin the card to at least its loading-state height so a shorter real
-  // summary doesn't shrink it on arrival. Only applied once the width has
-  // been measured — otherwise the initial 0-width render reserves 1 line
-  // of space and locks the card too small.
-  const cardMinHeight =
-    width > 0
-      ? SUMMARY_LABEL_HEIGHT_PX +
-        SKELETON_PADDING_Y_PX +
-        skeletonBlockHeightPx(lines)
-      : undefined;
+
+  // Capture the skeleton's actually-rendered height while it's in the DOM.
+  // The skeleton uses the same CSS as real content (just with invisible
+  // shimmer-clipped glyphs), so this is the browser's own wrap calculation
+  // — no hand-coded line-height or gap constants.
+  const reservedHRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (!loading) return;
+    const probeEl = cardRef.current?.querySelector<HTMLElement>(
+      '.thread__summary-body--loading',
+    );
+    if (!probeEl) return;
+    reservedHRef.current = probeEl.offsetHeight;
+  }, [loading, width]);
 
   const layoutFiredRef = useRef(false);
   useEffect(() => {
     if (layoutFiredRef.current) return;
     if (!data || !cardRef.current || width <= 0) return;
+    const reserved = reservedHRef.current;
+    if (reserved === null) return;
     const bodyEl = cardRef.current.querySelector<HTMLElement>(
-      '.thread__summary-body',
+      '.thread__summary-body:not(.thread__summary-body--loading)',
     );
     if (!bodyEl) return;
     trackSummaryLayout({
       kind: 'article',
       cardWidthPx: width,
       summaryChars: data.summary.length,
-      reservedContentHeightPx: skeletonBlockHeightPx(lines),
+      reservedContentHeightPx: reserved,
       renderedContentHeightPx: bodyEl.offsetHeight,
     });
     layoutFiredRef.current = true;
-  }, [data, width, lines]);
+  }, [data, width]);
 
   return (
     <div
@@ -303,29 +283,18 @@ function SummaryCard({ storyId }: { storyId: number }) {
       aria-label="AI summary"
       aria-live="polite"
       aria-busy={loading}
-      style={cardMinHeight !== undefined ? { minHeight: cardMinHeight } : undefined}
     >
       {loading ? (
         <span className="thread__summary-loading">Summarizing…</span>
       ) : null}
       {loading ? (
-        <div
-          className="thread__summary-skeleton"
+        <p
+          className="thread__summary-body thread__summary-body--loading"
           data-testid="thread-summary-skeleton"
           aria-hidden="true"
         >
-          {Array.from({ length: lines }, (_, i) => (
-            <span
-              key={i}
-              className={
-                'thread__summary-skeleton-line' +
-                (i === lines - 1
-                  ? ' thread__summary-skeleton-line--short'
-                  : '')
-              }
-            />
-          ))}
-        </div>
+          {articleProbe}
+        </p>
       ) : null}
       {data ? <p className="thread__summary-body">{data.summary}</p> : null}
       {offlineWithoutCache ? (
@@ -370,31 +339,29 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
   const offlineWithoutCache = !online && !data && !loading;
   const cardRef = useRef<HTMLDivElement>(null);
   const width = useContentWidth(cardRef);
-  const insightTextWidth = Math.max(0, width - INSIGHT_LIST_INDENT_PX);
-  const linesPerInsight = estimateWrappedLines(
-    INSIGHT_EXPECTED_CHARS,
-    insightTextWidth,
-    SUMMARY_FONT,
+  const insightProbe = useMemo(
+    () => probeText(INSIGHT_EXPECTED_CHARS),
+    [],
   );
-  // Lock the card to its loading-state height so a comments summary with
-  // only 3 insights (vs. the 4 we reserve) doesn't shrink on arrival.
-  const perInsightPx =
-    linesPerInsight * SKELETON_LINE_HEIGHT_PX +
-    Math.max(0, linesPerInsight - 1) * INSIGHT_LINE_GAP_PX;
-  const insightsBlockPx =
-    EXPECTED_INSIGHT_COUNT * perInsightPx +
-    Math.max(0, EXPECTED_INSIGHT_COUNT - 1) * INSIGHT_BLOCK_GAP_PX;
-  const cardMinHeight =
-    width > 0
-      ? SUMMARY_LABEL_HEIGHT_PX + SKELETON_PADDING_Y_PX + insightsBlockPx
-      : undefined;
+
+  const reservedHRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (!loading) return;
+    const probeEl = cardRef.current?.querySelector<HTMLElement>(
+      '.thread__summary-list--loading',
+    );
+    if (!probeEl) return;
+    reservedHRef.current = probeEl.offsetHeight;
+  }, [loading, width]);
 
   const layoutFiredRef = useRef(false);
   useEffect(() => {
     if (layoutFiredRef.current) return;
     if (!data || !cardRef.current || width <= 0) return;
+    const reserved = reservedHRef.current;
+    if (reserved === null) return;
     const listEl = cardRef.current.querySelector<HTMLElement>(
-      '.thread__summary-list',
+      '.thread__summary-list:not(.thread__summary-list--loading)',
     );
     if (!listEl) return;
     const totalChars = data.insights.reduce((sum, s) => sum + s.length, 0);
@@ -402,12 +369,12 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
       kind: 'comments',
       cardWidthPx: width,
       summaryChars: totalChars,
-      reservedContentHeightPx: insightsBlockPx,
+      reservedContentHeightPx: reserved,
       renderedContentHeightPx: listEl.offsetHeight,
       insightCount: data.insights.length,
     });
     layoutFiredRef.current = true;
-  }, [data, width, insightsBlockPx]);
+  }, [data, width]);
 
   return (
     <div
@@ -418,33 +385,20 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
       aria-label="AI summary of comments"
       aria-live="polite"
       aria-busy={loading}
-      style={cardMinHeight !== undefined ? { minHeight: cardMinHeight } : undefined}
     >
       {loading ? (
         <span className="thread__summary-loading">Summarizing comments…</span>
       ) : null}
       {loading ? (
-        <div
-          className="thread__summary-skeleton thread__summary-skeleton--insights"
+        <ul
+          className="thread__summary-list thread__summary-list--loading"
           data-testid="thread-comments-summary-skeleton"
           aria-hidden="true"
         >
           {Array.from({ length: EXPECTED_INSIGHT_COUNT }, (_, i) => (
-            <div key={i} className="thread__summary-skeleton-insight">
-              {Array.from({ length: linesPerInsight }, (_, j) => (
-                <span
-                  key={j}
-                  className={
-                    'thread__summary-skeleton-line' +
-                    (j === linesPerInsight - 1
-                      ? ' thread__summary-skeleton-line--short'
-                      : '')
-                  }
-                />
-              ))}
-            </div>
+            <li key={i}>{insightProbe}</li>
           ))}
-        </div>
+        </ul>
       ) : null}
       {data ? (
         <ul className="thread__summary-list">

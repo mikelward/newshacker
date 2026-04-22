@@ -126,14 +126,16 @@
 
 .thread__summary-card {
   margin-bottom: 12px;
-  /* The skeleton renders a character-budget-based line count, so the
-     card's natural height already approximates the final content height
-     — no fixed min-height needed (the component sets one inline based
-     on the runtime-measured line count). overflow-anchor: none keeps
-     the browser's scroll anchoring from pinning *this* element as the
-     anchor: when the card grows or shrinks as real content arrives,
-     the browser anchors a following comment instead, absorbing the
-     delta silently. */
+  /* The loading state renders a probe <p>/<ul> with the same
+     .thread__summary-body / .thread__summary-list CSS as the real
+     content, just with invisible (shimmer-clipped) glyphs. The
+     browser's own wrap algorithm decides the skeleton's height, so
+     the card's natural height already approximates the final content
+     height without any TS-side math. overflow-anchor: none keeps the
+     browser's scroll anchoring from pinning *this* element: when the
+     card grows or shrinks as real content replaces the probe, the
+     browser anchors a following comment instead, absorbing the delta
+     silently. */
   overflow-anchor: none;
 }
 
@@ -179,45 +181,40 @@
   margin-bottom: 16px;
 }
 
-.thread__summary-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 3px 0;
-}
-
-/* Insight skeleton blocks mirror the real <ul> layout: each block is one
-   insight (= one <li> in the final render), with a shorter trailing line
-   and slightly more space between blocks than between lines within a
-   block. padding-left matches the insight list's bullet indent so the
-   shimmer lines sit where the real text will. */
-.thread__summary-skeleton--insights {
-  gap: 12px;
-  padding-left: 20px;
-}
-
-.thread__summary-skeleton-insight {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.thread__summary-skeleton-line {
-  display: block;
-  height: 14px;
-  border-radius: 4px;
-  background: linear-gradient(
+/* Loading-state variants: the probe <p>/<ul> renders the real body/list
+   CSS so the browser lays it out identically to the final content, but
+   the glyphs are painted transparent and clipped over a shimmer gradient
+   so the user sees a paragraph- or list-shaped shimmer rather than the
+   filler prose underneath. `user-select: none` so long-pressing the
+   loading state doesn't grab the probe text. */
+.thread__summary-body--loading,
+.thread__summary-list--loading li {
+  /* `background-image` isn't inherited, so the shimmer has to sit on the
+     element that actually contains the text — the <p> for the article
+     card, and each <li> for the comments card (the <ul> itself has no
+     text nodes of its own). `-webkit-text-fill-color: transparent` is
+     required alongside `color: transparent` for Safari/iOS; WebKit
+     short-circuits `color: transparent` on its own and paints glyphs in
+     the computed color without letting `background-clip: text` apply. */
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(
     90deg,
     var(--hn-pressed, #ececec) 0%,
     var(--hn-border, #dcdcdc) 50%,
     var(--hn-pressed, #ececec) 100%
   );
   background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
   animation: thread-summary-shimmer 1.2s ease-in-out infinite;
+  user-select: none;
 }
 
-.thread__summary-skeleton-line--short {
-  width: 60%;
+/* Bullet markers inherit `color` on most engines, but be explicit so the
+   shimmer doesn't leak a solid dot alongside the clipped glyphs. */
+.thread__summary-list--loading ::marker {
+  color: transparent;
 }
 
 @keyframes thread-summary-shimmer {
@@ -230,7 +227,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thread__summary-skeleton-line {
+  .thread__summary-body--loading,
+  .thread__summary-list--loading li {
     animation: none;
   }
 }

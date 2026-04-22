@@ -34,32 +34,55 @@ We want:
 
 ## Current approach
 
-The card uses a skeleton-first render with a reserved height that
-stays in place when the real text arrives. Four coordinated pieces
-(`d52f9a6 Stabilize AI summary card heights during load`):
+The card uses a **probe-based skeleton**: the loading state renders a
+`<p class="thread__summary-body thread__summary-body--loading">` (or
+`<ul class="thread__summary-list thread__summary-list--loading">` on
+the comments card) containing filler prose of the expected character
+length. The probe uses the real content's CSS — same font, line
+height, padding, bullet indent — so the browser's own line-break
+algorithm decides the skeleton's height. The `--loading` modifier
+paints the glyphs transparent over a shimmer gradient clipped to the
+text, so the visual reads as a paragraph- or list-shaped shimmer
+rather than the filler words underneath.
 
-1. **Measured card width, not assumed.** Each card holds a ref and
-   reads `clientWidth` through `useContentWidth`
-   (`src/hooks/useContentWidth.ts`, ResizeObserver-based). This keeps
-   the skeleton sized to whatever the actual card is, including
-   tablet breakpoints and dynamic viewport changes.
-2. **Canvas-measured line count.** `estimateWrappedLines`
-   (`src/lib/skeletonSize.ts`) measures the summary font's average
-   char width via a `<canvas>` text-metrics pass, applies a 0.9
-   word-wrap efficiency factor, and returns the number of lines the
-   reserved character budget will wrap to at the measured width.
-3. **`min-height` floor on the card.** Once the width is known, the
-   card's computed minimum height is pinned to the skeleton's
-   loading-state height. A shorter-than-expected real summary renders
-   inside that space; the card never shrinks on arrival.
-4. **`overflow-anchor: none`.** Any residual content-height change
-   therefore pushes the off-screen content below the viewport
-   downward, rather than shoving the user's reading position upward.
+Three coordinated pieces:
+
+1. **The skeleton DOM is the real content DOM.** Same element type,
+   same class, same CSS — just with invisible shimmer-clipped glyphs.
+   There's no parallel "skeleton" layout calc to keep in sync with
+   the real CSS; any change to `.thread__summary-body` / `-list`
+   affects both states identically.
+2. **Character budgets, not pixel budgets.** Thread.tsx holds three
+   content-shape knobs — `ARTICLE_SUMMARY_EXPECTED_CHARS`,
+   `INSIGHT_EXPECTED_CHARS`, `EXPECTED_INSIGHT_COUNT`. The skeleton
+   probe is filled to those lengths from a natural-prose constant,
+   and the browser does the wrap. Tuning is a content-distribution
+   question (how long are summaries in practice?) answered by the
+   `/api/telemetry` pipeline, not a layout-math question.
+3. **`overflow-anchor: none`.** Any residual content-height change
+   when the probe is replaced by real text pushes the off-screen
+   content below the viewport downward, rather than shoving the
+   user's reading position upward.
 
 The skeleton stays on screen until the real text arrives and is then
 replaced in place. The `aria-live="polite"` / `aria-busy` pair on
 each card announces the state change to assistive tech without
 interrupting.
+
+### Why probe-based instead of computed
+
+An earlier version of the skeleton computed a reserved height from
+measured card width × a canvas-derived average char width × a fudge
+factor for word-wrap efficiency × a hand-coded line height and gap
+constants. Per-tier telemetry (see *Tuning from live data* below)
+showed a **systematic sign-consistent error** — phones always
+over-reserved, tablets always under-reserved — which is the
+signature of bias in the layout math, not of content variance. Any
+one of the hand-coded constants (line height, line gap, bullet
+indent, wrap efficiency) being off by a few pixels accumulated
+across 5 insights × 2 lines into the ±20–40px delta_h we observed.
+Letting the browser do the layout removes every one of those
+constants as a tuning knob.
 
 ## Alternatives considered
 
@@ -242,8 +265,9 @@ top-N breakdown stays readable.
 - `summary_chars` — for `article`, `data.summary.length`; for
   `comments`, the summed length of all insights.
 - `reserved_h` — skeleton content-block height the card committed to
-  at loading time, computed from `skeletonBlockHeightPx(lines)` or
-  `insightsBlockPx` depending on kind.
+  at loading time, measured live from the probe element's
+  `offsetHeight` (the browser's own layout of the filler prose at
+  the real CSS).
 - `rendered_h` — measured `offsetHeight` of the real content block
   (the `<p>.thread__summary-body` for `article`, the
   `<ul>.thread__summary-list` for `comments`).
