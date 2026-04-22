@@ -517,6 +517,42 @@ describe('<Thread>', () => {
     expect(scrollToSpy).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
   });
 
+  it('Read article: drops the primary-orange color once the article has been opened', async () => {
+    installHNFetchMock({
+      items: { 737: makeStory(737, { title: 'ReadOnce' }) },
+    });
+
+    // Pre-seed opened-state for story 737 as "article opened once".
+    // Entries require both `id` and `at` (the TTL anchor); `articleAt`
+    // is what flags the article half as opened.
+    const now = Date.now();
+    window.localStorage.setItem(
+      'newshacker:openedStoryIds',
+      JSON.stringify([{ id: 737, at: now, articleAt: now }]),
+    );
+
+    renderWithProviders(<Thread id={737} />);
+    await screen.findByText('ReadOnce');
+
+    const readArticle = screen.getByTestId('thread-read-article');
+    // --primary layout class is preserved, --read overrides the colors.
+    expect(readArticle.className).toContain('thread__action--primary');
+    expect(readArticle.className).toContain('thread__action--read');
+  });
+
+  it('Read article: keeps the primary-orange color before the article is opened', async () => {
+    installHNFetchMock({
+      items: { 738: makeStory(738, { title: 'Unread' }) },
+    });
+
+    renderWithProviders(<Thread id={738} />);
+    await screen.findByText('Unread');
+
+    const readArticle = screen.getByTestId('thread-read-article');
+    expect(readArticle.className).toContain('thread__action--primary');
+    expect(readArticle.className).not.toContain('thread__action--read');
+  });
+
   it('bottom bar shows Back to top even on self-posts with no article url', async () => {
     installHNFetchMock({
       items: {
