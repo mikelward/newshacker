@@ -1,5 +1,5 @@
 .comment {
-  padding: 10px 12px;
+  padding: 6px 12px;
   border-top: 1px solid var(--hn-border);
   background: var(--hn-bg-card);
   color: var(--hn-text);
@@ -141,7 +141,7 @@
      between sibling comments. Visual hierarchy comes from each
      comment's own left stripe (see .comment box-shadow), so this list
      adds no left offset of its own. */
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
 }
