@@ -472,7 +472,7 @@ function isAbortError(err: unknown): boolean {
   );
 }
 
-type FetchFailure = 'timeout' | 'unreachable';
+type FetchFailure = 'timeout' | 'unreachable' | 'payment_required';
 type FetchOutcome =
   | { ok: true; content: string }
   | { ok: false; failure: FetchFailure };
@@ -494,6 +494,13 @@ async function fetchViaJina(
         'x-return-format': 'markdown',
       },
     });
+    // Jina's 402 / 429 mean our paid quota is gone. Return a distinct
+    // failure so the cron can log `skipped_payment_required` instead of
+    // noisily reporting every story as "unreachable" and burning through
+    // retries while the quota is empty. Mirrors api/summary.ts.
+    if (res.status === 402 || res.status === 429) {
+      return { ok: false, failure: 'payment_required' };
+    }
     if (!res.ok) return { ok: false, failure: 'unreachable' };
     const content = clampContent(await res.text());
     return content
@@ -580,6 +587,11 @@ export type CheckOutcome =
   // that will be unrecognisable 20 minutes later.
   | 'skipped_low_volume'
   | 'skipped_unreachable'
+  // Jina returned 402 / 429 — our paid article-fetch quota is exhausted.
+  // Logged distinctly from skipped_unreachable so an operator can tell
+  // "the whole cron is skipping because we're out of credit" from
+  // "this particular article host is blocking Jina".
+  | 'skipped_payment_required'
   | 'skipped_budget'
   | 'first_seen'
   | 'unchanged'
@@ -658,6 +670,7 @@ function emptyOutcomeCounts(): Record<CheckOutcome, number> {
     skipped_no_content: 0,
     skipped_low_volume: 0,
     skipped_unreachable: 0,
+    skipped_payment_required: 0,
     skipped_budget: 0,
     first_seen: 0,
     unchanged: 0,
@@ -890,7 +903,12 @@ async function processArticleTrack(
 
   if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
   const res = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
-  if (!res.ok) return log({ outcome: 'skipped_unreachable' });
+  if (!res.ok) {
+    if (res.failure === 'payment_required') {
+      return log({ outcome: 'skipped_payment_required' });
+    }
+    return log({ outcome: 'skipped_unreachable' });
+  }
   const content = res.content;
 
   const newHash = hashArticle(content);

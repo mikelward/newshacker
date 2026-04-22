@@ -428,6 +428,61 @@ describe('handleSummaryRequest', () => {
     expect(client.models.generateContent).not.toHaveBeenCalled();
   });
 
+  it('returns 503 with summary_budget_exhausted when Jina returns 402 Payment Required', async () => {
+    // Regression guard: Jina's paid quota ran out (402) used to fall
+    // into the generic source_unreachable branch, which told users the
+    // article itself was down. Surface the real cause with a distinct
+    // reason so the client can render "temporarily unavailable".
+    const articleUrl = 'https://example.com/pay';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: {
+        status: 402,
+        body: 'Payment Required',
+      },
+    });
+    const fetchItem = fetchItemFor({
+      113: { id: 113, type: 'story', url: articleUrl, score: 10 },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(113), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'Summaries are temporarily unavailable',
+      reason: 'summary_budget_exhausted',
+    });
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 with summary_budget_exhausted when Jina returns 429 Too Many Requests', async () => {
+    // 429 is the rate-limit / quota twin of 402 — treat identically so
+    // an operator sees a single clear signal in the logs.
+    const articleUrl = 'https://example.com/rate';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: {
+        status: 429,
+        body: 'Too Many Requests',
+      },
+    });
+    const fetchItem = fetchItemFor({
+      114: { id: 114, type: 'story', url: articleUrl, score: 10 },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(114), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(503);
+    expect((await res.json()).reason).toBe('summary_budget_exhausted');
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
   it('returns 504 with source_timeout when Jina aborts', async () => {
     const articleUrl = 'https://slow.example.com/story';
     const abortErr = Object.assign(new Error('aborted'), {

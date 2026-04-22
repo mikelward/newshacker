@@ -188,6 +188,8 @@ function summaryErrorDetail(error: unknown): string {
         return 'Something went wrong summarizing the article. Try again in a moment.';
       case 'not_configured':
         return "Summaries aren't available right now.";
+      case 'summary_budget_exhausted':
+        return 'Summaries are temporarily unavailable. Please try again later.';
     }
   }
   if (error instanceof Error && error.message) {

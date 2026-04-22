@@ -484,6 +484,47 @@ describe('handleWarmRequest', () => {
     expect(updated.summaryGeneratedAt).toBe(now);
   });
 
+  it('skipped_payment_required: Jina 402 maps to its own outcome, not generic unreachable', async () => {
+    // Regression guard for the deploy-time Jina quota bug: when the
+    // article-fetch quota runs out, every story in the tick was being
+    // logged as skipped_unreachable, which hid the real operator signal.
+    const articleUrl = 'https://example.com/quota';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: {
+        status: 402,
+        body: 'Payment Required',
+      },
+    });
+    const fetchItem = fetchItemFor({
+      1099: { id: 1099, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([]); // must never be called
+    const { logger, stories, runs } = captureLogger();
+    const now = 1_700_000_000_000;
+
+    const res = await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [1099],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    expect(res.status).toBe(200);
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('skipped_payment_required');
+    expect(runs[0]!.outcomes.article.skipped_payment_required).toBe(1);
+    expect(runs[0]!.outcomes.article.skipped_unreachable).toBe(0);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    // No record is written: we don't want stale/empty entries poisoning
+    // the cache when the whole fetch path is down for billing reasons.
+    expect(store.map.has(1099)).toBe(false);
+  });
+
   it('skipped_age: past MAX_STORY_AGE we stop checking but keep the cached record', async () => {
     const articleUrl = 'https://example.com/old';
     const fetchImpl = createFakeFetch({

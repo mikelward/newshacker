@@ -13,6 +13,10 @@ export type SummaryErrorReason =
   | 'source_unreachable'
   | 'summarization_failed'
   | 'not_configured'
+  // Jina returned 402 / 429: our paid quota is exhausted. Distinguished
+  // from not_configured so we can render a transient "temporarily
+  // unavailable" message instead of the permanent "not available" copy.
+  | 'summary_budget_exhausted'
   | 'no_article'
   | 'low_score'
   | 'story_unreachable';
@@ -32,6 +36,7 @@ function parseReason(value: unknown): SummaryErrorReason | undefined {
     value === 'source_unreachable' ||
     value === 'summarization_failed' ||
     value === 'not_configured' ||
+    value === 'summary_budget_exhausted' ||
     value === 'no_article' ||
     value === 'low_score' ||
     value === 'story_unreachable'
