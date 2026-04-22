@@ -16,11 +16,7 @@ describe('<BackToTopButton>', () => {
 
   it('scrolls the window to the top on click, requesting a smooth scroll', async () => {
     const scrollToSpy = vi.fn();
-    Object.defineProperty(window, 'scrollTo', {
-      configurable: true,
-      writable: true,
-      value: scrollToSpy,
-    });
+    vi.stubGlobal('scrollTo', scrollToSpy);
 
     render(<BackToTopButton />);
     await userEvent.click(screen.getByTestId('back-to-top'));
