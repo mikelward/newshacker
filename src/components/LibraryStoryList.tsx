@@ -3,6 +3,7 @@ import { getItems } from '../lib/hn';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { BackToTopButton } from './BackToTopButton';
 import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
@@ -122,6 +123,7 @@ export function LibraryStoryList({
           </li>
         ))}
       </ol>
+      <BackToTopButton />
     </PullToRefresh>
   );
 }
