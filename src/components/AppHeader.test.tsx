@@ -135,3 +135,44 @@ describe('<AppHeader>', () => {
     expect(screen.queryByTestId('sweep-btn')).toBeNull();
   });
 });
+
+// The global `:focus-visible { outline: 2px solid var(--hn-orange) }` rule
+// in `global.css` is invisible against the orange header, so every
+// focusable surface that lives on the header needs its own white ring
+// override. A raw-CSS check is enough to pin the invariant — we don't
+// need jsdom to actually simulate `:focus-visible` matching.
+describe('orange-header focus-visible invariants', () => {
+  async function readCss(relPath: string): Promise<string> {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    return readFileSync(resolve(here, relPath), 'utf8');
+  }
+
+  const whiteRing = /:focus-visible\s*\{[^}]*outline:\s*2px\s+solid\s+#fff/;
+
+  it('AppHeader gives .app-header__home a white focus-visible ring', async () => {
+    const css = await readCss('AppHeader.css');
+    expect(css).toMatch(
+      new RegExp(`\\.app-header__home${whiteRing.source}`, 's'),
+    );
+  });
+
+  it('AppHeader keeps white rings on .app-header__menu-btn and .app-header__icon-btn', async () => {
+    const css = await readCss('AppHeader.css');
+    expect(css).toMatch(
+      new RegExp(`\\.app-header__menu-btn${whiteRing.source}`, 's'),
+    );
+    expect(css).toMatch(
+      new RegExp(`\\.app-header__icon-btn${whiteRing.source}`, 's'),
+    );
+  });
+
+  it('HeaderAccountMenu gives .header-account__btn a white focus-visible ring', async () => {
+    const css = await readCss('HeaderAccountMenu.css');
+    expect(css).toMatch(
+      new RegExp(`\\.header-account__btn${whiteRing.source}`, 's'),
+    );
+  });
+});

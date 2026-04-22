@@ -50,10 +50,23 @@
   text-decoration: none;
   min-height: var(--tap-min);
   padding: 4px 8px 4px 0;
+  border-radius: 4px;
 }
 
 .app-header__home:hover {
   text-decoration: none;
+}
+
+/* The global :focus-visible paints a 2px orange ring, which is invisible
+   against the orange header. Substitute a white inset ring — same
+   treatment as .app-header__menu-btn and .app-header__icon-btn. */
+.app-header__home:focus {
+  outline: none;
+}
+
+.app-header__home:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
 }
 
 .app-header__brand {
