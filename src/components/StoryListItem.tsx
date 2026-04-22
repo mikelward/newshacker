@@ -12,6 +12,12 @@ interface Props {
   rank?: number;
   articleOpened?: boolean;
   commentsOpened?: boolean;
+  /**
+   * Total comment count at the moment the reader last opened the
+   * thread. When provided, the row's meta shows a ` · N new` segment
+   * for any extra comments posted since.
+   */
+  seenCommentCount?: number;
   pinned?: boolean;
   hidden?: boolean;
   onHide?: (id: number) => void;
@@ -25,6 +31,7 @@ export function StoryListItem({
   story,
   articleOpened = false,
   commentsOpened = false,
+  seenCommentCount,
   pinned = false,
   hidden = false,
   onHide,
@@ -38,6 +45,11 @@ export function StoryListItem({
 
   const title = story.title ?? '[untitled]';
   const domainLabel = hasExternalUrl ? domain : 'self post';
+
+  const newCommentCount =
+    seenCommentCount !== undefined
+      ? Math.max(0, (story.descendants ?? 0) - seenCommentCount)
+      : 0;
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -128,7 +140,7 @@ export function StoryListItem({
         <span className="story-row__title-text">{title}</span>
         <span className="story-row__meta" data-testid="story-meta">
           {domainLabel ? `${domainLabel} · ` : ''}
-          {formatStoryMetaTail(story)}
+          {formatStoryMetaTail({ ...story, newCommentCount })}
         </span>
       </Link>
 

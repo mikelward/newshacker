@@ -82,6 +82,34 @@ describe('useOpenedStories', () => {
     const { unmount } = render(<Consumer />);
     expect(() => unmount()).not.toThrow();
   });
+
+  it('exposes the comment count snapshotted at comments-open time', () => {
+    const { result } = renderHook(() => useOpenedStories());
+    act(() => {
+      result.current.markOpened(42, 'comments', 17);
+    });
+    expect(result.current.seenCommentCounts.get(42)).toBe(17);
+  });
+
+  it('updates the snapshot when the same thread is reopened', () => {
+    const { result } = renderHook(() => useOpenedStories());
+    act(() => {
+      result.current.markOpened(1, 'comments', 5);
+    });
+    act(() => {
+      result.current.markOpened(1, 'comments', 9);
+    });
+    expect(result.current.seenCommentCounts.get(1)).toBe(9);
+  });
+
+  it('preserves the snapshot when only the article is opened afterwards', () => {
+    const { result } = renderHook(() => useOpenedStories());
+    act(() => {
+      result.current.markOpened(2, 'comments', 4);
+      result.current.markOpened(2, 'article');
+    });
+    expect(result.current.seenCommentCounts.get(2)).toBe(4);
+  });
 });
 
 function Consumer() {

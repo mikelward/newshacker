@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getItems } from '../lib/hn';
 import { useHiddenStories } from '../hooks/useHiddenStories';
@@ -29,7 +30,8 @@ export function LibraryStoryList({
   recover,
 }: Props) {
   const { hide } = useHiddenStories();
-  const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
+  const { articleOpenedIds, commentsOpenedIds, seenCommentCounts } =
+    useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
 
@@ -44,6 +46,18 @@ export function LibraryStoryList({
     queryFn: ({ signal }) => getItems(ids, signal),
     enabled: ids.length > 0,
   });
+
+  const stories = (items.data ?? []).filter(
+    (it): it is NonNullable<typeof it> => it != null,
+  );
+
+  const handleOpenThread = useCallback(
+    (id: number) => {
+      const story = stories.find((s) => s.id === id);
+      markCommentsOpenedId(id, Date.now(), story?.descendants ?? 0);
+    },
+    [stories],
+  );
 
   if (ids.length === 0) {
     return <EmptyState message={emptyMessage} />;
@@ -74,10 +88,6 @@ export function LibraryStoryList({
     );
   }
 
-  const stories = (items.data ?? []).filter(
-    (it): it is NonNullable<typeof it> => it != null,
-  );
-
   if (stories.length === 0) {
     return <EmptyState message={emptyMessage} />;
   }
@@ -101,12 +111,13 @@ export function LibraryStoryList({
               rank={idx + 1}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
+              seenCommentCount={seenCommentCounts.get(story.id)}
               pinned={pinnedIds.has(story.id)}
               onHide={hide}
               onPin={pin}
               onUnpin={unpin}
               onShare={shareStory}
-              onOpenThread={markCommentsOpenedId}
+              onOpenThread={handleOpenThread}
             />
             {recover ? (
               <div className="story-list__recover">

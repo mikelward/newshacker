@@ -15,7 +15,10 @@ import { SummaryError, useSummary } from '../hooks/useSummary';
 import { useCommentsSummary } from '../hooks/useCommentsSummary';
 import { useContentWidth } from '../hooks/useContentWidth';
 import { extractDomain, formatStoryMetaTail } from '../lib/format';
-import { markArticleOpenedId } from '../lib/openedStories';
+import {
+  markArticleOpenedId,
+  markCommentsOpenedId,
+} from '../lib/openedStories';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
@@ -584,6 +587,16 @@ export function Thread({ id }: Props) {
   const { isPinned, pin, unpin } = usePinnedStories();
   const pinned = isPinned(id);
   const item = data?.item;
+  // Snapshot the thread's comment count whenever it loads (or the
+  // background refetch brings in a fresher count). Row clicks in the
+  // feed already record an initial snapshot — this keeps it current
+  // for deep links and updates it after the user has actually seen
+  // every comment on the page.
+  const commentCount = item?.descendants;
+  useEffect(() => {
+    if (commentCount === undefined) return;
+    markCommentsOpenedId(id, Date.now(), commentCount);
+  }, [id, commentCount]);
   const handleTogglePinned = useCallback(() => {
     if (pinned) {
       unpin(id);
