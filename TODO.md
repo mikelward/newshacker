@@ -239,16 +239,18 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
     discoverability matters less on mobile.
   Come back once we have actual usage data from the first pass.
 
-- **Wider reading column on desktop (item #4 of the desktop-layout
-  pass).** The app is capped at 720px everywhere, which is fine on
-  mobile but wastes pixels and eye-distance on a 1440+ monitor.
-  Explore bumping the thread/comments column to ~760–840px on
-  viewports wider than some threshold (maybe `≥960px`), or a
-  `clamp()`-based scaling. Low risk: pure CSS change on
-  `.app-main` — no JS, no API, no new data. Before shipping,
-  eyeball long-comment threads to confirm the wider measure still
-  reads well and that AI summary cards don't stretch into awkward
-  wide lozenges.
+- **Wider reading column on desktop — shipped (first pass).**
+  `.app-main` bumps from 720→860 at `min-width: 960px` (feed and
+  thread alike). Pure CSS in `global.css`; no JS, no API calls, no
+  new infra. The collapsed-comment clamp stayed at 3 lines
+  intentionally — the wider column already fits more characters
+  per line, so the same clamp surfaces meaningfully more text on
+  desktop without a second variable to tune. Next iterations to
+  consider only if real usage nudges us: scale continuously with
+  `clamp()` rather than a hard breakpoint, widen the thread more
+  than the feed (would require per-page width plumbing that we
+  avoided for now), or relax the comment clamp further (3→5+) at
+  very wide viewports.
 
 - **Separate action toolbar above the story (moved out of the top
   bar).** The sticky orange top bar is currently doing double duty

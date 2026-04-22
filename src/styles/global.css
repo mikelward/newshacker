@@ -149,6 +149,24 @@ a {
   padding: 0 0 calc(24px + env(safe-area-inset-bottom));
 }
 
+/* Desktop/large-tablet: give the reading column a little more room so a
+   1440+ monitor doesn't leave the layout feeling like a
+   phone-stretched-wide. 720→860 is ~20% wider; still a readable measure
+   at 16px body text (~120 characters per line is the upper end of
+   comfortable). Same cap for feed and thread — the feed at 860 is a
+   modest density improvement, and thread pages also benefit from the
+   wider reading column. The 960px threshold keeps iPad portrait (768)
+   at the original 720 layout and only kicks in at landscape tablets +
+   laptops. (The collapsed-comment clamp stayed at 3 lines — the wider
+   column already fits more characters per line, so the same clamp
+   surfaces more text on desktop without a second knob to tune. See
+   TODO.md § Desktop layout for relaxing the clamp as a follow-up.) */
+@media (min-width: 960px) {
+  .app-main {
+    max-width: 860px;
+  }
+}
+
 .page-message {
   padding: 16px;
 }
