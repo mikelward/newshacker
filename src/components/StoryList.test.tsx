@@ -29,11 +29,18 @@ describe('<StoryList>', () => {
     });
 
     const more = screen.getByRole('button', { name: /^more$/i });
-    // Back to top renders below the More control at the end of the feed.
+    // Footer bar mirrors the thread action bar: Back to top (left) →
+    // More (middle) → Hide unpinned (right edge). See SPEC § Bottom
+    // action bar (list views).
     const backToTop = screen.getByTestId('back-to-top');
+    const sweep = screen.getByTestId('sweep-btn-bottom');
     expect(backToTop).toBeInTheDocument();
     expect(
       more.compareDocumentPosition(backToTop) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    expect(
+      more.compareDocumentPosition(sweep) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     await userEvent.click(more);

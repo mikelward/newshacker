@@ -9,31 +9,48 @@
   border-bottom: 1px solid var(--hn-border);
 }
 
-.story-list__more {
+/* End-of-list action bar, mirrors `.thread__actions` in Thread.css so the
+   bottom of the feed visually matches the bottom of a thread page (same
+   row height, padding, gap, wrap behavior). Only the container has the
+   outer padding — thread bars sit inside a padded `thread__header`
+   wrapper, lists don't. */
+.story-list__footer {
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
   padding: 16px;
-  gap: 8px;
 }
 
+/* Text action buttons — neutral palette, flex-grow so they share the row
+   evenly. Matches `.thread__action` (without --primary, since the list
+   footer has no CTA equivalent to "Read article"). */
+.back-to-top-btn,
 .load-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 56px;
+  padding: 12px 16px;
   background: var(--hn-bg-card);
-  color: var(--hn-text);
   border: 1px solid var(--hn-border);
-  padding: 12px 24px;
   border-radius: 8px;
+  color: var(--hn-text);
+  font-size: 16px;
   font-weight: 600;
-  min-height: var(--tap-min);
-  min-width: 160px;
+  cursor: pointer;
 }
 
 @media (hover: hover) {
+  .back-to-top-btn:hover,
   .load-more-btn:hover:not(:disabled) {
     background: var(--hn-pressed);
   }
 }
 
+.back-to-top-btn:active,
 .load-more-btn:active:not(:disabled) {
   background: var(--hn-border);
 }
@@ -41,6 +58,43 @@
 .load-more-btn:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Icon-only action button — fixed 56×56 square, matches
+   `.thread__action--icon`. */
+.list-footer__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 56px;
+  min-height: 56px;
+  padding: 12px;
+  background: var(--hn-bg-card);
+  border: 1px solid var(--hn-border);
+  border-radius: 8px;
+  color: var(--hn-text);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .list-footer__icon-btn:hover:not(:disabled) {
+    background: var(--hn-pressed);
+  }
+}
+
+.list-footer__icon-btn:active:not(:disabled) {
+  background: var(--hn-border);
+}
+
+.list-footer__icon-btn:disabled {
+  color: var(--hn-meta);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.list-footer__icon {
+  display: block;
 }
 
 .story-list__recover {

@@ -103,6 +103,44 @@ describe('<StoryList> pin and sweep', () => {
     expect(screen.getByTestId('sweep-btn')).toBeDisabled();
   });
 
+  it('bottom-bar sweep button mirrors the header sweep — same state, same action', async () => {
+    const ids = [1, 2, 3, 4];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+    addPinnedId(3);
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(4);
+    });
+
+    const bottomSweep = screen.getByTestId('sweep-btn-bottom');
+    await waitFor(() => {
+      expect(bottomSweep).not.toBeDisabled();
+    });
+    expect(bottomSweep).toHaveAccessibleName(/hide unpinned/i);
+
+    fireEvent.click(bottomSweep);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Story 1')).toBeNull();
+      expect(screen.queryByText('Story 2')).toBeNull();
+      expect(screen.queryByText('Story 4')).toBeNull();
+    });
+    expect(screen.getByText('Story 3')).toBeInTheDocument();
+    // Both sweep entry points disable together once nothing is left to hide.
+    expect(screen.getByTestId('sweep-btn-bottom')).toBeDisabled();
+    expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+  });
+
   it('sweep only hides rows fully in the viewport', async () => {
     const ids = [1, 2, 3];
     const items = Object.fromEntries(

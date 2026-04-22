@@ -12,6 +12,7 @@ import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
+import { TooltipButton } from './TooltipButton';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
@@ -34,6 +35,25 @@ function measureHeaderInset(): number {
   if (!header) return 0;
   const rect = header.getBoundingClientRect();
   return Math.max(0, Math.ceil(rect.bottom));
+}
+
+// Material Symbols Outlined — Apache 2.0, Google. Same broom glyph as the
+// header's Hide unpinned button, repeated inline so the list footer doesn't
+// have to reach into AppHeader for an icon.
+function SweepIcon() {
+  return (
+    <svg
+      className="list-footer__icon"
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      width="24"
+      height="24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M400-240v-80h240v80H400Zm-158 0L15-467l57-57 170 170 366-366 57 57-423 423Zm318-160v-80h240v80H560Zm160-160v-80h240v80H720Z" />
+    </svg>
+  );
 }
 
 export function StoryList({ feed }: Props) {
@@ -323,8 +343,9 @@ export function StoryList({ feed }: Props) {
           </li>
         ))}
       </ol>
-      {hasMore ? (
-        <div className="story-list__more">
+      <div className="story-list__footer">
+        <BackToTopButton />
+        {hasMore ? (
           <button
             type="button"
             className="load-more-btn"
@@ -333,9 +354,21 @@ export function StoryList({ feed }: Props) {
           >
             {isFetchingMore ? 'Loading…' : 'More'}
           </button>
-        </div>
-      ) : null}
-      <BackToTopButton />
+        ) : null}
+        <TooltipButton
+          type="button"
+          className="list-footer__icon-btn"
+          data-testid="sweep-btn-bottom"
+          onClick={sweepableIds.length > 0 ? handleSweep : undefined}
+          disabled={sweepableIds.length === 0}
+          tooltip={sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'}
+          aria-label={
+            sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
+          }
+        >
+          <SweepIcon />
+        </TooltipButton>
+      </div>
     </PullToRefresh>
   );
 }

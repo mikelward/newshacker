@@ -134,7 +134,9 @@ export function LibraryStoryList({
           </li>
         ))}
       </ol>
-      <BackToTopButton />
+      <div className="story-list__footer">
+        <BackToTopButton />
+      </div>
     </PullToRefresh>
   );
 }
