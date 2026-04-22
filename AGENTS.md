@@ -119,36 +119,40 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Vercel `api/` gotchas
 
-- **No shared modules for `api/*.ts` — keep helpers inlined, even if
-  they're duplicated across handlers.** Both obvious escape hatches
-  from the duplication have been tried on Vercel and both failed
-  *only at deploy time*, after every local check (`npm test`, `lint`,
-  `typecheck`, `build`) had passed:
-  1. Importing from outside `api/` (e.g. `src/lib/…`, a sibling
-     top-level `lib/` folder). The Vercel bundler's import tracer
-     inconsistently includes the files — `summary.ts` was bitten by
-     this historically and carries a comment about it.
-  2. Importing from a `_`-prefixed directory inside `api/`
+- **Shared helpers for `api/*.ts` go in the top-level `lib/api/`
+  directory, nowhere else.** Two obvious ways to de-duplicate have
+  been tried and both failed *only at deploy time*, after every local
+  check (`npm test`, `lint`, `typecheck`, `build`) had passed:
+  1. Importing from a `_`-prefixed directory inside `api/`
      (e.g. `api/_lib/session.ts`). Vercel treats `_` as "don't route"
      *and* "don't ship", so the deployed Lambda errors at startup
      with `ERR_MODULE_NOT_FOUND: Cannot find module
      '/var/task/api/_lib/…' imported from /var/task/api/items.js`.
      Tests pass locally because Vite resolves the import via Node
      module resolution; Vercel's tracer is what drops it.
+  2. A non-underscore subdirectory (`api/lib/…`) ships, but Vercel
+     routes every file in it as its own serverless function.
 
-  A non-underscore subdirectory (`api/lib/…`) would ship, but Vercel
-  would route every file in it as its own serverless function, which
-  breaks in different ways. There is no currently-known way to share
-  code between sibling `api/*.ts` handlers reliably on Vercel; the
-  accepted pattern is to copy-paste the helper, add a comment that
-  points at the siblings, and move on.
+  The currently-accepted pattern is a narrow exception: handlers may
+  import from a single top-level directory `lib/api/<file>`, with
+  `vercel.json` listing
+
+  ```json
+  "functions": { "api/*.ts": { "includeFiles": "lib/api/**" } }
+  ```
+
+  so Vercel's bundler is forcibly told to ship those files into each
+  Lambda (instead of relying on its import tracer, which has
+  historically been flaky about files outside `api/`). Keep `lib/api/`
+  flat — no nested subdirectories — and don't add other import
+  escape hatches without updating the guard below.
 
   A regression test at `api/imports.test.ts` scans every `api/*.ts`
-  file and fails if it imports from a subdirectory of `api/` or from
-  a parent directory. If you find yourself tempted to try this again,
-  that test is the first sign it's about to fail in production.
-  Delete the test only if you've actually deployed and verified the
-  new approach works on a Vercel preview.
+  file and fails if it imports from anywhere other than (a) a sibling
+  file in `api/`, (b) a bare npm package, or (c) `../lib/api/<file>`.
+  If you widen the allowlist, do it only after a Vercel preview
+  deploy has proved the new path works end-to-end — not based on
+  local `npm test` / `build` alone.
 
 ## Safe vs. risky actions
 

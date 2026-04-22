@@ -1,26 +1,29 @@
 // @vitest-environment node
-// Regression guard for a bug that only surfaces at Vercel deploy time.
+// Regression guard for a Vercel-deploy-time failure mode that has
+// bitten this repo twice.
 //
-// On at least two occasions, a refactor has tried to de-duplicate
-// helpers that are copy-pasted across `api/*.ts` (session cookie
-// parsing, referer allowlist, HN item fetch) by pulling them into
-// either (a) a module outside `api/` or (b) a `_`-prefixed
-// subdirectory inside `api/`. Both pass `npm test`, `lint`,
-// `typecheck`, and `build` — and both fail at runtime on Vercel with
+// The failure: handlers that `import` from either (a) a `_`-prefixed
+// subdirectory inside `api/` or (b) an arbitrary path outside `api/`
+// pass every local check (`npm test`, `lint`, `typecheck`, `build`)
+// and then blow up at runtime on Vercel with
 //
 //     Error [ERR_MODULE_NOT_FOUND]:
 //     Cannot find module '/var/task/api/_lib/hnFetch' imported from
 //     /var/task/api/items.js
 //
-// Vercel's function bundler excludes underscore-prefixed paths from
-// the Lambda bundle, and its import tracer has been flaky about
-// pulling in files from outside `api/`. The accepted pattern is to
-// inline the duplication and leave a breadcrumb comment.
+// Vercel's function bundler drops underscore-prefixed paths from the
+// Lambda bundle, and its import tracer has historically been flaky
+// about pulling in files from outside `api/`.
 //
-// This test scans every `api/*.ts` file and fails if it contains a
-// relative import that either (a) walks up a directory (`../…`) or
-// (b) walks into a subdirectory of `api/` (`./foo/…`). See AGENTS.md
-// § "Vercel `api/` gotchas" for the full rationale.
+// The current (2026-04) accepted pattern is a narrow exception:
+// handlers may import from `../lib/api/*` (a single top-level
+// `lib/api/` directory), with `vercel.json` listing
+// `functions["api/*.ts"].includeFiles = "lib/api/**"` so Vercel's
+// bundler is forcibly told to ship those files into each Lambda.
+// Any other relative import that walks up or into a subdirectory is
+// still banned.
+//
+// See AGENTS.md § "Vercel `api/` gotchas" for the full rationale.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -49,9 +52,14 @@ function importPaths(source: string): string[] {
   return paths;
 }
 
+// The one allowed escape hatch: `../lib/api/<file>`. Anything deeper
+// (`../lib/api/sub/file`) or anywhere else is still rejected.
+const ALLOWED_RE = /^\.\.\/lib\/api\/[^/]+$/;
+
 function isDisallowedRelativeImport(p: string): boolean {
   if (!p.startsWith('.')) return false; // bare (npm) import — fine
-  if (p.startsWith('../')) return true; // escapes api/
+  if (ALLOWED_RE.test(p)) return false; // the documented escape hatch
+  if (p.startsWith('../')) return true; // escapes api/ to somewhere else
   // `./foo/bar` is a subdirectory (including `./_lib/foo`); `./foo` is a
   // sibling file in api/ and is fine.
   const rest = p.slice(2);
@@ -59,7 +67,7 @@ function isDisallowedRelativeImport(p: string): boolean {
 }
 
 describe('api handler imports', () => {
-  it('no handler imports from a subdirectory of api/ or from outside api/', () => {
+  it('handlers only import from siblings, npm, or ../lib/api/*', () => {
     const offenders: { file: string; bad: string[] }[] = [];
     for (const file of handlerFiles()) {
       const source = readFileSync(join(API_DIR, file), 'utf8');
@@ -68,10 +76,11 @@ describe('api handler imports', () => {
     }
     expect(
       offenders,
-      `api/ handlers must not import from subdirectories of api/ or from outside api/. ` +
-        `Vercel's function bundler drops underscore-prefixed paths and traces ` +
-        `outside-api/ imports inconsistently — see AGENTS.md § "Vercel api/ gotchas". ` +
-        `Offenders:\n` +
+      `api/ handlers may only import from sibling files, npm packages, or ` +
+        `the narrow \`../lib/api/<file>\` escape hatch. Vercel's function ` +
+        `bundler drops underscore-prefixed paths and traces other ` +
+        `outside-api/ imports inconsistently — see AGENTS.md § "Vercel ` +
+        `api/ gotchas". Offenders:\n` +
         offenders
           .map((o) => `  ${o.file}: ${o.bad.join(', ')}`)
           .join('\n'),
@@ -86,14 +95,21 @@ describe('api handler imports', () => {
     expect(isDisallowedRelativeImport('./_lib/hnFetch')).toBe(true);
   });
 
-  it('rejects imports from a non-underscore subdirectory', () => {
+  it('rejects imports from a non-underscore subdirectory of api/', () => {
     expect(isDisallowedRelativeImport('./lib/session')).toBe(true);
     expect(isDisallowedRelativeImport('./helpers/cookie')).toBe(true);
   });
 
-  it('rejects imports from outside api/', () => {
+  it('rejects imports from outside api/ other than ../lib/api/*', () => {
     expect(isDisallowedRelativeImport('../src/lib/session')).toBe(true);
     expect(isDisallowedRelativeImport('../lib/session')).toBe(true);
+    expect(isDisallowedRelativeImport('../lib/api/sub/session')).toBe(true);
+    expect(isDisallowedRelativeImport('../../lib/api/session')).toBe(true);
+  });
+
+  it('allows the ../lib/api/<file> escape hatch', () => {
+    expect(isDisallowedRelativeImport('../lib/api/session')).toBe(false);
+    expect(isDisallowedRelativeImport('../lib/api/http')).toBe(false);
   });
 
   it('allows sibling files in api/ and bare npm imports', () => {
@@ -109,13 +125,14 @@ describe('api handler imports', () => {
       `import { bar } from "./sub/b";`,
       `export { baz } from '../c';`,
       `const m = await import('./_lib/d');`,
+      `import ok from '../lib/api/session';`,
       `import './ok-sibling';`, // no `from` — no path captured by our regex
     ].join('\n');
     const bad = importPaths(source).filter(isDisallowedRelativeImport);
-    // Four disallowed paths captured across the four `from`-having lines.
-    // The bare side-effect import is not captured, which is fine — it's
-    // almost never used in this codebase, and adding it would require a
-    // second regex for marginal benefit.
+    // The four disallowed paths survive; the allowed `../lib/api/session`
+    // is filtered out. The bare side-effect import is not captured, which
+    // is fine — it's almost never used in this codebase, and adding it
+    // would require a second regex for marginal benefit.
     expect(bad).toEqual([
       './_lib/a',
       './sub/b',
