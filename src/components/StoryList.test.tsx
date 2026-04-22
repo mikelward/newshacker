@@ -56,6 +56,25 @@ describe('<StoryList>', () => {
     });
   });
 
+  it('tags the feed footer with the --feed modifier so Back to top shrinks and More stretches', async () => {
+    // Regression: the feed footer carries `.story-list__footer--feed`
+    // so the CSS override can shrink Back to top to natural width and
+    // leave More (the primary action on a feed) as the row's growing
+    // button. Library footers intentionally omit the modifier and let
+    // the default `.back-to-top-btn { flex: 1 }` fill the row instead.
+    const ids = Array.from({ length: 40 }, (_, i) => i + 1);
+    const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    const footer = (await screen.findByTestId('back-to-top')).closest(
+      '.story-list__footer',
+    );
+    expect(footer).not.toBeNull();
+    expect(footer!.classList.contains('story-list__footer--feed')).toBe(true);
+  });
+
   it('hides the More button when the feed has 30 or fewer stories', async () => {
     const ids = Array.from({ length: 12 }, (_, i) => i + 1);
     const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));

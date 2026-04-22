@@ -21,9 +21,17 @@
   padding: 16px;
 }
 
-/* Text action buttons — neutral palette, flex-grow so they share the row
-   evenly. Matches `.thread__action` (without --primary, since the list
-   footer has no CTA equivalent to "Read article"). */
+/* Text action buttons — neutral palette. `.load-more-btn` is the
+   center-stretched button: on the feed it's the primary action
+   ("reveal the next page of stories"), so it grows to absorb the
+   row's free space and ends up visually the biggest target.
+   `.back-to-top-btn` keeps `flex: 1` as a default because the
+   library footer's only child is Back to top, and a full-width
+   button there is the intended layout. When the feed footer wears
+   `--feed`, the override below shrinks Back to top back to its
+   natural size so More can be the one that stretches. Matches
+   `.thread__action` (without --primary, since the list footer has
+   no CTA equivalent to "Read article"). */
 .back-to-top-btn,
 .load-more-btn {
   display: flex;
@@ -41,6 +49,16 @@
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* Feed footer: rank More above Back to top and Sweep. More is the
+   action the reader came here for — "give me the next page" — so it
+   gets the biggest target by absorbing all free space. Back to top is
+   a nice-to-have escape hatch and Sweep is a one-tap utility; neither
+   needs to grow. Library footers don't carry this modifier (they only
+   hold Back to top, which stays full-width via the default rule). */
+.story-list__footer--feed .back-to-top-btn {
+  flex: initial;
 }
 
 @media (hover: hover) {
