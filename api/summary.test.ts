@@ -4,6 +4,7 @@ import {
   handleSummaryRequest,
   hashArticle,
   isAllowedReferer,
+  isCaptchaRefusal,
   parseRecord,
   type SummaryRecord,
   type SummaryStore,
@@ -633,6 +634,35 @@ describe('handleSummaryRequest', () => {
     });
   });
 
+  it('returns 502 with source_captcha when the model refuses due to a CAPTCHA page', async () => {
+    const articleUrl = 'https://example.com/captcha';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('challenge') },
+    });
+    const fetchItem = fetchItemFor({
+      125: { id: 125, type: 'story', url: articleUrl, score: 10 },
+    });
+    const client = createFakeClient([
+      {
+        text: 'I cannot summarize the article because the provided content is a CAPTCHA page and does not contain any substantive information about cheap batteries taking over power grids.',
+      },
+    ]);
+    const store = createTestStore();
+    const res = await handleSummaryRequest(makeRequest(125), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'Could not generate a summary due to a CAPTCHA page',
+      reason: 'source_captcha',
+    });
+    // A refusal must not be persisted as if it were a real summary.
+    expect(store.map.size).toBe(0);
+  });
+
   it('returns 502 when the model throws', async () => {
     const articleUrl = 'https://example.com/c';
     const fetchImpl = createFakeFetch({
@@ -907,5 +937,45 @@ describe('handleSummaryRequest', () => {
     // The handler still attempted to write — which also threw — but the
     // response is sent regardless.
     expect(store.set).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('isCaptchaRefusal', () => {
+  it('matches the canonical Gemini refusal for CAPTCHA pages', () => {
+    expect(
+      isCaptchaRefusal(
+        'I cannot summarize the article because the provided content is a CAPTCHA page and does not contain any substantive information.',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches contraction and alternate opener variants', () => {
+    expect(
+      isCaptchaRefusal("I can't summarize this — the page is a CAPTCHA check."),
+    ).toBe(true);
+    expect(
+      isCaptchaRefusal(
+        "I'm unable to summarize the article; the content is a CAPTCHA.",
+      ),
+    ).toBe(true);
+    expect(
+      isCaptchaRefusal('Unable to summarize: the fetched page is a CAPTCHA.'),
+    ).toBe(true);
+  });
+
+  it('does not match a real summary that happens to mention CAPTCHA', () => {
+    expect(
+      isCaptchaRefusal(
+        'CAPTCHA systems are a losing arms race against increasingly capable bots.',
+      ),
+    ).toBe(false);
+  });
+
+  it('does not match a refusal that is not about a CAPTCHA', () => {
+    expect(
+      isCaptchaRefusal(
+        'I cannot summarize the article because the content is behind a paywall.',
+      ),
+    ).toBe(false);
   });
 });

@@ -19,7 +19,11 @@ export type SummaryErrorReason =
   | 'summary_budget_exhausted'
   | 'no_article'
   | 'low_score'
-  | 'story_unreachable';
+  | 'story_unreachable'
+  // The fetched "article" was a CAPTCHA / bot-challenge page, so the
+  // model had nothing to summarize. Detected after the fact from the
+  // model's refusal text.
+  | 'source_captcha';
 
 export class SummaryError extends Error {
   readonly reason?: SummaryErrorReason;
@@ -39,7 +43,8 @@ function parseReason(value: unknown): SummaryErrorReason | undefined {
     value === 'summary_budget_exhausted' ||
     value === 'no_article' ||
     value === 'low_score' ||
-    value === 'story_unreachable'
+    value === 'story_unreachable' ||
+    value === 'source_captcha'
   ) {
     return value;
   }

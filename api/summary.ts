@@ -323,6 +323,23 @@ export interface SummaryDeps {
   now?: () => number;
 }
 
+// Some sites (e.g. Cloudflare-gated news outlets) serve a CAPTCHA /
+// bot-challenge page rather than the article when Jina fetches them.
+// Jina returns the challenge markdown verbatim; Gemini then refuses with
+// something like "I cannot summarize the article because the provided
+// content is a CAPTCHA page …". The prompt forbids that kind of
+// meta-framing for real summaries, so the combination of a first-person
+// inability opener plus the word CAPTCHA is a reliable tell. We catch
+// it here so the UI can render a short, specific error instead of
+// storing the refusal as if it were the summary.
+export function isCaptchaRefusal(summary: string): boolean {
+  const normalized = summary.toLowerCase();
+  if (!/\bcaptcha\b/.test(normalized)) return false;
+  return /^(?:i cannot|i can'?t|i am unable|i'?m unable|unable to|cannot)\b/.test(
+    normalized,
+  );
+}
+
 function clampContent(body: string): string | null {
   const trimmed =
     body.length > MAX_CONTENT_CHARS ? body.slice(0, MAX_CONTENT_CHARS) : body;
@@ -570,6 +587,16 @@ export async function handleSummaryRequest(
   if (!summary) {
     return json(
       { error: 'Summarization failed', reason: 'summarization_failed' },
+      502,
+    );
+  }
+
+  if (isCaptchaRefusal(summary)) {
+    return json(
+      {
+        error: 'Could not generate a summary due to a CAPTCHA page',
+        reason: 'source_captcha',
+      },
       502,
     );
   }
