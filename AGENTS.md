@@ -67,12 +67,12 @@ If any of the above fails, fix it — don't disable the check.
   render commit, effect flush, layout measurement), make the ordering
   explicit: resolve a controlled promise, advance fake timers, wrap in
   `act(...)`, or hold the in-flight fetch open behind a gate you
-  release from the test (see `gateFetchOn` in `Thread.test.tsx` for the
-  canonical pattern — it exists specifically so React 18's
-  `useSyncExternalStore` doesn't swallow intermediate loading-state
-  renders by re-reading a since-settled snapshot at commit time). A
-  test that passes "most of the time" is broken; rewrite it or fix the
-  underlying cause.
+  release from the test. React 18's `useSyncExternalStore` in
+  particular will swallow intermediate loading-state renders by
+  re-reading a since-settled snapshot at commit time, so any test that
+  depends on observing a loading state needs the gated-fetch pattern.
+  A test that passes "most of the time" is broken; rewrite it or fix
+  the underlying cause.
 
 ## Code style
 

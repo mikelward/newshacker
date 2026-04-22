@@ -240,9 +240,9 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   cron lands (see Phase B sketched in chat / `SUMMARIES.md`),
   (c) session state for the login/vote stretch features if
   HTTP-only cookies prove insufficient,
-  (d) `summary_layout` (or a new server-side metric) showing a
-  material share of reads from far-from-`us-east-1` regions — that's
-  the signal to add a read replica.
+  (d) a future server-side latency metric showing a material share
+  of reads from far-from-`us-east-1` regions — that's the signal to
+  add a read replica.
   Cost today: $0 on the free tier. Reliability: one failure mode
   (store unreachable) — summary handler is already fail-open; rate
   limiting handler should fail-open too (serve the request rather

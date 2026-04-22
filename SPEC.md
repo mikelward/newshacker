@@ -626,9 +626,9 @@ Upstash both support read replicas in additional regions. Adding a
 replica in e.g. `eu-west-1` or `ap-southeast-2` would let Vercel
 functions in those regions read from a nearby replica (~5 ms instead
 of ~100–200 ms cross-Atlantic). Today, with traffic almost entirely
-on `us-east-1`, an extra replica is pure cost; if `summary_layout` or
-a future server-side latency metric shows a material share of reads
-from far regions, revisit. Writes always go to the primary; the cache
+on `us-east-1`, an extra replica is pure cost; if a future
+server-side latency metric shows a material share of reads from far
+regions, revisit. Writes always go to the primary; the cache
 is eventually consistent across replicas (sub-second), which is fine
 for a TTL'd summary — a replica briefly serving the previous value
 after a new write is indistinguishable from a slightly-earlier cache
@@ -744,7 +744,7 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline.
   - An offline-specific message in the AI summary card when no cached summary exists. The same message pattern applies to the AI comment summary card.
 - Write actions (vote, login — once implemented) check `navigator.onLine` and show a toast instead of issuing a request that's guaranteed to fail.
-- **React Query `networkMode: 'offlineFirst'`** (set globally in `main.tsx`). The default 'online' mode pauses queries whenever React Query's `onlineManager` reports offline, which leaves uncached thread/summary reads on a never-resolving loading skeleton. `'offlineFirst'` lets the queryFn run regardless, so the Workbox SW cache can answer from Cache API when it has an entry, and a true miss rejects fast enough for the offline error UI above to render.
+- **React Query `networkMode: 'offlineFirst'`** (set globally in `main.tsx`). The default 'online' mode pauses queries whenever React Query's `onlineManager` reports offline, which leaves uncached thread/summary reads in a never-resolving pending state. `'offlineFirst'` lets the queryFn run regardless, so the Workbox SW cache can answer from Cache API when it has an entry, and a true miss rejects fast enough for the offline error UI above to render.
 - **Combined fetch-failure + browser-event detection** (`src/lib/networkStatus.ts`). `navigator.onLine` on mobile lags badly behind reality — walking into a tunnel can leave it stuck at `true` for tens of seconds, so the header pill would appear long after Brave's own offline banner. We keep two independent signals and AND them: `online = browserOnline && fetchOnline`. Either one flipping to false flips the pill immediately; both have to agree online before the pill hides again.
   - `fetchOnline`: every app fetch goes through `trackedFetch`, which flips `fetchOnline` to false the instant a request throws a `TypeError` (fetch's network-layer failure signal) and back to true the instant any response comes back (even a 500 proves we reached a server). `AbortError` is ignored so a superseded query doesn't masquerade as a connectivity drop.
   - `browserOnline`: `navigator.onLine` plus `online`/`offline` window events.
@@ -802,13 +802,6 @@ Cost and reliability (per AGENTS.md rule 11): Pro plan includes 25k
 events/month; at current single-digit traffic this is effectively free.
 Beyond 25k, custom events are billed at Vercel's posted rate — revisit
 event volume before adding high-frequency custom events.
-
-The thread page also emits a `summary_layout` custom event once per
-summary card after data arrives, carrying bucketed card width,
-summary length, reserved and rendered content heights, and (for the
-comments card) insight count. It exists to retune the
-skeleton-reservation constants in `Thread.tsx` from real usage data;
-see `SUMMARIES.md` for the dashboard workflow.
 
 ## Open Questions
 
