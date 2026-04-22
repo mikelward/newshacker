@@ -197,6 +197,20 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   how much cross-device frustration the curated three already
   solves.
 
+## Thread comment filtering
+
+- **"New / all" comment filter on the thread page.** With each opened
+  story we now persist `commentsAt` (when the thread was last opened)
+  and `seenCommentCount` (the `descendants` at that moment). A toggle
+  on the thread header could filter to comments with `time >
+  commentsAt`, matching the "N new" badge the row already shows. The
+  state is already in `openedStories`; this is purely a UI add. Stays
+  out of the current change to keep the list-surface feature
+  self-contained. Eventually we might also promote the hand-curated
+  compound-eTLD list in `src/lib/format.ts` to the full Public Suffix
+  List if the coverage matters; the length cap is the backstop until
+  then.
+
 ## Sweep edge cases
 
 - **Row taller than the visible viewport.** Sweep currently hides

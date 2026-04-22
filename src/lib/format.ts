@@ -152,6 +152,12 @@ export interface StoryMetaInput {
   time?: number;
   score?: number;
   descendants?: number;
+  /**
+   * Number of comments posted since the reader last opened the thread.
+   * When > 0, a trailing ` · N new` segment is appended. 0 or undefined
+   * suppresses it.
+   */
+  newCommentCount?: number;
 }
 
 /**
@@ -169,5 +175,8 @@ export function formatStoryMetaTail(item: StoryMetaInput, now?: Date): string {
   parts.push(`${points} ${pluralize(points, 'point')}`);
   const comments = item.descendants ?? 0;
   parts.push(`${comments} ${pluralize(comments, 'comment')}`);
+  if (item.newCommentCount && item.newCommentCount > 0) {
+    parts.push(`${item.newCommentCount} new`);
+  }
   return parts.join(' · ');
 }

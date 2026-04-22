@@ -40,7 +40,8 @@ export function StoryList({ feed }: Props) {
   const queryClient = useQueryClient();
   const { hiddenIds, hide } = useHiddenStories();
   const { doneIds } = useDoneStories();
-  const { articleOpenedIds, commentsOpenedIds } = useOpenedStories();
+  const { articleOpenedIds, commentsOpenedIds, seenCommentCounts } =
+    useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
   const { setSweep, recordHide } = useFeedBar();
@@ -221,9 +222,20 @@ export function StoryList({ feed }: Props) {
     return () => setSweep(null, 0);
   }, [setSweep, handleSweep, sweepableIds.length]);
 
-  const handleOpenThread = useCallback((id: number) => {
-    markCommentsOpenedId(id);
-  }, []);
+  // Snapshot the current comment count so later visits can show a
+  // "N new" badge for anything posted since. Look the story up in both
+  // the feed page and the off-feed pinned list — a tap on a pinned
+  // story that has scrolled off the feed otherwise wouldn't record
+  // anything.
+  const handleOpenThread = useCallback(
+    (id: number) => {
+      const story =
+        items.find((it): it is NonNullable<typeof it> => it?.id === id) ??
+        offFeedPinnedStories.find((s) => s.id === id);
+      markCommentsOpenedId(id, Date.now(), story?.descendants ?? 0);
+    },
+    [items, offFeedPinnedStories],
+  );
 
   const hasAnyItems = items.length > 0;
   if (!hasAnyItems && feedItems.isLoading) {
@@ -275,6 +287,7 @@ export function StoryList({ feed }: Props) {
               story={story}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
+              seenCommentCount={seenCommentCounts.get(story.id)}
               pinned
               hidden={hiddenIds.has(story.id)}
               onHide={handleHideOne}
@@ -297,6 +310,7 @@ export function StoryList({ feed }: Props) {
               rank={idx + 1}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
+              seenCommentCount={seenCommentCounts.get(story.id)}
               pinned={pinnedIds.has(story.id)}
               hidden={hiddenIds.has(story.id)}
               onHide={handleHideOne}

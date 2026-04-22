@@ -6,6 +6,7 @@ import {
   getArticleOpenedIds,
   getCommentsOpenedIds,
   getOpenedIds,
+  getSeenCommentCounts,
   markArticleOpenedId,
   markCommentsOpenedId,
   removeOpenedId,
@@ -15,6 +16,7 @@ interface Snapshot {
   openedIds: Set<number>;
   articleOpenedIds: Set<number>;
   commentsOpenedIds: Set<number>;
+  seenCommentCounts: Map<number, number>;
 }
 
 function snapshot(): Snapshot {
@@ -22,6 +24,7 @@ function snapshot(): Snapshot {
     openedIds: getOpenedIds(),
     articleOpenedIds: getArticleOpenedIds(),
     commentsOpenedIds: getCommentsOpenedIds(),
+    seenCommentCounts: getSeenCommentCounts(),
   };
 }
 
@@ -38,17 +41,25 @@ export function useOpenedStories() {
     };
   }, []);
 
-  const markOpened = useCallback((id: number, kind: OpenedKind) => {
-    if (kind === 'article') markArticleOpenedId(id);
-    else markCommentsOpenedId(id);
-  }, []);
-  const markBothOpened = useCallback((id: number) => addOpenedId(id), []);
+  const markOpened = useCallback(
+    (id: number, kind: OpenedKind, commentsCount?: number) => {
+      if (kind === 'article') markArticleOpenedId(id);
+      else markCommentsOpenedId(id, Date.now(), commentsCount);
+    },
+    [],
+  );
+  const markBothOpened = useCallback(
+    (id: number, commentsCount?: number) =>
+      addOpenedId(id, Date.now(), commentsCount),
+    [],
+  );
   const unopen = useCallback((id: number) => removeOpenedId(id), []);
 
   return {
     openedIds: state.openedIds,
     articleOpenedIds: state.articleOpenedIds,
     commentsOpenedIds: state.commentsOpenedIds,
+    seenCommentCounts: state.seenCommentCounts,
     markOpened,
     markBothOpened,
     unopen,

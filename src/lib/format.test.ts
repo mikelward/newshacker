@@ -160,4 +160,28 @@ describe('formatStoryMetaTail', () => {
       '5 points · 2 comments',
     );
   });
+
+  it('appends " · N new" when newCommentCount is > 0', () => {
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60, score: 10, descendants: 8, newCommentCount: 3 },
+        now,
+      ),
+    ).toBe('1h · 10 points · 8 comments · 3 new');
+  });
+
+  it('omits the new segment when newCommentCount is 0 or missing', () => {
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60, score: 10, descendants: 8, newCommentCount: 0 },
+        now,
+      ),
+    ).toBe('1h · 10 points · 8 comments');
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60, score: 10, descendants: 8 },
+        now,
+      ),
+    ).toBe('1h · 10 points · 8 comments');
+  });
 });

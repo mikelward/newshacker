@@ -48,6 +48,35 @@ describe('StoryListItem', () => {
     expect(screen.queryByTestId('comments-btn')).toBeNull();
   });
 
+  it('adds "N new" to the meta when the current count exceeds the last seen count', () => {
+    renderWithProviders(
+      <StoryListItem story={baseStory} seenCommentCount={4} />,
+    );
+    // baseStory has 7 comments; last seen was 4 → 3 new.
+    expect(screen.getByTestId('story-meta')).toHaveTextContent(
+      /7 comments · 3 new/,
+    );
+  });
+
+  it('omits "N new" when the user has never opened the thread', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
+    expect(screen.getByTestId('story-meta')).not.toHaveTextContent(/new/);
+  });
+
+  it('omits "N new" when the seen count already matches the current count', () => {
+    renderWithProviders(
+      <StoryListItem story={baseStory} seenCommentCount={7} />,
+    );
+    expect(screen.getByTestId('story-meta')).not.toHaveTextContent(/new/);
+  });
+
+  it('omits "N new" when comments were deleted (seen count exceeds current)', () => {
+    renderWithProviders(
+      <StoryListItem story={baseStory} seenCommentCount={10} />,
+    );
+    expect(screen.getByTestId('story-meta')).not.toHaveTextContent(/new/);
+  });
+
   it('trims long hostnames to the registrable domain', () => {
     const story: HNItem = {
       ...baseStory,

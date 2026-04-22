@@ -10,6 +10,12 @@ interface StoredEntry {
   at: number;
   articleAt?: number;
   commentsAt?: number;
+  /**
+   * Total comment count (`descendants`) at the moment the user opened
+   * the comments view. Compared against the feed's current count to
+   * derive the "N new" label on story rows.
+   */
+  seenCommentCount?: number;
 }
 
 export interface OpenedEntry {
@@ -17,6 +23,7 @@ export interface OpenedEntry {
   at: number;
   articleAt?: number;
   commentsAt?: number;
+  seenCommentCount?: number;
 }
 
 function hasWindow(): boolean {
@@ -33,12 +40,21 @@ function parseEntry(x: unknown): StoredEntry | null {
   if (!isNumber(obj.id) || !isNumber(obj.at)) return null;
   const articleAt = isNumber(obj.articleAt) ? obj.articleAt : undefined;
   const commentsAt = isNumber(obj.commentsAt) ? obj.commentsAt : undefined;
+  const seenCommentCount = isNumber(obj.seenCommentCount)
+    ? obj.seenCommentCount
+    : undefined;
   // Legacy entries have neither articleAt nor commentsAt — treat `at` as
   // the timestamp for both halves so users keep their read state.
   if (articleAt === undefined && commentsAt === undefined) {
-    return { id: obj.id, at: obj.at, articleAt: obj.at, commentsAt: obj.at };
+    return {
+      id: obj.id,
+      at: obj.at,
+      articleAt: obj.at,
+      commentsAt: obj.at,
+      seenCommentCount,
+    };
   }
-  return { id: obj.id, at: obj.at, articleAt, commentsAt };
+  return { id: obj.id, at: obj.at, articleAt, commentsAt, seenCommentCount };
 }
 
 function readEntries(now: number): StoredEntry[] {
@@ -76,7 +92,12 @@ function writeEntries(entries: StoredEntry[]): void {
   window.dispatchEvent(new CustomEvent(OPENED_STORIES_CHANGE_EVENT));
 }
 
-function upsert(id: number, kind: OpenedKind | 'both', now: number): void {
+function upsert(
+  id: number,
+  kind: OpenedKind | 'both',
+  now: number,
+  commentsCount?: number,
+): void {
   const entries = readEntries(now);
   const existing = entries.find((e) => e.id === id);
   const rest = entries.filter((e) => e.id !== id);
@@ -88,7 +109,14 @@ function upsert(id: number, kind: OpenedKind | 'both', now: number): void {
     kind === 'comments' || kind === 'both'
       ? now
       : existing?.commentsAt;
-  rest.push({ id, at: now, articleAt, commentsAt });
+  // Snapshot the comment count only when the comments half is being
+  // (re-)opened. If the caller didn't supply a count, leave any prior
+  // snapshot intact — an article-only open shouldn't erase it.
+  const seenCommentCount =
+    (kind === 'comments' || kind === 'both') && commentsCount !== undefined
+      ? commentsCount
+      : existing?.seenCommentCount;
+  rest.push({ id, at: now, articleAt, commentsAt, seenCommentCount });
   writeEntries(rest);
 }
 
@@ -126,12 +154,29 @@ export function markArticleOpenedId(
 export function markCommentsOpenedId(
   id: number,
   now: number = Date.now(),
+  commentsCount?: number,
 ): void {
-  upsert(id, 'comments', now);
+  upsert(id, 'comments', now, commentsCount);
 }
 
-export function addOpenedId(id: number, now: number = Date.now()): void {
-  upsert(id, 'both', now);
+export function addOpenedId(
+  id: number,
+  now: number = Date.now(),
+  commentsCount?: number,
+): void {
+  upsert(id, 'both', now, commentsCount);
+}
+
+export function getSeenCommentCounts(
+  now: number = Date.now(),
+): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const e of readEntries(now)) {
+    if (e.seenCommentCount !== undefined) {
+      out.set(e.id, e.seenCommentCount);
+    }
+  }
+  return out;
 }
 
 export function removeOpenedId(id: number, now: number = Date.now()): void {

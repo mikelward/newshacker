@@ -7,6 +7,7 @@ import {
   getCommentsOpenedIds,
   getOpenedEntries,
   getOpenedIds,
+  getSeenCommentCounts,
   markArticleOpenedId,
   markCommentsOpenedId,
   removeOpenedId,
@@ -172,6 +173,40 @@ describe('openedStories', () => {
       );
       expect(getArticleOpenedIds()).toEqual(new Set([9]));
       expect(getCommentsOpenedIds()).toEqual(new Set([9]));
+    });
+  });
+
+  describe('seen comment count snapshotting', () => {
+    it('stores the count passed to markCommentsOpenedId', () => {
+      markCommentsOpenedId(1, Date.now(), 12);
+      expect(getSeenCommentCounts().get(1)).toBe(12);
+    });
+
+    it('stores zero explicitly', () => {
+      markCommentsOpenedId(1, Date.now(), 0);
+      expect(getSeenCommentCounts().get(1)).toBe(0);
+    });
+
+    it('omits the id when no count has ever been recorded', () => {
+      markCommentsOpenedId(1);
+      expect(getSeenCommentCounts().has(1)).toBe(false);
+    });
+
+    it('updates the snapshot when the thread is re-opened', () => {
+      markCommentsOpenedId(1, Date.now(), 3);
+      markCommentsOpenedId(1, Date.now(), 8);
+      expect(getSeenCommentCounts().get(1)).toBe(8);
+    });
+
+    it('keeps the prior snapshot when the article half is opened later', () => {
+      markCommentsOpenedId(1, Date.now(), 3);
+      markArticleOpenedId(1);
+      expect(getSeenCommentCounts().get(1)).toBe(3);
+    });
+
+    it('addOpenedId also records the snapshot', () => {
+      addOpenedId(1, Date.now(), 7);
+      expect(getSeenCommentCounts().get(1)).toBe(7);
     });
   });
 });
