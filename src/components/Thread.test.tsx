@@ -575,12 +575,12 @@ describe('<Thread>', () => {
     const vote = screen.getByTestId('thread-vote');
     expect(vote).toHaveAccessibleName(/^upvote$/i);
     expect(vote).toHaveAttribute('aria-pressed', 'false');
-    expect(vote.className).not.toContain('thread__action--active');
+    expect(vote.className).not.toContain('thread__meta-vote--voted');
 
     await userEvent.click(vote);
     expect(vote).toHaveAccessibleName(/^unvote$/i);
     expect(vote).toHaveAttribute('aria-pressed', 'true');
-    expect(vote.className).toContain('thread__action--active');
+    expect(vote.className).toContain('thread__meta-vote--voted');
 
     // The optimistic write sat in localStorage under alice's namespace.
     expect(

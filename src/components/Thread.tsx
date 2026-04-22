@@ -14,7 +14,7 @@ import { useVote } from '../hooks/useVote';
 import { SummaryError, useSummary } from '../hooks/useSummary';
 import { useCommentsSummary } from '../hooks/useCommentsSummary';
 import { useContentWidth } from '../hooks/useContentWidth';
-import { extractDomain, formatStoryMetaTail } from '../lib/format';
+import { extractDomain, formatTimeAgo, pluralize } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
@@ -88,19 +88,25 @@ function PinFilledIcon() {
   );
 }
 
-function UpArrowIcon() {
-  // Solid upward-pointing triangle — mirrors HN's `▲` vote arrow. We
-  // rely on `.thread__action--active` toggling `currentColor` to HN
-  // orange for the voted state, rather than a separate filled variant,
-  // because HN itself uses a shape+color (not outline↔solid) convention
-  // for upvoted.
+function UpArrowIcon({
+  size = 28,
+  className = 'thread__action-icon',
+}: {
+  size?: number;
+  className?: string;
+} = {}) {
+  // Solid upward-pointing triangle — mirrors HN's `▲` vote arrow. The
+  // voted state flips `currentColor` to HN orange via a parent `--active`
+  // class (bar variant) or `--voted` class (inline meta variant), rather
+  // than a separate filled variant, because HN itself uses shape+color
+  // (not outline↔solid) convention for upvoted.
   return (
     <svg
-      className="thread__action-icon"
+      className={className}
       viewBox={MS_VIEWBOX}
       fill="currentColor"
-      width="28"
-      height="28"
+      width={size}
+      height={size}
       aria-hidden="true"
       focusable="false"
     >
@@ -470,12 +476,9 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
 interface ThreadActionBarProps {
   itemId: number;
   articleUrl?: string;
-  canVote: boolean;
-  voted: boolean;
   pinned: boolean;
   done: boolean;
   menuOpen: boolean;
-  onToggleVote: () => void;
   onTogglePinned: () => void;
   onToggleDone: () => void;
   onOpenMenu: () => void;
@@ -485,12 +488,9 @@ interface ThreadActionBarProps {
 function ThreadActionBar({
   itemId,
   articleUrl,
-  canVote,
-  voted,
   pinned,
   done,
   menuOpen,
-  onToggleVote,
   onTogglePinned,
   onToggleDone,
   onOpenMenu,
@@ -509,24 +509,6 @@ function ThreadActionBar({
           <OpenInNewIcon />
           <span className="thread__action-label">Read article</span>
         </a>
-      ) : null}
-      {canVote ? (
-        <TooltipButton
-          type="button"
-          className={
-            'thread__action thread__action--icon' +
-            (voted ? ' thread__action--active' : '')
-          }
-          data-testid={`thread-vote${testIdSuffix}`}
-          aria-pressed={voted}
-          tooltip={voted ? 'Unvote' : 'Upvote'}
-          onClick={onToggleVote}
-        >
-          <UpArrowIcon />
-          <span className="visually-hidden">
-            {voted ? 'Unvote' : 'Upvote'}
-          </span>
-        </TooltipButton>
       ) : null}
       <TooltipButton
         type="button"
@@ -740,12 +722,9 @@ export function Thread({ id }: Props) {
         <ThreadActionBar
           itemId={item.id}
           articleUrl={item.url}
-          canVote={isAuthenticated}
-          voted={voted}
           pinned={pinned}
           done={done}
           menuOpen={menuOpen}
-          onToggleVote={handleToggleVote}
           onTogglePinned={handleTogglePinned}
           onToggleDone={handleToggleDone}
           onOpenMenu={openMenu}
@@ -779,7 +758,28 @@ export function Thread({ id }: Props) {
               {' · '}
             </>
           ) : null}
-          {formatStoryMetaTail(item)}
+          {item.time ? <>{formatTimeAgo(item.time)}{' · '}</> : null}
+          {isAuthenticated ? (
+            <TooltipButton
+              type="button"
+              className={
+                'thread__meta-vote' +
+                (voted ? ' thread__meta-vote--voted' : '')
+              }
+              data-testid="thread-vote"
+              aria-pressed={voted}
+              tooltip={voted ? 'Unvote' : 'Upvote'}
+              onClick={handleToggleVote}
+            >
+              <UpArrowIcon size={14} className="thread__meta-vote-icon" />
+              <span className="visually-hidden">
+                {voted ? 'Unvote' : 'Upvote'}
+              </span>
+            </TooltipButton>
+          ) : null}
+          {`${item.score ?? 0} ${pluralize(item.score ?? 0, 'point')} · ${
+            item.descendants ?? 0
+          } ${pluralize(item.descendants ?? 0, 'comment')}`}
         </div>
         {item.text ? (
           <div
@@ -809,12 +809,9 @@ export function Thread({ id }: Props) {
         <ThreadActionBar
           itemId={item.id}
           articleUrl={item.url}
-          canVote={isAuthenticated}
-          voted={voted}
           pinned={pinned}
           done={done}
           menuOpen={menuOpen}
-          onToggleVote={handleToggleVote}
           onTogglePinned={handleTogglePinned}
           onToggleDone={handleToggleDone}
           onOpenMenu={openMenu}
