@@ -157,8 +157,29 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Branching
 
-- Develop on the branch the harness assigns (see the session instructions — currently `claude/hackernews-mobile-app-E2eoZ`).
-- Commit with clear messages. Don't create PRs unless the user asks.
+- **Normal flow.** Short-lived branch off `origin/main` → GitHub PR →
+  land on main via rebase or squash (linear history, no merge
+  commits). Never commit to `main` directly. One PR per branch, one
+  branch per topic — follow-up work after a merge goes on a new
+  branch. Commit with clear messages. Don't open PRs unless asked.
+
+- **Cues that require action before you write more code.** Always
+  check the current PR's state via the GitHub MCP tools before acting
+  — trust the state, not just the word.
+  - **"merged" / "I merged"** — the PR landed; the branch is retired.
+    `git fetch origin`, cut a new branch off `origin/main`'s tip with
+    a fresh `claude/<short-topic>` name, tell the user you're
+    switching, delete the old remote ref, open a new PR when ready.
+    Never force-push new work onto a merged branch — it rewrites the
+    merged PR's history.
+  - **"sync" / "rebase" / "pull main" / "update from main"** — the
+    branch is still alive. `git fetch origin`, rebase onto
+    `origin/main`, `git push --force-with-lease`. Same branch, same
+    PR.
+  - **State doesn't match the word** (e.g. "rebase" but the PR has
+    already merged, or PR is closed-unmerged): follow the "merged"
+    path for a merged PR and flag it; ask the user for the
+    closed-unmerged case.
 - **ALWAYS end every reply with the PR link.** Once a PR exists for
   the current branch, every single assistant reply in the session
   must finish with the plain GitHub PR URL
