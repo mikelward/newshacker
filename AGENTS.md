@@ -170,8 +170,10 @@ If any of the above fails, fix it — don't disable the check.
     `git fetch origin`, cut a new branch off `origin/main`'s tip with
     a fresh `claude/<short-topic>` name, tell the user you're
     switching, delete the old remote ref, open a new PR when ready.
-    Never force-push new work onto a merged branch — it rewrites the
-    merged PR's history.
+    The delete step is usually a no-op because this repo has
+    auto-delete-on-merge enabled, but run it anyway so the rule is
+    robust if the setting ever changes. Never force-push new work
+    onto a merged branch — it rewrites the merged PR's history.
   - **"sync" / "rebase" / "pull main" / "update from main"** — the
     branch is still alive. `git fetch origin`, rebase onto
     `origin/main`, `git push --force-with-lease`. Same branch, same
@@ -180,20 +182,15 @@ If any of the above fails, fix it — don't disable the check.
     already merged, or PR is closed-unmerged): follow the "merged"
     path for a merged PR and flag it; ask the user for the
     closed-unmerged case.
-- **ALWAYS end every reply with the PR link.** Once a PR exists for
-  the current branch, every single assistant reply in the session
-  must finish with the plain GitHub PR URL
-  (`https://github.com/<org>/<repo>/pull/<n>`) on its own final line —
-  including replies where you did no pushing, where the user just
-  asked a question, where you only read files, or where you're saying
-  "done". The Claude Code "open PR" / "view work" button in the UI
-  stops working once the branch has been merged (and is brittle
-  across force-pushes in general), so the repeated link in chat is
-  the only reliable way the reviewer can find the diff later. If no
-  PR exists yet for the branch, link to the branch-compare URL
-  (`https://github.com/<org>/<repo>/tree/<branch>` or
-  `.../compare/main...<branch>`) instead, and switch to the PR URL
-  the moment one is opened.
+- **End every reply with the currently-open PR link.** Chat footer
+  is the reviewer's source of truth; the Claude Code "View PR"
+  button (especially on mobile) may stay pinned to a closed PR after
+  a merge. Never link to a closed or merged PR. No open PR for the
+  current branch → `.../compare/main...<branch>`, swap to the PR URL
+  the moment one is opened. Between PRs (detached on main after a
+  merge) → omit the footer or link to
+  `.../pulls?q=is%3Aopen+is%3Apr`. Re-verify via MCP after any
+  "merged" / "closed" cue before reusing a URL.
 - **Never commit directly to `main` (or `master`).** The only write
   operation allowed on the default branch is a fast-forward merge / push
   of already-reviewed commits. No direct commits, no rebases that rewrite
