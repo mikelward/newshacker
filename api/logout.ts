@@ -6,7 +6,8 @@
 // that's by design (and matches user intuition for "sign out of this
 // reader app").
 
-const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'hn_session';
+import { json } from '../lib/api/http';
+import { SESSION_COOKIE_NAME } from '../lib/api/session';
 
 // Same attributes as the cookie we set at login time (minus the value),
 // so the browser actually matches and replaces it. `Max-Age=0` tells the
@@ -20,17 +21,6 @@ function clearSessionCookieHeader(): string {
     'SameSite=Lax',
     'Max-Age=0',
   ].join('; ');
-}
-
-function json(body: unknown, status = 200, extraHeaders: HeadersInit = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'private, no-store',
-      ...extraHeaders,
-    },
-  });
 }
 
 export async function handleLogoutRequest(request: Request): Promise<Response> {
