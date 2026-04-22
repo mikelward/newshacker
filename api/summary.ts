@@ -70,6 +70,7 @@ interface HNItem {
   type?: string;
   title?: string;
   url?: string;
+  text?: string;
   score?: number;
   dead?: boolean;
   deleted?: boolean;
@@ -241,6 +242,47 @@ function buildPrompt(articleUrl: string, content: string): string {
   );
 }
 
+// Self-post variant — Ask HN / Show HN / text-only submissions where the
+// body of the story IS the content. No article URL to reference, so the
+// prompt drops the "fetched from <url>" clause and acknowledges that the
+// submitter's question is often the whole point (e.g. "Ask HN: how do I
+// do X?" → the summary should state the question, not the meta).
+function buildSelfPostPrompt(title: string, content: string): string {
+  return (
+    `Summarize the Hacker News self-post below in a single, concise sentence without using bullet points or introductory text. ` +
+    `The title is "${title}". ` +
+    `Write the sentence as a direct assertion of the post's main point or question, in the voice of the submitter — ` +
+    `as if the submitter is stating the claim or asking the question themselves. ` +
+    `Do not refer to "the article", "the author", "the submitter", "the piece", "the post", "this story", or similar. ` +
+    `Do not begin with meta-framing such as "The post asks", "The submitter claims", "The author wonders", ` +
+    `"This post describes", or any variant. Just state the point or the question directly. ` +
+    `There is no external article — the body below is the full submission.\n\n` +
+    `--- BEGIN POST ---\n${content}\n--- END POST ---`
+  );
+}
+
+// HN self-post bodies contain a constrained HTML subset (<p>, <a>, <i>,
+// <pre>, <code>, entities). Strip tags and decode entities so the model
+// sees clean plain text. Mirror of the comment helper in
+// api/warm-summaries.ts / api/comments-summary.ts.
+export function htmlToPlainText(input: string | undefined): string {
+  if (!input) return '';
+  return input
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/\s*p\s*>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -401,13 +443,16 @@ export async function handleSummaryRequest(
       400,
     );
   }
-  if (!story.url || !isValidHttpUrl(story.url)) {
+  const hasArticleUrl = !!story.url && isValidHttpUrl(story.url);
+  const selfPostBody = hasArticleUrl
+    ? ''
+    : clampContent(htmlToPlainText(story.text)) ?? '';
+  if (!hasArticleUrl && !selfPostBody) {
     return json(
       { error: 'Story has no article to summarize', reason: 'no_article' },
       400,
     );
   }
-  const articleUrl = story.url;
 
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
@@ -417,53 +462,65 @@ export async function handleSummaryRequest(
     );
   }
 
-  const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
-  if (!jinaApiKey) {
-    return json(
-      { error: 'Summary is not configured', reason: 'not_configured' },
-      503,
-    );
-  }
-  const jinaResult = await fetchViaJina(articleUrl, jinaApiKey, deps);
-  if (!jinaResult.ok) {
-    if (jinaResult.failure === 'timeout') {
+  let content: string;
+  let prompt: string;
+  if (hasArticleUrl) {
+    const articleUrl = story.url!;
+    const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
+    if (!jinaApiKey) {
       return json(
-        {
-          error: "The article site didn't respond in time",
-          reason: 'source_timeout',
-        },
-        504,
-      );
-    }
-    if (jinaResult.failure === 'payment_required') {
-      // Jina rejected the fetch with 402 / 429 — our paid quota is
-      // exhausted. Log loudly so operators notice; the endpoint returns
-      // 503 rather than crashing so clients can render a graceful
-      // "summaries temporarily unavailable" message.
-      console.error(
-        JSON.stringify({
-          type: 'summary-jina-payment-required',
-          storyId,
-          articleUrl,
-        }),
-      );
-      return json(
-        {
-          error: 'Summaries are temporarily unavailable',
-          reason: 'summary_budget_exhausted',
-        },
+        { error: 'Summary is not configured', reason: 'not_configured' },
         503,
       );
     }
-    return json(
-      {
-        error: 'Could not access the article',
-        reason: 'source_unreachable',
-      },
-      502,
-    );
+    const jinaResult = await fetchViaJina(articleUrl, jinaApiKey, deps);
+    if (!jinaResult.ok) {
+      if (jinaResult.failure === 'timeout') {
+        return json(
+          {
+            error: "The article site didn't respond in time",
+            reason: 'source_timeout',
+          },
+          504,
+        );
+      }
+      if (jinaResult.failure === 'payment_required') {
+        // Jina rejected the fetch with 402 / 429 — our paid quota is
+        // exhausted. Log loudly so operators notice; the endpoint returns
+        // 503 rather than crashing so clients can render a graceful
+        // "summaries temporarily unavailable" message.
+        console.error(
+          JSON.stringify({
+            type: 'summary-jina-payment-required',
+            storyId,
+            articleUrl,
+          }),
+        );
+        return json(
+          {
+            error: 'Summaries are temporarily unavailable',
+            reason: 'summary_budget_exhausted',
+          },
+          503,
+        );
+      }
+      return json(
+        {
+          error: 'Could not access the article',
+          reason: 'source_unreachable',
+        },
+        502,
+      );
+    }
+    content = jinaResult.content;
+    prompt = buildPrompt(articleUrl, content);
+  } else {
+    // Self-post path: Ask HN / Show HN / text-only. The body is already
+    // in-hand via the Firebase item, so there's no Jina round-trip — the
+    // only spend is the Gemini call itself.
+    content = selfPostBody;
+    prompt = buildSelfPostPrompt(story.title ?? '', content);
   }
-  const content = jinaResult.content;
 
   const client: SummaryClient = deps.createClient
     ? deps.createClient(apiKey)
@@ -473,7 +530,7 @@ export async function handleSummaryRequest(
   try {
     const response = await client.models.generateContent({
       model: MODEL,
-      contents: buildPrompt(articleUrl, content),
+      contents: prompt,
       config: {
         // Gemini 2.5 Flash-Lite runs hidden "thinking" tokens by default;
         // the one-sentence summary task doesn't need them and they

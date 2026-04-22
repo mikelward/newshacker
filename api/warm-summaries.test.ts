@@ -392,6 +392,49 @@ describe('handleWarmRequest', () => {
     expect(record.lastCheckedAt).toBe(now);
   });
 
+  it('warms a self-post article summary from story.text without calling Jina', async () => {
+    // Self-posts (Ask HN / Show HN / text-only) have no external URL but
+    // do carry a body in `text`. The warmer must summarize them directly
+    // instead of logging `skipped_no_content`, matching the on-demand
+    // /api/summary behaviour.
+    const fetchItem = fetchItemFor({
+      2001: {
+        id: 2001,
+        type: 'story',
+        title: 'Ask HN: self-post warm',
+        text: '<p>Body of the self-post.</p>',
+        score: 42,
+      },
+    });
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('Jina must not be called for self-posts');
+    });
+    const store = createTestStore();
+    const client = createFakeClient([{ text: 'self-post summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = 1_700_000_000_000;
+
+    const res = await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [2001],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    expect(res.status).toBe(200);
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const record = store.map.get(2001)!;
+    expect(record.summary).toBe('self-post summary');
+    // Hash is computed on the stripped plain-text body, not the raw HTML.
+    expect(record.articleHash).toBe(hashArticle('Body of the self-post.'));
+  });
+
   it('unchanged: bumps lastCheckedAt but does not call Gemini', async () => {
     const articleUrl = 'https://example.com/same';
     const body = 'stable body';

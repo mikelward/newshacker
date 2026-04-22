@@ -999,7 +999,10 @@ describe('<Thread>', () => {
     });
   });
 
-  it('does not render a summary card for self-posts without a url', async () => {
+  it('renders a summary card for self-posts with a text body', async () => {
+    // Self-posts are summarized directly from `story.text` — no Jina
+    // round-trip — so the card should appear on the thread just like it
+    // does for link posts.
     installHNFetchMock({
       items: {
         850: makeStory(850, {
@@ -1008,11 +1011,33 @@ describe('<Thread>', () => {
           text: 'a self post',
         }),
       },
+      summaries: { 850: { summary: 'Self-post summary.' } },
     });
 
     renderWithProviders(<Thread id={850} />);
     await waitFor(() => {
       expect(screen.getByText('Ask HN: no url')).toBeInTheDocument();
+    });
+
+    const card = await screen.findByTestId('thread-summary-card');
+    expect(card).toBeInTheDocument();
+    expect(card).toHaveTextContent('Self-post summary.');
+  });
+
+  it('does not render a summary card when the story has neither url nor text', async () => {
+    installHNFetchMock({
+      items: {
+        851: makeStory(851, {
+          title: 'Empty story',
+          url: undefined,
+          text: undefined,
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={851} />);
+    await waitFor(() => {
+      expect(screen.getByText('Empty story')).toBeInTheDocument();
     });
 
     expect(screen.queryByTestId('thread-summary-card')).toBeNull();
@@ -1103,7 +1128,9 @@ describe('<Thread>', () => {
     expect(screen.getByText('Beta insight.')).toBeInTheDocument();
   });
 
-  it('also renders the comments summary card for self-posts (Ask HN) with kids', async () => {
+  it('renders both the article and comments summary cards for self-posts (Ask HN) with kids', async () => {
+    // Self-posts with body text get the article summary card too — it's
+    // generated directly from `story.text` instead of a fetched article.
     installHNFetchMock({
       items: {
         960: makeStory(960, {
@@ -1121,6 +1148,7 @@ describe('<Thread>', () => {
           time: 1,
         },
       },
+      summaries: { 960: { summary: 'Seeking opinions.' } },
       commentsSummaries: {
         960: { insights: ['Community thinks carefully.'] },
       },
@@ -1128,11 +1156,12 @@ describe('<Thread>', () => {
 
     renderWithProviders(<Thread id={960} />);
 
-    // Article summary card is NOT rendered (no url)
     await screen.findByText('Ask HN: thoughts?');
-    expect(screen.queryByTestId('thread-summary-card')).toBeNull();
+    expect(
+      await screen.findByTestId('thread-summary-card'),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('Seeking opinions.')).toBeInTheDocument();
 
-    // But comments summary card IS rendered because there are kids
     expect(
       await screen.findByTestId('thread-comments-summary-card'),
     ).toBeInTheDocument();
@@ -1203,7 +1232,9 @@ describe('<Thread>', () => {
       items: {
         // Self-post (no url) so we don't get a second Retry button from
         // the article summary card, which would make the role query
-        // ambiguous.
+        // ambiguous. The self-post gets a successful /api/summary fixture
+        // so its card resolves into a normal summary state (no Retry),
+        // leaving only the comments-summary card's Retry visible.
         990: makeStory(990, {
           kids: [991],
           descendants: 1,
@@ -1212,6 +1243,7 @@ describe('<Thread>', () => {
         }),
         991: { id: 991, type: 'comment', by: 'x', text: 'hi', time: 1 },
       },
+      summaries: { 990: { summary: 'self-post summary.' } },
       commentsSummaries: {
         990: { error: 'Summarization failed', status: 502 },
       },
