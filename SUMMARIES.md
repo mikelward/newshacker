@@ -263,6 +263,19 @@ top-N breakdown stays readable.
    tuning a single global constant against a mixed distribution hides
    the signal.
 
+Note that Vercel Web Analytics only exposes **marginal** per-property
+breakdowns in its UI, and doing joint analysis (e.g. `delta_h` at a
+given `card_w` for a given `kind`) from that view is awkward to
+impossible. For joint distributions the same payload is also POSTed
+to `/api/telemetry`, which `HINCRBY`s a counter in Upstash Redis
+keyed by the full bucket tuple. Run:
+
+    npm run analyze:telemetry
+
+(requires Upstash credentials in `.env.local`, easiest via
+`vercel env pull .env.local`) and the script prints per-tier p50/p90
+distributions and recommended new constant values.
+
 ### What to look for
 
 For each `(kind, card_w)` combination:

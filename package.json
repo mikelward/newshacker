@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
-    "icons:generate": "node scripts/generate-icons.mjs"
+    "icons:generate": "node scripts/generate-icons.mjs",
+    "analyze:telemetry": "node --env-file-if-exists=.env.local scripts/analyze-summary-layout.mjs"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
