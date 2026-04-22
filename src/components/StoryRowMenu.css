@@ -95,13 +95,18 @@
   }
 }
 
-.story-menu__item:hover,
 .story-menu__item:focus-visible {
   background: var(--hn-pressed);
 }
 
 .story-menu__item:active {
   background: var(--hn-border);
+}
+
+@media (hover: hover) {
+  .story-menu__item:hover {
+    background: var(--hn-pressed);
+  }
 }
 
 .story-menu__cancel {
