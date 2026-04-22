@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
 import { formatDisplayDomain, formatStoryMetaTail } from '../lib/format';
+import { usePointerDevice } from '../hooks/usePointerDevice';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 import { TooltipButton } from './TooltipButton';
@@ -52,6 +54,8 @@ export function StoryListItem({
       : 0;
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const articleRef = useRef<HTMLElement>(null);
+  const pointerDevice = usePointerDevice();
 
   const handleHide = useCallback(() => {
     onHide?.(story.id);
@@ -86,6 +90,25 @@ export function StoryListItem({
     onSwipeLeft: onPin ? handlePin : undefined,
     onLongPress: openMenu,
   });
+
+  // Right-click opens the same menu on pointer devices — the desktop
+  // equivalent of touch long-press. The swipe-to-dismiss hook's own
+  // onContextMenu already calls preventDefault when a long-press
+  // handler is wired; we compose on top of it and only act when the
+  // media query reports a hover-capable pointer, so we don't
+  // double-fire on mobile where long-press also opens the menu and
+  // the OS may fire a synthetic contextmenu.
+  const swipeOnContextMenu = handlers.onContextMenu;
+  const hasAnyMenuItem = !!(onHide || onPin || onUnpin || onShare);
+  const handleContextMenu = useCallback(
+    (e: MouseEvent<HTMLElement>) => {
+      swipeOnContextMenu?.(e);
+      if (!pointerDevice || !hasAnyMenuItem) return;
+      e.preventDefault();
+      setMenuOpen(true);
+    },
+    [swipeOnContextMenu, pointerDevice, hasAnyMenuItem],
+  );
 
   const rowOpened = articleOpened || commentsOpened;
 
@@ -126,10 +149,12 @@ export function StoryListItem({
 
   return (
     <article
+      ref={articleRef}
       className={rowClass}
       data-testid="story-row"
       style={style}
       {...handlers}
+      onContextMenu={handleContextMenu}
     >
       <Link
         to={`/item/${story.id}`}
@@ -176,6 +201,7 @@ export function StoryListItem({
           open={menuOpen}
           title={title}
           items={menuItems}
+          anchorEl={articleRef.current}
           onClose={closeMenu}
         />
       ) : null}

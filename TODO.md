@@ -211,6 +211,56 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   List if the coverage matters; the length cap is the backstop until
   then.
 
+## Desktop layout
+
+- **Wider reading column on desktop (item #4 of the desktop-layout
+  pass).** The app is capped at 720px everywhere, which is fine on
+  mobile but wastes pixels and eye-distance on a 1440+ monitor.
+  Explore bumping the thread/comments column to ~760–840px on
+  viewports wider than some threshold (maybe `≥960px`), or a
+  `clamp()`-based scaling. Low risk: pure CSS change on
+  `.app-main` — no JS, no API, no new data. Before shipping,
+  eyeball long-comment threads to confirm the wider measure still
+  reads well and that AI summary cards don't stretch into awkward
+  wide lozenges.
+
+- **Separate action toolbar above the story (moved out of the top
+  bar).** The sticky orange top bar is currently doing double duty
+  on feed pages (brand + feed-scoped actions: refresh, undo,
+  sweep, account). On desktop at least, consider lifting the
+  feed-scoped actions into their own sub-toolbar that sits below
+  the brand header and above the first story, so the top bar
+  becomes pure chrome (brand + nav) and the action row becomes a
+  more conventional secondary toolbar. Unclear whether that
+  generalizes to mobile — the sticky-orange-bar look is part of
+  the brand, and a two-tier header eats vertical space on a phone.
+  Needs a design pass.
+
+- **Bottom-sheet vs anchored popover on touch (item #1 follow-up).**
+  The desktop-layout pass shipped the anchored-popover variant of
+  `StoryRowMenu` for `(hover: hover)` pointer devices while
+  keeping the bottom sheet for touch. The sheet is an iOS
+  convention; Android PopupMenu is already the same anchored
+  style we now ship on desktop. Re-evaluate whether the popover
+  should be the mobile default too, once we have a chance to try
+  it on real devices at Pixel 10 screen size.
+
+- **Desktop-specific layout ideas parked for later.** The
+  following were suggested in the same pass but intentionally
+  deferred pending UX discussion:
+  - Visible ⋮ button on story rows (item #2) — where it appears,
+    and whether it displaces the reserved middle slot. Right-click
+    to open is already wired.
+  - Keyboard shortcuts (item #7): `j`/`k` nav, `o` open, `p` pin,
+    `.` open menu, `g t`/`g n`/`g b` feed switch, `?` help.
+  - Persistent left-rail navigation at wide widths (item #5).
+    Current off-canvas drawer is deliberately minimal; a sidebar
+    needs its own look.
+  - Two-column thread layout at wide widths (item #9).
+  - Hover-only comment collapse controls vs tap-anywhere-to-toggle
+    (item #10 shipped the chevron affordance; deeper behavior
+    split is follow-up work).
+
 ## Sweep edge cases
 
 - **Row taller than the visible viewport.** Sweep currently hides

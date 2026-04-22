@@ -499,7 +499,7 @@ interface ThreadActionBarProps {
   onToggleVote: () => void;
   onTogglePinned: () => void;
   onToggleDone: () => void;
-  onOpenMenu: () => void;
+  onOpenMenu: (anchor: HTMLElement | null) => void;
   // 'top' (default) renders Read article (when the story has a url) as
   // the primary button. 'bottom' renders Back to top instead — the reader
   // is at the end of a long thread, so a quick jump up is more useful
@@ -530,6 +530,7 @@ function ThreadActionBar({
   variant = 'top',
   testIdSuffix = '',
 }: ThreadActionBarProps) {
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   return (
     <div className="thread__actions">
       {variant === 'bottom' ? (
@@ -614,6 +615,7 @@ function ThreadActionBar({
         </span>
       </TooltipButton>
       <TooltipButton
+        ref={moreBtnRef}
         type="button"
         className="thread__action thread__action--icon"
         data-testid={`thread-more${testIdSuffix}`}
@@ -621,7 +623,7 @@ function ThreadActionBar({
         aria-expanded={menuOpen}
         tooltip="More actions"
         aria-label="More actions"
-        onClick={onOpenMenu}
+        onClick={() => onOpenMenu(moreBtnRef.current)}
       >
         <MoreVertIcon />
       </TooltipButton>
@@ -693,8 +695,24 @@ export function Thread({ id }: Props) {
   const handleLinkClick = useInternalLinkClick();
   const shareStory = useShareStory();
   const [menuOpen, setMenuOpen] = useState(false);
-  const openMenu = useCallback(() => setMenuOpen(true), []);
-  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const openMenu = useCallback((anchor: HTMLElement | null) => {
+    // Toggle when clicking the same anchor twice — standard
+    // popover-dismiss behavior on desktop; on touch the bottom sheet
+    // closes via its backdrop or Cancel button anyway.
+    setMenuOpen((prev) => {
+      if (prev && menuAnchor === anchor) {
+        setMenuAnchor(null);
+        return false;
+      }
+      setMenuAnchor(anchor);
+      return true;
+    });
+  }, [menuAnchor]);
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    setMenuAnchor(null);
+  }, []);
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
     // Bar carries the high-frequency toggles (Pin/Unpin and Done);
     // Favorite is the "keepsake" action and lives in overflow because
@@ -822,6 +840,7 @@ export function Thread({ id }: Props) {
           open={menuOpen}
           title={item.title ?? '[untitled]'}
           items={menuItems}
+          anchorEl={menuAnchor}
           onClose={closeMenu}
         />
         <div className="thread__meta" data-testid="thread-meta">

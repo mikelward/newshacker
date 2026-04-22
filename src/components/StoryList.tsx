@@ -65,7 +65,7 @@ export function StoryList({ feed }: Props) {
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
-  const { setSweep, recordHide } = useFeedBar();
+  const { setSweep, setRefresh, recordHide } = useFeedBar();
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
@@ -243,6 +243,17 @@ export function StoryList({ feed }: Props) {
     return () => setSweep(null, 0);
   }, [setSweep, handleSweep, sweepableIds.length]);
 
+  // Refresh == "pull the feed + cross-device sync state". Same
+  // callback PullToRefresh uses — see onRefresh below.
+  const handleRefresh = useCallback(
+    () => Promise.all([refetch(), cloudSyncPullNow()]),
+    [refetch],
+  );
+  useEffect(() => {
+    setRefresh(handleRefresh);
+    return () => setRefresh(null);
+  }, [setRefresh, handleRefresh]);
+
   // Snapshot the current comment count so later visits can show a
   // "N new" badge for anything posted since. Look the story up in both
   // the feed page and the off-feed pinned list — a tap on a pinned
@@ -287,13 +298,12 @@ export function StoryList({ feed }: Props) {
 
   return (
     <PullToRefresh
-      onRefresh={() =>
-        // Pull cross-device sync state alongside the HN feed — PTR is
-        // the user's "show me the latest" gesture and they'd expect
-        // pins from other devices to land here too. cloudSyncPullNow
-        // is a no-op when the user isn't signed in.
-        Promise.all([refetch(), cloudSyncPullNow()])
-      }
+      // Pull cross-device sync state alongside the HN feed — PTR is
+      // the user's "show me the latest" gesture and they'd expect
+      // pins from other devices to land here too. cloudSyncPullNow
+      // (inside handleRefresh) is a no-op when the user isn't
+      // signed in. Same handler backs the header Refresh button.
+      onRefresh={handleRefresh}
     >
       <ol className="story-list">
         {offFeedPinnedStories.map((story) => (

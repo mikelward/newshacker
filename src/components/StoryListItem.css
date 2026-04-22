@@ -54,6 +54,13 @@
 }
 
 @media (hover: hover) {
+  /* Row-wide hover tint on pointer devices so the whole row (body
+     and pin-button column alike) signals that it's interactive. The
+     body still carries its own matching hover rule for the "the
+     link is directly targeted" case. */
+  .story-row:hover {
+    background: var(--hn-pressed);
+  }
   .story-row__body:hover {
     text-decoration: none;
     background: var(--hn-pressed);
