@@ -810,6 +810,19 @@ comments card) insight count. It exists to retune the
 skeleton-reservation constants in `Thread.tsx` from real usage data;
 see `SUMMARIES.md` for the dashboard workflow.
 
+The same payload is also POSTed fire-and-forget to `/api/telemetry`,
+which `HINCRBY`s a joint-distribution counter in the existing Upstash
+Redis store (key `newshacker:summary_layout:counts`). Vercel Web
+Analytics only exposes marginal per-property breakdowns in its UI,
+which isn't enough to tune per-viewport skeleton reservations — the
+self-hosted counter is read by `scripts/analyze-summary-layout.mjs`
+(`npm run analyze:telemetry`) and produces a joint breakdown plus
+recommended new constants. Per AGENTS.md rule 11: Upstash reuses the
+existing summary-cache database, adds ~1 `HINCRBY` per summary card
+mount (well under the free-tier 10k commands/day at foreseeable
+traffic), and the client POST is non-blocking so a `/api/telemetry`
+outage is invisible to users.
+
 ## Open Questions
 
 - Rate limiting: HN will throttle scraped requests. For MVP the read path doesn't touch HN's HTML (Firebase is the source), so this only matters once voting is enabled.
