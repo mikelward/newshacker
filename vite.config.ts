@@ -1,5 +1,4 @@
-/// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -149,26 +148,19 @@ export default defineConfig({
     // Default to happy-dom for component/hook/page tests — it's the
     // same DOM contract testing-library needs but spins up noticeably
     // faster per file than jsdom, which was ~95% of `npm test` cost.
-    // Pure-logic tests under src/lib and api/ still route to the node
-    // environment via environmentMatchGlobs below.
+    // Pure-logic tests under src/lib and api/ opt into the node
+    // environment via a `// @vitest-environment node` docblock at the
+    // top of each file. Vitest 4 removed `environmentMatchGlobs`, and
+    // the per-file directive has the nice property that a new test
+    // file can't silently inherit the wrong env.
     environment: 'happy-dom',
-    environmentMatchGlobs: [
-      ['api/**/*.test.ts', 'node'],
-      ['src/lib/analytics.test.ts', 'node'],
-      ['src/lib/commentPrefetch.test.ts', 'node'],
-      ['src/lib/favoriteStoryPrefetch.test.ts', 'node'],
-      ['src/lib/feedStoryPrefetch.test.ts', 'node'],
-      ['src/lib/feeds.test.ts', 'node'],
-      ['src/lib/format.test.ts', 'node'],
-      ['src/lib/pinnedStoryPrefetch.test.ts', 'node'],
-      ['src/lib/queryCacheSync.test.ts', 'node'],
-      ['src/lib/sanitize.test.ts', 'node'],
-      ['src/lib/vote.test.ts', 'node'],
-    ],
     setupFiles: ['./vitest.setup.ts'],
     // Threads are cheaper to spawn than forks and we don't use any
     // native modules that require process isolation.
     pool: 'threads',
     css: false,
+    // Auto-restore `vi.stubGlobal` between tests so confirm/scrollTo/etc.
+    // don't leak from one test to the next.
+    unstubGlobals: true,
   },
 });
