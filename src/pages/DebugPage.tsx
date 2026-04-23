@@ -2,12 +2,9 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
 import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
+import { buildCommitTime } from '../lib/buildInfo';
 import { formatTimeAgo } from '../lib/format';
 import './DebugPage.css';
-
-// Injected by Vite at build time from `git log -1 --format=%cI`.
-// Empty string means git wasn't available when the bundle was built.
-const buildCommitTime: string = __BUILD_COMMIT_TIME__;
 
 function parseBuildTime(iso: string): Date | null {
   if (!iso) return null;
