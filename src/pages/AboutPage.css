@@ -1,8 +1,8 @@
 .about-page {
-  background: var(--hn-bg-card);
+  background: var(--nh-bg-card);
   padding: 16px;
-  border-bottom: 1px solid var(--hn-border);
-  color: var(--hn-text);
+  border-bottom: 1px solid var(--nh-border);
+  color: var(--nh-text);
   font-size: 15px;
   line-height: 1.5;
 }
@@ -25,12 +25,12 @@
 }
 
 .about-page a {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   text-decoration: underline;
 }
 
 .about-page code {
-  background: var(--hn-bg-code);
+  background: var(--nh-bg-code);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 13px;

@@ -20,7 +20,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   pointer-events: none;
 }
 
@@ -28,8 +28,8 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 3px solid color-mix(in srgb, var(--hn-orange) 25%, transparent);
-  border-top-color: var(--hn-orange);
+  border: 3px solid color-mix(in srgb, var(--nh-orange) 25%, transparent);
+  border-top-color: var(--nh-orange);
   opacity: 0;
   transform: rotate(0deg);
   transition: opacity 120ms ease-out;

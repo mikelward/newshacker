@@ -1,9 +1,9 @@
 .state {
   padding: 32px 16px;
   text-align: center;
-  color: var(--hn-meta);
-  background: var(--hn-bg-card);
-  border-bottom: 1px solid var(--hn-border);
+  color: var(--nh-meta);
+  background: var(--nh-bg-card);
+  border-bottom: 1px solid var(--nh-border);
 }
 
 .state__message {

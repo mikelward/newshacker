@@ -8,15 +8,15 @@
      --comment-stack-gap so it stays locked to .comment__children's
      margin-top below — see global.css for the pairing rationale. */
   padding: 8px 12px var(--comment-stack-gap);
-  border-top: 1px solid var(--hn-border);
-  background: var(--hn-bg-card);
-  color: var(--hn-text);
+  border-top: 1px solid var(--nh-border);
+  background: var(--nh-bg-card);
+  color: var(--nh-text);
   cursor: pointer;
-  box-shadow: inset 3px 0 0 0 var(--hn-border);
+  box-shadow: inset 3px 0 0 0 var(--nh-border);
 }
 
 .comment.is-expanded {
-  box-shadow: inset 3px 0 0 0 var(--hn-orange);
+  box-shadow: inset 3px 0 0 0 var(--nh-orange);
   cursor: default;
 }
 
@@ -26,7 +26,7 @@
   margin-top: 0;
   padding-left: 1px;
   font-size: 13px;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
 }
 
 .comment__author {
@@ -76,7 +76,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
 }
 
 .comment__toggle-icon svg {
@@ -85,14 +85,14 @@
 
 @media (hover: hover) {
   .comment__toggle:hover .comment__toggle-icon {
-    color: var(--hn-text);
+    color: var(--nh-text);
   }
 }
 
 .comment__body {
   font-size: 15px;
   line-height: 1.5;
-  color: var(--hn-text);
+  color: var(--nh-text);
   word-wrap: break-word;
 }
 
@@ -104,13 +104,13 @@
 }
 
 .comment__body a {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   text-decoration: underline;
 }
 
 .comment__body pre {
   overflow-x: auto;
-  background: var(--hn-bg-code);
+  background: var(--nh-bg-code);
   padding: 8px;
   border-radius: 4px;
 }
@@ -128,7 +128,7 @@
 }
 
 .comment__action {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   text-decoration: none;
   padding: 4px 2px;
   /* The toggle button is now content-sized so the +/− lands next

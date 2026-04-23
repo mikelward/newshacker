@@ -1,8 +1,8 @@
 .login-page {
-  background: var(--hn-bg-card);
+  background: var(--nh-bg-card);
   padding: 20px 16px 24px;
-  border-bottom: 1px solid var(--hn-border);
-  color: var(--hn-text);
+  border-bottom: 1px solid var(--nh-border);
+  color: var(--nh-text);
   font-size: 15px;
   line-height: 1.5;
 }
@@ -15,7 +15,7 @@
 
 .login-page__intro {
   margin: 0 0 20px;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-size: 14px;
 }
 
@@ -31,15 +31,15 @@
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
 }
 
 .login-page__label input {
   font: inherit;
   font-size: 16px;
-  color: var(--hn-text);
-  background: var(--hn-bg);
-  border: 1px solid var(--hn-border);
+  color: var(--nh-text);
+  background: var(--nh-bg);
+  border: 1px solid var(--nh-border);
   border-radius: 4px;
   padding: 10px 12px;
   min-height: var(--tap-min);
@@ -47,9 +47,9 @@
 }
 
 .login-page__label input:focus {
-  outline: 2px solid var(--hn-orange);
+  outline: 2px solid var(--nh-orange);
   outline-offset: 1px;
-  border-color: var(--hn-orange);
+  border-color: var(--nh-orange);
 }
 
 .login-page__submit {
@@ -58,7 +58,7 @@
   font-size: 15px;
   font-weight: 600;
   color: #fff;
-  background: var(--hn-orange);
+  background: var(--nh-orange);
   border: none;
   border-radius: 4px;
   padding: 12px 16px;
@@ -68,12 +68,12 @@
 
 @media (hover: hover) {
   .login-page__submit:not(:disabled):hover {
-    background: var(--hn-orange-dark);
+    background: var(--nh-orange-dark);
   }
 }
 
 .login-page__submit:not(:disabled):active {
-  background: var(--hn-orange-dark);
+  background: var(--nh-orange-dark);
 }
 
 .login-page__submit:disabled {
@@ -89,11 +89,11 @@
 
 .login-page__disclosure {
   margin: 20px 0 0;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-size: 13px;
 }
 
 .login-page__disclosure a {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   text-decoration: underline;
 }

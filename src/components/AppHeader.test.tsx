@@ -150,7 +150,7 @@ describe('<AppHeader>', () => {
   });
 });
 
-// The global `:focus-visible { outline: 2px solid var(--hn-orange) }` rule
+// The global `:focus-visible { outline: 2px solid var(--nh-orange) }` rule
 // in `global.css` is invisible against the orange header, so every
 // focusable surface that lives on the header needs its own white ring
 // override. A raw-CSS check is enough to pin the invariant — we don't
