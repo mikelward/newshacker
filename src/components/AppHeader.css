@@ -59,7 +59,7 @@
 
 /* The global :focus-visible paints a 2px orange ring, which is invisible
    against the orange header. Substitute a white inset ring — same
-   treatment as .app-header__menu-btn and .app-header__icon-btn. */
+   treatment as .app-header__menu-btn. */
 .app-header__home:focus {
   outline: none;
 }
@@ -94,36 +94,6 @@
   margin-left: auto;
 }
 
-.app-header__icon-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--tap-min);
-  min-height: var(--tap-min);
-  background: transparent;
-  border: none;
-  color: #fff;
-  padding: 0 6px;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.app-header__icon-btn:focus {
-  outline: none;
-}
-
-.app-header__icon-btn:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: -4px;
-}
-
-.app-header__icon-btn:disabled {
-  cursor: default;
-  color: rgba(255, 255, 255, 0.45);
-}
-
 .app-header__offline {
   display: inline-flex;
   align-items: center;
@@ -142,23 +112,4 @@
 .app-header__actions .app-header__offline {
   margin-left: 0;
   margin-right: 4px;
-}
-
-.app-header__refresh-icon--spinning {
-  animation: app-header-refresh-spin 900ms linear infinite;
-}
-
-@keyframes app-header-refresh-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(-360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-header__refresh-icon--spinning {
-    animation: none;
-  }
 }

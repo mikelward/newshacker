@@ -64,3 +64,22 @@
 .feed-action-toolbar__icon {
   display: block;
 }
+
+.feed-action-toolbar__icon--spinning {
+  animation: feed-action-toolbar-refresh-spin 900ms linear infinite;
+}
+
+@keyframes feed-action-toolbar-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-action-toolbar__icon--spinning {
+    animation: none;
+  }
+}

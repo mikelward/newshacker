@@ -42,29 +42,29 @@
   }
 }
 
-/* End-of-list action bar, mirrors `.thread__actions` in Thread.css so the
-   bottom of the feed visually matches the bottom of a thread page (same
-   row height, padding, gap, wrap behavior). Only the container has the
-   outer padding — thread bars sit inside a padded `thread__header`
-   wrapper, lists don't. */
+/* End-of-list action bar — chrome strip styled after the top
+   `FeedActionToolbar` and the app header (transparent buttons, no
+   borders, 4px gap, tight padding). Inherits its width from
+   `.app-main` so it lines up flush with the story rows above.
+   Deliberately diverges from `.thread__actions` on the thread page:
+   list views want a lightweight chrome footer, thread pages still
+   want the card-styled primary-slot bar to announce "read article".
+   Back to top, More, Undo, and Sweep all share the same transparent
+   button look below. */
 .story-list__footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 16px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
 }
 
-/* Text action buttons — neutral palette. `.load-more-btn` is the
-   center-stretched button: on the feed it's the primary action
-   ("reveal the next page of stories"), so it grows to absorb the
-   row's free space and ends up visually the biggest target.
-   `.back-to-top-btn` keeps `flex: 1` as a default because the
-   library footer's only child is Back to top, and a full-width
-   button there is the intended layout. When the feed footer wears
-   `--feed`, the override below shrinks Back to top back to its
-   natural size so More can be the one that stretches. Matches
-   `.thread__action` (without --primary, since the list footer has
-   no CTA equivalent to "Read article"). */
+/* Text buttons — plain text on the page background. Back to top
+   keeps `flex: 1` as a default so the library footer (which renders
+   only Back to top) still puts a full-width target at the bottom of
+   the list; the `--feed` override below shrinks it back to its
+   natural size so More can absorb the free space in a feed footer.
+   Min-height 48 matches the tap-target floor. */
 .back-to-top-btn,
 .load-more-btn {
   display: flex;
@@ -73,23 +73,35 @@
   gap: 8px;
   flex: 1;
   min-width: 0;
-  min-height: 56px;
-  padding: 12px 16px;
-  background: var(--nh-bg-card);
-  border: 1px solid var(--nh-border);
-  border-radius: 8px;
+  min-height: var(--tap-min);
+  padding: 0 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
   color: var(--nh-text);
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
 }
 
-/* Feed footer: rank More above Back to top and Sweep. More is the
-   action the reader came here for — "give me the next page" — so it
-   gets the biggest target by absorbing all free space. Back to top is
-   a nice-to-have escape hatch and Sweep is a one-tap utility; neither
-   needs to grow. Library footers don't carry this modifier (they only
-   hold Back to top, which stays full-width via the default rule). */
+.back-to-top-btn:focus,
+.load-more-btn:focus {
+  outline: none;
+}
+
+.back-to-top-btn:focus-visible,
+.load-more-btn:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
+}
+
+/* Feed footer: rank More above Back to top and the icon cluster. More
+   is the action the reader came here for — "give me the next page" —
+   so it gets the biggest target by absorbing the free space. Back to
+   top is a nice-to-have escape hatch and the icon cluster (Undo +
+   Sweep) is a one-tap utility pair; neither needs to grow. Library
+   footers don't carry this modifier (they only hold Back to top,
+   which stays full-width via the default rule). */
 .story-list__footer--feed .back-to-top-btn {
   flex: initial;
 }
@@ -111,36 +123,42 @@
   cursor: default;
 }
 
-/* Icon-only action button — fixed 56×56 square, matches
-   `.thread__action--icon`. `margin-left: auto` on the button pins the
-   whole icon cluster to the right edge regardless of what sits to its
-   left (Back to top alone, or Back to top + More). When a second icon
-   button sits adjacent, the following `+` rule drops its
-   `margin-left` back to 0 so the pair reads as a single right-anchored
-   cluster at the 12px flex gap. SPEC § Bottom action bar (list views)
-   calls for this slot to be right-pinned; anchoring it here keeps
-   that guarantee independent of the text buttons' flex-grow, so
-   removing or resizing a neighbor can't accidentally pull the icons
-   back toward the center. Library footer has no icon button, so the
-   rule is inert there. */
+/* Icon-only action buttons — transparent 48×48 targets that mirror
+   `.feed-action-toolbar__btn` up top, so the top toolbar and this
+   bottom chrome strip read as a matched pair. `margin-left: auto` on
+   the first icon button pins the whole icon cluster to the right
+   edge regardless of what sits to its left (Back to top alone, or
+   Back to top + More). When a second icon button sits adjacent, the
+   following `+` rule drops its `margin-left` back to 0 so the pair
+   reads as a single right-anchored cluster at the 4px flex gap.
+   Library footer has no icon button, so the rule is inert there. */
 .list-footer__icon-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 56px;
-  min-height: 56px;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
   margin-left: auto;
-  padding: 12px;
-  background: var(--nh-bg-card);
-  border: 1px solid var(--nh-border);
-  border-radius: 8px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
   color: var(--nh-text);
   cursor: pointer;
 }
 
 .list-footer__icon-btn + .list-footer__icon-btn {
   margin-left: 0;
+}
+
+.list-footer__icon-btn:focus {
+  outline: none;
+}
+
+.list-footer__icon-btn:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
 }
 
 @media (hover: hover) {
