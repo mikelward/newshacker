@@ -33,9 +33,11 @@ interface Props {
 //    expected from returning to the tab.
 //
 // First-ever-visit guard: if `navigator.serviceWorker.controller`
-// was null at mount, suppress the first `controllerchange` — the
-// user is watching the SW activate for the first time on a
-// genuinely fresh session, and the bundle is already current.
+// was null at mount, suppress *only* the first `controllerchange`
+// (the initial install → activate → claim, where the bundle is
+// already current). Adopt that new controller as our baseline so
+// any later swap — a subsequent deploy claiming the tab — still
+// surfaces the toast.
 export function AppUpdateWatcher({
   reload,
   returnFromHiddenThresholdMs = RETURN_FROM_HIDDEN_THRESHOLD_MS,
@@ -47,11 +49,15 @@ export function AppUpdateWatcher({
       return;
     }
 
-    const bootController = navigator.serviceWorker.controller;
+    let baselineController = navigator.serviceWorker.controller;
 
     const onControllerChange = () => {
-      if (!bootController) return;
-      if (navigator.serviceWorker.controller === bootController) return;
+      const current = navigator.serviceWorker.controller;
+      if (baselineController === null) {
+        baselineController = current;
+        return;
+      }
+      if (current === baselineController) return;
       showToast({
         message: 'New version available',
         actionLabel: 'Reload',

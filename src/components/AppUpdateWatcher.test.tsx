@@ -110,6 +110,22 @@ describe('<AppUpdateWatcher>', () => {
     expect(screen.queryByText(/new version available/i)).toBeNull();
   });
 
+  it('still toasts on a later SW swap after a fresh-visit initial activation', () => {
+    // Regression: the first-visit guard must only suppress the *first*
+    // controllerchange (the initial install). A later deploy that
+    // claims this tab should still surface the toast.
+    const { fireControllerChange } = stubServiceWorker(null);
+    render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} />
+      </ToastProvider>,
+    );
+    fireControllerChange({ id: 'initial' });
+    expect(screen.queryByText(/new version available/i)).toBeNull();
+    fireControllerChange({ id: 'redeploy' });
+    expect(screen.getByText(/new version available/i)).toBeInTheDocument();
+  });
+
   it('pings the SW when the tab returns from hidden after the threshold', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-23T08:00:00Z'));
