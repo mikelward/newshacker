@@ -905,3 +905,181 @@ describe('handleCommentsSummaryRequest — rate limiting', () => {
     expect(rateLimitStore.calls.length).toBe(0);
   });
 });
+
+describe('handleCommentsSummaryRequest — comments-summary-outcome log events', () => {
+  const origGoogle = process.env.GOOGLE_API_KEY;
+
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+  });
+
+  function outcomeLines(): Array<Record<string, unknown>> {
+    return logSpy.mock.calls
+      .map((c: unknown[]) => (typeof c[0] === 'string' ? c[0] : ''))
+      .map((raw: string): unknown => {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (obj: unknown): obj is Record<string, unknown> =>
+          typeof obj === 'object' &&
+          obj !== null &&
+          (obj as { type?: unknown }).type === 'comments-summary-outcome',
+      );
+  }
+
+  it('logs outcome=cached with total insight chars + count on a cache hit', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      7,
+      {
+        insights: ['alpha', 'beta', 'gamma'], // 5+4+5 = 14 chars, 3 insights
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+
+    const res = await handleCommentsSummaryRequest(makeRequest('7'), {
+      store,
+    });
+    expect(res.status).toBe(200);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      type: 'comments-summary-outcome',
+      endpoint: 'comments-summary',
+      outcome: 'cached',
+      storyId: 7,
+      chars: 14,
+      insightCount: 3,
+    });
+  });
+
+  it('logs outcome=generated with Gemini token metadata, total chars, and insight count', async () => {
+    const fetchItem = fetchItemFrom({
+      20: {
+        id: 20,
+        type: 'story',
+        score: 10,
+        kids: [21],
+        time: OLD_STORY_TIME,
+        title: 'Outcome test',
+      },
+      21: { id: 21, type: 'comment', text: 'first comment body' },
+    });
+    const client = {
+      models: {
+        generateContent: vi.fn(async () => ({
+          text: 'one insight\nanother insight',
+          usageMetadata: {
+            promptTokenCount: 2345,
+            candidatesTokenCount: 67,
+            totalTokenCount: 2412,
+          },
+        })),
+      },
+    };
+
+    const res = await handleCommentsSummaryRequest(makeRequest('20'), {
+      fetchItem,
+      createClient: () => client,
+      store: null,
+    });
+    expect(res.status).toBe(200);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toEqual({
+      type: 'comments-summary-outcome',
+      endpoint: 'comments-summary',
+      outcome: 'generated',
+      storyId: 20,
+      // "one insight" = 11, "another insight" = 15 → 26
+      chars: 26,
+      insightCount: 2,
+      geminiPromptTokens: 2345,
+      geminiOutputTokens: 67,
+      geminiTotalTokens: 2412,
+    });
+  });
+
+  it('logs outcome=error with reason=no_comments when the story has no kids', async () => {
+    const fetchItem = fetchItemFrom({
+      40: {
+        id: 40,
+        type: 'story',
+        score: 10,
+        kids: [],
+        time: OLD_STORY_TIME,
+        title: 'nothing to say',
+      },
+    });
+    const res = await handleCommentsSummaryRequest(makeRequest('40'), {
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(404);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      outcome: 'error',
+      reason: 'no_comments',
+      storyId: 40,
+    });
+  });
+
+  it('logs outcome=rate_limited when the bucket rejects a request', async () => {
+    const rateLimitStore = {
+      async incrementWithExpiry() {
+        return 999;
+      },
+    };
+    const res = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      {
+        fetchItem: fetchItemFrom({
+          1: {
+            id: 1,
+            type: 'story',
+            score: 10,
+            kids: [2],
+            time: OLD_STORY_TIME,
+            title: 'test',
+          },
+          2: { id: 2, type: 'comment', text: 'hello' },
+        }),
+        createClient: () =>
+          createFakeClient([{ text: 'should not be called' }]),
+        store: null,
+        rateLimitStore,
+        rateLimitTiers: [{ name: 'burst', limit: 1, windowSeconds: 600 }],
+      },
+    );
+    expect(res.status).toBe(429);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      outcome: 'rate_limited',
+      storyId: 1,
+    });
+  });
+});

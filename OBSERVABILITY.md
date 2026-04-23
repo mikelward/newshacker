@@ -43,8 +43,15 @@ What's actually running today:
   outcome histogram. No alert monitors configured on top of Axiom
   yet — queries are ad-hoc.
 - **Existing structured log lines.**
+  - `summary-outcome` / `comments-summary-outcome` — `api/summary.ts`
+    and `api/comments-summary.ts`, one line per request. Carries
+    outcome (cached / generated / rate_limited / error), reason on
+    errors, summary length, Gemini prompt/output/total tokens, and
+    (for URL posts) Jina tokens. Schema in § "Log event taxonomy"
+    below.
   - `summary-jina-payment-required` — `api/summary.ts`, fires when
-    Jina returns 402 or 429 on an article fetch.
+    Jina returns 402 or 429 on an article fetch. Dedicated alert
+    signal, still emitted alongside the `summary-outcome` line.
   - `warm-story` / `warm-run` — cron telemetry documented in
     `CRON.md`.
 
@@ -87,40 +94,51 @@ types get documented here in the same commit they ship in.
 
 - **`summary-jina-payment-required`** — `api/summary.ts`.
   Fires exactly when Jina returns HTTP 402 or 429 on an article
-  fetch. Fields: `{ type, storyId, articleUrl }`. This is the only
-  log line that a monitor can key directly off of today; everything
-  else is inferred from Vercel's request-level logs.
+  fetch. Fields: `{ type, storyId, articleUrl }`. Dedicated alert
+  signal for Jina credit exhaustion, emitted alongside the
+  `summary-outcome` line below.
+- **`summary-outcome`** — `api/summary.ts`, one line per request
+  to `/api/summary`. Shape:
+  ```json
+  {
+    "type": "summary-outcome",
+    "endpoint": "summary",
+    "outcome": "cached" | "generated" | "rate_limited" | "error",
+    "reason": "<stable string, absent on cached / generated>",
+    "storyId": 1234,
+    "chars": 230,
+    "geminiPromptTokens": 1234,
+    "geminiOutputTokens": 56,
+    "geminiTotalTokens": 1290,
+    "jinaTokens": 4567
+  }
+  ```
+  `outcome` covers the four alert conditions: cache-hit ratio
+  (`cached / total`), error rate (`error / total`, broken down by
+  `reason`), and 429 burst count (`rate_limited` over time).
+  `chars` is the summary length (on `cached` / `generated`) — feeds
+  skeleton sizing. Gemini token fields are present on every
+  generated summary; `jinaTokens` is present on URL-post
+  generations only (self-posts don't round-trip Jina).
+  `reason` values: `forbidden`, `invalid_id`, `story_unreachable`,
+  `story_not_available`, `low_score`, `no_article`,
+  `not_configured`, `source_timeout`, `summary_budget_exhausted`,
+  `source_unreachable`, `summarization_failed`, `source_captcha`.
+- **`comments-summary-outcome`** — `api/comments-summary.ts`, one
+  line per request. Shape mirrors `summary-outcome` with
+  `endpoint: "comments-summary"` and two differences: `chars` is
+  the sum of characters across all returned insights (so a single
+  metric covers "total content surfaced to the user"),
+  `insightCount` is added, and `jinaTokens` is omitted (this
+  endpoint never calls Jina). Reasons omit Jina-specific ones;
+  `no_comments` replaces `no_article` for the "nothing to
+  summarize" case.
 - **`warm-story`** — `api/warm-summaries.ts`, one line per id processed
   by the cron. See `CRON.md` § "Useful APL queries (Axiom)" for the
   full schema; the outcome field (`unchanged` / `changed` /
   `skipped_*` / `error`) is the primary cron-health signal.
 - **`warm-run`** — `api/warm-summaries.ts`, one line per cron tick
   with the roll-up counts. Schema in `CRON.md`.
-
-### Planned
-
-Two new event types to ship before we can build the monitors:
-
-- **`summary-outcome`** — one line per `/api/summary` request, emitted
-  just before the response is returned. Planned shape:
-  ```json
-  {
-    "type": "summary-outcome",
-    "endpoint": "summary",
-    "outcome": "cached" | "generated" | "rate_limited" | "error",
-    "reason": "<matching SummaryErrorReason, when outcome != cached>",
-    "storyId": 1234
-  }
-  ```
-  `outcome` is the minimal axis we need for all four alert
-  conditions: cache-hit ratio (cached / total), error rate
-  (error / total, broken down by `reason`), and 429 burst count
-  (rate_limited over time). Keep the field set this tight —
-  richer fields are easy to add later but hard to remove once
-  monitors depend on them.
-- **`comments-summary-outcome`** — same shape, with
-  `endpoint: "comments-summary"`. Emitted from
-  `api/comments-summary.ts` in the same PR.
 
 ### Deliberately not logged
 
@@ -452,25 +470,34 @@ Given paging is the stated primary goal:
 Ship in order; each phase leaves the tree in a shippable state and
 is independently revertable.
 
-### Phase 1 — log instrumentation (prereq)
+### Phase 1 — log instrumentation (shipped)
 
-- Add `summary-outcome` JSON log line to `api/summary.ts` (every
-  return path, inside both the cache-hit and the generate branches
-  and every error exit).
-- Add `comments-summary-outcome` equivalent in
+Shipped:
+- `summary-outcome` JSON log line in `api/summary.ts`, emitted on
+  every return path (cache hit, generate, rate-limited, all error
+  branches).
+- `comments-summary-outcome` equivalent in
   `api/comments-summary.ts`.
-- Tests assert the shape of each log line via a captured
-  `console.log` spy; nothing is asserted about downstream tooling,
-  because the taxonomy is the contract and the tooling is
-  swappable.
-- No monitoring or paging work in this phase — log lines alone.
-  Ship to prod, let them flow into Axiom for a few days so there's
-  baseline data before we build monitors on top.
+- **Token telemetry** captured at the same time: Gemini prompt /
+  output / total counts (from `response.usageMetadata`) on every
+  generated summary, Jina token count (from the reader envelope's
+  `usage.tokens`) on URL-post generations. Closes the "we can't
+  tell where spend is actually going" gap — previously tracked
+  only on the cron path, not user-driven requests.
+- **Length metric** (`chars`) on cached + generated outcomes;
+  satisfies half of the `IMPLEMENTATION_PLAN.md` "summary length
+  metric + cap" open item — the cap half is deferred until the
+  logs reveal the real-world distribution.
+- Tests assert shape via `console.log` spies on representative
+  paths (cache hit, generate with full token metadata, a
+  rate-limited request, a validation-error request, and the
+  Jina-credit-exhausted path which still fires the existing
+  `summary-jina-payment-required` alert alongside the new
+  outcome line).
 
-**Definition of done:** log lines visible in Axiom; unit tests
-green; SPEC.md entry under "Scheduled warming and change analytics"
-gains a short "summary request outcomes" subsection pointing at the
-new event names.
+Still to do in later phases: Axiom monitors keying off these
+lines (Phase 2), OpsGenie / PagerDuty integration (Phase 3), and
+optionally Datadog migration (Phase 4).
 
 ### Phase 2 — monitors (Axiom first)
 

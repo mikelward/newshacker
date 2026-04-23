@@ -517,6 +517,60 @@ function rateLimited(retryAfterSeconds: number): Response {
   );
 }
 
+// Structured per-request telemetry for monitors / dashboards.
+// See OBSERVABILITY.md § "Log event taxonomy" for the contract —
+// downstream monitors key off `type`, `outcome`, `reason`. Emitted
+// exactly once per request (every return path in handleSummaryRequest
+// calls this before `return json(...)` or `return rateLimited(...)`).
+// Keep the field set tight; new fields are easy to add later, hard to
+// remove once monitors depend on them.
+export type SummaryOutcome =
+  | 'cached'
+  | 'generated'
+  | 'rate_limited'
+  | 'error';
+
+export interface SummaryOutcomeExtras {
+  chars?: number;
+  // Gemini billed-token breakdown (all three are useful: prompt + output
+  // price differently in Gemini's pricing, and total is handy for quick
+  // "how much did this cost" dashboards).
+  geminiPromptTokens?: number;
+  geminiOutputTokens?: number;
+  geminiTotalTokens?: number;
+  // Jina billed-token count on URL-post summaries (self-posts don't
+  // round-trip Jina, so absent there). Matches the `articleTokens` field
+  // already logged by the warm cron — same unit, reconcilable.
+  jinaTokens?: number;
+}
+
+export function emitSummaryOutcome(
+  outcome: SummaryOutcome,
+  storyId: number | null,
+  reason: string | undefined,
+  extras: SummaryOutcomeExtras = {},
+): void {
+  const line: Record<string, unknown> = {
+    type: 'summary-outcome',
+    endpoint: 'summary',
+    outcome,
+  };
+  if (storyId !== null) line.storyId = storyId;
+  if (reason !== undefined) line.reason = reason;
+  if (extras.chars !== undefined) line.chars = extras.chars;
+  if (extras.geminiPromptTokens !== undefined) {
+    line.geminiPromptTokens = extras.geminiPromptTokens;
+  }
+  if (extras.geminiOutputTokens !== undefined) {
+    line.geminiOutputTokens = extras.geminiOutputTokens;
+  }
+  if (extras.geminiTotalTokens !== undefined) {
+    line.geminiTotalTokens = extras.geminiTotalTokens;
+  }
+  if (extras.jinaTokens !== undefined) line.jinaTokens = extras.jinaTokens;
+  console.log(JSON.stringify(line));
+}
+
 // Run the shared rate-limit check for this request. Returns `null` if
 // the limiter is disabled (explicitly via deps or because no store is
 // configured) or if we can't identify the caller (no IP header — which
@@ -550,6 +604,16 @@ interface GenerateRequest {
 
 interface GenerateResponse {
   text?: string | null;
+  // Gemini exposes authoritative billed-token counts on every
+  // `generateContent` response. Captured on the user-path handler so
+  // the `summary-outcome` log line can carry per-request spend
+  // telemetry — cron already logs Jina tokens; Gemini tokens were a
+  // gap on both paths until this landed.
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
 }
 
 export interface SummaryClient {
@@ -603,7 +667,7 @@ function clampContent(body: string): string | null {
 
 type FetchFailure = 'timeout' | 'unreachable' | 'payment_required';
 type FetchOutcome =
-  | { ok: true; content: string }
+  | { ok: true; content: string; tokens?: number }
   | { ok: false; failure: FetchFailure };
 
 function isAbortError(err: unknown): boolean {
@@ -670,8 +734,13 @@ async function fetchViaJina(
       return { ok: false, failure: 'unreachable' };
     }
     const content = clampContent(rawContent);
+    const rawTokens = envelope.data?.usage?.tokens;
+    const tokens =
+      typeof rawTokens === 'number' && Number.isFinite(rawTokens)
+        ? rawTokens
+        : undefined;
     return content
-      ? { ok: true, content }
+      ? { ok: true, content, tokens }
       : { ok: false, failure: 'unreachable' };
   } catch (err) {
     return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
@@ -685,12 +754,14 @@ export async function handleSummaryRequest(
   deps: SummaryDeps = {},
 ): Promise<Response> {
   if (!isAllowedReferer(request.headers.get('referer'))) {
+    emitSummaryOutcome('error', null, 'forbidden');
     return json({ error: 'Forbidden' }, 403);
   }
 
   const { searchParams } = new URL(request.url);
   const storyId = parseStoryId(searchParams.get('id'));
   if (storyId === null) {
+    emitSummaryOutcome('error', null, 'invalid_id');
     return json({ error: 'Invalid id parameter' }, 400);
   }
 
@@ -705,7 +776,12 @@ export async function handleSummaryRequest(
     // cron, not by this read path.
     try {
       const cached = await store.get(storyId);
-      if (cached) return json({ summary: cached.summary, cached: true });
+      if (cached) {
+        emitSummaryOutcome('cached', storyId, undefined, {
+          chars: cached.summary.length,
+        });
+        return json({ summary: cached.summary, cached: true });
+      }
     } catch {
       // fall through to live generation
     }
@@ -716,12 +792,14 @@ export async function handleSummaryRequest(
   try {
     story = await fetchItem(storyId, request.signal);
   } catch {
+    emitSummaryOutcome('error', storyId, 'story_unreachable');
     return json(
       { error: 'Could not load story', reason: 'story_unreachable' },
       502,
     );
   }
   if (!story || story.deleted || story.dead) {
+    emitSummaryOutcome('error', storyId, 'story_not_available');
     return json({ error: 'Story not available' }, 404);
   }
   // Anti-abuse floor. HN stories start at score 1 (the submitter's
@@ -733,6 +811,7 @@ export async function handleSummaryRequest(
   // endpoint will never even be invoked below the floor; the check is
   // a belt-and-braces defense for direct requests.
   if (!(typeof story.score === 'number' && story.score > 1)) {
+    emitSummaryOutcome('error', storyId, 'low_score');
     return json(
       { error: 'Story is not eligible for summary', reason: 'low_score' },
       400,
@@ -743,6 +822,7 @@ export async function handleSummaryRequest(
     ? ''
     : clampContent(htmlToPlainText(story.text)) ?? '';
   if (!hasArticleUrl && !selfPostBody) {
+    emitSummaryOutcome('error', storyId, 'no_article');
     return json(
       { error: 'Story has no article to summarize', reason: 'no_article' },
       400,
@@ -751,6 +831,7 @@ export async function handleSummaryRequest(
 
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
+    emitSummaryOutcome('error', storyId, 'not_configured');
     return json(
       { error: 'Summary is not configured', reason: 'not_configured' },
       503,
@@ -764,15 +845,18 @@ export async function handleSummaryRequest(
   // trouble — see comments on applyRateLimit / checkRateLimit.
   const rateLimitResult = await applyRateLimit(request, deps);
   if (rateLimitResult && !rateLimitResult.ok) {
+    emitSummaryOutcome('rate_limited', storyId, undefined);
     return rateLimited(rateLimitResult.retryAfterSeconds ?? 60);
   }
 
   let content: string;
   let prompt: string;
+  let jinaTokens: number | undefined;
   if (hasArticleUrl) {
     const articleUrl = story.url!;
     const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
     if (!jinaApiKey) {
+      emitSummaryOutcome('error', storyId, 'not_configured');
       return json(
         { error: 'Summary is not configured', reason: 'not_configured' },
         503,
@@ -781,6 +865,7 @@ export async function handleSummaryRequest(
     const jinaResult = await fetchViaJina(articleUrl, jinaApiKey, deps);
     if (!jinaResult.ok) {
       if (jinaResult.failure === 'timeout') {
+        emitSummaryOutcome('error', storyId, 'source_timeout');
         return json(
           {
             error: "The article site didn't respond in time",
@@ -801,6 +886,7 @@ export async function handleSummaryRequest(
             articleUrl,
           }),
         );
+        emitSummaryOutcome('error', storyId, 'summary_budget_exhausted');
         return json(
           {
             error: 'Summaries are temporarily unavailable',
@@ -809,6 +895,7 @@ export async function handleSummaryRequest(
           503,
         );
       }
+      emitSummaryOutcome('error', storyId, 'source_unreachable');
       return json(
         {
           error: 'Could not access the article',
@@ -818,6 +905,7 @@ export async function handleSummaryRequest(
       );
     }
     content = jinaResult.content;
+    jinaTokens = jinaResult.tokens;
     prompt = buildPrompt(articleUrl, content);
   } else {
     // Self-post path: Ask HN / Show HN / text-only. The body is already
@@ -832,6 +920,9 @@ export async function handleSummaryRequest(
     : (new GoogleGenAI({ apiKey }) as unknown as SummaryClient);
 
   let summary = '';
+  let geminiPromptTokens: number | undefined;
+  let geminiOutputTokens: number | undefined;
+  let geminiTotalTokens: number | undefined;
   try {
     const response = await client.models.generateContent({
       model: MODEL,
@@ -844,11 +935,20 @@ export async function handleSummaryRequest(
       },
     });
     summary = (response.text ?? '').trim();
+    geminiPromptTokens = response.usageMetadata?.promptTokenCount;
+    geminiOutputTokens = response.usageMetadata?.candidatesTokenCount;
+    geminiTotalTokens = response.usageMetadata?.totalTokenCount;
   } catch {
     // falls through to the 502 below
   }
 
   if (!summary) {
+    emitSummaryOutcome('error', storyId, 'summarization_failed', {
+      geminiPromptTokens,
+      geminiOutputTokens,
+      geminiTotalTokens,
+      jinaTokens,
+    });
     return json(
       { error: 'Summarization failed', reason: 'summarization_failed' },
       502,
@@ -856,6 +956,12 @@ export async function handleSummaryRequest(
   }
 
   if (isCaptchaRefusal(summary)) {
+    emitSummaryOutcome('error', storyId, 'source_captcha', {
+      geminiPromptTokens,
+      geminiOutputTokens,
+      geminiTotalTokens,
+      jinaTokens,
+    });
     return json(
       {
         error: 'Could not generate a summary due to a CAPTCHA page',
@@ -881,6 +987,13 @@ export async function handleSummaryRequest(
       // best-effort write
     }
   }
+  emitSummaryOutcome('generated', storyId, undefined, {
+    chars: summary.length,
+    geminiPromptTokens,
+    geminiOutputTokens,
+    geminiTotalTokens,
+    jinaTokens,
+  });
   return json({ summary });
 }
 

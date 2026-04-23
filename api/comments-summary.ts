@@ -494,6 +494,58 @@ async function applyRateLimit(
   return checkRateLimit(rateLimitStore, ip, tiers, nowMs);
 }
 
+// Structured per-request telemetry. Paired with `summary-outcome` in
+// api/summary.ts; same taxonomy (cached / generated / rate_limited /
+// error) so a single monitor can aggregate across both endpoints.
+// Kept inlined rather than imported per AGENTS.md § "Vercel api/
+// gotchas" — helper is short and the events are a shared contract
+// documented in OBSERVABILITY.md, not a shared module.
+export type CommentsSummaryOutcome =
+  | 'cached'
+  | 'generated'
+  | 'rate_limited'
+  | 'error';
+
+export interface CommentsSummaryOutcomeExtras {
+  // Sum of characters across all emitted insights (so "total content
+  // surfaced to the user" is a single metric, regardless of how many
+  // insights the model returned).
+  chars?: number;
+  insightCount?: number;
+  geminiPromptTokens?: number;
+  geminiOutputTokens?: number;
+  geminiTotalTokens?: number;
+}
+
+export function emitCommentsSummaryOutcome(
+  outcome: CommentsSummaryOutcome,
+  storyId: number | null,
+  reason: string | undefined,
+  extras: CommentsSummaryOutcomeExtras = {},
+): void {
+  const line: Record<string, unknown> = {
+    type: 'comments-summary-outcome',
+    endpoint: 'comments-summary',
+    outcome,
+  };
+  if (storyId !== null) line.storyId = storyId;
+  if (reason !== undefined) line.reason = reason;
+  if (extras.chars !== undefined) line.chars = extras.chars;
+  if (extras.insightCount !== undefined) {
+    line.insightCount = extras.insightCount;
+  }
+  if (extras.geminiPromptTokens !== undefined) {
+    line.geminiPromptTokens = extras.geminiPromptTokens;
+  }
+  if (extras.geminiOutputTokens !== undefined) {
+    line.geminiOutputTokens = extras.geminiOutputTokens;
+  }
+  if (extras.geminiTotalTokens !== undefined) {
+    line.geminiTotalTokens = extras.geminiTotalTokens;
+  }
+  console.log(JSON.stringify(line));
+}
+
 interface GenerateRequest {
   model: string;
   contents: string;
@@ -504,6 +556,15 @@ interface GenerateRequest {
 
 interface GenerateResponse {
   text?: string | null;
+  // See note in api/summary.ts: Gemini returns authoritative billed-
+  // token counts on every response, and we surface them on the
+  // per-request telemetry so spend dashboards don't depend on GCP
+  // billing as the sole source of truth.
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
 }
 
 export interface SummaryClient {
@@ -530,12 +591,14 @@ export async function handleCommentsSummaryRequest(
   deps: CommentsSummaryDeps = {},
 ): Promise<Response> {
   if (!isAllowedReferer(request.headers.get('referer'))) {
+    emitCommentsSummaryOutcome('error', null, 'forbidden');
     return json({ error: 'Forbidden' }, 403);
   }
 
   const { searchParams } = new URL(request.url);
   const storyId = parseStoryId(searchParams.get('id'));
   if (storyId === null) {
+    emitCommentsSummaryOutcome('error', null, 'invalid_id');
     return json({ error: 'Invalid id parameter' }, 400);
   }
 
@@ -552,6 +615,11 @@ export async function handleCommentsSummaryRequest(
     try {
       const cached = await store.get(storyId);
       if (cached && cached.insights.length > 0) {
+        const chars = cached.insights.reduce((sum, s) => sum + s.length, 0);
+        emitCommentsSummaryOutcome('cached', storyId, undefined, {
+          chars,
+          insightCount: cached.insights.length,
+        });
         return json({ insights: cached.insights, cached: true });
       }
     } catch {
@@ -561,6 +629,7 @@ export async function handleCommentsSummaryRequest(
 
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
+    emitCommentsSummaryOutcome('error', storyId, 'not_configured');
     return json({ error: 'Summary is not configured' }, 503);
   }
 
@@ -569,15 +638,18 @@ export async function handleCommentsSummaryRequest(
   try {
     story = await fetchItem(storyId, request.signal);
   } catch {
+    emitCommentsSummaryOutcome('error', storyId, 'story_unreachable');
     return json({ error: 'Could not load story' }, 502);
   }
   if (!story || story.deleted || story.dead) {
+    emitCommentsSummaryOutcome('error', storyId, 'story_not_available');
     return json({ error: 'Story not available' }, 404);
   }
   // Anti-abuse floor — see the matching comment in api/summary.ts for
   // the rationale. `> 1` means at least one organic upvote beyond the
   // submitter's implicit self-vote.
   if (!(typeof story.score === 'number' && story.score > 1)) {
+    emitCommentsSummaryOutcome('error', storyId, 'low_score');
     return json(
       { error: 'Story is not eligible for summary', reason: 'low_score' },
       400,
@@ -586,6 +658,7 @@ export async function handleCommentsSummaryRequest(
 
   const kidIds = (story.kids ?? []).slice(0, TOP_LEVEL_SAMPLE_SIZE);
   if (kidIds.length === 0) {
+    emitCommentsSummaryOutcome('error', storyId, 'no_comments');
     return json({ error: 'No comments to summarize' }, 404);
   }
 
@@ -604,6 +677,7 @@ export async function handleCommentsSummaryRequest(
   );
 
   if (usableComments.length === 0) {
+    emitCommentsSummaryOutcome('error', storyId, 'no_comments');
     return json({ error: 'No comments to summarize' }, 404);
   }
 
@@ -613,6 +687,7 @@ export async function handleCommentsSummaryRequest(
   // quota. See api/summary.ts for the shared-bucket rationale.
   const rateLimitResult = await applyRateLimit(request, deps);
   if (rateLimitResult && !rateLimitResult.ok) {
+    emitCommentsSummaryOutcome('rate_limited', storyId, undefined);
     return rateLimited(rateLimitResult.retryAfterSeconds ?? 60);
   }
 
@@ -623,6 +698,9 @@ export async function handleCommentsSummaryRequest(
     : (new GoogleGenAI({ apiKey }) as unknown as SummaryClient);
 
   let rawResponse = '';
+  let geminiPromptTokens: number | undefined;
+  let geminiOutputTokens: number | undefined;
+  let geminiTotalTokens: number | undefined;
   try {
     const response = await client.models.generateContent({
       model: MODEL,
@@ -635,12 +713,25 @@ export async function handleCommentsSummaryRequest(
       },
     });
     rawResponse = (response.text ?? '').trim();
+    geminiPromptTokens = response.usageMetadata?.promptTokenCount;
+    geminiOutputTokens = response.usageMetadata?.candidatesTokenCount;
+    geminiTotalTokens = response.usageMetadata?.totalTokenCount;
   } catch {
+    emitCommentsSummaryOutcome('error', storyId, 'summarization_failed', {
+      geminiPromptTokens,
+      geminiOutputTokens,
+      geminiTotalTokens,
+    });
     return json({ error: 'Summarization failed' }, 502);
   }
 
   const insights = parseInsights(rawResponse);
   if (insights.length === 0) {
+    emitCommentsSummaryOutcome('error', storyId, 'summarization_failed', {
+      geminiPromptTokens,
+      geminiOutputTokens,
+      geminiTotalTokens,
+    });
     return json({ error: 'Summarization failed' }, 502);
   }
 
@@ -660,6 +751,14 @@ export async function handleCommentsSummaryRequest(
       // best-effort write
     }
   }
+  const chars = insights.reduce((sum, s) => sum + s.length, 0);
+  emitCommentsSummaryOutcome('generated', storyId, undefined, {
+    chars,
+    insightCount: insights.length,
+    geminiPromptTokens,
+    geminiOutputTokens,
+    geminiTotalTokens,
+  });
   return json({ insights });
 }
 

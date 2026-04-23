@@ -394,8 +394,13 @@ Shipped:
 
 Open:
 - [ ] **Require a logged-in account.** Once Phase 5a (login) ships, gate `/api/summary` on a valid session cookie. Return 401 when unauthenticated. Not urgent — the per-IP rate limiter above covers the abuse shape login would have guarded against, and forcing a login for anonymous readers would be a real UX regression for what is primarily a read-only reader app.
-- [ ] **Observability.** Design captured in `OBSERVABILITY.md` (phased plan: log event taxonomy → Axiom monitors → OpsGenie paging → optional Datadog migration → optional Jina wallet cron). Phase 1 lands `summary-outcome` / `comments-summary-outcome` structured log lines; the four monitors key off those plus the existing `summary-jina-payment-required` event.
-- [ ] **Summary length metric + cap.** Log summary character/line length so we can size the loading skeleton against real-world data instead of a hand-picked line count. Once we know the distribution, cap the response (prompt tweak or hard truncate) so the skeleton stays close to the median and reflow on arrival is minimised.
+- **Observability** (in progress, phased — see `OBSERVABILITY.md`):
+  - [x] Phase 1 — log event taxonomy + per-request telemetry. `summary-outcome` / `comments-summary-outcome` structured log lines on every request, carrying outcome (cached/generated/rate_limited/error), reason (for errors), summary length, Gemini prompt/output/total tokens, and Jina tokens on URL-post generations. Closes the gap where user-path Gemini + Jina spend was invisible (previously tracked only by the cron).
+  - [ ] Phase 2 — Axiom monitors keying off those events. Four initial conditions: cache-hit collapse, Jina credit exhaustion, Gemini failure rate, rate-limit burst.
+  - [ ] Phase 3 — OpsGenie or PagerDuty paging wired to the Axiom monitors.
+  - [ ] Phase 4 (optional) — migrate monitoring layer from Axiom to Datadog for the learning dividend.
+  - [ ] Phase 5 (optional) — daily Jina wallet cron as a proactive backstop to `summary-jina-payment-required`.
+- [~] **Summary length metric + cap.** Length metric shipped as part of Phase 1 above — every `summary-outcome` / `comments-summary-outcome` line now carries a `chars` field on cached + generated outcomes. Cap half is deferred; revisit once a few weeks of real data are in and we know the distribution we're sizing against.
 
 ## Cross-cutting
 
