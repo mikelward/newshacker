@@ -10,6 +10,9 @@ import './AppHeader.css';
 
 function useIsFeedPage(): boolean {
   const { pathname } = useLocation();
+  // Home (`/`) renders the top feed inline, so it's a feed page for
+  // header-chrome purposes (refresh button, sweep, offline pill).
+  if (pathname === '/') return true;
   const first = pathname.split('/').filter(Boolean)[0];
   return !!first && isFeed(first);
 }

@@ -134,6 +134,12 @@ describe('<AppHeader>', () => {
     expect(screen.queryByTestId('undo-btn')).toBeNull();
     expect(screen.queryByTestId('sweep-btn')).toBeNull();
   });
+
+  it('treats the home path (/) as a feed page so Refresh/Undo/Sweep show there too', () => {
+    renderWithProviders(<AppHeader />, { route: '/' });
+    expect(screen.getByTestId('refresh-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('undo-btn')).toBeInTheDocument();
+  });
 });
 
 // The global `:focus-visible { outline: 2px solid var(--hn-orange) }` rule
