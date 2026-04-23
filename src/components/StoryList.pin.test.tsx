@@ -146,6 +146,89 @@ describe('<StoryList> pin and sweep', () => {
     expect(screen.getByText('Story 2')).toBeInTheDocument();
   });
 
+  it('sweep commits on animationend from a swept row (not just the fallback timer)', async () => {
+    const ids = [1, 2];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(2);
+    });
+
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    fireEvent.click(sweep);
+
+    // Dispatch a matching-name animationend on one of the swept rows.
+    // The handler filters by `animationName === 'story-list__sweep-out'`
+    // and commits once, so the whole batch hides immediately even
+    // before the fallback timer has had a chance to fire.
+    const row = screen.getByText('Story 1').closest('li')!;
+    act(() => {
+      const ev = new Event('animationend', { bubbles: true }) as AnimationEvent;
+      Object.defineProperty(ev, 'animationName', {
+        value: 'story-list__sweep-out',
+      });
+      row.dispatchEvent(ev);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('story-row')).toBeNull();
+    });
+  });
+
+  it('committing the pending sweep on unmount so navigation mid-animation is not dropped', async () => {
+    const ids = [1, 2];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    const { unmount } = renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(2);
+    });
+
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    fireEvent.click(sweep);
+
+    // Tear the list down mid-animation — before the animationend and
+    // before the fallback timer. The cleanup must commit the hide so
+    // the intent the user expressed with their tap survives the
+    // navigation.
+    act(() => {
+      unmount();
+    });
+
+    const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
+    const parsed = stored
+      ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
+      : [];
+    const liveIds = parsed.filter((e) => !e.deleted).map((e) => e.id);
+    expect(liveIds).toContain(1);
+    expect(liveIds).toContain(2);
+  });
+
   it('sweep skips the animation and delay when prefers-reduced-motion is set', async () => {
     const ids = [1, 2];
     const items = Object.fromEntries(
