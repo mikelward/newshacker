@@ -12,6 +12,28 @@ export interface CommentsSummaryResult {
   cached?: boolean;
 }
 
+// Kept narrow for now — only the reasons Thread.tsx needs to render
+// specific copy. Anything else bubbles up as a plain Error via
+// `message`. If more reasons turn out to be user-visible, add them
+// here and in the card's switch.
+export type CommentsSummaryErrorReason = 'rate_limited';
+
+export class CommentsSummaryError extends Error {
+  readonly reason?: CommentsSummaryErrorReason;
+  constructor(message: string, reason?: CommentsSummaryErrorReason) {
+    super(message);
+    this.name = 'CommentsSummaryError';
+    this.reason = reason;
+  }
+}
+
+function parseCommentsReason(
+  value: unknown,
+): CommentsSummaryErrorReason | undefined {
+  if (value === 'rate_limited') return value;
+  return undefined;
+}
+
 async function fetchCommentsSummary(
   storyId: number,
   signal?: AbortSignal,
@@ -19,13 +41,15 @@ async function fetchCommentsSummary(
   const res = await trackedFetch(`/api/comments-summary?id=${storyId}`, { signal });
   if (!res.ok) {
     let message = 'Summarization failed';
+    let reason: CommentsSummaryErrorReason | undefined;
     try {
       const body = await res.json();
       if (body && typeof body.error === 'string') message = body.error;
+      if (body) reason = parseCommentsReason(body.reason);
     } catch {
       // keep default
     }
-    throw new Error(message);
+    throw new CommentsSummaryError(message, reason);
   }
   return (await res.json()) as CommentsSummaryResult;
 }
