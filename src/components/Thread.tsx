@@ -212,16 +212,11 @@ const ARTICLE_SUMMARY_EXPECTED_CHARS = 230;
 const INSIGHT_EXPECTED_CHARS = 75;
 const EXPECTED_INSIGHT_COUNT = 5;
 
-// Probe prose used to fill the skeleton to approximately the right number
-// of characters. The string is rendered transparent with a shimmer
-// gradient clipped to the glyph outlines (see .thread__summary-body--loading
-// in Thread.css), so end users never read it. The only people who ever
-// see the raw text are developers poking at the DOM via devtools — hence
-// self-describing copy rather than a fake user-facing placeholder. The
-// word-length distribution is still normal English so the browser's
-// line-break algorithm produces realistic wraps.
+// Loading copy shown inside the summary skeleton. The shimmer styling in
+// Thread.css is supposed to clip the glyphs out, but in practice the text
+// is readable during the load, so keep it user-facing.
 const SKELETON_PROBE_PROSE =
-  'Summary is loading. This text is used to determine how much vertical space to reserve so the page does not shift when the real content arrives.';
+  'Summary is loading. Please wait.';
 
 function probeText(chars: number): string {
   if (chars <= 0) return '';
