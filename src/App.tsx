@@ -20,6 +20,7 @@ import { FavoritesPage } from './pages/FavoritesPage';
 import { HelpPage } from './pages/HelpPage';
 import { AboutPage } from './pages/AboutPage';
 import { DebugPage } from './pages/DebugPage';
+import { AdminPage } from './pages/AdminPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/help" element={<HelpPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/debug" element={<DebugPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/item/:id" element={<ItemPage />} />
             <Route path="/user/:id" element={<UserPage />} />

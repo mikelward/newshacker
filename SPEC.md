@@ -542,6 +542,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 | `/opened` | recently opened stories (7-day history) |
 | `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
+| `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
 
 ## Accessibility
 
@@ -817,6 +818,8 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 - Environment variables (only needed for stretch features):
   - `HN_COOKIE_NAME=user` (matches HN's cookie name)
   - `SESSION_COOKIE_NAME=hn_session` (our own cookie name on our origin)
+  - `ADMIN_USERNAME=mikelward` (HN username permitted to load
+    `/api/admin` and see `/admin`; defaults to `mikelward`)
 
 ## Analytics
 
