@@ -287,7 +287,18 @@ Paste any of these into the Axiom query console:
     total = count()
   by ageBand = tostring(e.ageBand)
 | extend changeRate = round(todouble(changed) / todouble(total), 3)
-| order by ageBand asc
+// Lexicographic sort on ageBand would put "16-32h" before "2-4h".
+// Explicit ordering keeps the histogram in true chronological order.
+| extend ageBandOrder = case(
+    ageBand == "0-1h", 0,
+    ageBand == "1-2h", 1,
+    ageBand == "2-4h", 2,
+    ageBand == "4-8h", 3,
+    ageBand == "8-16h", 4,
+    ageBand == "16-32h", 5,
+    ageBand == "32h+", 6,
+    999)
+| order by ageBandOrder asc
 ```
 
 ```apl
