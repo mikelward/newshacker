@@ -15,6 +15,7 @@ function setOnline(value: boolean) {
 describe('<AppHeader>', () => {
   afterEach(() => {
     setOnline(true);
+    window.localStorage.clear();
   });
 
   it('does not render a top-right page-title label', () => {
@@ -147,6 +148,58 @@ describe('<AppHeader>', () => {
       'href',
       '/',
     );
+  });
+
+  describe('unread / hot filter switches', () => {
+    it('renders both switches on feed pages, defaulting to off', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      const hot = screen.getByTestId('hot-toggle');
+      expect(unread).toHaveAttribute('role', 'switch');
+      expect(unread).toHaveAttribute('aria-checked', 'false');
+      expect(hot).toHaveAttribute('role', 'switch');
+      expect(hot).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('clicking the unread switch persists and flips aria-checked', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      act(() => {
+        fireEvent.click(unread);
+      });
+      expect(unread).toHaveAttribute('aria-checked', 'true');
+      const stored = window.localStorage.getItem('newshacker:feedFilters');
+      expect(stored).toBeTruthy();
+      expect(JSON.parse(stored as string)).toMatchObject({ unreadOnly: true });
+    });
+
+    it('the hot switch toggles independently of unread', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      const hot = screen.getByTestId('hot-toggle');
+      act(() => {
+        fireEvent.click(hot);
+      });
+      expect(hot).toHaveAttribute('aria-checked', 'true');
+      expect(unread).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('does not render either switch on non-feed pages', () => {
+      renderWithProviders(<AppHeader />, { route: '/pinned' });
+      expect(screen.queryByTestId('unread-toggle')).toBeNull();
+      expect(screen.queryByTestId('hot-toggle')).toBeNull();
+    });
+
+    it('switches sit left of Refresh/Undo/Sweep in DOM order', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      const hot = screen.getByTestId('hot-toggle');
+      const refresh = screen.getByTestId('refresh-btn');
+      const parent = refresh.parentElement!;
+      const buttons = Array.from(parent.children);
+      expect(buttons.indexOf(unread)).toBeLessThan(buttons.indexOf(hot));
+      expect(buttons.indexOf(hot)).toBeLessThan(buttons.indexOf(refresh));
+    });
   });
 });
 

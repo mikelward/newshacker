@@ -124,6 +124,95 @@
   color: rgba(255, 255, 255, 0.45);
 }
 
+/* Slider-switch filter toggles (eye = unread-only, flame = hot-only).
+   Sits in the feed-page actions group alongside Refresh/Undo/Sweep. Track
+   on the left, icon on the right so the icon reads as the label for
+   what the switch controls. Meets the --tap-min height floor; the
+   visible body (track + icon + padding) is narrower than a full 48px
+   but the padding pads the hitbox out to the tap target. */
+.app-header__filter-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap-min);
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.app-header__filter-switch:focus {
+  outline: none;
+}
+
+.app-header__filter-switch:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -4px;
+}
+
+.app-header__filter-track {
+  position: relative;
+  display: inline-block;
+  width: 26px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  transition: background-color 140ms ease;
+}
+
+.app-header__filter-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 140ms ease;
+}
+
+.app-header__filter-switch--on .app-header__filter-track {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.app-header__filter-switch--on .app-header__filter-thumb {
+  background: var(--hn-orange);
+  transform: translateX(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-header__filter-track,
+  .app-header__filter-thumb {
+    transition: none;
+  }
+}
+
+.app-header__filter-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: #fff;
+  opacity: 0.85;
+}
+
+.app-header__filter-switch--on .app-header__filter-icon {
+  opacity: 1;
+}
+
+/* The title shrinks out on narrow phones so the two switches + the
+   three icon buttons can coexist with the brand lockup. Below ~400px
+   we only show the "n" circle. */
+@media (max-width: 399px) {
+  .app-header__title {
+    display: none;
+  }
+}
+
 .app-header__offline {
   display: inline-flex;
   align-items: center;
