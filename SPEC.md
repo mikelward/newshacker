@@ -391,7 +391,7 @@ This is the single most important UI decision in the app, so it is specified in 
 │                                                          │
 │   Story title goes here, wrapping to two lines           │
 │   if needed.                                             │   ☆
-│   example.com · 3h · 412 points · 5/128 comments         │
+│   example.com · 3h · 412 points · 5/128 comments · hot   │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
    ^                                                          ^
@@ -413,6 +413,7 @@ Everything else is display-only:
 
 - Points, age, comment count — plain text inline in the metadata row inside the row link.
 - **"N new" comment badge.** When the reader has previously opened the thread, the row's meta line gains a trailing ` · N new` segment equal to `max(0, current descendants − descendants at last open)`. The snapshot is taken when the row is tapped (and refreshed every time the thread page loads or refetches), so revisiting the thread clears the badge naturally. Storage rides on the existing `newshacker:openedStoryIds` entry as a new `seenCommentCount` field; no new localStorage key, no network call, inherits the same 7-day TTL as the rest of the opened-story state. Zero cost / reliability impact.
+- **Hot flag.** A lowercase orange `hot` segment is appended to the meta line (`… · 5/128 comments · hot`) when a story is either a **big story** (`score >= 100`, any age) or a **fast riser** (`score >= 40` and age `< 2h`). It's plain text inside the same stretched link as the rest of the meta, so no new tap target and the "at most three tap zones" rule is unchanged. Purely client-side (`isHotStory` in `src/lib/format.ts`), derived from data already in the feed item, so no new network calls, storage, or cost.
 - Domain — plain text in the metadata row, not a link. (We intentionally do not let users tap a domain to filter by site; that's a power-user feature incompatible with the "few targets" goal.) **The display domain is always trimmed to the registrable domain** (`fingfx.thomsonreuters.com` → `thomsonreuters.com`, `sport.bbc.co.uk` → `bbc.co.uk`, `old.reddit.com` → `reddit.com`) — subdomains rarely carry reader-facing identity on a small row, and the thread page still shows the full hostname for anyone who wants the detail. The trim is ccTLD-aware (`9news.com.au` stays `9news.com.au`, never `9news`) and preserves owner-identifying subdomains on a hand-curated list of compound effective TLDs (`jasoneckert.github.io` stays intact). If the registrable domain itself exceeds 22 characters we fall back to a trailing-ellipsis truncation. The compound-eTLD list is a pragmatic subset of the Public Suffix List — a future change may swap it for the full PSL; the length cap is the backstop either way.
 
 What is deliberately **not** rendered:

@@ -238,6 +238,55 @@ describe('StoryListItem', () => {
       'story-row__body--stretched',
     );
   });
+
+  describe('Hot flag', () => {
+    it('appends orange "hot" text to the meta line for fast risers (>= 40 points within 2h)', () => {
+      const fastRiser: HNItem = {
+        ...baseStory,
+        score: 60,
+        // 30 minutes ago
+        time: Math.floor(Date.now() / 1000) - 30 * 60,
+      };
+      renderWithProviders(<StoryListItem story={fastRiser} />);
+      const hot = screen.getByTestId('story-hot');
+      expect(hot).toHaveTextContent('hot');
+      expect(screen.getByTestId('story-meta')).toHaveTextContent(
+        /7 comments · hot$/,
+      );
+    });
+
+    it('shows "hot" for >= 100 points regardless of age', () => {
+      const bigStory: HNItem = {
+        ...baseStory,
+        score: 250,
+        // 12 hours ago
+        time: Math.floor(Date.now() / 1000) - 12 * 60 * 60,
+      };
+      renderWithProviders(<StoryListItem story={bigStory} />);
+      expect(screen.getByTestId('story-hot')).toBeInTheDocument();
+    });
+
+    it('does not show "hot" for a quiet story', () => {
+      const quiet: HNItem = {
+        ...baseStory,
+        score: 12,
+        time: Math.floor(Date.now() / 1000) - 60 * 60,
+      };
+      renderWithProviders(<StoryListItem story={quiet} />);
+      expect(screen.queryByTestId('story-hot')).toBeNull();
+    });
+
+    it('does not show "hot" for a mid-score story past the 2h window', () => {
+      const settled: HNItem = {
+        ...baseStory,
+        score: 55,
+        // 5 hours ago — past the recent-riser window
+        time: Math.floor(Date.now() / 1000) - 5 * 60 * 60,
+      };
+      renderWithProviders(<StoryListItem story={settled} />);
+      expect(screen.queryByTestId('story-hot')).toBeNull();
+    });
+  });
 });
 
 describe('StoryListItem long-press menu', () => {

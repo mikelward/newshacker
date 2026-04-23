@@ -161,6 +161,36 @@ export interface StoryMetaInput {
   newCommentCount?: number;
 }
 
+// A story is "hot" if it's either a big-story-of-the-day (a lot of
+// total points at any age) OR a fast-riser (enough points in the
+// first couple of hours that it's clearly climbing the front page).
+// The recent-window threshold is deliberately lower so a story that
+// just crossed 40 points in under 2h lights up as an early mover,
+// while the separate 100+ rule flags larger stories regardless of age.
+//
+// TODO: tune these thresholds against real feed traffic. The numbers
+// below are a first cut based on typical HN front-page rhythms;
+// revisit once we've watched how many rows actually light up in a
+// normal feed and whether the signal is too loud or too quiet.
+const HOT_MIN_SCORE_ANY_AGE = 100;
+const HOT_MIN_SCORE_RECENT = 40;
+const HOT_RECENT_WINDOW_HOURS = 2;
+
+/**
+ * Returns true when the story is "trending enough" to flag with the
+ * orange Hot pill in the story row. Display-only — no state, no
+ * storage, no side effects.
+ */
+export function isHotStory(item: StoryMetaInput, now: Date = new Date()): boolean {
+  const score = item.score ?? 0;
+  if (score >= HOT_MIN_SCORE_ANY_AGE) return true;
+  if (score < HOT_MIN_SCORE_RECENT) return false;
+  if (!item.time) return false;
+  const nowS = Math.floor(now.getTime() / 1000);
+  const ageHours = (nowS - item.time) / 3600;
+  return ageHours >= 0 && ageHours < HOT_RECENT_WINDOW_HOURS;
+}
+
 /**
  * Formats the trailing segment of a story's metadata line used in
  * both the list row and the thread header: `"{age} · {N} point(s) · {M}

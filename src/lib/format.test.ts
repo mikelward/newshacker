@@ -5,6 +5,7 @@ import {
   formatDisplayDomain,
   formatStoryMetaTail,
   formatTimeAgo,
+  isHotStory,
   pluralize,
 } from './format';
 
@@ -193,5 +194,42 @@ describe('formatStoryMetaTail', () => {
         now,
       ),
     ).toBe('1h · 10 points · 8 comments');
+  });
+});
+
+describe('isHotStory', () => {
+  const now = new Date('2026-04-18T12:00:00Z');
+  const nowS = Math.floor(now.getTime() / 1000);
+
+  it('is hot when the score is >= 100 regardless of age', () => {
+    expect(isHotStory({ score: 100, time: nowS - 60 * 60 * 12 }, now)).toBe(true);
+    expect(isHotStory({ score: 412, time: nowS - 60 * 60 * 20 }, now)).toBe(true);
+  });
+
+  it('is hot for fast risers: score >= 40 and age < 2h', () => {
+    expect(isHotStory({ score: 40, time: nowS - 60 * 30 }, now)).toBe(true);
+    expect(isHotStory({ score: 85, time: nowS - 60 * 60 }, now)).toBe(true);
+  });
+
+  it('is not hot for moderate scores once the 2h window has passed', () => {
+    expect(isHotStory({ score: 85, time: nowS - 60 * 60 * 3 }, now)).toBe(false);
+    expect(isHotStory({ score: 40, time: nowS - 60 * 60 * 2 }, now)).toBe(false);
+  });
+
+  it('is not hot for low scores even when very recent', () => {
+    expect(isHotStory({ score: 39, time: nowS - 60 }, now)).toBe(false);
+    expect(isHotStory({ score: 5, time: nowS - 10 }, now)).toBe(false);
+  });
+
+  it('treats missing score as 0', () => {
+    expect(isHotStory({ time: nowS - 60 }, now)).toBe(false);
+  });
+
+  it('is not hot when the time is missing and the score is under the any-age threshold', () => {
+    expect(isHotStory({ score: 80 }, now)).toBe(false);
+  });
+
+  it('still flags score >= 100 even without a time', () => {
+    expect(isHotStory({ score: 150 }, now)).toBe(true);
   });
 });
