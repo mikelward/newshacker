@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { AnimationEvent as ReactAnimationEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
@@ -246,26 +247,73 @@ export function StoryList({ feed }: Props) {
   // sweep is one motion, not a staggered cascade), then the hide
   // commits once the animation finishes. CSS gates the actual motion
   // behind `prefers-reduced-motion: no-preference`; JS mirrors that
-  // gate so readers who opted out skip the 180ms delay too.
+  // gate so readers who opted out skip the delay too.
+  //
+  // The commit is driven by the `animationend` signal that bubbles up
+  // from the swept `<li>` (so JS follows whatever duration the CSS
+  // defines), with a fallback timer at 2× SWEEP_ANIMATION_MS in case
+  // the event never fires — background-tab throttling, the browser
+  // optimizing out the animation on an offscreen element, jsdom not
+  // synthesizing animation events, etc.
   const [sweepingIds, setSweepingIds] = useState<ReadonlySet<number>>(
     () => new Set(),
   );
-  const sweepTimerRef = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (sweepTimerRef.current != null) {
-        window.clearTimeout(sweepTimerRef.current);
+  const sweepPendingIdsRef = useRef<readonly number[] | null>(null);
+  const sweepFallbackTimerRef = useRef<number | null>(null);
+  // Keep handler refs so the unmount cleanup below can commit without
+  // re-subscribing every time hide/recordHide change identity.
+  const hideRef = useRef(hide);
+  const recordHideRef = useRef(recordHide);
+  useEffect(() => {
+    hideRef.current = hide;
+  }, [hide]);
+  useEffect(() => {
+    recordHideRef.current = recordHide;
+  }, [recordHide]);
+
+  const commitSweep = useCallback(() => {
+    const ids = sweepPendingIdsRef.current;
+    if (!ids) return;
+    sweepPendingIdsRef.current = null;
+    if (sweepFallbackTimerRef.current != null) {
+      window.clearTimeout(sweepFallbackTimerRef.current);
+      sweepFallbackTimerRef.current = null;
+    }
+    for (const id of ids) hide(id);
+    recordHide(ids);
+    setSweepingIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }, [hide, recordHide]);
+
+  // If the list unmounts (route change, etc.) while a sweep is still
+  // animating, commit the hide synchronously so the action isn't
+  // silently dropped — the user's intent ("hide everything unpinned")
+  // has already been recorded by the tap. Uses refs to avoid
+  // re-subscribing the cleanup every render.
+  useEffect(() => {
+    return () => {
+      const ids = sweepPendingIdsRef.current;
+      if (ids) {
+        for (const id of ids) hideRef.current(id);
+        recordHideRef.current(ids);
+        sweepPendingIdsRef.current = null;
       }
-    },
-    [],
-  );
+      if (sweepFallbackTimerRef.current != null) {
+        window.clearTimeout(sweepFallbackTimerRef.current);
+        sweepFallbackTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSweep = useCallback(() => {
     if (sweepableIds.length === 0) return;
     // Ignore repeat taps while a sweep is already playing out — the
-    // second batch would be identical (hiddenIds hasn't updated yet)
-    // and would just reset the timer.
-    if (sweepTimerRef.current != null) return;
+    // second batch would be identical (hiddenIds hasn't updated yet).
+    if (sweepPendingIdsRef.current !== null) return;
     const ids = sweepableIds.slice();
     const reducedMotion =
       typeof window !== 'undefined' &&
@@ -276,23 +324,30 @@ export function StoryList({ feed }: Props) {
       recordHide(ids);
       return;
     }
+    sweepPendingIdsRef.current = ids;
     setSweepingIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) next.add(id);
       return next;
     });
-    sweepTimerRef.current = window.setTimeout(() => {
-      for (const id of ids) hide(id);
-      recordHide(ids);
-      setSweepingIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set(prev);
-        for (const id of ids) next.delete(id);
-        return next;
-      });
-      sweepTimerRef.current = null;
-    }, SWEEP_ANIMATION_MS);
-  }, [sweepableIds, hide, recordHide]);
+    sweepFallbackTimerRef.current = window.setTimeout(
+      commitSweep,
+      SWEEP_ANIMATION_MS * 2,
+    );
+  }, [sweepableIds, hide, recordHide, commitSweep]);
+
+  // First `animationend` from a swept row drives the commit — `<li>`
+  // elements all animate with the same duration, so one signal is
+  // enough. Filter by animationName so an unrelated descendant
+  // animation (a skeleton shimmer, etc.) can't accidentally trigger
+  // the commit.
+  const handleListAnimationEnd = useCallback(
+    (e: ReactAnimationEvent<HTMLOListElement>) => {
+      if (e.animationName !== 'story-list__sweep-out') return;
+      commitSweep();
+    },
+    [commitSweep],
+  );
 
   useEffect(() => {
     setSweep(handleSweep, sweepableIds.length);
@@ -374,7 +429,7 @@ export function StoryList({ feed }: Props) {
       // signed in. Same handler backs the header Refresh button.
       onRefresh={handleRefresh}
     >
-      <ol className="story-list">
+      <ol className="story-list" onAnimationEnd={handleListAnimationEnd}>
         {offFeedPinnedStories.map((story) => (
           <li
             key={`pinned-${story.id}`}
