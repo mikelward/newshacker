@@ -40,6 +40,11 @@
   margin: 0;
 }
 
+.debug-page__muted {
+  color: var(--hn-meta);
+  font-size: 13px;
+}
+
 .debug-page__services {
   list-style: none;
   padding: 0;

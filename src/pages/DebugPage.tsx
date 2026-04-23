@@ -2,7 +2,18 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
 import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
+import { formatTimeAgo } from '../lib/format';
 import './DebugPage.css';
+
+// Injected by Vite at build time from `git log -1 --format=%cI`.
+// Empty string means git wasn't available when the bundle was built.
+const buildCommitTime: string = __BUILD_COMMIT_TIME__;
+
+function parseBuildTime(iso: string): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 interface ServiceStatus {
   configured: boolean;
@@ -91,6 +102,26 @@ export function DebugPage() {
                 ) : (
                   <em>unknown</em>
                 )}
+              </dd>
+            </div>
+            <div>
+              <dt>Built</dt>
+              <dd>
+                {(() => {
+                  const built = parseBuildTime(buildCommitTime);
+                  if (!built) return <em>unknown</em>;
+                  return (
+                    <>
+                      <time dateTime={built.toISOString()}>
+                        {built.toLocaleString()}
+                      </time>{' '}
+                      <span className="debug-page__muted">
+                        ({formatTimeAgo(Math.floor(built.getTime() / 1000))}{' '}
+                        ago)
+                      </span>
+                    </>
+                  );
+                })()}
               </dd>
             </div>
           </dl>

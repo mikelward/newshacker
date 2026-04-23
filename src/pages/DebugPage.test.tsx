@@ -172,6 +172,38 @@ describe('<DebugPage>', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('renders the build commit time and a relative age', async () => {
+    // The actual ISO string is substituted at transform time from
+    // `__BUILD_COMMIT_TIME__` (Vite `define`), so the assertion only
+    // checks the structural pieces: a <time> element with a non-empty
+    // ISO `datetime` attribute and a relative-age suffix that ends in
+    // "ago". An empty define would fall back to the "unknown" placeholder
+    // and this test would surface that regression.
+    mockStatus({
+      region: 'iad1',
+      build: 'abc1234def5678',
+      services: {
+        gemini: { configured: false },
+        jina: { configured: false },
+        redis: { configured: false },
+        sync: { configured: false },
+      },
+    });
+    renderWithProviders(<DebugPage />, { route: '/debug' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Built')).toBeInTheDocument();
+    });
+    const builtRow = screen.getByText('Built').closest('div');
+    expect(builtRow).not.toBeNull();
+    const timeEl = builtRow!.querySelector('time');
+    expect(timeEl).not.toBeNull();
+    expect(timeEl!.getAttribute('datetime')).toMatch(
+      /^\d{4}-\d{2}-\d{2}T/,
+    );
+    expect(builtRow!.textContent).toMatch(/ago\)/);
+  });
+
   it('renders the back-to-Top link', async () => {
     mockStatus({
       region: null,
