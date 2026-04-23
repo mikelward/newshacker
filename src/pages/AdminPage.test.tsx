@@ -133,15 +133,19 @@ describe('<AdminPage>', () => {
     expect(screen.getByText('abc1234')).toBeInTheDocument();
 
     // Balances are rendered via `toLocaleString`, which produces
-    // host-locale thousands separators. Accept either "1,234,567"
-    // (en-US) or "1.234.567" (de-DE) etc. — the test shouldn't
-    // depend on which locale happens to be active.
+    // host-locale thousands separators. Accept anything Intl treats
+    // as a grouping character: ASCII comma/dot (en-US, de-DE), any
+    // whitespace incl. NBSP (fr-FR), the straight apostrophe (de-CH)
+    // and the typographic right single quote some locales prefer.
+    // The test shouldn't depend on which locale the CI host is
+    // running in.
+    const GROUP = "[.,\\s'’]";
     const total = await screen.findByTestId('admin-jina-total-balance');
-    expect(total.textContent).toMatch(/1[.,\s]234[.,\s]567/);
+    expect(total.textContent).toMatch(new RegExp(`1${GROUP}234${GROUP}567`));
     const regular = screen.getByTestId('admin-jina-regular-balance');
-    expect(regular.textContent).toMatch(/100[.,\s]000/);
+    expect(regular.textContent).toMatch(new RegExp(`100${GROUP}000`));
     const threshold = screen.getByTestId('admin-jina-threshold');
-    expect(threshold.textContent).toMatch(/50[.,\s]000/);
+    expect(threshold.textContent).toMatch(new RegExp(`50${GROUP}000`));
 
     // Raw response is behind a <details> but still in the DOM.
     expect(screen.getByText(/ops@example\.com/)).toBeInTheDocument();
@@ -198,6 +202,41 @@ describe('<AdminPage>', () => {
       ).toBeInTheDocument();
     });
     // Balance list must not render when unreachable.
+    expect(screen.queryByTestId('admin-jina-total-balance')).toBeNull();
+  });
+
+  it('renders indeterminate state when Jina reachable is undefined (tri-state guard)', async () => {
+    // Older /api/admin responses (or partial ones) may omit
+    // `reachable`. That must not render as a green "reachable"
+    // label, and the balance list must stay hidden — otherwise we
+    // show three "unavailable" cells for numbers we can't actually
+    // prove are absent.
+    installFetchMock({
+      me: { username: 'mikelward' },
+      admin: {
+        ...OK_ADMIN,
+        services: {
+          ...OK_ADMIN.services,
+          jina: { configured: true },
+        },
+      },
+    });
+    renderWithProviders(<AdminPage />, { route: '/admin' });
+    // The Services section only renders once the admin query
+    // resolves; waiting on the Jina h2 avoids racing against the
+    // initial loading state.
+    const jinaHeading = await screen.findByRole('heading', {
+      level: 2,
+      name: /^jina$/i,
+    });
+    // The detail line sits in the service row immediately after the
+    // Jina heading; scope the assertion so we don't accidentally
+    // match the Redis row's own "configured · reachable · N ms".
+    const jinaRow = jinaHeading.nextElementSibling as HTMLElement | null;
+    expect(jinaRow).not.toBeNull();
+    expect(jinaRow!.textContent).toMatch(/configured/);
+    expect(jinaRow!.textContent).not.toMatch(/reachable/);
+    // Balance list is hidden.
     expect(screen.queryByTestId('admin-jina-total-balance')).toBeNull();
   });
 
