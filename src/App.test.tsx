@@ -18,12 +18,17 @@ describe('<App> routing', () => {
     expect(screen.getByRole('banner')).toHaveTextContent('newshacker');
   });
 
-  it('redirects / to /top', async () => {
+  it('renders the top feed inline at / (no redirect)', async () => {
+    // `/` is the home URL and stays `/` — what it renders is the top
+    // feed, the same underlying component `/top` mounts. A future
+    // setting will let users swap which feed `/` serves.
     installHNFetchMock({ feeds: { topstories: [] } });
     renderWithProviders(<App />, { route: '/' });
     expect(
       await screen.findByTestId('empty-state'),
     ).toBeInTheDocument();
+    // The 404 page should not appear; `/` is its own route now.
+    expect(screen.queryByText(/page not found/i)).toBeNull();
   });
 
   it('renders a 404 for unknown routes', () => {

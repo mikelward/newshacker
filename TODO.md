@@ -367,6 +367,17 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   would stretch the meta line; `big` is short but ambiguous ("big
   what?"). Revisit before shipping the "Hot" feed above, rename
   `isHotStory` / the CSS class / the SPEC bullets consistently.
+- **User-selectable home feed (URL stays `/`).** The URL `/` is
+  not configurable — it is and stays `/`. *What it renders* is
+  (eventually) a per-user setting. Groundwork is in: `/` now
+  renders the top feed inline via `<StoryList feed="top" />`, no
+  redirect, no URL change. Remaining work: replace the hard-coded
+  `"top"` in `src/App.tsx` with a preference read from a small
+  store (localStorage, e.g. `newshacker:homeFeed`, default `top`)
+  and add a control in the drawer / settings so users can switch
+  which feed `/` serves (e.g. the future "Hot" feed). Deep links
+  like `/top`, `/hot`, `/new` remain explicit routes for
+  shareability; the setting only governs `/`'s content.
 
 ## Desktop layout
 

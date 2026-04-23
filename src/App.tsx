@@ -4,6 +4,7 @@ import { AppHeader } from './components/AppHeader';
 import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
+import { StoryList } from './components/StoryList';
 import { ToastProvider } from './components/Toast';
 import { useCloudSync } from './hooks/useCloudSync';
 import { useHnFavoritesSync } from './hooks/useHnFavoritesSync';
@@ -43,7 +44,12 @@ export default function App() {
         <AppHeader />
         <main className="app-main">
           <Routes>
-            <Route path="/" element={<Navigate to="/top" replace />} />
+            {/* `/` renders the top feed inline — same chrome as /top, no
+                redirect, URL stays `/`. Both routes share the same
+                underlying StoryList so the two entry points behave
+                identically. A future change will read a user setting
+                here to pick which feed `/` serves; see TODO.md. */}
+            <Route path="/" element={<StoryList feed="top" />} />
             <Route path="/opened" element={<OpenedPage />} />
             <Route path="/hidden" element={<HiddenPage />} />
             <Route
