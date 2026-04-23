@@ -50,10 +50,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         return { ...opts, key };
       });
       const duration = opts.durationMs ?? DEFAULT_DURATION_MS;
-      timeoutRef.current = window.setTimeout(() => {
-        setToast(null);
-        timeoutRef.current = null;
-      }, duration);
+      // `durationMs: Infinity` (or any non-finite value) opts into a
+      // sticky toast that stays up until the user taps the action or
+      // a later `showToast` replaces it. Used for the "new version
+      // available — Reload" toast so a user who momentarily looks
+      // away doesn't miss the nudge.
+      if (Number.isFinite(duration)) {
+        timeoutRef.current = window.setTimeout(() => {
+          setToast(null);
+          timeoutRef.current = null;
+        }, duration);
+      }
     },
     [clearTimer],
   );

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { checkForServiceWorkerUpdate } from './swUpdate';
+import {
+  checkForServiceWorkerUpdate,
+  pingServiceWorkerForUpdate,
+} from './swUpdate';
 
 type Listener = () => void;
 
@@ -178,5 +181,59 @@ describe('checkForServiceWorkerUpdate', () => {
     expect(reload).not.toHaveBeenCalled();
     // Even on a thrown update(), the listener + timer are cleaned up.
     expect(listenerCount()).toBe(0);
+  });
+});
+
+describe('pingServiceWorkerForUpdate', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('is a no-op when serviceWorker is not in navigator', async () => {
+    vi.stubGlobal('navigator', {});
+    await expect(pingServiceWorkerForUpdate()).resolves.toBeUndefined();
+  });
+
+  it('calls registration.update() when a SW is registered', async () => {
+    const registration: FakeRegistration = {
+      update: vi.fn().mockResolvedValue(undefined),
+      installing: null,
+      waiting: null,
+    };
+    const { sw } = makeServiceWorker(registration);
+    vi.stubGlobal('navigator', { serviceWorker: sw });
+    await pingServiceWorkerForUpdate();
+    expect(registration.update).toHaveBeenCalled();
+  });
+
+  it('does not reload on a newly-installed SW', async () => {
+    // Unlike checkForServiceWorkerUpdate, the passive ping never
+    // reloads. The AppUpdateWatcher's controllerchange listener is
+    // responsible for surfacing the update via the toast instead.
+    const registration: FakeRegistration = {
+      update: vi.fn().mockResolvedValue(undefined),
+      installing: { state: 'installing' },
+      waiting: null,
+    };
+    const { sw } = makeServiceWorker(registration);
+    const originalReload = vi.fn();
+    vi.stubGlobal('navigator', { serviceWorker: sw });
+    vi.stubGlobal('window', {
+      ...window,
+      location: { ...window.location, reload: originalReload },
+    });
+    await pingServiceWorkerForUpdate();
+    expect(originalReload).not.toHaveBeenCalled();
+  });
+
+  it('swallows errors from registration.update()', async () => {
+    const registration: FakeRegistration = {
+      update: vi.fn().mockRejectedValue(new Error('network down')),
+      installing: null,
+      waiting: null,
+    };
+    const { sw } = makeServiceWorker(registration);
+    vi.stubGlobal('navigator', { serviceWorker: sw });
+    await expect(pingServiceWorkerForUpdate()).resolves.toBeUndefined();
   });
 });

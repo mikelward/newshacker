@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Analytics } from '@vercel/analytics/react';
 import { AppHeader } from './components/AppHeader';
+import { AppUpdateWatcher } from './components/AppUpdateWatcher';
 import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
@@ -36,6 +37,7 @@ export default function App() {
   return (
     <ToastProvider>
       <Analytics />
+      <AppUpdateWatcher />
       <FeedBarProvider>
         <BootPrefetch />
         <CloudSyncBridge />

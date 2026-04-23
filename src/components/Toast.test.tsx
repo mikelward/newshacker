@@ -87,6 +87,31 @@ describe('<ToastProvider>', () => {
     expect(screen.getByText('Second')).toBeInTheDocument();
   });
 
+  it('stays put indefinitely when durationMs is Infinity', () => {
+    render(
+      <ToastProvider>
+        <Trigger
+          onTrigger={(t) =>
+            t.showToast({
+              message: 'New version available',
+              durationMs: Number.POSITIVE_INFINITY,
+            })
+          }
+        />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByTestId('trigger'));
+    expect(screen.getByText('New version available')).toBeInTheDocument();
+
+    // A sticky toast must survive an arbitrarily long idle; if the
+    // timer fires we'd lose the update nudge without the user ever
+    // seeing it.
+    act(() => {
+      vi.advanceTimersByTime(60 * 60 * 1000);
+    });
+    expect(screen.getByText('New version available')).toBeInTheDocument();
+  });
+
   it('useToast() is a safe no-op with no provider', () => {
     let caught: unknown = null;
     function Consumer() {
