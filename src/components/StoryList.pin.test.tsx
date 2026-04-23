@@ -315,6 +315,61 @@ describe('<StoryList> pin and sweep', () => {
     // Both sweep entry points disable together once nothing is left to hide.
     expect(screen.getByTestId('sweep-btn-bottom')).toBeDisabled();
     expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+    // After a sweep, both undo entry points (top toolbar + bottom bar)
+    // become active together — they drive the same recordHide batch.
+    expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
+    expect(screen.getByTestId('undo-btn-bottom')).not.toBeDisabled();
+  });
+
+  it('bottom-bar undo button mirrors the top undo — same state, same action', async () => {
+    const ids = [1, 2, 3];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+    // Pin one row so the list isn't fully empty after sweep — an empty
+    // list renders EmptyState and unmounts the bottom footer, which
+    // would take `undo-btn-bottom` with it.
+    addPinnedId(1);
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    // Disabled on load (nothing to undo yet) — in both bars.
+    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn-bottom')).toBeDisabled();
+
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    fireEvent.click(sweep);
+
+    await waitFor(() => {
+      // Only the pinned row remains visible after sweep.
+      expect(screen.getAllByTestId('story-row')).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('undo-btn-bottom')).not.toBeDisabled();
+    });
+    expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
+
+    // Click the bottom undo — the top undo should reset in lockstep.
+    fireEvent.click(screen.getByTestId('undo-btn-bottom'));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn-bottom')).toBeDisabled();
   });
 
   it('sweep only hides rows fully in the viewport', async () => {

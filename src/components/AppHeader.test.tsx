@@ -64,15 +64,13 @@ describe('<AppHeader>', () => {
     expect(screen.getByTestId('offline-indicator')).toBeInTheDocument();
   });
 
-  it('shows a Refresh button left of Undo on feed pages', () => {
+  it('shows only a Refresh button in the header actions on feed pages (sweep/undo moved to the separate FeedActionToolbar)', () => {
     renderWithProviders(<AppHeader />, { route: '/top' });
-    const refresh = screen.getByTestId('refresh-btn');
-    const undo = screen.getByTestId('undo-btn');
-    expect(refresh).toBeInTheDocument();
-    // DOM order check — refresh precedes undo in the actions group.
-    const parent = refresh.parentElement!;
-    const buttons = Array.from(parent.children);
-    expect(buttons.indexOf(refresh)).toBeLessThan(buttons.indexOf(undo));
+    expect(screen.getByTestId('refresh-btn')).toBeInTheDocument();
+    // Sweep and Undo no longer live in the app top bar; they render
+    // from the separate FeedActionToolbar mounted by StoryList.
+    expect(screen.queryByTestId('undo-btn')).toBeNull();
+    expect(screen.queryByTestId('sweep-btn')).toBeNull();
   });
 
   it('disables Refresh when no feed has registered a handler', () => {
@@ -135,10 +133,9 @@ describe('<AppHeader>', () => {
     expect(screen.queryByTestId('sweep-btn')).toBeNull();
   });
 
-  it('treats the home path (/) as a feed page so Refresh/Undo/Sweep show there too', () => {
+  it('treats the home path (/) as a feed page so Refresh shows there too', () => {
     renderWithProviders(<AppHeader />, { route: '/' });
     expect(screen.getByTestId('refresh-btn')).toBeInTheDocument();
-    expect(screen.getByTestId('undo-btn')).toBeInTheDocument();
   });
 
   it('points the brand/home link at / (not /top)', () => {

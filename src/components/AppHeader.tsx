@@ -21,36 +21,6 @@ function useIsFeedPage(): boolean {
 // fill-based paths that take `color` via currentColor.
 const MS_VIEWBOX = '0 -960 960 960';
 
-function UndoIcon() {
-  return (
-    <svg
-      viewBox={MS_VIEWBOX}
-      fill="currentColor"
-      width="24"
-      height="24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z" />
-    </svg>
-  );
-}
-
-function SweepIcon() {
-  return (
-    <svg
-      viewBox={MS_VIEWBOX}
-      fill="currentColor"
-      width="24"
-      height="24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M400-240v-80h240v80H400Zm-158 0L15-467l57-57 170 170 366-366 57 57-423 423Zm318-160v-80h240v80H560Zm160-160v-80h240v80H720Z" />
-    </svg>
-  );
-}
-
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
     <svg
@@ -72,20 +42,11 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 
 export function AppHeader() {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const {
-    sweep,
-    sweepCount,
-    refresh,
-    canUndo,
-    undo,
-  } = useFeedBar();
+  const { refresh } = useFeedBar();
   const online = useOnlineStatus();
   const [refreshing, setRefreshing] = useState(false);
 
   const onFeedPage = useIsFeedPage();
-  // sweepCount is > 0 iff there are fully-visible, unpinned rows to hide;
-  // the number itself is never surfaced to users.
-  const canSweep = !!sweep && sweepCount > 0;
   const canRefresh = !!refresh && online && !refreshing;
   const handleRefresh = useCallback(async () => {
     if (!refresh || refreshing) return;
@@ -153,28 +114,6 @@ export function AppHeader() {
               aria-busy={refreshing || undefined}
             >
               <RefreshIcon spinning={refreshing} />
-            </TooltipButton>
-            <TooltipButton
-              type="button"
-              className="app-header__icon-btn"
-              data-testid="undo-btn"
-              onClick={canUndo ? undo : undefined}
-              disabled={!canUndo}
-              tooltip={canUndo ? 'Undo hide' : 'Nothing to undo'}
-              aria-label={canUndo ? 'Undo hide' : 'Nothing to undo'}
-            >
-              <UndoIcon />
-            </TooltipButton>
-            <TooltipButton
-              type="button"
-              className="app-header__icon-btn"
-              data-testid="sweep-btn"
-              onClick={canSweep ? sweep : undefined}
-              disabled={!canSweep}
-              tooltip={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
-              aria-label={canSweep ? 'Hide unpinned' : 'Nothing to hide'}
-            >
-              <SweepIcon />
             </TooltipButton>
             <HeaderAccountMenu />
           </div>

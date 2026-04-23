@@ -9,6 +9,7 @@ import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { BackToTopButton } from './BackToTopButton';
+import { FeedActionToolbar } from './FeedActionToolbar';
 import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
@@ -47,9 +48,9 @@ function measureHeaderInset(): number {
   return Math.max(0, Math.ceil(rect.bottom));
 }
 
-// Material Symbols Outlined — Apache 2.0, Google. Same broom glyph as the
-// header's Hide unpinned button, repeated inline so the list footer doesn't
-// have to reach into AppHeader for an icon.
+// Material Symbols Outlined — Apache 2.0, Google. Same broom/undo glyphs
+// as the top `FeedActionToolbar`, repeated inline so the list footer
+// doesn't have to reach into a sibling component for icons.
 function SweepIcon() {
   return (
     <svg
@@ -66,6 +67,22 @@ function SweepIcon() {
   );
 }
 
+function UndoIcon() {
+  return (
+    <svg
+      className="list-footer__icon"
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      width="24"
+      height="24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z" />
+    </svg>
+  );
+}
+
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
   const queryClient = useQueryClient();
@@ -75,7 +92,7 @@ export function StoryList({ feed }: Props) {
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
-  const { setSweep, setRefresh, recordHide } = useFeedBar();
+  const { setSweep, setRefresh, recordHide, canUndo, undo } = useFeedBar();
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
@@ -396,19 +413,25 @@ export function StoryList({ feed }: Props) {
   const hasAnyItems = items.length > 0;
   if (!hasAnyItems && feedItems.isLoading) {
     return (
-      <ol className="story-list" aria-busy="true" aria-label="Loading stories">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <li key={i} className="story-list__item">
-            <StoryRowSkeleton />
-          </li>
-        ))}
-      </ol>
+      <>
+        <FeedActionToolbar />
+        <ol className="story-list" aria-busy="true" aria-label="Loading stories">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <li key={i} className="story-list__item">
+              <StoryRowSkeleton />
+            </li>
+          ))}
+        </ol>
+      </>
     );
   }
 
   if (isError) {
     return (
-      <ErrorState message="Could not load stories." onRetry={refetch} />
+      <>
+        <FeedActionToolbar />
+        <ErrorState message="Could not load stories." onRetry={refetch} />
+      </>
     );
   }
 
@@ -417,7 +440,12 @@ export function StoryList({ feed }: Props) {
     offFeedPinnedStories.length === 0 &&
     !hasMore
   ) {
-    return <EmptyState message="No stories yet." />;
+    return (
+      <>
+        <FeedActionToolbar />
+        <EmptyState message="No stories yet." />
+      </>
+    );
   }
 
   return (
@@ -429,6 +457,7 @@ export function StoryList({ feed }: Props) {
       // signed in. Same handler backs the header Refresh button.
       onRefresh={handleRefresh}
     >
+      <FeedActionToolbar />
       <ol className="story-list" onAnimationEnd={handleListAnimationEnd}>
         {offFeedPinnedStories.map((story) => (
           <li
@@ -492,6 +521,17 @@ export function StoryList({ feed }: Props) {
             {isFetchingMore ? 'Loading…' : 'More'}
           </button>
         ) : null}
+        <TooltipButton
+          type="button"
+          className="list-footer__icon-btn list-footer__icon-btn--undo"
+          data-testid="undo-btn-bottom"
+          onClick={canUndo ? undo : undefined}
+          disabled={!canUndo}
+          tooltip={canUndo ? 'Undo hide' : 'Nothing to undo'}
+          aria-label={canUndo ? 'Undo hide' : 'Nothing to undo'}
+        >
+          <UndoIcon />
+        </TooltipButton>
         <TooltipButton
           type="button"
           className="list-footer__icon-btn"

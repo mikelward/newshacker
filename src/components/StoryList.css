@@ -112,12 +112,15 @@
 }
 
 /* Icon-only action button — fixed 56×56 square, matches
-   `.thread__action--icon`. `margin-left: auto` pins it to the right
-   edge of the bar regardless of what sits to its left (Back to top
-   alone, or Back to top + More). SPEC § Bottom action bar (list views)
+   `.thread__action--icon`. `margin-left: auto` on the button pins the
+   whole icon cluster to the right edge regardless of what sits to its
+   left (Back to top alone, or Back to top + More). When a second icon
+   button sits adjacent, the following `+` rule drops its
+   `margin-left` back to 0 so the pair reads as a single right-anchored
+   cluster at the 12px flex gap. SPEC § Bottom action bar (list views)
    calls for this slot to be right-pinned; anchoring it here keeps
    that guarantee independent of the text buttons' flex-grow, so
-   removing or resizing a neighbor can't accidentally pull the icon
+   removing or resizing a neighbor can't accidentally pull the icons
    back toward the center. Library footer has no icon button, so the
    rule is inert there. */
 .list-footer__icon-btn {
@@ -134,6 +137,10 @@
   border-radius: 8px;
   color: var(--nh-text);
   cursor: pointer;
+}
+
+.list-footer__icon-btn + .list-footer__icon-btn {
+  margin-left: 0;
 }
 
 @media (hover: hover) {
