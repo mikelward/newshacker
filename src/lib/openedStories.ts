@@ -43,9 +43,17 @@ function parseEntry(x: unknown): StoredEntry | null {
   const seenCommentCount = isNumber(obj.seenCommentCount)
     ? obj.seenCommentCount
     : undefined;
-  // Legacy entries have neither articleAt nor commentsAt — treat `at` as
-  // the timestamp for both halves so users keep their read state.
-  if (articleAt === undefined && commentsAt === undefined) {
+  // Pre-per-kind legacy entries (shape: {id, at}) had no articleAt,
+  // commentsAt, or seenCommentCount. Treat `at` as the timestamp for
+  // both halves so users keep their read state. A modern entry written
+  // by `markCommentsSeenCount` also has neither timestamp but DOES
+  // carry seenCommentCount — leave its timestamps undefined so the
+  // row-tap path doesn't masquerade as a full thread visit.
+  if (
+    articleAt === undefined &&
+    commentsAt === undefined &&
+    seenCommentCount === undefined
+  ) {
     return {
       id: obj.id,
       at: obj.at,
@@ -120,6 +128,34 @@ function upsert(
   writeEntries(rest);
 }
 
+/**
+ * Updates ONLY the seenCommentCount for a story. Unlike
+ * `markCommentsOpenedId`, this does NOT move `commentsAt` forward — so
+ * a row tap can update the "N new" math without destroying the
+ * timestamp the "New comments since last visit" filter relies on.
+ *
+ * If the story has no entry yet, one is created with `commentsAt`
+ * left undefined so row dimming and the new-comments filter both
+ * stay dormant until the reader actually lands on the thread page.
+ */
+export function markCommentsSeenCount(
+  id: number,
+  commentsCount: number,
+  now: number = Date.now(),
+): void {
+  const entries = readEntries(now);
+  const existing = entries.find((e) => e.id === id);
+  const rest = entries.filter((e) => e.id !== id);
+  rest.push({
+    id,
+    at: now,
+    articleAt: existing?.articleAt,
+    commentsAt: existing?.commentsAt,
+    seenCommentCount: commentsCount,
+  });
+  writeEntries(rest);
+}
+
 export function getOpenedIds(now: number = Date.now()): Set<number> {
   return new Set(readEntries(now).map((e) => e.id));
 }
@@ -177,6 +213,21 @@ export function getSeenCommentCounts(
     }
   }
   return out;
+}
+
+/**
+ * Returns the `commentsAt` timestamp for a story (the instant the
+ * thread page last rendered it), or undefined if the reader has
+ * never reached the thread page. Used by the "New / All" comment
+ * filter on the thread page, which needs the PRE-mount value as its
+ * "last visit" reference point.
+ */
+export function getCommentsAt(
+  id: number,
+  now: number = Date.now(),
+): number | undefined {
+  const entry = readEntries(now).find((e) => e.id === id);
+  return entry?.commentsAt;
 }
 
 export function removeOpenedId(id: number, now: number = Date.now()): void {

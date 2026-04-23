@@ -14,7 +14,7 @@ import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { TooltipButton } from './TooltipButton';
 import { useShareStory } from '../hooks/useShareStory';
-import { markCommentsOpenedId } from '../lib/openedStories';
+import { markCommentsSeenCount } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import {
   FEED_PREFETCH_SCORE_THRESHOLD,
@@ -259,16 +259,21 @@ export function StoryList({ feed }: Props) {
   }, [setRefresh, handleRefresh]);
 
   // Snapshot the current comment count so later visits can show a
-  // "N new" badge for anything posted since. Look the story up in both
-  // the feed page and the off-feed pinned list — a tap on a pinned
-  // story that has scrolled off the feed otherwise wouldn't record
-  // anything.
+  // "N new" badge for anything posted since. We deliberately do NOT
+  // update `commentsAt` here — that belongs to the thread page mount
+  // (see Thread.tsx), which is what the "new / all" comments filter
+  // uses as its "last visit" reference point. Updating commentsAt on
+  // every row tap would collapse the reference window to zero.
+  //
+  // Look the story up in both the feed page and the off-feed pinned
+  // list — a tap on a pinned story that has scrolled off the feed
+  // otherwise wouldn't record anything.
   const handleOpenThread = useCallback(
     (id: number) => {
       const story =
         items.find((it): it is NonNullable<typeof it> => it?.id === id) ??
         offFeedPinnedStories.find((s) => s.id === id);
-      markCommentsOpenedId(id, Date.now(), story?.descendants ?? 0);
+      markCommentsSeenCount(id, story?.descendants ?? 0);
     },
     [items, offFeedPinnedStories],
   );

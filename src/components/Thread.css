@@ -347,6 +347,43 @@
   padding: 0;
 }
 
+.thread__comments-filter {
+  display: inline-flex;
+  gap: 4px;
+  margin: 4px 16px 8px;
+  padding: 4px;
+  background: var(--hn-bg-code);
+  border-radius: 999px;
+}
+
+.thread__comments-filter-btn {
+  min-height: var(--tap-min);
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--hn-meta);
+  font: inherit;
+  font-size: 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .thread__comments-filter-btn:hover {
+    background: var(--hn-pressed);
+  }
+}
+
+.thread__comments-filter-btn:active {
+  background: var(--hn-border);
+}
+
+.thread__comments-filter-btn--active {
+  background: var(--hn-bg);
+  color: var(--hn-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
 .thread__sentinel {
   height: 1px;
 }

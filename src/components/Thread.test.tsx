@@ -7,6 +7,7 @@ import { Thread, TOP_LEVEL_PAGE_SIZE } from './Thread';
 import { FeedBarProvider } from './FeedBarContext';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+import { markCommentsOpenedId } from '../lib/openedStories';
 import type { HNItem } from '../lib/hn';
 
 function LocationProbe() {
@@ -1318,5 +1319,111 @@ describe('<Thread>', () => {
     ).toBeNull();
     // Sentinel exists so IntersectionObserver can trigger next page
     expect(screen.getByTestId('comments-sentinel')).toBeInTheDocument();
+  });
+
+  describe('new / all comments filter', () => {
+    // Story 1500 was last opened ~an hour ago. One top-level comment
+    // (1501) predates that visit, the other (1502) landed after. Using
+    // a recent timestamp (rather than a fixed one) keeps the entry
+    // inside the 7-day openedStories TTL regardless of test wall-clock.
+    const oneHourAgoMs = Date.now() - 60 * 60 * 1000;
+    const oneHourAgoSec = Math.floor(oneHourAgoMs / 1000);
+    const oldKid: HNItem = {
+      id: 1501,
+      type: 'comment',
+      by: 'alice',
+      text: 'old comment',
+      time: oneHourAgoSec - 600,
+    };
+    const newKid: HNItem = {
+      id: 1502,
+      type: 'comment',
+      by: 'bob',
+      text: 'brand new comment',
+      time: oneHourAgoSec + 600,
+    };
+    const story = makeStory(1500, {
+      kids: [1501, 1502],
+      descendants: 2,
+    });
+
+    it('does not show the toggle when the reader has never opened the thread', async () => {
+      installHNFetchMock({
+        items: { 1500: story, 1501: oldKid, 1502: newKid },
+      });
+      renderWithProviders(<Thread id={1500} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/old comment/)).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('comments-filter')).toBeNull();
+    });
+
+    it('does not show the toggle when there are no new top-level comments', async () => {
+      // Record a visit AFTER the newest comment so nothing qualifies
+      // as "new".
+      markCommentsOpenedId(1500, Date.now() - 1000, 2);
+      installHNFetchMock({
+        items: { 1500: story, 1501: oldKid, 1502: newKid },
+      });
+      renderWithProviders(<Thread id={1500} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/old comment/)).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('comments-filter')).toBeNull();
+    });
+
+    it('shows the toggle with the new count when there is something new since the last visit', async () => {
+      markCommentsOpenedId(1500, oneHourAgoMs, 1);
+      installHNFetchMock({
+        items: { 1500: story, 1501: oldKid, 1502: newKid },
+      });
+      renderWithProviders(<Thread id={1500} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/old comment/)).toBeInTheDocument();
+      });
+      const toggle = await screen.findByTestId('comments-filter');
+      expect(toggle).toBeInTheDocument();
+      expect(screen.getByTestId('comments-filter-new')).toHaveTextContent(
+        'New (1)',
+      );
+      // All / default mode still shows both comments.
+      expect(screen.getByText(/brand new comment/)).toBeInTheDocument();
+      expect(screen.getByText(/old comment/)).toBeInTheDocument();
+    });
+
+    it('filters out old top-level comments when the reader taps "New"', async () => {
+      markCommentsOpenedId(1500, oneHourAgoMs, 1);
+      installHNFetchMock({
+        items: { 1500: story, 1501: oldKid, 1502: newKid },
+      });
+      renderWithProviders(<Thread id={1500} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/old comment/)).toBeInTheDocument();
+      });
+      await userEvent.click(screen.getByTestId('comments-filter-new'));
+      expect(screen.getByText(/brand new comment/)).toBeInTheDocument();
+      expect(screen.queryByText(/old comment/)).toBeNull();
+    });
+
+    it('marks the new top-level comment with a "new" badge', async () => {
+      markCommentsOpenedId(1500, oneHourAgoMs, 1);
+      installHNFetchMock({
+        items: { 1500: story, 1501: oldKid, 1502: newKid },
+      });
+      renderWithProviders(<Thread id={1500} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/brand new comment/)).toBeInTheDocument();
+      });
+      // Only one badge — the new comment. The old one does not carry it.
+      const badges = screen.getAllByTestId('comment-new-badge');
+      expect(badges).toHaveLength(1);
+      const badgeRow = badges[0].closest('.comment');
+      expect(badgeRow).toHaveTextContent(/brand new comment/);
+    });
   });
 });

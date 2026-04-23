@@ -11,9 +11,17 @@ import './Comment.css';
 
 interface Props {
   id: number;
+  /**
+   * True when this comment was posted after the reader's last visit
+   * to the thread. Used to add a small "new" marker next to the
+   * author, so new comments are easy to spot whether or not the
+   * "New" filter is active. Only passed for top-level comments today
+   * — nested replies aren't classified in v1 (see TODO.md).
+   */
+  isNew?: boolean;
 }
 
-export function Comment({ id }: Props) {
+export function Comment({ id, isNew = false }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
@@ -75,7 +83,11 @@ export function Comment({ id }: Props) {
 
   return (
     <div
-      className={`comment${isExpanded ? ' is-expanded' : ''}`}
+      className={
+        'comment' +
+        (isExpanded ? ' is-expanded' : '') +
+        (isNew ? ' comment--new' : '')
+      }
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest('a, button')) return;
@@ -93,6 +105,11 @@ export function Comment({ id }: Props) {
           <Link to={`/user/${item.by}`} className="comment__author">
             {item.by}
           </Link>
+        ) : null}
+        {isNew ? (
+          <span className="comment__new-badge" data-testid="comment-new-badge">
+            new
+          </span>
         ) : null}
         <button
           type="button"
