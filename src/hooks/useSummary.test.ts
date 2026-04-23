@@ -19,12 +19,16 @@ describe('useSummary query options', () => {
   // either never refetch (7 d) or gc too early (30 min).
   it('splits freshness (staleTime) from retention (gcTime)', () => {
     const opts = summaryQueryOptions(1);
-    expect(opts.staleTime).toBe(30 * 60 * 1000);
-    expect(opts.gcTime).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(opts.staleTime).toBe(SUMMARY_FRESHNESS_MS);
+    expect(opts.gcTime).toBe(SUMMARY_RETENTION_MS);
     expect(opts.staleTime).toBeLessThan(opts.gcTime);
   });
 
-  it('exports the constants the prefetch helpers import', () => {
+  // Independently guards the numeric values of the constants themselves,
+  // so a silent drift (e.g. someone changes SUMMARY_FRESHNESS_MS to 5 min)
+  // trips the test even though the query-options assertion above would
+  // still pass after such a change.
+  it('pins the constants to their intended values', () => {
     expect(SUMMARY_FRESHNESS_MS).toBe(30 * 60 * 1000);
     expect(SUMMARY_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000);
   });

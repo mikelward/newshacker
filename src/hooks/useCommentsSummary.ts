@@ -1,13 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { trackedFetch } from '../lib/networkStatus';
-
-// Retention / freshness split mirrors `useSummary.ts`: we keep the
-// bytes for 7 days (so a pinned thread revisited mid-week is a
-// synchronous cache hit) but mark the entry stale after 30 min so the
-// next mount refetches and picks up cron-regenerated updates. The
-// service worker's StaleWhileRevalidate absorbs that refetch latency.
-export const COMMENTS_SUMMARY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-export const COMMENTS_SUMMARY_FRESHNESS_MS = 30 * 60 * 1000;
+// Both summary hooks share the same freshness/retention pair: they are
+// warmed by the same cron on the same cadence (see
+// `api/warm-summaries.ts` and CRON.md), so the knobs must stay aligned.
+// Importing the article-summary constants here keeps a single source of
+// truth — divergence would be a bug.
+import { SUMMARY_FRESHNESS_MS, SUMMARY_RETENTION_MS } from './useSummary';
 
 export interface CommentsSummaryResult {
   insights: string[];
@@ -42,8 +40,8 @@ export function commentsSummaryQueryOptions(storyId: number) {
     queryFn: ({ signal }: { signal?: AbortSignal }) =>
       fetchCommentsSummary(storyId, signal),
     retry: false,
-    staleTime: COMMENTS_SUMMARY_FRESHNESS_MS,
-    gcTime: COMMENTS_SUMMARY_RETENTION_MS,
+    staleTime: SUMMARY_FRESHNESS_MS,
+    gcTime: SUMMARY_RETENTION_MS,
   } as const;
 }
 
