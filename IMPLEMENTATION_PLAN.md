@@ -394,7 +394,7 @@ Shipped:
 
 Open:
 - [ ] **Require a logged-in account.** Once Phase 5a (login) ships, gate `/api/summary` on a valid session cookie. Return 401 when unauthenticated. Not urgent — the per-IP rate limiter above covers the abuse shape login would have guarded against, and forcing a login for anonymous readers would be a real UX regression for what is primarily a read-only reader app.
-- [ ] **Observability.** Log aggregate request count, cache hit rate, and error classes to a cheap sink (Vercel logs + periodic dashboard). Flag if cache hit rate collapses (spend spike). With rate limiting now in place, also log 429 counts per tier so threshold changes can be data-driven.
+- [ ] **Observability.** Design captured in `OBSERVABILITY.md` (phased plan: log event taxonomy → Axiom monitors → OpsGenie paging → optional Datadog migration → optional Jina wallet cron). Phase 1 lands `summary-outcome` / `comments-summary-outcome` structured log lines; the four monitors key off those plus the existing `summary-jina-payment-required` event.
 - [ ] **Summary length metric + cap.** Log summary character/line length so we can size the loading skeleton against real-world data instead of a hand-picked line count. Once we know the distribution, cap the response (prompt tweak or hard truncate) so the skeleton stays close to the median and reflow on arrival is minimised.
 
 ## Cross-cutting
