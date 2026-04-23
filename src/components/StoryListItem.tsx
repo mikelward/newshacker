@@ -2,7 +2,11 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
-import { formatDisplayDomain, formatStoryMetaTail } from '../lib/format';
+import {
+  formatDisplayDomain,
+  formatStoryMetaTail,
+  isHotStory,
+} from '../lib/format';
 import { usePointerDevice } from '../hooks/usePointerDevice';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
@@ -52,6 +56,8 @@ export function StoryListItem({
     seenCommentCount !== undefined
       ? Math.max(0, (story.descendants ?? 0) - seenCommentCount)
       : 0;
+
+  const hot = isHotStory(story);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const articleRef = useRef<HTMLElement>(null);
@@ -166,6 +172,14 @@ export function StoryListItem({
         <span className="story-row__meta" data-testid="story-meta">
           {domainLabel ? `${domainLabel} · ` : ''}
           {formatStoryMetaTail({ ...story, newCommentCount })}
+          {hot ? (
+            <>
+              {' · '}
+              <span className="story-row__hot" data-testid="story-hot">
+                hot
+              </span>
+            </>
+          ) : null}
         </span>
       </Link>
 

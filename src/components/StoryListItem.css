@@ -95,6 +95,13 @@
   text-overflow: ellipsis;
 }
 
+/* Trending flag: orange "hot" text appended to the meta line. Same
+   font-size as the rest of the meta; color alone carries the signal. */
+.story-row__hot {
+  color: var(--hn-orange);
+  font-weight: 600;
+}
+
 .pin-btn {
   position: relative;
   z-index: 2;

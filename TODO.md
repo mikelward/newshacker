@@ -339,6 +339,35 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   List if the coverage matters; the length cap is the backstop until
   then.
 
+## Feeds / views
+
+- **"Hot" feed.** A dedicated view that only shows stories that
+  `isHotStory()` currently flags (`src/lib/format.ts`), drawn from
+  whichever base feed makes sense (probably `/top` + `/new` merged,
+  since fast-risers live on `/new` before they hit `/top`).
+  Client-side filter — `isHotStory()` is already pure and the feed
+  items carry `score` and `time`. A natural extension of the orange
+  "hot" text on the row; would live alongside `/top`, `/new`, `/ask`,
+  etc. in the drawer. Think about empty-state copy for the quiet
+  hours when nothing qualifies.
+- **Tune `isHotStory()` thresholds.** Not just for the row flag —
+  once we add the "Hot" feed above, the signal-to-noise ratio
+  matters a lot more, since a too-loose threshold fills the whole
+  view. See the `TODO: tune` comment next to `HOT_MIN_SCORE_ANY_AGE`
+  in `src/lib/format.ts`.
+- **Decide what to call it.** `hot` is the current placeholder on
+  the row and in `isHotStory()`, but it's not perfect. Pick a short
+  label that's easy to understand at a glance **and** doesn't
+  collide with HN's upstream vocabulary. Off-limits because HN
+  already uses them: `top`, `new`, `best`, `ask`, `show`, `job`,
+  `front`. Candidates worth weighing: `hot`, `popular`, `trending`,
+  `rising`, `buzzing`, `big`. Whatever wins has to work as a drawer
+  label, a URL slug (e.g. `/hot`), and an inline word next to the
+  story meta — `hot` currently reads fine in all three; `trending`
+  would stretch the meta line; `big` is short but ambiguous ("big
+  what?"). Revisit before shipping the "Hot" feed above, rename
+  `isHotStory` / the CSS class / the SPEC bullets consistently.
+
 ## Desktop layout
 
 - **Comment expand/collapse button — iterate on position and icon.**
