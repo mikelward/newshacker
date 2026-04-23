@@ -92,6 +92,190 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   *what* is shared; `on <platform>` suffix = *where* the recipient
   lands).
 
+## Reading mode
+
+Research note, not scoped work yet. Option space for letting a
+reader consume the article itself from newshacker — either rendered
+in-app or handed off to an external reading service — with rough
+coverage, TOS posture, and failure-mode analysis per approach so
+the final call can be made against the same yardstick. Cross-refs:
+*Thread overflow menu* above (where the link-out entries would
+live) and *Article-fetch fallback* + *Paywalled-article summary
+fallbacks* below (which share the extraction pipeline a hosted
+reader mode would extend).
+
+### Link-out ("send to someone else's reader")
+
+User stays on newshacker, we emit an outbound URL or a share-target
+payload; the reader lands in another product that handles
+extraction and rendering. Zero content-distribution liability for
+us — the redistribution question belongs to whoever runs the
+destination service.
+
+- **Web Share API (already shipped).** Every iOS / Android reading
+  app registers as a share target, so users who already own
+  Instapaper / Readwise Reader / Raindrop / successor apps can
+  route there today via the `⋮ → Share article` path. Cost: zero;
+  reliability: best of the options — we're not on the hot path.
+  Missing piece is *discoverability* — most users don't think of
+  the share sheet as "add to reading list". A `Read later` entry
+  in the overflow menu that just calls `navigator.share({ url })`
+  with nothing else changed would fix the framing at zero
+  engineering cost. Desktop browsers without Web Share fall back
+  to the clipboard copy we already do.
+- **Dedicated "Send to Instapaper".** The bookmarklet URL
+  `https://www.instapaper.com/hello2?url=<enc>&title=<enc>` still
+  works; unauthenticated users get bounced through login, then land
+  on a confirmation page. A same-tap `window.open(..., '_blank')`
+  avoids iOS's popup blocker. Coverage: Instapaper's extractor is
+  Readability-class plus per-site rules — ~90% of HN link posts
+  parse clean; SPAs / JS-only sites (Bloomberg, some Substacks, a
+  chunk of Ghost themes) degrade to a link-only save. TOS: we're
+  a link emitter, zero exposure for us. Failure modes: Instapaper
+  outages (a few hours a year), account required, iOS PWA pops
+  the destination out of `standalone`. Cost: zero — no API key,
+  no server involvement.
+- **Dedicated "Send to Readwise Reader".** `https://read.readwise
+  .io/save?url=<enc>` is the equivalent deep link. Coverage is a
+  notch better than Instapaper (they render JS server-side for
+  extraction) — ~95% of link posts. Same TOS posture (link
+  emitter). Paid-only service, but the subscriber base overlaps
+  heavily with HN readers, so an entry earns its shelf space.
+  Cost: zero to us.
+- **Dedicated "Send to Raindrop".** `https://raindrop.io/collection
+  /0?url=<enc>` — smaller audience and closer to a bookmark
+  manager than a long-form reader, but zero cost to add. Only
+  worth wiring if a user asks.
+- **Pocket — skip.** Mozilla announced the Pocket shutdown in May
+  2025; the service wound down mid-2025. Don't wire a save path
+  to a dying product.
+- **archive.ph / archive.org open-in.** `https://archive.ph/newest
+  /<enc>` and `https://web.archive.org/web/<url>` render
+  cleaned / snapshot copies, and HN commenters paste these into
+  paywalled threads already. TOS: archive.ph is openly
+  adversarial to publishers — promoting it as a general *reading
+  mode* is closer to endorsing paywall circumvention than we
+  probably want, and it's distinct from an escape hatch that only
+  appears when the content is genuinely unreachable. Keep this
+  paywall-specific if we ship it (matches the shape of
+  *Paywalled-article summary fallbacks (a) archive links posted
+  in comments* below), not a general reader entry.
+- **"Use your browser's Reader View" hint.** Zero code, zero cost
+  — a one-time tooltip pointing at Safari Reader (long-press the
+  URL bar → Reader) or Firefox Reader View (`Ctrl+Alt+R`) for
+  readers who don't know the native feature exists. We can't
+  programmatically trigger Safari Reader from a web app, so a hint
+  is as close as it gets. Coverage: Safari Reader fires on ~75%
+  of "article"-shaped pages; Firefox Reader View wraps Mozilla's
+  Readability (same ~85–90%). Zero TOS exposure — the browser
+  does the rendering locally on the user's device.
+
+### Hosted ("render the article body inside newshacker")
+
+User stays and the article itself renders on `newshacker.app`.
+Materially different legal posture from link-out: we become the
+distributor of a cleaned copy of someone else's content, possibly
+ad-stripped, on our origin. DMCAs land in our (and Vercel's)
+inbox, not a third party's.
+
+- **Extend the `/api/summary` extractor into a reader view.** We
+  already fetch the article through Jina Reader to build the AI
+  summary, and the planned self-hosted path under
+  *Article-fetch fallback* in this file runs `@mozilla/readability`
+  on the raw HTML. Feeding *the same extracted body* into a new
+  `/item/:id/read` route costs one additional render — the
+  expensive work is already done. Coverage: Readability on
+  well-formed news/blog ≈ 85% of HN link posts; Jina (which runs
+  JS) ≈ 95%. SPA shells, PDFs, arXiv PDFs, login-walls, geo-walls
+  all fail. TOS: we are redistributing extracted article bodies
+  on our origin without the publisher's explicit permission. The
+  safer analogues are Safari Reader and Firefox Reader View
+  (both run client-side, on the user's device — no
+  redistribution). The riskier analogues are the server-side
+  readers (Readability.com, old Mercury web reader, Outline.com)
+  that drew publisher C&Ds and in Outline's case shuttered. Our
+  posture would need to be closer to "Safari Reader shape, happens
+  to live on our server": honor `robots.txt` and
+  `noarchive` / `noindex`, surface a prominent `canonical` link
+  back to the source, frame ad/tracker stripping as reader-
+  selected rather than default, cap any cached body to a short
+  TTL, and publish a takedown contact on `/about`. Even with all
+  of that, the exposure is real — a niche reader probably flies
+  under the radar, but it's not a zero-risk feature. Failure
+  modes: paywalls (NYT's JSON-LD leaks the body so Readability
+  walks right through; WSJ, FT, Economist, WaPo don't); Substack
+  (full-post-in-email vs. web shell); sites that rate-limit
+  datacenter IPs; publishers A/B-testing their DOM and breaking
+  our selectors. Cost (rule 11): extraction is already budgeted
+  for summaries; storage for cached bodies is ~10× summary size,
+  so a 30-day TTL on 200 warmed stories is a few MB of Redis —
+  negligible. Reliability impact: adds "newshacker is down" as a
+  failure mode for reading articles the user *could* have read at
+  the source, which is a regression vs. today's
+  `window.open(originalUrl)` button.
+- **Client-side Readability via our CORS proxy.** Ship
+  `@mozilla/readability` in the bundle (~40 KB gzipped), fetch
+  the HTML through a new `/api/fetch?url=…` proxy, extract in the
+  browser, render locally. Saves server CPU but does *not* reduce
+  TOS exposure — we're still the fetcher on the network path,
+  which is what publishers object to. Marginal win; not worth a
+  separate build.
+- **Jina Reader as a client-side pass-through.** `https://r.jina
+  .ai/<url>` returns clean markdown; render it in a reader view
+  with no server of our own in the loop. Functionally the same as
+  the summary extractor reuse from the user's angle, but the TOS
+  exposure shifts to Jina (who so far shrug it off) and our
+  reading-mode uptime becomes tied to Jina's uptime. Their free
+  tier rate-limits at a level that's fine for a single tab but
+  miserable for a trending-HN spike; a keyed tier is low single-
+  digit dollars / month at current scale (rule 11). Already a hard
+  dependency for summaries, so coupling reading mode to it too
+  concentrates blast radius rather than spreading it.
+
+### Coverage rough cut
+
+Eyeballed, not measured — validate with an instrumented dry-run
+over ~100 recent top-feed URLs before committing. Ranges, not
+point values, because results depend heavily on which slice of HN
+ends up on the front page on a given day.
+
+- **Plain news / blog posts** (most of HN's front page most days):
+  Instapaper ~90%, Readwise Reader ~95%, Safari Reader ~85%,
+  self-hosted Readability ~85%, Jina Reader ~95%.
+- **SPA / JS-only sites** (Bloomberg, some Substacks, some Ghost,
+  modern news apps): Instapaper ~50%, Readwise Reader ~80%, Safari
+  Reader ~40%, self-hosted Readability ~20%, Jina Reader ~90%.
+- **Paywalled articles**: every approach degrades to a teaser
+  unless JSON-LD `articleBody` leaks the full text (NYT yes; WSJ,
+  FT, Economist, WaPo no). Archive hand-off is the only path that
+  routinely gets the body, with its own TOS caveats.
+- **PDFs and arXiv PDFs**: Readwise Reader has a native PDF
+  viewer; Instapaper stores but doesn't render; Readability and
+  Jina handle only the HTML versions; Safari Reader n/a. Best
+  path: just open the PDF in the browser, no reader-mode layer.
+- **GitHub READMEs, docs sites, gists**: already readable at the
+  source; a reader-mode layer is redundant and sometimes worse
+  (loses syntax highlighting, renders code in a prose font).
+  Either exclude these hosts from the reader path or auto-bypass.
+
+### Recommendation when this gets picked up
+
+1. Start with link-out. `Send to Instapaper` + `Send to Readwise
+   Reader` as named entries under the thread `⋮` menu, next to
+   `Share article`, `Open on Hacker News`, and the planned
+   `Share on newshacker` (the `on <platform>` naming convention
+   still applies). Zero TOS exposure, days of work, covers the
+   cohort that already uses a reading app. Skip Pocket (dead),
+   hold Raindrop until a user asks.
+2. Add a one-time onboarding hint pointing at Safari Reader /
+   Firefox Reader View for users without a reading-app
+   subscription — zero code beyond the hint itself.
+3. Only then revisit hosted reader mode, and only after deciding
+   on the publisher-opt-out story up front (robots.txt honored,
+   `noarchive`/`noindex` honored, visible `canonical` link, short
+   cache TTL, takedown contact on `/about`). Without that story
+   in place the TOS exposure isn't worth the feature.
+
 ## Backend / infrastructure
 
 - **Max-story-age should use HN `story.time`, not `firstSeenAt`.**
