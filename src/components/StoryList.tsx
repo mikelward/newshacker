@@ -22,6 +22,7 @@ import {
 } from '../lib/feedStoryPrefetch';
 import { warmFeedSummaries } from '../lib/feedSummaryWarm';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
+import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
 import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
 
@@ -243,14 +244,23 @@ export function StoryList({ feed }: Props) {
     return () => setSweep(null, 0);
   }, [setSweep, handleSweep, sweepableIds.length]);
 
-  // Refresh == "pull the feed + cross-device sync state". Same
-  // callback PullToRefresh uses — see onRefresh below.
-  // `cloudSyncPullNow` is an outer-scope module import, not a
-  // dependency of this hook — `react-hooks/exhaustive-deps` flags
-  // adding it (the value can't mutate in a way that would require
-  // a re-callback).
+  // Refresh == "pull the feed + cross-device sync state + latest
+  // app bundle". Same callback PullToRefresh uses — see onRefresh
+  // below. `cloudSyncPullNow` and `checkForServiceWorkerUpdate` are
+  // outer-scope module imports, not dependencies of this hook —
+  // `react-hooks/exhaustive-deps` flags adding them (their values
+  // can't mutate in a way that would require a re-callback).
+  //
+  // `checkForServiceWorkerUpdate` pings the SW to re-fetch `/sw.js`
+  // and reloads the tab if a newer build has shipped. Without it
+  // the browser only re-checks on full navigation, and our custom
+  // PTR overrides the browser's native swipe-to-reload, so a
+  // session parked on one route stays on the old bundle — the
+  // failure mode that made Vercel preview testing after a
+  // force-push unreliable.
   const handleRefresh = useCallback(
-    () => Promise.all([refetch(), cloudSyncPullNow()]),
+    () =>
+      Promise.all([refetch(), cloudSyncPullNow(), checkForServiceWorkerUpdate()]),
     [refetch],
   );
   useEffect(() => {

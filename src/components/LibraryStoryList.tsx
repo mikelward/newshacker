@@ -11,6 +11,7 @@ import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
 import { useShareStory } from '../hooks/useShareStory';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
+import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import './StoryList.css';
 
@@ -100,8 +101,13 @@ export function LibraryStoryList({
         // from localStorage — refetching items alone can't surface a
         // story pinned on another device because the id isn't in the
         // local list yet. Pull cloudSync first to bring in any new
-        // ids, then refetch the HN items.
-        cloudSyncPullNow().then(() => items.refetch())
+        // ids, then refetch the HN items. In parallel, check for a
+        // newer app bundle — see `StoryList.handleRefresh` for the
+        // full rationale on tying SW update checks to PTR.
+        Promise.all([
+          cloudSyncPullNow().then(() => items.refetch()),
+          checkForServiceWorkerUpdate(),
+        ])
       }
     >
       <ol className="story-list">

@@ -42,6 +42,16 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   fetches the whole comment tree (or a deeper slice than the 30
   top-level prefetch) into cache in one burst. Useful for mega-threads
   a user wants to read offline in full.
+- **Revisit PTR-triggered auto-reload if we ever add commenting or
+  posting.** Today PTR calls `checkForServiceWorkerUpdate()` which
+  does `window.location.reload()` the moment a newly-installed SW
+  claims the tab. That's safe right now because the app is a pure
+  reader with no in-progress state to lose on reload (same
+  rationale SPEC uses for `autoUpdate` silent activation). Once we
+  have a compose box or an in-flight vote/comment POST, a reload
+  mid-PTR could drop unsent user input — swap in an update-available
+  toast, defer the reload until after the POST resolves, or gate
+  the reload on "no draft in flight".
 
 ## Optimistic-action feedback
 
