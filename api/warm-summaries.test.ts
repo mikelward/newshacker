@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ageBandFromMinutes,
+  decideCommentsInterval,
   decideInterval,
   handleWarmRequest,
   hashArticle,
@@ -237,12 +239,15 @@ describe('parseWarmN', () => {
 });
 
 describe('readKnobs', () => {
-  it('defaults match the documented 30-min / 2-h / 6-h / 48-h / top-30 tuning', () => {
+  it('defaults match the documented 30-min / 2-h / 6-h / 32-h / top-30 tuning', () => {
     const knobs = readKnobs({});
     expect(knobs.refreshCheckIntervalSeconds).toBe(30 * 60);
     expect(knobs.stableCheckIntervalSeconds).toBe(2 * 60 * 60);
     expect(knobs.stableThresholdSeconds).toBe(6 * 60 * 60);
-    expect(knobs.maxStoryAgeSeconds).toBe(48 * 60 * 60);
+    // Both tracks now stop at 32 h — the old 48 h was paying Jina to
+    // check stories that almost never change past the 12 h mark.
+    expect(knobs.maxStoryAgeSeconds).toBe(32 * 60 * 60);
+    expect(knobs.commentsMaxStoryAgeSeconds).toBe(32 * 60 * 60);
     expect(knobs.topN).toBe(30);
   });
 
@@ -251,10 +256,26 @@ describe('readKnobs', () => {
       WARM_REFRESH_CHECK_INTERVAL_SECONDS: '600',
       WARM_TOP_N: '5',
       WARM_MAX_STORY_AGE_SECONDS: 'not-a-number',
+      WARM_COMMENTS_MAX_AGE_SECONDS: '7200',
     });
     expect(knobs.refreshCheckIntervalSeconds).toBe(600);
     expect(knobs.topN).toBe(5);
-    expect(knobs.maxStoryAgeSeconds).toBe(48 * 60 * 60); // falls back
+    expect(knobs.maxStoryAgeSeconds).toBe(32 * 60 * 60); // falls back
+    expect(knobs.commentsMaxStoryAgeSeconds).toBe(7200);
+  });
+});
+
+describe('ageBandFromMinutes', () => {
+  it('maps minutes to the doubling-width buckets used by analytics', () => {
+    expect(ageBandFromMinutes(0)).toBe('0-1h');
+    expect(ageBandFromMinutes(30)).toBe('0-1h');
+    expect(ageBandFromMinutes(60)).toBe('1-2h'); // boundary is exclusive on the low side
+    expect(ageBandFromMinutes(90)).toBe('1-2h');
+    expect(ageBandFromMinutes(120)).toBe('2-4h');
+    expect(ageBandFromMinutes(240)).toBe('4-8h');
+    expect(ageBandFromMinutes(480)).toBe('8-16h');
+    expect(ageBandFromMinutes(960)).toBe('16-32h');
+    expect(ageBandFromMinutes(1920)).toBe('32h+');
   });
 });
 
@@ -263,10 +284,9 @@ describe('decideInterval', () => {
     refreshCheckIntervalSeconds: 30 * 60,
     stableCheckIntervalSeconds: 2 * 60 * 60,
     stableThresholdSeconds: 6 * 60 * 60,
-    maxStoryAgeSeconds: 48 * 60 * 60,
+    maxStoryAgeSeconds: 32 * 60 * 60,
     topN: 30,
-    youngStoryAgeSeconds: 2 * 60 * 60,
-    youngStoryRefreshIntervalSeconds: 10 * 60,
+    commentsMaxStoryAgeSeconds: 32 * 60 * 60,
     commentsMinKids: 5,
   };
 
@@ -315,6 +335,81 @@ describe('decideInterval', () => {
     const later = now + 2 * HOURS;
     const bumped = { ...record, lastCheckedAt: later - (2 * HOURS + MINUTES) };
     expect(decideInterval(bumped, later, base).shouldCheck).toBe(true);
+  });
+});
+
+describe('decideCommentsInterval', () => {
+  const base: WarmKnobs = {
+    refreshCheckIntervalSeconds: 30 * 60,
+    stableCheckIntervalSeconds: 2 * 60 * 60,
+    stableThresholdSeconds: 6 * 60 * 60,
+    maxStoryAgeSeconds: 32 * 60 * 60,
+    topN: 30,
+    commentsMaxStoryAgeSeconds: 32 * 60 * 60,
+    commentsMinKids: 5,
+  };
+  const now = 1_700_000_000_000;
+
+  function recordLastCheckedAgo(ms: number): CommentsSummaryRecord {
+    return {
+      insights: ['x'],
+      transcriptHash: 'x',
+      firstSeenAt: now - 30 * MINUTES,
+      summaryGeneratedAt: now - 30 * MINUTES,
+      lastCheckedAt: now - ms,
+      lastChangedAt: now - 30 * MINUTES,
+    };
+  }
+
+  function storyAgedSec(seconds: number) {
+    return { id: 1, type: 'story' as const, time: Math.floor((now - seconds * 1000) / 1000) };
+  }
+
+  it('tier 1 (≤ 1 h old): polls at 15 min', () => {
+    const story = storyAgedSec(30 * 60); // 30 min old → tier 1
+    expect(decideCommentsInterval(recordLastCheckedAgo(14 * MINUTES), story, now, base).shouldCheck).toBe(false);
+    expect(decideCommentsInterval(recordLastCheckedAgo(15 * MINUTES), story, now, base).shouldCheck).toBe(true);
+  });
+
+  it('tier 3 (2-4 h old): polls at 60 min', () => {
+    const story = storyAgedSec(3 * 60 * 60); // 3 h old → tier 3
+    expect(decideCommentsInterval(recordLastCheckedAgo(59 * MINUTES), story, now, base).shouldCheck).toBe(false);
+    expect(decideCommentsInterval(recordLastCheckedAgo(60 * MINUTES), story, now, base).shouldCheck).toBe(true);
+  });
+
+  it('tier 6 (16-32 h old): polls at 480 min', () => {
+    const story = storyAgedSec(20 * 60 * 60); // 20 h old → tier 6
+    expect(decideCommentsInterval(recordLastCheckedAgo(7 * HOURS), story, now, base).shouldCheck).toBe(false);
+    expect(decideCommentsInterval(recordLastCheckedAgo(8 * HOURS), story, now, base).shouldCheck).toBe(true);
+  });
+
+  it('stable short-circuit overrides the tier ladder', () => {
+    // Young story (15 min old → would be tier 1, 15 min interval) but
+    // the hash has been stable for 7 h (> 6 h threshold). Stable wins:
+    // we back off to the 2 h stable interval even though the ladder
+    // would poll every 15 min.
+    const story = storyAgedSec(15 * 60);
+    const record: CommentsSummaryRecord = {
+      insights: ['x'],
+      transcriptHash: 'x',
+      firstSeenAt: now - 7 * HOURS,
+      summaryGeneratedAt: now - 7 * HOURS,
+      lastCheckedAt: now - 16 * MINUTES,
+      lastChangedAt: now - 7 * HOURS,
+    };
+    expect(decideCommentsInterval(record, story, now, base).shouldCheck).toBe(false);
+  });
+
+  it('falls back to the flat fresh interval when story.time is missing', () => {
+    // Without a submission timestamp we can't place the story on the
+    // ladder; the fallback keeps a sensible 30 min cadence instead of
+    // picking tier 1 and over-polling.
+    expect(
+      decideCommentsInterval(recordLastCheckedAgo(29 * MINUTES), null, now, base).shouldCheck,
+    ).toBe(false);
+    expect(
+      decideCommentsInterval(recordLastCheckedAgo(30 * MINUTES), null, now, base).shouldCheck,
+    ).toBe(true);
   });
 });
 
@@ -699,8 +794,8 @@ describe('handleWarmRequest', () => {
     };
     store.map.set(1004, existing);
     const { logger, stories } = captureLogger();
-    // 49 h later — past the 48 h default.
-    const now = firstSeenAt + 49 * HOURS;
+    // 33 h later — past the 32 h default.
+    const now = firstSeenAt + 33 * HOURS;
 
     await handleWarmRequest(makeRequest({ secret: null }), {
       fetchImpl,
@@ -1165,9 +1260,9 @@ describe('handleWarmRequest', () => {
     expect(commentsStore.map.get(4010)!.insights).toEqual(['fresh a', 'fresh b']);
   });
 
-  it('comments young-story interval: a young thread re-checks at 10 min instead of 30 min', async () => {
+  it('comments tier 1 (≤ 1 h): a 30-min-old thread re-checks at the 15-min interval', async () => {
     const now = 1_700_000_000_000;
-    // Submitted 30 min ago → inside the 2 h young window.
+    // Submitted 30 min ago → tier 1 (0-1h), 15 min poll interval.
     const storyTime = Math.floor((now - 30 * MINUTES) / 1000);
     const fetchItem = fetchItemFor({
       5001: {
@@ -1181,9 +1276,7 @@ describe('handleWarmRequest', () => {
       5002: { id: 5002, type: 'comment', text: 'a', time: 1 },
     });
     const commentsStore = createCommentsTestStore();
-    // Last checked 15 min ago: > 10 min young interval, < 30 min
-    // default fresh interval. Fresh-story baseline would skip; young-
-    // story baseline should proceed.
+    // Last checked 15 min ago: hits tier-1's 15 min interval exactly.
     commentsStore.map.set(5001, {
       insights: ['x'],
       transcriptHash: hashTranscript('[#1]\na'),
@@ -1204,14 +1297,17 @@ describe('handleWarmRequest', () => {
       now: () => now,
     });
     const comments = stories.find((s) => s.track === 'comments')!;
-    // The young interval triggered a recheck; the hash was unchanged
-    // so it short-circuited to 'unchanged' without calling Gemini.
+    // Tier-1 interval let the recheck through; hash was unchanged so
+    // the outcome is 'unchanged', no Gemini call.
     expect(comments.outcome).toBe('unchanged');
+    // The analytics fields we'll read in APL tomorrow.
+    expect(comments.ageBand).toBe('0-1h');
+    expect(comments.storyAgeMinutes).toBe(30);
   });
 
-  it('comments NOT young: old story falls back to the standard 30-min fresh interval', async () => {
+  it('comments tier 3 (2-4 h): a 3-h-old thread skips because 15 min < 60 min interval', async () => {
     const now = 1_700_000_000_000;
-    // Submitted 3 h ago → past the 2 h young window.
+    // Submitted 3 h ago → tier 3 (2-4h), 60 min poll interval.
     const storyTime = Math.floor((now - 3 * HOURS) / 1000);
     const fetchItem = fetchItemFor({
       5010: {
@@ -1225,7 +1321,7 @@ describe('handleWarmRequest', () => {
       5011: { id: 5011, type: 'comment', text: 'a', time: 1 },
     });
     const commentsStore = createCommentsTestStore();
-    // Last checked 15 min ago: skipped under non-young 30-min interval.
+    // Last checked 15 min ago: under tier 3's 60 min interval.
     commentsStore.map.set(5010, {
       insights: ['x'],
       transcriptHash: hashTranscript('[#1]\na'),
@@ -1247,5 +1343,80 @@ describe('handleWarmRequest', () => {
     });
     const comments = stories.find((s) => s.track === 'comments')!;
     expect(comments.outcome).toBe('skipped_interval');
+    expect(comments.ageBand).toBe('2-4h');
+    expect(comments.storyAgeMinutes).toBe(180);
+  });
+
+  it('comments past commentsMaxStoryAgeSeconds (32h): skipped_age', async () => {
+    const now = 1_700_000_000_000;
+    // Submitted 33 h ago → past the 32 h cutoff.
+    const storyTime = Math.floor((now - 33 * HOURS) / 1000);
+    const fetchItem = fetchItemFor({
+      5020: {
+        id: 5020,
+        type: 'story',
+        title: 't',
+        score: 10,
+        time: storyTime,
+        kids: [5021],
+      },
+      5021: { id: 5021, type: 'comment', text: 'a', time: 1 },
+    });
+    const commentsStore = createCommentsTestStore();
+    commentsStore.map.set(5020, {
+      insights: ['x'],
+      transcriptHash: hashTranscript('[#1]\na'),
+      firstSeenAt: now - 33 * HOURS,
+      summaryGeneratedAt: now - 33 * HOURS,
+      lastCheckedAt: now - 10 * HOURS,
+      lastChangedAt: now - 33 * HOURS,
+    });
+    const client = createFakeClient([]); // never called
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchItem,
+      fetchFeedIds: async () => [5020],
+      createClient: () => client,
+      store: createTestStore(),
+      commentsStore,
+      logger,
+      now: () => now,
+    });
+    const comments = stories.find((s) => s.track === 'comments')!;
+    expect(comments.outcome).toBe('skipped_age');
+    expect(comments.ageBand).toBe('32h+');
+  });
+
+  it('articles carry storyAgeMinutes + ageBand on first_seen', async () => {
+    // Regression guard for the analytics: every article entry with a
+    // known HN story.time must carry storyAgeMinutes + ageBand so the
+    // "changed per ageBand" histogram is queryable without joining
+    // back to the HN item table.
+    const now = 1_700_000_000_000;
+    const storyTime = Math.floor((now - 45 * MINUTES) / 1000);
+    const articleUrl = 'https://example.com/analytics';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
+    });
+    const fetchItem = fetchItemFor({
+      6001: { id: 6001, type: 'story', url: articleUrl, score: 10, time: storyTime },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([{ text: 's' }]);
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [6001],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(article.storyAgeMinutes).toBe(45);
+    expect(article.ageBand).toBe('0-1h');
   });
 });
