@@ -103,6 +103,99 @@ describe('<StoryList> pin and sweep', () => {
     expect(screen.getByTestId('sweep-btn')).toBeDisabled();
   });
 
+  it('sweep plays a single slide+fade on every unpinned row before removing them', async () => {
+    const ids = [1, 2, 3];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+    addPinnedId(2);
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    fireEvent.click(sweep);
+
+    // The hide is deferred until the sweep-out animation finishes, so
+    // the unpinned rows stay in the DOM for a moment wearing the
+    // animation class. The pinned row never gets the class.
+    const unpinned1 = screen.getByText('Story 1').closest('li')!;
+    const pinned = screen.getByText('Story 2').closest('li')!;
+    const unpinned3 = screen.getByText('Story 3').closest('li')!;
+    expect(unpinned1.className).toContain('story-list__item--sweeping');
+    expect(unpinned3.className).toContain('story-list__item--sweeping');
+    expect(pinned.className).not.toContain('story-list__item--sweeping');
+
+    // Animation completes → rows actually hide.
+    await waitFor(() => {
+      expect(screen.queryByText('Story 1')).toBeNull();
+      expect(screen.queryByText('Story 3')).toBeNull();
+    });
+    expect(screen.getByText('Story 2')).toBeInTheDocument();
+  });
+
+  it('sweep skips the animation and delay when prefers-reduced-motion is set', async () => {
+    const ids = [1, 2];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+
+    try {
+      renderWithProviders(
+        <>
+          <AppHeader />
+          <StoryList feed="top" />
+        </>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('story-row')).toHaveLength(2);
+      });
+
+      const sweep = screen.getByTestId('sweep-btn');
+      await waitFor(() => {
+        expect(sweep).not.toBeDisabled();
+      });
+      fireEvent.click(sweep);
+
+      // Reduced-motion path hides immediately — rows gone on the very
+      // next render, and no row ever wore the sweeping class.
+      await waitFor(() => {
+        expect(screen.queryByTestId('story-row')).toBeNull();
+      });
+      expect(
+        document.querySelector('.story-list__item--sweeping'),
+      ).toBeNull();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it('bottom-bar sweep button mirrors the header sweep — same state, same action', async () => {
     const ids = [1, 2, 3, 4];
     const items = Object.fromEntries(
