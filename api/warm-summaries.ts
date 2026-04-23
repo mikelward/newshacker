@@ -77,16 +77,31 @@ const MAX_COMMENT_CHARS = 2000;
 const DEFAULT_REFRESH_CHECK_INTERVAL = 60 * 30; // 30 min for fresh stories
 const DEFAULT_STABLE_CHECK_INTERVAL = 60 * 60 * 2; // 2 h for stable stories
 const DEFAULT_STABLE_THRESHOLD = 60 * 60 * 6; // "stable" = unchanged ≥ 6 h
-const DEFAULT_MAX_STORY_AGE = 60 * 60 * 48; // give up after 48 h
+const DEFAULT_MAX_STORY_AGE = 60 * 60 * 32; // give up after 32 h (article track)
 const DEFAULT_TOP_N = 30;
-// Young-story tuning: hot threads on HN grow fast in their first
-// couple of hours. For the *comments* track only, re-check a live
-// thread more aggressively while the story is young — otherwise the
-// 30-min fresh interval leaves the cached insights lagging behind
-// real comment churn. Articles don't grow after publication, so
-// this doesn't apply to the article track.
-const DEFAULT_YOUNG_STORY_AGE = 60 * 60 * 2; // "young" = HN-submitted < 2 h ago
-const DEFAULT_YOUNG_STORY_REFRESH_INTERVAL = 60 * 10; // 10 min
+// Comments-track tiered schedule: a doubling ladder keyed off HN
+// story age (now − story.time). The first tier whose maxAge the
+// story is still under decides the re-check interval. Past the
+// last tier (and past commentsMaxStoryAgeSeconds), we stop
+// checking entirely and log skipped_age. Bucket widths match the
+// analytics buckets in `ageBand` (1h, 2h, 4h, 8h, 16h, 32h) so
+// "changed per ageBand" and "polled per ageBand" share the same
+// x-axis tomorrow. Intervals are ~bucket-width / 4, so each
+// story gets roughly four polls per bucket before aging into the
+// next.
+export interface CommentsTier {
+  maxAgeSeconds: number;
+  intervalSeconds: number;
+}
+const COMMENTS_TIERS: CommentsTier[] = [
+  { maxAgeSeconds: 60 * 60 * 1, intervalSeconds: 60 * 15 },
+  { maxAgeSeconds: 60 * 60 * 2, intervalSeconds: 60 * 30 },
+  { maxAgeSeconds: 60 * 60 * 4, intervalSeconds: 60 * 60 },
+  { maxAgeSeconds: 60 * 60 * 8, intervalSeconds: 60 * 120 },
+  { maxAgeSeconds: 60 * 60 * 16, intervalSeconds: 60 * 240 },
+  { maxAgeSeconds: 60 * 60 * 32, intervalSeconds: 60 * 480 },
+];
+const DEFAULT_COMMENTS_MAX_AGE = 60 * 60 * 32; // give up after 32 h (comments track)
 // Minimum usable top-level comments required before the *cron*
 // creates a comments-summary record (first_seen). Stops the cron from
 // burning Gemini on a 2-comment thread that will look completely
@@ -109,9 +124,13 @@ export interface WarmKnobs {
   stableThresholdSeconds: number;
   maxStoryAgeSeconds: number;
   topN: number;
-  // Comments-track-specific tuning (see defaults above).
-  youngStoryAgeSeconds: number;
-  youngStoryRefreshIntervalSeconds: number;
+  // Comments-track-specific tuning. The tier ladder itself is a
+  // compile-time constant (COMMENTS_TIERS); only the stop-age is
+  // env-tunable, so an operator can shorten or extend the
+  // comments track without redeploying. Tuning the ladder shape
+  // requires a code change, on purpose — the bucket widths double
+  // by design and match the ageBand analytics axis.
+  commentsMaxStoryAgeSeconds: number;
   commentsMinKids: number;
 }
 
@@ -134,13 +153,9 @@ export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
       DEFAULT_MAX_STORY_AGE,
     ),
     topN: parsePositiveInt(env.WARM_TOP_N, DEFAULT_TOP_N),
-    youngStoryAgeSeconds: parsePositiveInt(
-      env.WARM_YOUNG_STORY_AGE_SECONDS,
-      DEFAULT_YOUNG_STORY_AGE,
-    ),
-    youngStoryRefreshIntervalSeconds: parsePositiveInt(
-      env.WARM_YOUNG_STORY_REFRESH_INTERVAL_SECONDS,
-      DEFAULT_YOUNG_STORY_REFRESH_INTERVAL,
+    commentsMaxStoryAgeSeconds: parsePositiveInt(
+      env.WARM_COMMENTS_MAX_AGE_SECONDS,
+      DEFAULT_COMMENTS_MAX_AGE,
     ),
     commentsMinKids: parsePositiveInt(
       env.WARM_COMMENTS_MIN_KIDS,
@@ -659,6 +674,21 @@ export interface StoryLog {
   // All durations in minutes, rounded to 1 decimal. Missing when the
   // corresponding timestamp isn't known yet.
   ageMinutes?: number;
+  // Story age since HN submission (`now − story.time`), in minutes.
+  // Derived from the HN item — present on every log line where we
+  // loaded the story and it carries a `time` field, regardless of
+  // track or outcome. `ageMinutes` (above) is cache age, not story
+  // age; they diverge for any record whose first_seen trailed the
+  // HN submission. For the tiered comments schedule and the "how
+  // often does an article change per age band" analytics, story
+  // age is the right axis.
+  storyAgeMinutes?: number;
+  // Coarse band derived from storyAgeMinutes — grouping axis for
+  // APL queries that want "changed-per-band" without bucketing
+  // the raw number. Present whenever storyAgeMinutes is present.
+  // On the comments track the ladder intervals are keyed off the
+  // same bucket widths, so `ageBand` doubles as the tier label.
+  ageBand?: AgeBand;
   stableForMinutes?: number;
   sinceLastCheckMinutes?: number;
   // Article track: whether the regenerated Gemini summary text differs
@@ -762,32 +792,101 @@ interface BackoffState {
   lastCheckedAt: number;
 }
 
-export interface DecideIntervalOptions {
-  // Comments track passes `true` when the HN story was submitted less
-  // than youngStoryAgeSeconds ago, to trigger the shorter refresh
-  // interval. Article track always leaves this false.
-  isYoungStory?: boolean;
-}
-
+// Article-track decision: flat fresh interval until the content has
+// been unchanged ≥ stableThreshold, then the longer stable interval.
+// No story-age tiering on the article track — articles don't grow
+// after publication, and the coarse "fresh vs stable" split is what
+// the analytics in ageBand/storyAgeMinutes are there to tune.
 export function decideInterval(
   record: BackoffState,
   now: number,
   knobs: WarmKnobs,
-  options: DecideIntervalOptions = {},
 ): { shouldCheck: boolean; stableFor: number } {
   const stableFor = Math.max(0, now - record.lastChangedAt);
   const sinceLastCheck = Math.max(0, now - record.lastCheckedAt);
-  let interval: number;
-  if (stableFor >= knobs.stableThresholdSeconds * 1000) {
-    // Stable wins even for young stories — a comments thread that's
-    // been unchanged for 6+ hours doesn't need the aggressive cadence.
-    interval = knobs.stableCheckIntervalSeconds * 1000;
-  } else if (options.isYoungStory) {
-    interval = knobs.youngStoryRefreshIntervalSeconds * 1000;
-  } else {
-    interval = knobs.refreshCheckIntervalSeconds * 1000;
-  }
+  const interval =
+    stableFor >= knobs.stableThresholdSeconds * 1000
+      ? knobs.stableCheckIntervalSeconds * 1000
+      : knobs.refreshCheckIntervalSeconds * 1000;
   return { shouldCheck: sinceLastCheck >= interval, stableFor };
+}
+
+// Comments-track decision: a doubling ladder of story-age bands,
+// short-circuited by the same stable-interval rule as the article
+// track. Stable wins even inside a short tier — a thread that's
+// been unchanged ≥ stableThreshold doesn't need tier-1 polling.
+// Tier selection is surfaced via `ageBand` on the log line (bucket
+// widths match the ladder 1:1), not a separate field.
+export function decideCommentsInterval(
+  record: BackoffState,
+  story: HNItem | null,
+  now: number,
+  knobs: WarmKnobs,
+): { shouldCheck: boolean; stableFor: number } {
+  const stableFor = Math.max(0, now - record.lastChangedAt);
+  const sinceLastCheck = Math.max(0, now - record.lastCheckedAt);
+  if (stableFor >= knobs.stableThresholdSeconds * 1000) {
+    return {
+      shouldCheck: sinceLastCheck >= knobs.stableCheckIntervalSeconds * 1000,
+      stableFor,
+    };
+  }
+  const storyAge = storyAgeMs(story, now);
+  if (storyAge === undefined) {
+    // No HN timestamp to place the story on the ladder — fall back
+    // to the flat fresh interval so we keep checking at a sensible
+    // cadence rather than defaulting to the shortest tier and
+    // over-polling.
+    return {
+      shouldCheck: sinceLastCheck >= knobs.refreshCheckIntervalSeconds * 1000,
+      stableFor,
+    };
+  }
+  for (const tier of COMMENTS_TIERS) {
+    if (storyAge <= tier.maxAgeSeconds * 1000) {
+      return {
+        shouldCheck: sinceLastCheck >= tier.intervalSeconds * 1000,
+        stableFor,
+      };
+    }
+  }
+  // Past the last tier — caller will already have hit the max-age
+  // skip; this is just a safe fall-through.
+  return { shouldCheck: false, stableFor };
+}
+
+// Age axis used by the analytics and the tiered schedule. `story.time`
+// is the HN submission time in Unix seconds. Returns undefined when
+// the HN item isn't loaded or lacks a time field.
+function storyAgeMs(story: HNItem | null, now: number): number | undefined {
+  if (!story || typeof story.time !== 'number') return undefined;
+  return Math.max(0, now - story.time * 1000);
+}
+
+// Coarse story-age band, derived from story age in minutes. These
+// buckets match the comments-tier ladder so a query like "changed
+// outcomes by ageBand" lines up with the thresholds operators are
+// tuning. Also used on article entries so the article-side "when
+// does an article's hash actually change" question has a ready-made
+// grouping key.
+export type AgeBand =
+  | '0-1h'
+  | '1-2h'
+  | '2-4h'
+  | '4-8h'
+  | '8-16h'
+  | '16-32h'
+  | '32h+';
+
+export function ageBandFromMinutes(ageMin: number): AgeBand {
+  const h = ageMin / 60;
+  if (h < 1) return '0-1h';
+  if (h < 2) return '1-2h';
+  if (h < 4) return '2-4h';
+  if (h < 8) return '4-8h';
+  if (h < 16) return '8-16h';
+  if (h < 32) return '16-32h';
+  return '32h+';
 }
 
 export interface WarmDeps {
@@ -905,35 +1004,49 @@ function makeLog(track: WarmTrack, storyId: number) {
   });
 }
 
-function shouldSkipByBackoff(
+// Article-track skip gate: cache-age cutoff (WARM_MAX_STORY_AGE_SECONDS)
+// plus the fresh/stable interval from decideInterval.
+function shouldSkipArticleByBackoff(
   existing: BackoffState & { firstSeenAt: number },
   now: number,
   knobs: WarmKnobs,
-  options: DecideIntervalOptions = {},
 ): { skip: CheckOutcome | null; stableFor: number } {
-  const ageMs = now - existing.firstSeenAt;
-  if (ageMs > knobs.maxStoryAgeSeconds * 1000) {
+  if (now - existing.firstSeenAt > knobs.maxStoryAgeSeconds * 1000) {
     return { skip: 'skipped_age', stableFor: 0 };
   }
-  const { shouldCheck, stableFor } = decideInterval(
-    existing,
-    now,
-    knobs,
-    options,
-  );
+  const { shouldCheck, stableFor } = decideInterval(existing, now, knobs);
   if (!shouldCheck) return { skip: 'skipped_interval', stableFor };
   return { skip: null, stableFor };
 }
 
-// True when the HN submission time falls inside the "young story"
-// window. `story.time` is a Unix epoch in seconds per the HN API.
-function isYoungStory(
+// Comments-track skip gate: uses the comments-specific max age
+// (WARM_COMMENTS_MAX_AGE_SECONDS, default 32h — shorter than the
+// article track because the tier ladder already covers 0-32h and
+// beyond is ~always a dead thread) plus the tier ladder from
+// decideCommentsInterval. Unlike the article gate, this also
+// measures aging against HN `story.time` when available, not just
+// firstSeenAt — so a story the cron only first-saw at hour 5 still
+// ages out at the 32h HN-submission mark rather than 37h cache-age.
+// Falls back to cache age when `story.time` isn't available (e.g.
+// HN item fetch failed this tick).
+function shouldSkipCommentsByBackoff(
+  existing: BackoffState & { firstSeenAt: number },
   story: HNItem | null,
   now: number,
   knobs: WarmKnobs,
-): boolean {
-  if (!story || typeof story.time !== 'number') return false;
-  return now - story.time * 1000 < knobs.youngStoryAgeSeconds * 1000;
+): { skip: CheckOutcome | null; stableFor: number } {
+  const ageMs = storyAgeMs(story, now) ?? now - existing.firstSeenAt;
+  if (ageMs > knobs.commentsMaxStoryAgeSeconds * 1000) {
+    return { skip: 'skipped_age', stableFor: 0 };
+  }
+  const { shouldCheck, stableFor } = decideCommentsInterval(
+    existing,
+    story,
+    now,
+    knobs,
+  );
+  if (!shouldCheck) return { skip: 'skipped_interval', stableFor };
+  return { skip: null, stableFor };
 }
 
 async function processArticleTrack(
@@ -945,16 +1058,29 @@ async function processArticleTrack(
 ): Promise<StoryLog> {
   const { deps, knobs, now, fetchFn, jinaApiKey, apiKey } = ctx;
   const baseLog = makeLog('article', storyId);
-  // Derive the host once so every outcome this function emits can
-  // carry it, including the skipped_* branches that don't hit Jina.
-  // The two pre-fetch fallbacks (skipped_budget, runPool error) fire
-  // before this function and miss urlHost; see StoryLog.urlHost.
+  // Derive the host and story-age fields once so every outcome this
+  // function emits carries them, including skipped_* branches that
+  // don't hit Jina. The two pre-fetch fallbacks (skipped_budget,
+  // runPool error) fire before this function and don't get these
+  // fields; see StoryLog.urlHost / StoryLog.storyAgeMinutes.
   const urlHost = parseUrlHost(story?.url);
+  const storyAge = storyAgeMs(story, now);
+  const storyAgeFields: Partial<StoryLog> =
+    storyAge === undefined
+      ? {}
+      : {
+          storyAgeMinutes: minutes(storyAge),
+          ageBand: ageBandFromMinutes(minutes(storyAge)),
+        };
   const log = (extra: Partial<StoryLog>): StoryLog =>
-    baseLog(urlHost ? { urlHost, ...extra } : extra);
+    baseLog({
+      ...(urlHost ? { urlHost } : {}),
+      ...storyAgeFields,
+      ...extra,
+    });
 
   if (existing) {
-    const { skip, stableFor } = shouldSkipByBackoff(existing, now, knobs);
+    const { skip, stableFor } = shouldSkipArticleByBackoff(existing, now, knobs);
     if (skip === 'skipped_age') {
       return log({ outcome: 'skipped_age', ageMinutes: minutes(now - existing.firstSeenAt) });
     }
@@ -1079,16 +1205,34 @@ async function processCommentsTrack(
 ): Promise<StoryLog> {
   const { deps, knobs, now, apiKey } = ctx;
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
-  const log = makeLog('comments', storyId);
-
-  const young = isYoungStory(story, now, knobs);
+  const baseLog = makeLog('comments', storyId);
+  // Every log line on this track carries storyAgeMinutes + ageBand
+  // when the HN story.time is known. `ageBand` doubles as the
+  // tier label — bucket widths are 1:1 with the ladder, so
+  // grouping by `ageBand` already groups by tier.
+  const storyAge = storyAgeMs(story, now);
+  const storyAgeFields: Partial<StoryLog> =
+    storyAge === undefined
+      ? {}
+      : {
+          storyAgeMinutes: minutes(storyAge),
+          ageBand: ageBandFromMinutes(minutes(storyAge)),
+        };
+  const log = (extra: Partial<StoryLog>): StoryLog =>
+    baseLog({ ...storyAgeFields, ...extra });
 
   if (existing) {
-    const { skip, stableFor } = shouldSkipByBackoff(existing, now, knobs, {
-      isYoungStory: young,
-    });
+    const { skip, stableFor } = shouldSkipCommentsByBackoff(
+      existing,
+      story,
+      now,
+      knobs,
+    );
     if (skip === 'skipped_age') {
-      return log({ outcome: 'skipped_age', ageMinutes: minutes(now - existing.firstSeenAt) });
+      return log({
+        outcome: 'skipped_age',
+        ageMinutes: minutes(now - existing.firstSeenAt),
+      });
     }
     if (skip === 'skipped_interval') {
       return log({
@@ -1193,7 +1337,11 @@ async function processCommentsTrack(
     // best-effort
   }
   if (!existing) {
-    return log({ outcome: 'first_seen', commentCount, transcriptBytes });
+    return log({
+      outcome: 'first_seen',
+      commentCount,
+      transcriptBytes,
+    });
   }
   return log({
     outcome: 'changed',
@@ -1208,10 +1356,11 @@ async function processCommentsTrack(
 
 // Orchestrates one story across both tracks. Reads both cache records
 // in parallel, fetches the HN item once (needed for `story.time` to
-// compute isYoungStory, which the comments-track backoff depends on),
-// then fans out to both track processors in parallel. Each track
-// checks its own backoff gate before touching the story fields, so a
-// null story still yields the correct skip outcome per-track.
+// place the story on the comments-track tier ladder and to populate
+// storyAgeMinutes / ageBand on both tracks), then fans out to both
+// track processors in parallel. Each track checks its own backoff
+// gate before touching the story fields, so a null story still
+// yields the correct skip outcome per-track.
 async function processStory(
   storyId: number,
   store: SummaryStore,

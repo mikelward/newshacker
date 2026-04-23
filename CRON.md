@@ -58,14 +58,15 @@ until you have a week of real `warm-story` logs to base a tweak on.
 
 | Name | Default | Applies to | Effect |
 |---|---|---|---|
-| `WARM_REFRESH_CHECK_INTERVAL_SECONDS` | `1800` (30 min) | Both tracks | Re-check cadence while content is "fresh". |
+| `WARM_REFRESH_CHECK_INTERVAL_SECONDS` | `1800` (30 min) | Article (+ comments fallback when `story.time` missing) | Article re-check cadence while content is "fresh". |
 | `WARM_STABLE_CHECK_INTERVAL_SECONDS` | `7200` (2 h) | Both tracks | Re-check cadence once content has been unchanged ≥ `WARM_STABLE_THRESHOLD_SECONDS`. |
 | `WARM_STABLE_THRESHOLD_SECONDS` | `21600` (6 h) | Both tracks | How long unchanged before switching to the stable interval. |
-| `WARM_MAX_STORY_AGE_SECONDS` | `172800` (48 h) | Both tracks | Stop re-checking past this story age. Upstash record still serves reads until 30-day TTL. |
+| `WARM_MAX_STORY_AGE_SECONDS` | `115200` (32 h) | Article only | Stop re-checking past this story age. Upstash record still serves reads until 30-day TTL. |
+| `WARM_COMMENTS_MAX_AGE_SECONDS` | `115200` (32 h) | Comments only | Twin of the article cutoff. Past this we stop hashing transcripts; cached insights still serve until Upstash evicts at 30 days. |
 | `WARM_TOP_N` | `30` | Both tracks | How many feed ids to process per tick when `?n=` isn't in the URL. |
-| `WARM_YOUNG_STORY_AGE_SECONDS` | `7200` (2 h) | Comments only | Threshold vs HN `story.time` for "young" classification. |
-| `WARM_YOUNG_STORY_REFRESH_INTERVAL_SECONDS` | `600` (10 min) | Comments only | Aggressive re-check cadence while the story is young (threads grow fast). |
 | `WARM_COMMENTS_MIN_KIDS` | `5` | Comments only | Minimum usable top-level comments before the cron creates a `first_seen` record. Avoids caching 2-comment thin threads. |
+
+Comments also use a **compile-time ladder** (`COMMENTS_TIERS` in `api/warm-summaries.ts`) keyed off HN `story.time`: 15/30/60/120/240/480 min intervals for 0-1/1-2/2-4/4-8/8-16/16-32 h age bands. Bucket widths are 1:1 with the `ageBand` log field, so "polled per band" and "changed per band" plot against the same x-axis. To reshape the ladder, edit the constant and redeploy — it's deliberately not an env var.
 
 ## Enabling the cron
 
@@ -267,12 +268,11 @@ Paste any of these into the Axiom query console:
 ```
 
 ```apl
-// Young-story comments: is the 10-min aggressive interval actually
-// buying us extra `changed` events in the first 2 h after HN
-// submission? If young-window changed rate isn't materially higher
-// than older-window changed rate, drop WARM_YOUNG_STORY_REFRESH_
-// INTERVAL_SECONDS back to 30 min and let the default fresh interval
-// handle everything.
+// Change rate per age band. Works on both tracks — swap
+// e.track to "article" to look at the article side. This is
+// the query the tiered schedule was instrumented for: where
+// does `changed` fall off enough to justify either a longer
+// interval or a hard stop at that band?
 ['vercel']
 | where _time > ago(7d)
 | where ['vercel.projectName'] == "newshacker"
@@ -281,13 +281,13 @@ Paste any of these into the Axiom query console:
 | extend e = parse_json(message)
 | where tostring(e.track) == "comments"
 | where tostring(e.outcome) in ("changed", "unchanged")
-| extend isYoung = iff(todouble(e.ageMinutes) < 120, "young", "older")
 | summarize
     changed = countif(tostring(e.outcome) == "changed"),
     unchanged = countif(tostring(e.outcome) == "unchanged"),
     total = count()
-  by isYoung
+  by ageBand = tostring(e.ageBand)
 | extend changeRate = round(todouble(changed) / todouble(total), 3)
+| order by ageBand asc
 ```
 
 Save any of these as **Starred queries** in Axiom (star icon on a
@@ -306,14 +306,17 @@ After a week of `warm-story` logs, look for:
   up from 2 h → 4 h. If the stable threshold catches things too
   slowly (you see recent `changed` with `stableFor < 6 h`), lower
   `WARM_STABLE_THRESHOLD_SECONDS`.
-- **Comments track — young-story churn.** If `changed` is rare even
-  on stories in their first 2 h, the 10-min young interval is
-  over-eager; push `WARM_YOUNG_STORY_REFRESH_INTERVAL_SECONDS` up.
-  If old stories still show churn, `WARM_STABLE_CHECK_INTERVAL_SECONDS`
-  can stay where it is for comments while articles back off further.
-- **Max story age.** If the count of `skipped_age` outcomes at
-  48 h is high and the `changed` count in the 24–48 h band is
-  trivial, drop `WARM_MAX_STORY_AGE_SECONDS` to 24 h to save cycles.
+- **Comments track — tier ladder.** Run the "Change rate per age
+  band" query above against `e.track == "comments"`. If the
+  `0-1h` band's changed rate is low, the 15-min tier-1 cadence is
+  over-eager; edit `COMMENTS_TIERS[0]` to something longer and
+  redeploy. If `16-32h` shows meaningful changes, the 480-min
+  interval may be too lazy — tighten it, or extend the stop-age
+  beyond 32 h via `WARM_COMMENTS_MAX_AGE_SECONDS`.
+- **Max story age.** If the count of `skipped_age` outcomes is
+  high and the `changed` count in the `16-32h` band is trivial,
+  drop `WARM_MAX_STORY_AGE_SECONDS` / `WARM_COMMENTS_MAX_AGE_SECONDS`
+  to 24 h to save cycles.
 - **Min-kids gate.** If `skipped_low_volume` dominates young-story
   logs but most of those threads later grew past 5 and we missed
   the first-bucket data, drop `WARM_COMMENTS_MIN_KIDS` to 3. If
