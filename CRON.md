@@ -290,11 +290,72 @@ Paste any of these into the Axiom query console:
 | order by ageBand asc
 ```
 
+```apl
+// Jitter per publisher: how often does example.com's article hash
+// flip on a tick, and when it does, is it a real edit (multi-KB
+// delta) or in-body timestamp / cache-buster noise (tiny delta)?
+// Drives the "can we stop re-fetching this host after the first
+// successful summary?" call — publishers with changeRate > ~0.3
+// AND median(deltaBytes) < ~200 are probably jittering, not
+// editing. Articles track only.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article"
+| where tostring(e.outcome) in ("changed", "unchanged")
+| summarize
+    changed = countif(tostring(e.outcome) == "changed"),
+    unchanged = countif(tostring(e.outcome) == "unchanged"),
+    total = count(),
+    medianDelta = percentile(toint(e.deltaBytes), 50),
+    p90Delta = percentile(toint(e.deltaBytes), 90)
+  by urlHost = tostring(e.urlHost)
+| extend changeRate = round(todouble(changed) / todouble(total), 3)
+| where total >= 5  // drop singletons
+| order by changeRate desc
+```
+
+```apl
+// Noise vs real-edit split across all article `changed` events.
+// Two rough histograms over `deltaBytes` — under ~200 B is almost
+// always noise (timestamp flip, reaction count), over ~1 KB is
+// almost always a real edit. The boundary between is where the
+// interesting calls live.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article"
+| where tostring(e.outcome) == "changed"
+| extend bucket = case(
+    toint(e.deltaBytes) < 100, "noise (<100B)",
+    toint(e.deltaBytes) < 1000, "ambiguous (100-1000B)",
+    "real edit (>=1KB)")
+| summarize count() by bucket
+```
+
 Save any of these as **Starred queries** in Axiom (star icon on a
 run) so you can re-run them with one click instead of re-pasting.
 The `warm-summaries` analytics dashboard sketched in TODO.md §
 "Warm-summaries analytics surface" would wrap these into one chart
 view; the queries above are the building blocks.
+
+## Tomorrow-morning evaluation checklist
+
+After the cron has been running overnight on the PR-#177 instrumentation, work through these in order. Each is one-click via a Starred Axiom query, using the templates above.
+
+1. **Smoke check — is the cron healthy?** "Per-run summary" query. Expect one `warm-run` log every 5 minutes, `durationMs` well under 50 000, `processed ≈ 60` (30 stories × 2 tracks).
+2. **Change rate per age band — comments.** "Change rate per age band" query with `e.track == "comments"`. Expect changeRate to monotonically decrease from `0-1h` down. If `8-16h` or `16-32h` bands still show non-trivial changeRate, the 240-min / 480-min tier intervals are right-sized; if they're ~0, that's evidence the 32h cutoff could move earlier (tighten `WARM_COMMENTS_MAX_AGE_SECONDS`).
+3. **Change rate per age band — articles.** Same query with `e.track == "article"`. Tells us whether the 32h article cutoff is well placed, and whether articles past ~8 h still change often enough to justify polling them at all.
+4. **Jitter per publisher.** "Jitter per publisher" query. Publishers with `changeRate > 0.3` and `medianDelta < 200` are strong candidates for a "fetch once then stop" policy — a future PR. Publishers with `changeRate > 0.3` and `medianDelta > 1000` are genuinely edited frequently (wire-service news sites) and the current polling is earning its keep.
+5. **Noise vs real-edit split.** The `deltaBytes` histogram query. If "noise (<100B)" dominates article `changed` events by >50%, we're paying Gemini to regenerate summaries for what are effectively unchanged articles — strongest lever for a cost cut.
+
+That's the evaluation in about 5–10 minutes of Axiom clicks. The `warm-story` logs are already in Axiom ingestion, same stream as every other `/api/*` log.
 
 ## Tuning the knobs
 
