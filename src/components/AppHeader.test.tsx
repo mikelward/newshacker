@@ -140,6 +140,14 @@ describe('<AppHeader>', () => {
     expect(screen.getByTestId('refresh-btn')).toBeInTheDocument();
     expect(screen.getByTestId('undo-btn')).toBeInTheDocument();
   });
+
+  it('points the brand/home link at / (not /top)', () => {
+    renderWithProviders(<AppHeader />, { route: '/new' });
+    expect(screen.getByRole('link', { name: /newshacker home/i })).toHaveAttribute(
+      'href',
+      '/',
+    );
+  });
 });
 
 // The global `:focus-visible { outline: 2px solid var(--hn-orange) }` rule

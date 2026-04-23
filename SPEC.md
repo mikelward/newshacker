@@ -533,7 +533,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 | Path | View |
 |---|---|
-| `/` | redirects to `/top` |
+| `/` | story list (top feed, rendered inline — URL stays `/`); brand/home link in the header points here |
 | `/:feed` | story list (`feed` ∈ top, new, best, ask, show, jobs) |
 | `/item/:id` | story + comments |
 | `/user/:id` | user profile |
