@@ -333,6 +333,12 @@ export interface SummaryRecord {
   // Epoch ms of the most recent article hash change; initialised to
   // firstSeenAt on the very first record.
   lastChangedAt: number;
+  // Byte length of the Jina-clean article body that produced
+  // `articleHash`. Present on records written after the deltaBytes
+  // instrumentation landed; optional so records written by older code
+  // (or by the user-facing handler before its write path was updated)
+  // still parse. The next hash-changed tick always populates it.
+  contentBytes?: number;
 }
 
 export interface SummaryStore {
@@ -418,6 +424,9 @@ export function parseRecord(raw: unknown): SummaryRecord | null {
     summaryGeneratedAt: r.summaryGeneratedAt,
     lastCheckedAt: r.lastCheckedAt,
     lastChangedAt: r.lastChangedAt,
+    ...(typeof r.contentBytes === 'number' && Number.isFinite(r.contentBytes)
+      ? { contentBytes: r.contentBytes }
+      : {}),
   };
 }
 
@@ -980,6 +989,10 @@ export async function handleSummaryRequest(
       summaryGeneratedAt: now,
       lastCheckedAt: now,
       lastChangedAt: now,
+      // Persist so the warm-summaries cron can compute deltaBytes on
+      // the next hash-change tick, instead of having to skip the
+      // first observation after a user-facing write.
+      contentBytes: Buffer.byteLength(content, 'utf8'),
     };
     try {
       await store.set(storyId, record, RECORD_TTL_SECONDS);

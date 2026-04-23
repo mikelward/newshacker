@@ -707,6 +707,7 @@ describe('handleWarmRequest', () => {
       summaryGeneratedAt: firstSeenAt,
       lastCheckedAt: firstSeenAt,
       lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
     });
     const client = createFakeClient([{ text: 'new summary' }]);
     const { logger, stories } = captureLogger();
@@ -727,12 +728,69 @@ describe('handleWarmRequest', () => {
     expect(article.outcome).toBe('changed');
     expect(article.summaryChanged).toBe(true);
     expect(article.stableForMinutes).toBe(45); // 45 min from firstSeen
+    // deltaBytes = |newBody - oldBody| in utf8 bytes. The analyst-
+    // facing field for "is this a real edit or in-body timestamp noise".
+    expect(article.deltaBytes).toBe(
+      Math.abs(
+        Buffer.byteLength(newBody, 'utf8') -
+          Buffer.byteLength(oldBody, 'utf8'),
+      ),
+    );
     const updated = store.map.get(1003)!;
     expect(updated.summary).toBe('new summary');
     expect(updated.articleHash).toBe(hashArticle(newBody));
     expect(updated.firstSeenAt).toBe(firstSeenAt);
     expect(updated.lastChangedAt).toBe(now);
     expect(updated.summaryGeneratedAt).toBe(now);
+    // contentBytes is now persisted so the next `changed` tick can
+    // compute deltaBytes in turn.
+    expect(updated.contentBytes).toBe(Buffer.byteLength(newBody, 'utf8'));
+  });
+
+  it('changed: deltaBytes is omitted when the prior record predates contentBytes persistence', async () => {
+    // Records written by summary.ts before the deltaBytes instrumentation
+    // land without `contentBytes`. The warm-summaries cron must tolerate
+    // that — the log line should omit `deltaBytes` and the record write
+    // backfills `contentBytes` so the next changed tick carries it.
+    const articleUrl = 'https://example.com/legacy';
+    const newBody = 'new content';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      1503: { id: 1503, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    // Legacy record: no contentBytes field.
+    store.map.set(1503, {
+      summary: 'old',
+      articleHash: hashArticle('different'),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+    });
+    const client = createFakeClient([{ text: 'fresh' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [1503],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(article.deltaBytes).toBeUndefined();
+    // New record carries contentBytes so the next tick can compute it.
+    expect(store.map.get(1503)!.contentBytes).toBe(
+      Buffer.byteLength(newBody, 'utf8'),
+    );
   });
 
   it('skipped_payment_required: Jina 402 maps to its own outcome, not generic unreachable', async () => {
@@ -1086,6 +1144,8 @@ describe('handleWarmRequest', () => {
   });
 
   it('comments changed: new transcript regenerates insights and updates lastChangedAt', async () => {
+    const oldTranscript = '[#1]\nOld body';
+    const newTranscript = '[#1]\nNew body';
     const fetchItem = fetchItemFor({
       2020: {
         id: 2020,
@@ -1105,11 +1165,12 @@ describe('handleWarmRequest', () => {
     const firstSeenAt = 1_000_000_000_000;
     commentsStore.map.set(2020, {
       insights: ['old insight'],
-      transcriptHash: hashTranscript('[#1]\nOld body'),
+      transcriptHash: hashTranscript(oldTranscript),
       firstSeenAt,
       summaryGeneratedAt: firstSeenAt,
       lastCheckedAt: firstSeenAt,
       lastChangedAt: firstSeenAt,
+      transcriptBytes: Buffer.byteLength(oldTranscript, 'utf8'),
     });
     const client = createFakeClient([{ text: 'new a\nnew b' }]);
     const { logger, stories } = captureLogger();
@@ -1128,11 +1189,21 @@ describe('handleWarmRequest', () => {
     const comments = stories.find((s) => s.track === 'comments')!;
     expect(comments.outcome).toBe('changed');
     expect(comments.insightsChanged).toBe(true);
+    // deltaBytes comes from the transcript byte delta.
+    expect(comments.deltaBytes).toBe(
+      Math.abs(
+        Buffer.byteLength(newTranscript, 'utf8') -
+          Buffer.byteLength(oldTranscript, 'utf8'),
+      ),
+    );
     const updated = commentsStore.map.get(2020)!;
     expect(updated.insights).toEqual(['new a', 'new b']);
-    expect(updated.transcriptHash).toBe(hashTranscript('[#1]\nNew body'));
+    expect(updated.transcriptHash).toBe(hashTranscript(newTranscript));
     expect(updated.firstSeenAt).toBe(firstSeenAt);
     expect(updated.lastChangedAt).toBe(now);
+    expect(updated.transcriptBytes).toBe(
+      Buffer.byteLength(newTranscript, 'utf8'),
+    );
   });
 
   it('tracks are independent: article skipped_interval while comments first_seen', async () => {

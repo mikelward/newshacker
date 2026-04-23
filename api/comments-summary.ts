@@ -275,6 +275,11 @@ export interface CommentsSummaryRecord {
   summaryGeneratedAt: number;
   lastCheckedAt: number;
   lastChangedAt: number;
+  // Byte length of the transcript that produced `transcriptHash`.
+  // Persisted so the warm-summaries cron can compute deltaBytes on
+  // the next hash-change tick. Optional — pre-instrumentation records
+  // lack it; the first subsequent write repopulates.
+  transcriptBytes?: number;
 }
 
 export interface CommentsSummaryStore {
@@ -360,6 +365,10 @@ export function parseCommentsRecord(
     summaryGeneratedAt: r.summaryGeneratedAt,
     lastCheckedAt: r.lastCheckedAt,
     lastChangedAt: r.lastChangedAt,
+    ...(typeof r.transcriptBytes === 'number' &&
+    Number.isFinite(r.transcriptBytes)
+      ? { transcriptBytes: r.transcriptBytes }
+      : {}),
   };
 }
 
@@ -744,6 +753,9 @@ export async function handleCommentsSummaryRequest(
       summaryGeneratedAt: nowMs,
       lastCheckedAt: nowMs,
       lastChangedAt: nowMs,
+      // Persist so the warm-summaries cron can compute deltaBytes on
+      // the next hash-change tick.
+      transcriptBytes: Buffer.byteLength(transcript, 'utf8'),
     };
     try {
       await store.set(storyId, record, RECORD_TTL_SECONDS);

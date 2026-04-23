@@ -199,6 +199,10 @@ export interface SummaryRecord {
   summaryGeneratedAt: number;
   lastCheckedAt: number;
   lastChangedAt: number;
+  // Byte length of the Jina-clean body that produced `articleHash`.
+  // Optional — pre-instrumentation records lack it, so the first
+  // observation after deploy emits no `deltaBytes` on `changed`.
+  contentBytes?: number;
 }
 
 export interface SummaryStore {
@@ -241,6 +245,9 @@ function parseRecord(raw: unknown): SummaryRecord | null {
     summaryGeneratedAt: r.summaryGeneratedAt,
     lastCheckedAt: r.lastCheckedAt,
     lastChangedAt: r.lastChangedAt,
+    ...(typeof r.contentBytes === 'number' && Number.isFinite(r.contentBytes)
+      ? { contentBytes: r.contentBytes }
+      : {}),
   };
 }
 
@@ -258,6 +265,9 @@ export interface CommentsSummaryRecord {
   summaryGeneratedAt: number;
   lastCheckedAt: number;
   lastChangedAt: number;
+  // Byte length of the transcript that produced `transcriptHash`.
+  // Optional for the same reason as SummaryRecord.contentBytes.
+  transcriptBytes?: number;
 }
 
 export interface CommentsSummaryStore {
@@ -301,6 +311,10 @@ function parseCommentsRecord(raw: unknown): CommentsSummaryRecord | null {
     summaryGeneratedAt: r.summaryGeneratedAt,
     lastCheckedAt: r.lastCheckedAt,
     lastChangedAt: r.lastChangedAt,
+    ...(typeof r.transcriptBytes === 'number' &&
+    Number.isFinite(r.transcriptBytes)
+      ? { transcriptBytes: r.transcriptBytes }
+      : {}),
   };
 }
 
@@ -702,8 +716,18 @@ export interface StoryLog {
   // produced this tick. Cross-correlate successive lines for the same
   // storyId to distinguish "real edit" (multi-KB delta) from
   // "timestamp / cache-buster churn" (tiny delta, Jina's markdown
-  // still flipped because the in-body timestamp moved).
+  // still flipped because the in-body timestamp moved). On `changed`
+  // entries the `deltaBytes` field below does that cross-correlation
+  // for you — one column instead of a self-join.
   contentBytes?: number;
+  // On `changed` outcomes: `|contentBytes_now − contentBytes_prev|`
+  // for articles, `|transcriptBytes_now − transcriptBytes_prev|` for
+  // comments. Lets a single APL query separate noise (small delta
+  // from an in-body timestamp flip) from real edits (multi-KB
+  // delta). Absent on `changed` only when the prior record predates
+  // the contentBytes / transcriptBytes persistence (legacy records);
+  // the next `changed` tick populates it.
+  deltaBytes?: number;
   // Article track: Jina Reader's billed token count for this fetch
   // (from the `usage.tokens` field of the JSON response). Missing when
   // we didn't call Jina this tick (skipped_*, self-posts) or when Jina
@@ -1134,7 +1158,13 @@ async function processArticleTrack(
   const contentBytes = Buffer.byteLength(content, 'utf8');
 
   if (existing && existing.articleHash === newHash) {
-    const updated: SummaryRecord = { ...existing, lastCheckedAt: now };
+    const updated: SummaryRecord = {
+      ...existing,
+      lastCheckedAt: now,
+      // Backfill on the first unchanged tick after deploy for records
+      // that predate the persistence. No-op once it's set.
+      contentBytes,
+    };
     try {
       await store.set(storyId, updated, RECORD_TTL_SECONDS);
     } catch {
@@ -1176,6 +1206,7 @@ async function processArticleTrack(
     summaryGeneratedAt: now,
     lastCheckedAt: now,
     lastChangedAt: now,
+    contentBytes,
   };
   try {
     await store.set(storyId, record, RECORD_TTL_SECONDS);
@@ -1185,6 +1216,10 @@ async function processArticleTrack(
   if (!existing) {
     return log({ outcome: 'first_seen', contentBytes, tokens: jinaTokens });
   }
+  const deltaBytes =
+    typeof existing.contentBytes === 'number'
+      ? Math.abs(contentBytes - existing.contentBytes)
+      : undefined;
   return log({
     outcome: 'changed',
     ageMinutes: minutes(now - existing.firstSeenAt),
@@ -1192,6 +1227,7 @@ async function processArticleTrack(
     sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
     summaryChanged,
     contentBytes,
+    ...(deltaBytes !== undefined ? { deltaBytes } : {}),
     tokens: jinaTokens,
   });
 }
@@ -1286,7 +1322,13 @@ async function processCommentsTrack(
   const transcriptBytes = Buffer.byteLength(transcript, 'utf8');
 
   if (existing && existing.transcriptHash === newHash) {
-    const updated: CommentsSummaryRecord = { ...existing, lastCheckedAt: now };
+    const updated: CommentsSummaryRecord = {
+      ...existing,
+      lastCheckedAt: now,
+      // Backfill on the first unchanged tick after deploy for legacy
+      // records. No-op once set.
+      transcriptBytes,
+    };
     try {
       await store.set(storyId, updated, RECORD_TTL_SECONDS);
     } catch {
@@ -1330,6 +1372,7 @@ async function processCommentsTrack(
     summaryGeneratedAt: now,
     lastCheckedAt: now,
     lastChangedAt: now,
+    transcriptBytes,
   };
   try {
     await store.set(storyId, record, RECORD_TTL_SECONDS);
@@ -1343,6 +1386,10 @@ async function processCommentsTrack(
       transcriptBytes,
     });
   }
+  const deltaBytes =
+    typeof existing.transcriptBytes === 'number'
+      ? Math.abs(transcriptBytes - existing.transcriptBytes)
+      : undefined;
   return log({
     outcome: 'changed',
     ageMinutes: minutes(now - existing.firstSeenAt),
@@ -1351,6 +1398,7 @@ async function processCommentsTrack(
     insightsChanged,
     commentCount,
     transcriptBytes,
+    ...(deltaBytes !== undefined ? { deltaBytes } : {}),
   });
 }
 
