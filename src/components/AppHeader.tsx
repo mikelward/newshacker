@@ -124,7 +124,7 @@ export function AppHeader() {
           </span>
         </TooltipButton>
         <Link
-          to="/top"
+          to="/"
           className="app-header__home"
           aria-label="newshacker home"
         >
