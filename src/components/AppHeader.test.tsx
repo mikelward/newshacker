@@ -148,6 +148,24 @@ describe('<AppHeader>', () => {
       '/',
     );
   });
+
+  it('renders the pushpin brand glyph (not the legacy "n" letter)', () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    const brand = document.querySelector('.app-header__brand');
+    expect(brand).not.toBeNull();
+    // The pin SVG lives inside the brand badge; the old design put a
+    // literal "n" text node here, which would show up as textContent.
+    // Trim because JSX indentation between elements can leave whitespace
+    // text nodes even when there's no real content.
+    expect(brand?.querySelector('[data-testid="brand-pin"]')).not.toBeNull();
+    expect((brand?.textContent ?? '').trim()).toBe('');
+  });
+
+  it('hides the brand glyph from assistive tech (the home link carries the label)', () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    const pin = screen.getByTestId('brand-pin');
+    expect(pin).toHaveAttribute('aria-hidden', 'true');
+  });
 });
 
 // The global `:focus-visible { outline: 2px solid var(--hn-orange) }` rule
