@@ -1,15 +1,17 @@
-// POST /api/vote — forward a single upvote or un-upvote action to
-// news.ycombinator.com on behalf of the signed-in user.
+// POST /api/vote — forward a single upvote, downvote, or unvote
+// action to news.ycombinator.com on behalf of the signed-in user.
 //
-// Request body: { id: number, how: "up" | "un" }
+// Request body: { id: number, how: "up" | "down" | "un" }
 // Responses:
 //   204 on success
 //   400 on malformed body
 //   401 on missing / expired HN session
 //   405 on non-POST
 //   502 if HN is unreachable or the scraped item page is missing the
-//       expected `vote?id=…&how=…&auth=…` anchor (HN HTML changed, or
-//       the user has already voted the way they're trying to).
+//       expected `vote?id=…&how=…&auth=…` anchor (HN HTML changed,
+//       the user has already voted the way they're trying to, or —
+//       for downvotes — the user lacks the karma HN requires before
+//       it will render a downvote anchor for that item).
 //
 // The per-item `auth` token is scraped from the item page — HN signs
 // each vote link with a per-user, per-item token that must be
@@ -68,18 +70,22 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// Scrape the upvote / un-upvote auth token out of the rendered item
-// page. HN emits one of:
-//   - `<a href="vote?id=<id>&how=up&auth=<tok>&goto=item%3Fid%3D…">` for
-//     items the user has NOT voted on yet (upvotable).
-//   - `<a href="vote?id=<id>&how=un&auth=<tok>&goto=item%3Fid%3D…">` for
-//     items the user has already voted on (unvotable).
+// Scrape the vote / unvote auth token out of the rendered item page.
+// HN emits some combination of:
+//   - `vote?id=<id>&how=up&auth=<tok>&goto=…`   — not yet voted (upvotable)
+//   - `vote?id=<id>&how=down&auth=<tok>&goto=…` — also rendered when the
+//     viewer has enough karma to downvote that item (≥ ~500 karma; HN's
+//     threshold is undocumented and may vary by item / item author).
+//     Absent for low-karma viewers, on the user's own posts, etc.
+//   - `vote?id=<id>&how=un&auth=<tok>&goto=…`   — already voted (either
+//     direction); HN uses the same `un` action to clear an upvote OR a
+//     downvote.
 // Query-string ordering isn't guaranteed, so we decode entities, parse
 // as a URL, and match on (id, how). Exported for testing.
 export function extractAuthToken(
   html: string,
   id: number,
-  how: 'up' | 'un',
+  how: 'up' | 'down' | 'un',
 ): string | null {
   const anchorRe = /<a\b[^>]*\bhref=(?:"([^"]*)"|'([^']*)')[^>]*>/gi;
   for (const m of html.matchAll(anchorRe)) {
@@ -138,7 +144,10 @@ export async function handleVoteRequest(
     body.id > 0
       ? body.id
       : null;
-  const how = body.how === 'up' || body.how === 'un' ? body.how : null;
+  const how =
+    body.how === 'up' || body.how === 'down' || body.how === 'un'
+      ? body.how
+      : null;
   if (id === null || how === null) {
     return json({ error: 'Missing or invalid id/how' }, 400);
   }

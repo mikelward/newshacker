@@ -7,7 +7,7 @@
      larger than the top. The padding-bottom value comes from
      --comment-stack-gap so it stays locked to .comment__children's
      margin-top below — see global.css for the pairing rationale. */
-  padding: 8px 12px var(--comment-stack-gap);
+  padding: 8px var(--comment-right-pad) var(--comment-stack-gap) var(--comment-x-pad);
   border-top: 1px solid var(--nh-border);
   background: var(--nh-bg-card);
   color: var(--nh-text);
@@ -21,8 +21,26 @@
 }
 
 .comment__header {
-  display: flex;
-  align-items: baseline;
+  /* Grid instead of flex so the ⋮ button anchors to a deterministic
+     right-edge track rather than relying on flexbox's free-space
+     absorption via `margin-left: auto`. The earlier flex layout
+     produced subtly different ⋮ x-positions across comments — the
+     exact root cause was never pinned down, but switching to a grid
+     with a named end track side-steps the class of problems entirely:
+     the last column is sized to the button's content, glued to the
+     right edge, and can't be shifted by anything happening in the
+     middle column.
+       - start: author (auto) — grows to content width; missing on
+         deleted-author comments
+       - middle: toggle (1fr) — eats all remaining space so the
+         +/− icon lands right after the meta text and the ⋮ ends up
+         at the card edge
+       - end: menu (auto) — pinned to the right
+     If we ever add a fourth slot we grow the template, not the
+     middle track. */
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
   margin-top: 0;
   padding-left: 1px;
   font-size: 13px;
@@ -34,6 +52,7 @@
   font-weight: 600;
   text-decoration: none;
   padding: 4px 2px;
+  grid-column: 1;
 }
 
 @media (hover: hover) {
@@ -43,11 +62,12 @@
 }
 
 .comment__toggle {
-  /* Content-sized (not flex: 1) so the +/− icon inside sits
-     immediately after the last meta piece — "12 replies [+]" —
-     rather than being pushed to the far right of a stretched
-     button. The `Reply on HN` link uses `margin-left: auto` to
-     pin itself to the right edge instead. */
+  /* Lives in the 1fr middle track, so this button inherits any
+     leftover row width — the +/− icon sits immediately after the
+     meta text, and the ellipsis clips the text if the row is too
+     narrow. Explicit grid-column 2 keeps the toggle in the middle
+     even on comments where .comment__author is missing (deleted
+     authors), so the ⋮ column never migrates. */
   padding: 4px 2px;
   border: 0;
   background: transparent;
@@ -59,6 +79,7 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  grid-column: 2;
 }
 
 .comment__toggle-text {
@@ -127,33 +148,113 @@
   margin-bottom: 0;
 }
 
-.comment__action {
+/* Overflow ⋮ button — right edge of the meta row, always rendered
+   (collapsed and expanded alike, signed-in or not), so the menu is
+   discoverable on every comment. Sized chunkier than the neighbouring
+   author/toggle buttons because it's the per-comment action affordance
+   and gets tapped more deliberately than scanned past. The meta row
+   is 13px text so a true 48×48 would dwarf the row; this is the same
+   "small-by-exception" sizing as the toggle, parallel to it on the
+   right. margin-left: auto pushes it to the right edge regardless of
+   where the toggle ends up. */
+.comment__menu-btn {
+  /* Pinned to the third grid column, which is `auto`-sized — the
+     column ends at the row's right edge, so the button's right
+     edge lands at a deterministic x relative to the comment card
+     regardless of how wide the meta text is in the middle track. */
+  grid-column: 3;
+  /* Match the toggle's 4px vertical padding so the ⋮ button stays
+     visually the same height as its meta-row neighbours; the wider
+     8px horizontal padding keeps the tap target chunkier than the
+     text buttons. */
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
   color: var(--nh-meta);
-  text-decoration: none;
-  padding: 4px 2px;
-  /* The toggle button is now content-sized so the +/− lands next
-     to the meta text; push Reply on HN to the right edge of the
-     header row instead. */
-  margin-left: auto;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
+.comment__menu-icon {
+  display: block;
+}
+
+/* :hover inside (hover: hover) only — on touch the hovered state
+   sticks after the tap until another tap clears it, which reads as
+   the icon "stuck on" after closing the menu. See CLAUDE.md § CSS
+   gotchas for the canonical pattern. */
 @media (hover: hover) {
-  .comment__action:hover {
-    text-decoration: underline;
+  .comment__menu-btn:hover {
+    color: var(--nh-text);
   }
 }
 
+.comment__menu-btn:active {
+  opacity: 0.7;
+}
+
+/* Faint left-edge accent so the reader can see at a glance which
+   comments they've already acted on, without having to open the menu
+   on each one. Replaces the orange/red that used to live on an
+   inline triangle. The voted/downvoted accents share the inset-stripe
+   with .is-expanded; voted state wins because the act-on signal is
+   more salient than "this is the thread you opened last". */
+.comment--upvoted {
+  box-shadow: inset 3px 0 0 0 var(--nh-orange);
+}
+
+.comment--downvoted {
+  /* No dedicated red token in the palette; --nh-meta keeps the
+     downvote accent intentionally muted (not alarming). */
+  box-shadow: inset 3px 0 0 0 var(--nh-meta);
+}
+
+.comment.is-expanded.comment--upvoted {
+  box-shadow: inset 3px 0 0 0 var(--nh-orange);
+}
+
+.comment.is-expanded.comment--downvoted {
+  box-shadow: inset 3px 0 0 0 var(--nh-meta);
+}
+
 .comment__children {
-  /* --comment-stack-gap matches .comment's padding-bottom: the
-     parent's padding-bottom only takes effect after all children, so
-     this margin-top is what sets the gap before the first nested
-     reply's border. Sharing the token keeps parent → first-child and
-     sibling → sibling gaps identical. Visual hierarchy comes from
-     each comment's own left stripe (see .comment box-shadow), so
-     this list adds no left offset of its own. */
-  margin: var(--comment-stack-gap) 0 0;
+  /* Top margin: --comment-stack-gap matches .comment's padding-
+     bottom; the parent's padding-bottom only takes effect after all
+     children, so this margin-top sets the gap before the first
+     nested reply's border. Sharing the token keeps parent →
+     first-child and sibling → sibling gaps identical.
+     Right margin: negative, one --comment-right-pad unit, to pull
+     the nested list's right edge OUT of the parent's right gutter.
+     Without this, each level of nesting eats another gutter-width
+     off the right — cumulative — so the per-comment ⋮ button
+     visibly shifts leftward the deeper you go. With it, nested
+     comments end at the same card-right edge as the top-level card
+     and the ⋮ stays at a consistent x regardless of depth.
+     Left margin stays at 0 so the parent's left padding continues
+     to indent nested replies: left-only indent, right-flush. */
+  margin: var(--comment-stack-gap) calc(-1 * var(--comment-right-pad)) 0 0;
   padding: 0;
+  /* padding-inline:0 is redundant with `padding: 0` above, but some
+     browsers' default <ol> style uses the logical `padding-inline-
+     start` property (usually 40px); listing padding-inline here
+     explicitly guards against any future global rule that re-enables
+     it from overriding our reset. */
+  padding-inline: 0;
   list-style: none;
+}
+
+/* Defensive: ensure each nested <li> contributes no horizontal
+   offset of its own. Browsers don't add margin to <li> by default,
+   but being explicit here prevents a global `li { margin: ... }`
+   from creeping in and shifting every nested comment's right edge
+   relative to its parent — which would in turn shift the ⋮ button's
+   x-position, since the button anchors to its comment's right edge
+   via margin-left:auto, not to the thread container. */
+.comment__children > li {
+  margin: 0;
+  padding: 0;
 }
 
 .comment--loading .comment__header {

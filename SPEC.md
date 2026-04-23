@@ -453,33 +453,41 @@ Naming convention for share entries: a noun ("Share **article**") names *what* i
 
 ## Comment row layout
 
-Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, the **Reply on HN** link on expanded comments, and any future upvote/downvote buttons) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors.
+Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, the **⋮ More actions** button, and the expand/collapse toggle) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors. **Long-press** anywhere on the comment row also opens the same overflow menu — a second affordance for the ⋮ button, parallel to the long-press behavior on story rows. On pointer devices, **right-click** opens the menu (the desktop equivalent of long-press).
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ First three lines of the comment body are shown here     │
 │ as a preview, clipped with an ellipsis if longer than    │
 │ three lines…                                             │
-│ alice · 4m · 12 replies                                  │
+│ alice · 4m · 12 replies                              [⋮] │
 └──────────────────────────────────────────────────────────┘
 ```
 
 Collapsed state (default):
 
 - Body clamped to 3 lines (CSS `-webkit-line-clamp: 3`), 15px to match the AI summary card.
-- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The meta row hugs the body above it (no `margin-top`; the toggle button's own 4px top padding is the only gap) so it reads as belonging to the comment it follows, not the one below. The comment's vertical padding is asymmetric on purpose — `8px` top / `--comment-stack-gap` bottom — because the meta row's author and toggle buttons each carry an internal 4px vertical padding for tap-target height; a 4px card `padding-bottom` plus that 4px button padding visually matches the 8px gap above the body text, and a symmetric 10/10 used to read as noticeably heavier on the bottom. The gap between any two comment borders — whether the next comment is a sibling or the first nested reply — comes from the same `--comment-stack-gap` token, used by both `.comment`'s padding-bottom (sibling case) and `.comment__children`'s margin-top (nested case), so the two transitions can't drift apart. Tune the rhythm in one place.
-- No action row, no children.
+- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The **⋮** overflow button sits at the right edge of the meta row, always visible regardless of expand state or auth state, so the per-comment action menu is discoverable on every row. The meta row hugs the body above it (no `margin-top`; the toggle button's own 4px top padding is the only gap) so it reads as belonging to the comment it follows, not the one below. The comment's vertical padding is asymmetric on purpose — `8px` top / `--comment-stack-gap` bottom — because the meta row's author and toggle buttons each carry an internal 4px vertical padding for tap-target height; a 4px card `padding-bottom` plus that 4px button padding visually matches the 8px gap above the body text, and a symmetric 10/10 used to read as noticeably heavier on the bottom. The gap between any two comment borders — whether the next comment is a sibling or the first nested reply — comes from the same `--comment-stack-gap` token, used by both `.comment`'s padding-bottom (sibling case) and `.comment__children`'s margin-top (nested case), so the two transitions can't drift apart. Tune the rhythm in one place.
+- No action row beyond the meta row, no children.
 - Cursor is `pointer`.
 
 Expanded state:
 
 - Background tints to `--nh-pressed` so the active node stands out in a long thread.
 - Body shows in full.
-- The meta row gains a muted `Reply on HN ↗` link (`news.ycombinator.com/reply?id=:id`, opens in a new tab) inline at its right-hand end, so the meta row doubles as the action row. The row is laid out as a flex row so upvote/downvote buttons can slot in alongside later.
+- Meta row layout is unchanged — same author, age, replies, ⋮ — so expand/collapse doesn't shuffle tap-target positions under the reader's thumb.
 - Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
 - Cursor reverts to `default` (reading state).
 
 A real `<button>` inside the meta row carries `aria-expanded` and the keyboard-accessible `Expand comment` / `Collapse comment` label, even though on-screen it just reads as the plain meta text.
+
+**Per-comment overflow menu (⋮).** Reuses `StoryRowMenu` (same popover/sheet machinery as the story row and thread action bar). Items are conditional:
+
+- **Upvote / Unvote** — signed-in only. Tapping flips local upvoted state optimistically and POSTs `/api/vote` with `how: 'up'` (or `'un'` to clear). Rolls back and toasts on failure. Uses HN's shape+color convention for the voted state, surfaced as a faint `--nh-orange` left-edge accent (`box-shadow: inset 3px 0 0`) on the comment row, so the reader can see at a glance which comments they've already upvoted without opening each menu.
+- **Downvote / Undownvote** — signed-in only. POSTs `/api/vote` with `how: 'down'` (or `'un'`). Always offered when signed in; HN gates downvote on viewer karma (~500+) and on per-item rules (you can't downvote your own posts), so a tap by a low-karma user surfaces a 502 from the scrape step (no `how=down` anchor on the item page) and the hook toasts. Pre-checking would cost an extra item-page fetch per menu open, which isn't worth the rare-case win — better to fail loudly than to render the menu with an item conspicuously missing. Switching directions (up→down or down→up) is two API hits because HN models it that way: clear the prior vote, then cast the new one. Downvoted state surfaces as a muted `--nh-meta` left-edge accent on the row.
+- **Reply on HN ↗** — always present, signed-in or not. Opens `news.ycombinator.com/reply?id=:id` in a new tab via `window.open(..., '_blank', 'noopener,noreferrer')`. (Earlier shipped as an inline meta-row link; moved into the menu when the menu landed so the meta row stays scannable and the action gets a 48×48-class tap target.)
+
+Voting state — `upvotedIds` and `downvotedIds` — is per-username, stored in `localStorage` under `newshacker:votedStoryIds:<user>` (upvotes; legacy key kept to avoid migration churn) and `newshacker:downvotedItemIds:<user>` (downvotes). The two sets are disjoint by construction. Best-effort: if the user votes from another device or the HN web UI, the local set won't reflect it, and a re-vote attempt may 502 because HN's item page no longer carries the `how=up`/`how=down` anchor for an already-voted item. That's acceptable for the MVP; a future enhancement can scrape vote state during the item fetch.
 
 Deleted, dead, and empty comments are not rendered at all — including their subtrees — so a thread never shows "[deleted]" placeholder rows.
 

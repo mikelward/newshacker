@@ -17,13 +17,26 @@ function postRequest(body: unknown, cookie: string | null): Request {
 // form after an upvote (how=un).
 function itemPageHtml(
   id: number,
-  opts: { voted?: boolean; token?: string } = {},
+  opts: {
+    voted?: boolean;
+    token?: string;
+    // When true, include a `how=down` anchor too — HN renders this
+    // alongside the upvote arrow once the viewer has enough karma to
+    // downvote that item. Off by default to mirror the baseline
+    // before downvoting is available (most readers are below the
+    // karma floor).
+    canDownvote?: boolean;
+    downToken?: string;
+  } = {},
 ): string {
   const token = opts.token ?? 'abc123xyz';
   const how = opts.voted ? 'un' : 'up';
   const goto = `item%3Fid%3D${id}`;
   const voteHref = `vote?id=${id}&amp;how=${how}&amp;auth=${token}&amp;goto=${goto}`;
   const label = opts.voted ? 'unvote' : 'upvote';
+  const downAnchor = opts.canDownvote
+    ? `<a id="down_${id}" href="vote?id=${id}&amp;how=down&amp;auth=${opts.downToken ?? 'dtok'}&amp;goto=${goto}"><div class="votearrow" title="downvote"></div></a>`
+    : '';
   return `
 <html><body>
 <table>
@@ -32,6 +45,7 @@ function itemPageHtml(
       <a id="up_${id}" href="${voteHref}">
         <div class="votearrow" title="${label}"></div>
       </a>
+      ${downAnchor}
     </td>
     <td>a story</td>
   </tr>
@@ -132,7 +146,7 @@ describe('handleVoteRequest auth & shape', () => {
 
   it('returns 400 on unknown how', async () => {
     const res = await handleVoteRequest(
-      postRequest({ id: 1, how: 'down' }, 'hn_session=alice%26hash'),
+      postRequest({ id: 1, how: 'sideways' }, 'hn_session=alice%26hash'),
     );
     expect(res.status).toBe(400);
   });
@@ -183,6 +197,53 @@ describe('handleVoteRequest HN round-trip', () => {
       'https://news.ycombinator.com/vote?id=42&how=up&auth=tokABC&goto=news',
     );
     expect(calls[1].headers.cookie).toBe('user=alice&hash');
+  });
+
+  it('scrapes the how=down anchor and issues the vote GET for downvote', async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url) => {
+      calls.push(String(url));
+      if (String(url).startsWith('https://news.ycombinator.com/item')) {
+        return htmlResponse(
+          itemPageHtml(7, {
+            token: 'tokUP',
+            canDownvote: true,
+            downToken: 'tokDOWN',
+          }),
+        );
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'news' },
+      });
+    }) as unknown as typeof fetch;
+
+    const res = await handleVoteRequest(
+      postRequest({ id: 7, how: 'down' }, 'hn_session=alice%26hash'),
+      { fetchImpl },
+    );
+    expect(res.status).toBe(204);
+    expect(calls[1]).toBe(
+      'https://news.ycombinator.com/vote?id=7&how=down&auth=tokDOWN&goto=news',
+    );
+  });
+
+  it('returns 502 on a downvote when HN omits the how=down anchor (low karma)', async () => {
+    // Mirrors the karma-gated case: the upvote anchor is present but
+    // the downvote anchor isn't, because HN won't render it for the
+    // viewer. The handler can't distinguish "low karma" from "HTML
+    // changed" here — both surface as 502, and the client toasts.
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).startsWith('https://news.ycombinator.com/item')) {
+        return htmlResponse(itemPageHtml(8, { token: 'tok', canDownvote: false }));
+      }
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    const res = await handleVoteRequest(
+      postRequest({ id: 8, how: 'down' }, 'hn_session=alice%26hash'),
+      { fetchImpl },
+    );
+    expect(res.status).toBe(502);
   });
 
   it('issues the how=un variant for unvote', async () => {

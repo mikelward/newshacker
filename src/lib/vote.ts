@@ -5,7 +5,7 @@
 
 import { trackedFetch } from './networkStatus';
 
-export type VoteHow = 'up' | 'un';
+export type VoteHow = 'up' | 'down' | 'un';
 
 export class VoteError extends Error {
   readonly status: number;
@@ -37,7 +37,18 @@ export async function postVote(
     throw new VoteError('Could not reach the server.', 0);
   }
   if (res.status === 204 || res.ok) return;
-  let message = how === 'up' ? 'Could not upvote.' : 'Could not unvote.';
+  let message: string;
+  switch (how) {
+    case 'up':
+      message = 'Could not upvote.';
+      break;
+    case 'down':
+      message = 'Could not downvote.';
+      break;
+    case 'un':
+      message = 'Could not unvote.';
+      break;
+  }
   try {
     const body = (await res.json()) as { error?: string };
     if (body && typeof body.error === 'string') message = body.error;

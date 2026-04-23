@@ -6,6 +6,13 @@ export interface StoryRowMenuItem {
   key: string;
   label: string;
   onSelect: () => void;
+  /**
+   * Optional extra class name merged onto the menu item's button —
+   * used by callers that want to highlight an "active" action (e.g.
+   * the Unvote item when the viewer has already upvoted). The base
+   * `story-menu__item` class is always applied.
+   */
+  className?: string;
 }
 
 interface Props {
@@ -226,7 +233,11 @@ export function StoryRowMenu({
                 role="menuitem"
                 data-menu-item
                 data-testid={`story-row-menu-${item.key}`}
-                className="story-menu__item"
+                className={
+                  item.className
+                    ? `story-menu__item ${item.className}`
+                    : 'story-menu__item'
+                }
                 onClick={() => handleSelect(item)}
               >
                 {item.label}

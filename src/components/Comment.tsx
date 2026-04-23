@@ -1,12 +1,19 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../hooks/useAuth';
 import { useCommentItem } from '../hooks/useItemTree';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
+import { usePointerDevice } from '../hooks/usePointerDevice';
+import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
+import { useVote } from '../hooks/useVote';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
+import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
+import { TooltipButton } from './TooltipButton';
 import './Comment.css';
 
 interface Props {
@@ -18,6 +25,99 @@ export function Comment({ id }: Props) {
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
   const queryClient = useQueryClient();
+  const { isAuthenticated } = useAuth();
+  const { isVoted, isDownvoted, toggleVote, toggleDownvote } = useVote();
+  const upvoted = isVoted(id);
+  const downvoted = isDownvoted(id);
+
+  const articleRef = useRef<HTMLDivElement>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // openMenu is unconditional — used by the long-press and right-
+  // click paths where the viewer is asking the menu to appear and
+  // wouldn't expect a second gesture to dismiss it. toggleMenu is
+  // the ⋮ button's onClick: StoryRowMenu's click-outside handler
+  // deliberately ignores anchor clicks (so the anchor can act as a
+  // toggle), so without a toggling onClick here tapping the ⋮
+  // again would be a no-op instead of closing.
+  const openMenu = useCallback(() => setMenuOpen(true), []);
+  const toggleMenu = useCallback(() => setMenuOpen((open) => !open), []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const pointerDevice = usePointerDevice();
+
+  // Long-press anywhere on the comment row opens the same overflow
+  // menu the ⋮ button does — parallels StoryListItem and gives a
+  // second affordance besides the explicit icon. We pass no swipe
+  // handlers here because the comment row already owns the click =
+  // expand/collapse gesture; layering swipe-to-dismiss on top would
+  // contend with vertical scroll and confuse the toggle.
+  const { handlers } = useSwipeToDismiss({ onLongPress: openMenu });
+  const swipeOnContextMenu = handlers.onContextMenu;
+
+  // Right-click opens the menu on pointer devices (the desktop
+  // equivalent of long-press). The menu uses the ⋮ button as its
+  // anchor when that ref is mounted; in the unlikely case it isn't,
+  // StoryRowMenu receives a null anchorEl and falls back to its
+  // bottom-sheet variant. We also forward the event to
+  // useSwipeToDismiss's own onContextMenu — the hook suppresses the
+  // OS context menu in the moment after a touch-triggered long-press,
+  // and overwriting handlers.onContextMenu here would silently drop
+  // that suppression and let both our in-app menu and the OS menu
+  // show at once on touch devices.
+  const handleContextMenu = useCallback(
+    (e: MouseEvent<HTMLElement>) => {
+      swipeOnContextMenu?.(e);
+      if (!pointerDevice) return;
+      e.preventDefault();
+      openMenu();
+    },
+    [swipeOnContextMenu, pointerDevice, openMenu],
+  );
+
+  const menuItems = useMemo<StoryRowMenuItem[]>(() => {
+    const items: StoryRowMenuItem[] = [];
+    if (isAuthenticated) {
+      // `--active` highlights the Unvote / Undownvote item in
+      // --nh-orange when the viewer has already voted that direction,
+      // so the menu itself is a second "which way did I vote?" signal
+      // alongside the row's left-edge accent.
+      items.push({
+        key: 'upvote',
+        label: upvoted ? 'Unvote' : 'Upvote',
+        onSelect: () => toggleVote(id),
+        className: upvoted ? 'story-menu__item--active' : undefined,
+      });
+      // Always offered when signed in; if the viewer lacks the karma
+      // HN requires for that item, the API surfaces a 502 and the
+      // hook toasts. Pre-checking would cost an extra item-page fetch
+      // per menu open, which isn't worth the rare-case win.
+      items.push({
+        key: 'downvote',
+        label: downvoted ? 'Undownvote' : 'Downvote',
+        onSelect: () => toggleDownvote(id),
+        className: downvoted ? 'story-menu__item--active' : undefined,
+      });
+    }
+    items.push({
+      key: 'reply-on-hn',
+      label: 'Reply on HN ↗',
+      onSelect: () => {
+        window.open(
+          `https://news.ycombinator.com/reply?id=${id}`,
+          '_blank',
+          'noopener,noreferrer',
+        );
+      },
+    });
+    return items;
+  }, [
+    id,
+    isAuthenticated,
+    upvoted,
+    downvoted,
+    toggleVote,
+    toggleDownvote,
+  ]);
 
   if (isLoading || !item) {
     return (
@@ -73,9 +173,21 @@ export function Comment({ id }: Props) {
   }
   const metaSuffix = metaParts.length ? ` · ${metaParts.join(' · ')}` : '';
 
+  // The voted-state class on the row provides a faint orange/red
+  // border accent so the reader can see at a glance which comments
+  // they've acted on, without needing to expand each one.
+  const voteStateClass = upvoted
+    ? ' comment--upvoted'
+    : downvoted
+      ? ' comment--downvoted'
+      : '';
+
   return (
     <div
-      className={`comment${isExpanded ? ' is-expanded' : ''}`}
+      ref={articleRef}
+      className={`comment${isExpanded ? ' is-expanded' : ''}${voteStateClass}`}
+      {...handlers}
+      onContextMenu={handleContextMenu}
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest('a, button')) return;
@@ -127,17 +239,37 @@ export function Comment({ id }: Props) {
             </svg>
           </span>
         </button>
-        {isExpanded ? (
-          <a
-            className="comment__action"
-            href={`https://news.ycombinator.com/reply?id=${id}`}
-            target="_blank"
-            rel="noopener noreferrer"
+        <TooltipButton
+          ref={menuBtnRef}
+          type="button"
+          className="comment__menu-btn"
+          data-testid={`comment-menu-${id}`}
+          aria-label="More actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          tooltip="More actions"
+          onClick={toggleMenu}
+        >
+          <svg
+            className="comment__menu-icon"
+            viewBox="0 -960 960 960"
+            fill="currentColor"
+            width="18"
+            height="18"
+            aria-hidden="true"
+            focusable="false"
           >
-            Reply on HN ↗
-          </a>
-        ) : null}
+            <path d="M480-160q-33 0-56.5-23.5T400-240q0-33 23.5-56.5T480-320q33 0 56.5 23.5T560-240q0 33-23.5 56.5T480-160Zm0-240q-33 0-56.5-23.5T400-480q0-33 23.5-56.5T480-560q33 0 56.5 23.5T560-480q0 33-23.5 56.5T480-400Zm0-240q-33 0-56.5-23.5T400-720q0-33 23.5-56.5T480-800q33 0 56.5 23.5T560-720q0 33-23.5 56.5T480-640Z" />
+          </svg>
+        </TooltipButton>
       </div>
+      <StoryRowMenu
+        open={menuOpen}
+        title="Comment actions"
+        items={menuItems}
+        anchorEl={menuBtnRef.current}
+        onClose={closeMenu}
+      />
       {hasReplies && isExpanded ? (
         <ol className="comment__children">
           {kids.map((kidId) => (

@@ -28,6 +28,22 @@
      invariant self-enforcing instead of prose-enforced. */
   --comment-stack-gap: 4px;
 
+  /* Horizontal padding inside every .comment card. --comment-x-pad
+     is the left padding; --comment-right-pad is the right padding,
+     deliberately wider than the left so there's a dedicated "gutter"
+     zone on the right of every comment where the per-comment ⋮
+     button sits with breathing room from the card edge. The right
+     value is negated by .comment__children's margin-right so a
+     nested list's right edge pulls out of its parent's right gutter
+     and lines up with the grandparent's card edge — otherwise a
+     1-deep nested comment would be 24px narrower on the right, a
+     2-deep 48px narrower, and so on, which visibly shifts the
+     ⋮ button leftward the deeper you go. The invariant:
+     --comment-right-pad (negated) MUST equal .comment__children's
+     margin-right, or per-depth drift returns. */
+  --comment-x-pad: 12px;
+  --comment-right-pad: 24px;
+
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
 

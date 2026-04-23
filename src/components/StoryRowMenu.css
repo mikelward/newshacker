@@ -95,6 +95,14 @@
   }
 }
 
+/* Applied by callers (via StoryRowMenuItem.className) to mark a
+   menu row as the "active" action — e.g. Unvote / Undownvote when
+   the viewer has already voted. Uses the HN orange so the reader
+   can see at a glance which direction their current vote is. */
+.story-menu__item--active {
+  color: var(--nh-orange);
+}
+
 .story-menu__item:focus-visible {
   background: var(--nh-pressed);
 }

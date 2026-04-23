@@ -227,7 +227,12 @@ describe('<Thread>', () => {
     expect(author).toHaveAttribute('href', '/user/alice');
   });
 
-  it('shows a "Reply on HN" link on expanded comments, hidden when collapsed', async () => {
+  it('exposes "Reply on HN" via the per-comment overflow menu', async () => {
+    // Reply on HN is no longer an inline link in the meta row — it
+    // lives in the per-comment ⋮ menu (alongside Upvote / Downvote
+    // for signed-in users) so the comment row can stay scannable
+    // and tap targets stay generous. The menu is always reachable,
+    // including on collapsed rows.
     installHNFetchMock({
       items: {
         450: makeStory(450, { kids: [451], descendants: 1 }),
@@ -244,19 +249,23 @@ describe('<Thread>', () => {
     renderWithProviders(<Thread id={450} />);
     await screen.findByText(/comment body/);
 
-    expect(screen.queryByRole('link', { name: /reply on hn/i })).toBeNull();
+    // Menu opens on the collapsed comment.
+    const menuBtn = screen.getByTestId('comment-menu-451');
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockImplementation(() => null);
+    await userEvent.click(menuBtn);
 
-    await userEvent.click(
-      screen.getByRole('button', { name: /expand comment/i }),
-    );
+    const reply = await screen.findByTestId('story-row-menu-reply-on-hn');
+    expect(reply).toHaveTextContent(/reply on hn/i);
+    await userEvent.click(reply);
 
-    const reply = screen.getByRole('link', { name: /reply on hn/i });
-    expect(reply).toHaveAttribute(
-      'href',
+    expect(openSpy).toHaveBeenCalledWith(
       'https://news.ycombinator.com/reply?id=451',
+      '_blank',
+      'noopener,noreferrer',
     );
-    expect(reply).toHaveAttribute('target', '_blank');
-    expect(reply).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    openSpy.mockRestore();
   });
 
   it('filters out deleted, dead, and empty comments from a thread', async () => {
