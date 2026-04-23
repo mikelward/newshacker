@@ -580,7 +580,8 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
 ### Service worker
-- Registered with `registerType: 'autoUpdate'`: a new build downloads in the background and the new service worker silently activates on the next navigation. No prompt, no toast, no forced reload of the page the user is currently viewing. The 'prompt' variant was tried first — it strands updates on devices whose users never accept the prompt, which broke the rollout of the `/api/telemetry` wiring (devices kept running the pre-deploy bundle and never emitted telemetry). A reader app has no in-progress state to lose on refresh, so silent updates are the safer default.
+- Registered with `registerType: 'autoUpdate'`: a new build downloads in the background and the new service worker silently activates on the next navigation. No prompt, no toast, and no automatic reload of the page the user is currently viewing without a user gesture (the PTR-triggered reload described below is user-initiated). The 'prompt' variant was tried first — it strands updates on devices whose users never accept the prompt, which broke the rollout of the `/api/telemetry` wiring (devices kept running the pre-deploy bundle and never emitted telemetry). A reader app has no in-progress state to lose on refresh, so silent updates are the safer default.
+- **Pull-to-refresh also force-checks for updates.** The browser only re-checks `/sw.js` on a full page navigation, and our custom PTR (with `overscroll-behavior-y: contain`) overrides the browser's native swipe-to-reload in regular tabs; installed standalone PWAs have no reload UI at all. Without an explicit trigger, a session parked on one SPA route can sit on a stale bundle until the tab is closed — the Vercel-preview-after-force-push failure mode. PTR's refresh handler therefore also calls `registration.update()` and, if a newer SW activates (`controllerchange`), reloads the tab. Implementation in `src/lib/swUpdate.ts`; see *Pull-to-refresh* under *Navigation* for details.
 - Disabled in `npm run dev` (devOptions.enabled: false) so iteration is unaffected. Active in `npm run build && npm run preview` and in production.
 
 ### Caching strategy
@@ -761,6 +762,28 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   `['libraryStoryItems', …]` query. Cache invalidation is implicit —
   React Query's own refetch path honours the SW's
   StaleWhileRevalidate/NetworkFirst strategies.
+- **PTR also checks for a newer app bundle** (`src/lib/swUpdate.ts`,
+  `checkForServiceWorkerUpdate()`). On every PTR the refresh
+  handler calls `registration.update()` in parallel with the feed /
+  cloudSync refetches. If a newer SW is discovered, it installs via
+  the existing `autoUpdate` (skipWaiting + clientsClaim) path and
+  claims this tab; we listen for the resulting `controllerchange`
+  and then `window.location.reload()` so the user sees the new
+  HTML and JS, not just the new SW serving stale rendered output.
+  If nothing has changed, `registration.update()` is a cheap
+  conditional GET against `/sw.js` and no reload happens. 5 s
+  timeout on the activate-wait so a wedged install never pins the
+  spinner. This exists because the browser normally only re-checks
+  `/sw.js` on a full page navigation, and our custom PTR overrides
+  the browser's native swipe-to-reload — without this hook, a
+  session parked on one SPA route (or an installed standalone PWA
+  with no reload UI at all) can sit on a stale bundle until the
+  user closes the tab. This is the failure mode that made Vercel
+  preview testing after a force-push unreliable. The header
+  Refresh button shares the same handler, so it inherits the
+  behavior for free. Safe today because the app has no in-progress
+  user input to lose on reload; see `TODO.md` under *PWA / offline*
+  for the note to revisit if we ever add commenting or posting.
 - Gesture shape: arm when the document is at `scrollTop === 0` and the
   pointer travels downward more than it does sideways. A horizontal-
   first drag aborts so `useSwipeToDismiss` owns per-row swipes. Pull
@@ -779,7 +802,10 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   same HN Firebase / `/api/items` dependencies as the baseline load.
   A user who pulls-to-refresh while offline gets the existing offline
   error state (via React Query's `networkMode: 'offlineFirst'`) and the
-  small header "Offline" pill — no regression.
+  small header "Offline" pill — no regression. The added SW update
+  check is a conditional GET against `/sw.js` (same-origin, already on
+  the Vercel edge CDN) — effectively free, and gated to the PTR
+  gesture so it doesn't fire in a background loop.
 
 ## Deployment
 
