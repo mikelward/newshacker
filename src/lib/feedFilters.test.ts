@@ -57,4 +57,26 @@ describe('feedFilters storage', () => {
     );
     expect(getFeedFilters()).toEqual({ unreadOnly: false, hotOnly: false });
   });
+
+  it('dispatches the next value in event.detail so the hook can flip even on storage failure', () => {
+    const setItem = window.localStorage.setItem;
+    let eventDetail: unknown;
+    window.addEventListener(
+      FEED_FILTERS_CHANGE_EVENT,
+      (e) => {
+        eventDetail = (e as CustomEvent).detail;
+      },
+      { once: true },
+    );
+    // Simulate a quota-exceeded / private-mode write failure.
+    window.localStorage.setItem = () => {
+      throw new Error('QuotaExceeded');
+    };
+    try {
+      setFeedFilters({ unreadOnly: true, hotOnly: false });
+    } finally {
+      window.localStorage.setItem = setItem;
+    }
+    expect(eventDetail).toEqual({ unreadOnly: true, hotOnly: false });
+  });
 });

@@ -103,30 +103,60 @@ export function StoryList({ feed }: Props) {
   // Unread-only and hot-only toggles layer on top: an opened story is
   // one the reader has tapped into (article or thread), a hot story is
   // whatever `isHotStory` currently flags.
-  const visibleStories = useMemo(
-    () =>
-      items.filter(
-        (it): it is NonNullable<typeof it> =>
-          it != null &&
-          !it.deleted &&
-          !it.dead &&
-          (it.score ?? 0) > 1 &&
-          !hiddenIds.has(it.id) &&
-          !doneIds.has(it.id) &&
-          (!unreadOnly ||
-            (!articleOpenedIds.has(it.id) && !commentsOpenedIds.has(it.id))) &&
-          (!hotOnly || isHotStory(it)),
-      ),
-    [
-      items,
-      hiddenIds,
-      doneIds,
-      unreadOnly,
-      hotOnly,
-      articleOpenedIds,
-      commentsOpenedIds,
-    ],
+  // isHotStory is time-dependent (the "recent fast-riser" rule uses a
+  // 2h window from `time`), so the memo below has to invalidate as the
+  // clock advances — otherwise a 40-point row could age past 2h and
+  // still appear while Hot-only is on. `hotNowBucket` ticks once per
+  // minute while Hot-only is active and participates in the memo deps;
+  // it's the coarsest cadence that still lands on the right side of
+  // the 2h boundary within ~1 minute. When Hot-only is off we don't
+  // tick — the filter isn't reading the clock.
+  const [hotNowBucket, setHotNowBucket] = useState(() =>
+    Math.floor(Date.now() / 60_000),
   );
+  useEffect(() => {
+    if (!hotOnly) return;
+    setHotNowBucket(Math.floor(Date.now() / 60_000));
+    const id = window.setInterval(() => {
+      setHotNowBucket(Math.floor(Date.now() / 60_000));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [hotOnly]);
+
+  const visibleStories = useMemo(() => {
+    // Capture `now` once per filter pass so every isHotStory() call
+    // classifies against the same instant (a row whose age crosses the
+    // 2h "recent" boundary mid-loop shouldn't flip state from row to
+    // row) and we skip allocating a new Date per item.
+    const now = new Date();
+    return items.filter(
+      (it): it is NonNullable<typeof it> =>
+        it != null &&
+        !it.deleted &&
+        !it.dead &&
+        (it.score ?? 0) > 1 &&
+        !hiddenIds.has(it.id) &&
+        !doneIds.has(it.id) &&
+        (!unreadOnly ||
+          (!articleOpenedIds.has(it.id) && !commentsOpenedIds.has(it.id))) &&
+        (!hotOnly || isHotStory(it, now)),
+    );
+    // `hotNowBucket` isn't read in the body but is intentionally a
+    // dep: its change invalidates the memo once per minute while
+    // Hot-only is on, so a story that ages past the 2h fast-rise
+    // window drops out of the filter. isHotStory reads `Date.now()`
+    // at call time, so we don't need to surface the bucket value to it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    items,
+    hiddenIds,
+    doneIds,
+    unreadOnly,
+    hotOnly,
+    articleOpenedIds,
+    commentsOpenedIds,
+    hotNowBucket,
+  ]);
 
   // Opportunistically warm the thread/comment cache for currently-trending
   // stories so tapping one feels instant. We only fire once per story id

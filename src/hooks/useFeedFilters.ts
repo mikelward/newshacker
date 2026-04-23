@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   FEED_FILTERS_CHANGE_EVENT,
+  FEED_FILTERS_STORAGE_KEY,
   type FeedFilters,
   getFeedFilters,
   setFeedFilters,
@@ -17,13 +18,38 @@ export function useFeedFilters(): UseFeedFiltersResult {
   const [state, setState] = useState<FeedFilters>(() => getFeedFilters());
 
   useEffect(() => {
-    const sync = () => setState(getFeedFilters());
-    window.addEventListener(FEED_FILTERS_CHANGE_EVENT, sync);
-    // Cross-tab sync via the native `storage` event.
-    window.addEventListener('storage', sync);
+    // Prefer the CustomEvent's `detail` payload (carried by
+    // setFeedFilters) so the in-memory UI state still flips even when
+    // localStorage.setItem throws (private mode, quota). Fall back to
+    // re-reading storage for the cross-tab `storage` event, which
+    // has no same-value detail. Ignore cross-tab events for other
+    // keys (React Query's persisted cache also lives in localStorage)
+    // and skip setState when the read hasn't changed, to avoid
+    // unnecessary re-renders.
+    const sameSnapshot = (a: FeedFilters, b: FeedFilters) =>
+      a.unreadOnly === b.unreadOnly && a.hotOnly === b.hotOnly;
+
+    const onFilterChange = (e: Event) => {
+      const detail = (e as CustomEvent<FeedFilters>).detail;
+      const next = detail && typeof detail === 'object'
+        ? detail
+        : getFeedFilters();
+      setState((prev) => (sameSnapshot(prev, next) ? prev : next));
+    };
+
+    const onStorage = (e: StorageEvent) => {
+      // StorageEvent.key is null on storage.clear(); treat that as a
+      // possible reset of our key too.
+      if (e.key !== null && e.key !== FEED_FILTERS_STORAGE_KEY) return;
+      const next = getFeedFilters();
+      setState((prev) => (sameSnapshot(prev, next) ? prev : next));
+    };
+
+    window.addEventListener(FEED_FILTERS_CHANGE_EVENT, onFilterChange);
+    window.addEventListener('storage', onStorage);
     return () => {
-      window.removeEventListener(FEED_FILTERS_CHANGE_EVENT, sync);
-      window.removeEventListener('storage', sync);
+      window.removeEventListener(FEED_FILTERS_CHANGE_EVENT, onFilterChange);
+      window.removeEventListener('storage', onStorage);
     };
   }, []);
 

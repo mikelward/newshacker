@@ -51,4 +51,40 @@ describe('useFeedFilters', () => {
     });
     expect(b.result.current.hotOnly).toBe(true);
   });
+
+  it('ignores storage events fired for unrelated keys', () => {
+    const { result } = renderHook(() => useFeedFilters());
+    expect(result.current.hotOnly).toBe(false);
+    act(() => {
+      // Simulate React Query's persister writing to its own key. The
+      // hook should not re-read our state on this event.
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'REACT_QUERY_OFFLINE_CACHE',
+          newValue: '{}',
+        }),
+      );
+    });
+    expect(result.current.hotOnly).toBe(false);
+    expect(result.current.unreadOnly).toBe(false);
+  });
+
+  it('flips in-memory state from the event detail even when the storage write fails', () => {
+    const setItem = window.localStorage.setItem;
+    window.localStorage.setItem = () => {
+      throw new Error('QuotaExceeded');
+    };
+    try {
+      const { result } = renderHook(() => useFeedFilters());
+      expect(result.current.unreadOnly).toBe(false);
+      act(() => {
+        result.current.toggleUnreadOnly();
+      });
+      // Storage write failed, but the event carried `next` in detail, so
+      // the hook's sync listener adopted it for this session.
+      expect(result.current.unreadOnly).toBe(true);
+    } finally {
+      window.localStorage.setItem = setItem;
+    }
+  });
 });

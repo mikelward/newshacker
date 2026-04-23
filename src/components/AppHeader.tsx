@@ -185,11 +185,7 @@ export function AppHeader() {
               data-testid="unread-toggle"
               data-active={unreadOnly || undefined}
               aria-pressed={unreadOnly}
-              aria-label={
-                unreadOnly
-                  ? 'Showing unread stories only. Tap to show all.'
-                  : 'Showing all stories. Tap to show unread only.'
-              }
+              aria-label="Unread-only filter"
               tooltip={unreadOnly ? 'Unread only' : 'All stories'}
               onClick={toggleUnreadOnly}
             >
@@ -204,11 +200,7 @@ export function AppHeader() {
               data-testid="hot-toggle"
               data-active={hotOnly || undefined}
               aria-pressed={hotOnly}
-              aria-label={
-                hotOnly
-                  ? 'Showing hot stories only. Tap to show all.'
-                  : 'Showing all stories. Tap to show hot only.'
-              }
+              aria-label="Hot-only filter"
               tooltip={hotOnly ? 'Hot only' : 'All stories'}
               onClick={toggleHotOnly}
             >
