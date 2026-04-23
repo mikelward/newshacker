@@ -5,6 +5,7 @@ import { HeaderAccountMenu } from './HeaderAccountMenu';
 import { TooltipButton } from './TooltipButton';
 import { isFeed } from '../lib/feeds';
 import { useFeedBar } from '../hooks/useFeedBar';
+import { useFeedFilters } from '../hooks/useFeedFilters';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import './AppHeader.css';
 
@@ -51,6 +52,43 @@ function SweepIcon() {
   );
 }
 
+// Simple eye glyph — outer almond + inner pupil, drawn with even-odd
+// fill so the pupil reads as a hole on the orange header.
+function VisibilityIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      width="18"
+      height="18"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M12 5C7 5 2.73 8.11 1 12.5 2.73 16.89 7 20 12 20s9.27-3.11 11-7.5C21.27 8.11 17 5 12 5Zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+      />
+    </svg>
+  );
+}
+
+// Simple flame glyph — single teardrop-ish outline with an inner curl.
+function FlameIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      width="18"
+      height="18"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 2c.2 3.5-2.5 5.2-2.5 8a2.5 2.5 0 0 0 5 0c0-1-.3-1.8-.8-2.5 2.1.6 3.8 2.8 3.8 5.5a7.5 7.5 0 0 1-15 0c0-4.5 3.8-6.8 4.5-11Zm0 16a3.5 3.5 0 0 0 3.5-3.5c0-1.4-.9-2.7-2.2-3.3.3.6.2 1.3-.3 1.8-.7.7-1.8.4-2.1-.5-.2-.5-.1-1 .2-1.4-1.3.7-2.1 2-2.1 3.4A3.5 3.5 0 0 0 12 18Z" />
+    </svg>
+  );
+}
+
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
     <svg
@@ -79,6 +117,8 @@ export function AppHeader() {
     canUndo,
     undo,
   } = useFeedBar();
+  const { unreadOnly, hotOnly, toggleUnreadOnly, toggleHotOnly } =
+    useFeedFilters();
   const online = useOnlineStatus();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -136,6 +176,56 @@ export function AppHeader() {
         {onFeedPage ? (
           <div className="app-header__actions">
             {offlinePill}
+            <TooltipButton
+              type="button"
+              role="switch"
+              aria-checked={unreadOnly}
+              aria-label={
+                unreadOnly
+                  ? 'Showing unread stories only. Tap to show all.'
+                  : 'Showing all stories. Tap to show unread only.'
+              }
+              tooltip={unreadOnly ? 'Unread only' : 'All stories'}
+              className={
+                'app-header__filter-switch' +
+                (unreadOnly ? ' app-header__filter-switch--on' : '')
+              }
+              data-testid="unread-toggle"
+              data-active={unreadOnly || undefined}
+              onClick={toggleUnreadOnly}
+            >
+              <span className="app-header__filter-track" aria-hidden="true">
+                <span className="app-header__filter-thumb" />
+              </span>
+              <span className="app-header__filter-icon" aria-hidden="true">
+                <VisibilityIcon />
+              </span>
+            </TooltipButton>
+            <TooltipButton
+              type="button"
+              role="switch"
+              aria-checked={hotOnly}
+              aria-label={
+                hotOnly
+                  ? 'Showing hot stories only. Tap to show all.'
+                  : 'Showing all stories. Tap to show hot only.'
+              }
+              tooltip={hotOnly ? 'Hot only' : 'All stories'}
+              className={
+                'app-header__filter-switch' +
+                (hotOnly ? ' app-header__filter-switch--on' : '')
+              }
+              data-testid="hot-toggle"
+              data-active={hotOnly || undefined}
+              onClick={toggleHotOnly}
+            >
+              <span className="app-header__filter-track" aria-hidden="true">
+                <span className="app-header__filter-thumb" />
+              </span>
+              <span className="app-header__filter-icon" aria-hidden="true">
+                <FlameIcon />
+              </span>
+            </TooltipButton>
             <TooltipButton
               type="button"
               className="app-header__icon-btn"
