@@ -1344,3 +1344,221 @@ describe('handleSummaryRequest — rate limiting', () => {
     expect(rateLimitStore.calls.length).toBe(0);
   });
 });
+
+describe('handleSummaryRequest — summary-outcome log events', () => {
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  function outcomeLines(): Array<Record<string, unknown>> {
+    return logSpy.mock.calls
+      .map((c: unknown[]) => (typeof c[0] === 'string' ? c[0] : ''))
+      .map((raw: string): unknown => {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (obj: unknown): obj is Record<string, unknown> =>
+          typeof obj === 'object' &&
+          obj !== null &&
+          (obj as { type?: unknown }).type === 'summary-outcome',
+      );
+  }
+
+  it('logs outcome=cached on a cache hit, with the cached summary length', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      7,
+      {
+        summary: 'a twelve chrs', // 13 chars
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+
+    const res = await handleSummaryRequest(makeRequest(7), { store });
+    expect(res.status).toBe(200);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      type: 'summary-outcome',
+      endpoint: 'summary',
+      outcome: 'cached',
+      storyId: 7,
+      chars: 13,
+    });
+  });
+
+  it('logs outcome=generated with Gemini token metadata, Jina tokens, and summary length', async () => {
+    const fetchImpl = createFakeFetch({
+      'https://r.jina.ai/https://example.com/a': {
+        body: JSON.stringify({
+          code: 200,
+          status: 20000,
+          data: {
+            content: 'article body',
+            usage: { tokens: 4567 },
+          },
+        }),
+      },
+    });
+    const fetchItem = fetchItemFor({
+      50: { id: 50, type: 'story', url: 'https://example.com/a', score: 10 },
+    });
+    const client = {
+      models: {
+        generateContent: vi.fn(async () => ({
+          text: 'Generated summary of length 33.',
+          usageMetadata: {
+            promptTokenCount: 1234,
+            candidatesTokenCount: 56,
+            totalTokenCount: 1290,
+          },
+        })),
+      },
+    };
+
+    const res = await handleSummaryRequest(makeRequest(50), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(200);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toEqual({
+      type: 'summary-outcome',
+      endpoint: 'summary',
+      outcome: 'generated',
+      storyId: 50,
+      chars: 'Generated summary of length 33.'.length,
+      geminiPromptTokens: 1234,
+      geminiOutputTokens: 56,
+      geminiTotalTokens: 1290,
+      jinaTokens: 4567,
+    });
+  });
+
+  it('logs outcome=rate_limited when the bucket rejects a request', async () => {
+    const rateLimitStore = {
+      async incrementWithExpiry() {
+        return 999; // way over any limit
+      },
+    };
+    const res = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      {
+        createClient: () => createFakeClient([{ text: 'ok' }]),
+        fetchImpl: createFakeFetch({}),
+        fetchItem: fetchItemFor({
+          1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
+        }),
+        store: null,
+        rateLimitStore,
+        rateLimitTiers: [{ name: 'burst', limit: 1, windowSeconds: 600 }],
+      },
+    );
+    expect(res.status).toBe(429);
+
+    const lines = outcomeLines();
+    // The rate-limited branch emits one outcome line; no other log lines
+    // from this path belong to the taxonomy.
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      type: 'summary-outcome',
+      endpoint: 'summary',
+      outcome: 'rate_limited',
+      storyId: 1,
+    });
+  });
+
+  it('logs outcome=error with reason=low_score on the anti-abuse floor', async () => {
+    const res = await handleSummaryRequest(makeRequest(9), {
+      fetchItem: fetchItemFor({
+        9: { id: 9, type: 'story', url: 'https://example.com/a', score: 1 },
+      }),
+      store: null,
+    });
+    expect(res.status).toBe(400);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      type: 'summary-outcome',
+      outcome: 'error',
+      reason: 'low_score',
+      storyId: 9,
+    });
+  });
+
+  it('logs outcome=error with reason=summary_budget_exhausted when Jina 402s (alongside the existing jina-payment-required line)', async () => {
+    // This test verifies that the two log lines co-exist — the
+    // existing console.error alert line and the new console.log
+    // outcome line — so a monitor keyed on either still fires.
+    const errSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    try {
+      const fetchImpl = createFakeFetch({
+        'https://r.jina.ai/https://example.com/a': { status: 402 },
+      });
+      const fetchItem = fetchItemFor({
+        12: {
+          id: 12,
+          type: 'story',
+          url: 'https://example.com/a',
+          score: 10,
+        },
+      });
+      const res = await handleSummaryRequest(makeRequest(12), {
+        createClient: () => createFakeClient([]),
+        fetchImpl,
+        fetchItem,
+        store: null,
+      });
+      expect(res.status).toBe(503);
+
+      const outcomes = outcomeLines();
+      expect(outcomes).toHaveLength(1);
+      expect(outcomes[0]).toMatchObject({
+        outcome: 'error',
+        reason: 'summary_budget_exhausted',
+        storyId: 12,
+      });
+
+      // Existing alert line still fires — this is the signal that
+      // the Axiom monitor keys off for "Jina credit exhausted".
+      const alertCalls = errSpy.mock.calls.filter((c) =>
+        typeof c[0] === 'string' && c[0].includes('summary-jina-payment-required'),
+      );
+      expect(alertCalls).toHaveLength(1);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+});
