@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { getItem, getItems, type HNItem } from '../lib/hn';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
-import { SUMMARY_CACHE_TTL_MS } from './useSummary';
+import { SUMMARY_RETENTION_MS } from './useSummary';
 
 export interface ItemRoot {
   item: HNItem;
@@ -47,8 +47,8 @@ export function useCommentItem(id: number) {
     // fire its own single-item Firebase request in parallel with
     // loadRoot's batched /api/items refresh, losing the batch benefit.
     // Freshness comes via the root-refetch batch instead.
-    staleTime: SUMMARY_CACHE_TTL_MS,
-    gcTime: SUMMARY_CACHE_TTL_MS,
+    staleTime: SUMMARY_RETENTION_MS,
+    gcTime: SUMMARY_RETENTION_MS,
   });
 }
 

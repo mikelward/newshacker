@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { HNItem } from './hn';
-import { SUMMARY_CACHE_TTL_MS } from '../hooks/useSummary';
+import { SUMMARY_RETENTION_MS } from '../hooks/useSummary';
 
 // Cap on comments we batch in a single request. 30 matches the
 // /api/items proxy's MAX_IDS and is one HTTP round-trip. For top-level
@@ -59,7 +59,7 @@ export async function prefetchCommentBatch(
         queryKey: ['comment', id],
         queryFn: () => resolved,
         staleTime: 0,
-        gcTime: SUMMARY_CACHE_TTL_MS,
+        gcTime: SUMMARY_RETENTION_MS,
       }),
     );
   }

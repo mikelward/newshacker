@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { trackedFetch } from '../lib/networkStatus';
 
-// Matches the conservative end of the server-side TTL (the server may
-// regenerate after 30 min for young stories). The client holds onto the
-// response for an hour so repeat visits within a single browsing session
-// don't trigger an immediate refetch.
-export const COMMENTS_SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
+// Retention / freshness split mirrors `useSummary.ts`: we keep the
+// bytes for 7 days (so a pinned thread revisited mid-week is a
+// synchronous cache hit) but mark the entry stale after 30 min so the
+// next mount refetches and picks up cron-regenerated updates. The
+// service worker's StaleWhileRevalidate absorbs that refetch latency.
+export const COMMENTS_SUMMARY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+export const COMMENTS_SUMMARY_FRESHNESS_MS = 30 * 60 * 1000;
 
 export interface CommentsSummaryResult {
   insights: string[];
@@ -40,8 +42,8 @@ export function commentsSummaryQueryOptions(storyId: number) {
     queryFn: ({ signal }: { signal?: AbortSignal }) =>
       fetchCommentsSummary(storyId, signal),
     retry: false,
-    staleTime: COMMENTS_SUMMARY_CACHE_TTL_MS,
-    gcTime: COMMENTS_SUMMARY_CACHE_TTL_MS,
+    staleTime: COMMENTS_SUMMARY_FRESHNESS_MS,
+    gcTime: COMMENTS_SUMMARY_RETENTION_MS,
   } as const;
 }
 

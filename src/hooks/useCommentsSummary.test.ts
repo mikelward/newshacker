@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _fetchCommentsSummaryForTests,
+  COMMENTS_SUMMARY_FRESHNESS_MS,
+  COMMENTS_SUMMARY_RETENTION_MS,
   commentsSummaryQueryKey,
+  commentsSummaryQueryOptions,
 } from './useCommentsSummary';
 
 describe('useCommentsSummary helpers', () => {
@@ -16,6 +19,23 @@ describe('useCommentsSummary helpers', () => {
     expect(commentsSummaryQueryKey(42)).toEqual(['comments-summary', 42]);
     expect(commentsSummaryQueryKey(42)).toEqual(commentsSummaryQueryKey(42));
     expect(commentsSummaryQueryKey(1)).not.toEqual(commentsSummaryQueryKey(2));
+  });
+
+  // Regression guard: the pre-split code had staleTime === gcTime === 1 h,
+  // which meant a pinned thread revisited after an hour went through a
+  // loading state even though the bytes were still in the SW cache and the
+  // persister. Retention now matches the SW 7-day TTL; freshness matches
+  // the cron's default 30-min check interval so we don't over-refetch.
+  it('splits freshness (staleTime) from retention (gcTime)', () => {
+    const opts = commentsSummaryQueryOptions(1);
+    expect(opts.staleTime).toBe(30 * 60 * 1000);
+    expect(opts.gcTime).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(opts.staleTime).toBeLessThan(opts.gcTime);
+  });
+
+  it('exports the constants', () => {
+    expect(COMMENTS_SUMMARY_FRESHNESS_MS).toBe(30 * 60 * 1000);
+    expect(COMMENTS_SUMMARY_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it('hits /api/comments-summary with the story id and returns the insights', async () => {
