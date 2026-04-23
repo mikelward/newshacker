@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'newshacker:feedFilters';
+export const FEED_FILTERS_STORAGE_KEY = 'newshacker:feedFilters';
 export const FEED_FILTERS_CHANGE_EVENT = 'newshacker:feedFiltersChanged';
 
 export interface FeedFilters {
@@ -33,7 +33,7 @@ function parse(raw: string | null): FeedFilters {
 export function getFeedFilters(): FeedFilters {
   if (!hasWindow()) return { ...DEFAULT };
   try {
-    return parse(window.localStorage.getItem(STORAGE_KEY));
+    return parse(window.localStorage.getItem(FEED_FILTERS_STORAGE_KEY));
   } catch {
     return { ...DEFAULT };
   }
@@ -49,12 +49,17 @@ export function setFeedFilters(
     return;
   }
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    window.localStorage.setItem(FEED_FILTERS_STORAGE_KEY, JSON.stringify(next));
   } catch {
-    // quota or privacy-mode failures are non-fatal — the toggle simply
-    // won't persist across reloads.
+    // Quota or privacy-mode failures: the write is dropped, so the
+    // choice won't survive a reload — but we still dispatch the event
+    // below carrying `next` in `detail`, and the hook prefers that
+    // detail over re-reading storage. That way the UI reflects the
+    // toggle for the rest of the session even when persistence fails.
   }
-  window.dispatchEvent(new CustomEvent(FEED_FILTERS_CHANGE_EVENT));
+  window.dispatchEvent(
+    new CustomEvent<FeedFilters>(FEED_FILTERS_CHANGE_EVENT, { detail: next }),
+  );
 }
 
 export function clearFeedFilters(): void {

@@ -180,11 +180,7 @@ export function AppHeader() {
               type="button"
               role="switch"
               aria-checked={unreadOnly}
-              aria-label={
-                unreadOnly
-                  ? 'Showing unread stories only. Tap to show all.'
-                  : 'Showing all stories. Tap to show unread only.'
-              }
+              aria-label="Unread-only filter"
               tooltip={unreadOnly ? 'Unread only' : 'All stories'}
               className={
                 'app-header__filter-switch' +
@@ -205,11 +201,7 @@ export function AppHeader() {
               type="button"
               role="switch"
               aria-checked={hotOnly}
-              aria-label={
-                hotOnly
-                  ? 'Showing hot stories only. Tap to show all.'
-                  : 'Showing all stories. Tap to show hot only.'
-              }
+              aria-label="Hot-only filter"
               tooltip={hotOnly ? 'Hot only' : 'All stories'}
               className={
                 'app-header__filter-switch' +
