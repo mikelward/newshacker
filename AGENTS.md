@@ -184,4 +184,5 @@ If any of the above fails, fix it — don't disable the check.
 - Check `IMPLEMENTATION_PLAN.md` for phase ordering.
 - Check `CRON.md` for warm-summaries cron operating questions (enable, verify, tune, disable, troubleshoot).
 - Check `INSTALL.md` for env-var / API-key setup.
+- Check `OBSERVABILITY.md` for alerting / monitors / paging decisions and runbook stubs.
 - If a task seems to conflict with any of these docs, flag it and ask rather than silently diverging.
