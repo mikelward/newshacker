@@ -1,7 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import { trackedFetch } from '../lib/networkStatus';
 
-export const SUMMARY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// Retention: how long we keep the bytes around (React Query gcTime, SW
+// Cache Storage, persister). Matches the service-worker `ai-summaries`
+// entry TTL in `vite.config.ts` so a pinned story that sits for a week
+// still has a warm local copy.
+export const SUMMARY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Freshness: how long we trust the local copy before asking the server
+// for a newer one (React Query staleTime). 30 min matches the
+// warm-summaries cron's default check interval
+// (`WARM_REFRESH_CHECK_INTERVAL_SECONDS`, see CRON.md), so we never ask
+// for a version newer than what the cron could have produced. The
+// service worker's StaleWhileRevalidate makes the refetch itself a
+// no-latency operation in practice — we render from cache immediately
+// and quietly pick up any change.
+export const SUMMARY_FRESHNESS_MS = 30 * 60 * 1000;
 
 export interface SummaryResult {
   summary: string;
@@ -81,8 +95,8 @@ export function summaryQueryOptions(storyId: number) {
     queryFn: ({ signal }: { signal?: AbortSignal }) =>
       fetchSummary(storyId, signal),
     retry: false,
-    staleTime: SUMMARY_CACHE_TTL_MS,
-    gcTime: SUMMARY_CACHE_TTL_MS,
+    staleTime: SUMMARY_FRESHNESS_MS,
+    gcTime: SUMMARY_RETENTION_MS,
   } as const;
 }
 
