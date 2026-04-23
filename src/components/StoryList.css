@@ -11,12 +11,15 @@
 
 /* Sweep animation: every unpinned, fully-visible row slides+fades out
    together when the broom fires, matching the single-gesture verb.
-   Direction mirrors the swipe-right-to-hide affordance, so the row
-   leaves the way a manually dismissed row leaves. The JS handler in
-   StoryList.tsx holds the actual hide call until this animation
-   completes (SWEEP_ANIMATION_MS), so the row fades in place rather
-   than popping. Reduced-motion readers skip the animation in CSS and
-   the delay in JS — the hide is instant for them. */
+   Tuned to match `useSwipeToDismiss` exactly — 200ms ease-out,
+   translate the row off to the right by its full width (so it leaves
+   the viewport the same way a manually swiped row does), opacity to
+   0. Direction matches swipe-right-to-hide so the row leaves the way
+   a manually dismissed row leaves. The JS handler in StoryList.tsx
+   holds the actual hide call until this animation completes
+   (SWEEP_ANIMATION_MS), so the row slides in place rather than
+   popping. Reduced-motion readers skip the animation in CSS and the
+   delay in JS — the hide is instant for them. */
 @keyframes story-list__sweep-out {
   from {
     opacity: 1;
@@ -24,12 +27,12 @@
   }
   to {
     opacity: 0;
-    transform: translate3d(40px, 0, 0);
+    transform: translate3d(100%, 0, 0);
   }
 }
 
 .story-list__item--sweeping {
-  animation: story-list__sweep-out 180ms ease-out forwards;
+  animation: story-list__sweep-out 200ms ease-out forwards;
   pointer-events: none;
 }
 

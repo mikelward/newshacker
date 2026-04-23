@@ -27,10 +27,12 @@ import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
 
 // Keep in sync with the `story-list__item--sweeping` animation duration
-// in StoryList.css. The timer fires the actual hide + undo-batch record
-// once the CSS animation has played, so the row fades out in place
-// instead of popping.
-const SWEEP_ANIMATION_MS = 180;
+// in StoryList.css, which in turn matches `EXIT_DURATION_MS` in
+// `useSwipeToDismiss` — tapping the broom should feel like every
+// unpinned row swiped itself away at the same time. The timer fires
+// the actual hide + undo-batch record once the animation has played,
+// so the row slides in place instead of popping.
+const SWEEP_ANIMATION_MS = 200;
 
 interface Props {
   feed: Feed;
