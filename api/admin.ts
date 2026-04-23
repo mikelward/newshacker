@@ -1,8 +1,8 @@
 // GET /api/admin — operator-only visibility endpoint. Reports
-// configuration + HN-verified identity for the operator, and links
-// out to third-party dashboards for anything the vendor doesn't
-// expose a stable programmatic surface for (Jina wallet balance,
-// Gemini quota). Upstash/Redis we can probe ourselves.
+// configuration + HN-verified identity for the operator, a live
+// Jina wallet balance (via Jina's dashboard backend), and Upstash
+// reachability. Gemini we can only link out to, since Google has
+// no public per-key quota endpoint.
 //
 // Access control is two-factor:
 //   1. The caller must have our `hn_session` cookie, and its username
@@ -50,10 +50,54 @@ const HN_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
+// Jina has no officially-documented account endpoint (see
+// jina-ai/reader#64 — balance is only surfaced through the web
+// dashboard). The dashboard itself hits
+//   GET https://embeddings-dashboard-api.jina.ai/api/v1/api_key/fe_user?api_key=<KEY>
+// which returns JSON with (at least) `metadata.threshold`,
+// `wallet.regular_balance`, and `wallet.total_balance`. Undocumented
+// and Jina can change it without notice, so we fail soft (echo the
+// raw body back to the admin UI under `<details>` so the operator
+// can adapt) rather than treating absence as catastrophic.
+//
+// The API key is passed as a query parameter rather than a Bearer
+// header — that's what the dashboard does, and Bearer authentication
+// returns "invalid endpoint" on this path. Server-side only, so the
+// usual "keys in URLs" concerns (Referer leaks, browser history,
+// shared URLs) don't apply.
+const JINA_USER_ENDPOINT =
+  'https://embeddings-dashboard-api.jina.ai/api/v1/api_key/fe_user';
+const JINA_TIMEOUT_MS = 10_000;
+
 export interface ServiceProbe {
   configured: boolean;
   reachable?: boolean;
   latencyMs?: number;
+}
+
+export interface JinaAccount {
+  configured: boolean;
+  // `reachable: true` → the dashboard endpoint returned 2xx JSON.
+  // `reachable: false` → transport error, non-2xx status, or
+  // malformed body. `httpStatus` distinguishes "auth failed"
+  // (401/403) from "rate limit" (429) at a glance.
+  reachable?: boolean;
+  httpStatus?: number;
+  // Best-effort extraction. `null` = field present in the response
+  // shape but absent for this account; `undefined` = probe didn't
+  // run (e.g. JINA_API_KEY not set).
+  regularBalance?: number | null;
+  totalBalance?: number | null;
+  // Alert threshold the operator has configured on the Jina
+  // dashboard — shown so it's easy to spot "balance is close to
+  // threshold" without flipping between tabs.
+  threshold?: number | null;
+  // Upstream body for the admin UI's "full response" panel — JSON
+  // when Jina returned something parseable (2xx or not), string
+  // when the response wasn't JSON. Lets the operator see error
+  // payloads verbatim (which usually contain the actionable
+  // message the dashboard would show).
+  raw?: unknown;
 }
 
 export interface AdminResponse {
@@ -64,11 +108,9 @@ export interface AdminResponse {
     // Gemini: no public quota endpoint, admin page links to Google AI
     // Studio.
     gemini: ServiceProbe;
-    // Jina: no documented quota endpoint; the first /admin ships
-    // link-only ("configured" + link to the Jina dashboard). A
-    // follow-up will add live wallet balance via Jina's dashboard
-    // backend API.
-    jina: ServiceProbe;
+    // Jina: live wallet balance + threshold via Jina's dashboard
+    // backend. Undocumented; fail-soft if the shape drifts.
+    jina: JinaAccount;
     redis: ServiceProbe;
   };
 }
@@ -88,6 +130,7 @@ export type HnVerifyResult =
     };
 
 export interface AdminDeps {
+  fetchImpl?: typeof fetch;
   pingRedis?: () =>
     | Promise<{ ok: true; latencyMs: number } | { ok: false }>
     | { ok: true; latencyMs: number }
@@ -174,6 +217,127 @@ function isAbortError(err: unknown): boolean {
     'name' in err &&
     (err as { name?: unknown }).name === 'AbortError'
   );
+}
+
+// Read a body as JSON first, fall back to raw text so the operator
+// still sees something when the endpoint returns HTML (Cloudflare
+// challenge, 502 page, etc.) or malformed JSON.
+async function readBody(res: Response): Promise<
+  { kind: 'json'; value: unknown } | { kind: 'text'; value: string }
+> {
+  const text = await res.text();
+  try {
+    return { kind: 'json', value: JSON.parse(text) };
+  } catch {
+    return { kind: 'text', value: text };
+  }
+}
+
+function pluckNumber(obj: unknown, keys: string[]): number | null {
+  if (!obj || typeof obj !== 'object') return null;
+  const o = obj as Record<string, unknown>;
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+// Pulls balance + threshold fields from Jina's fe_user response.
+// The observed live shape (mikelward's account, April 2026) nests
+// balance under `wallet` and threshold under `metadata`; we probe
+// a handful of neighbouring names too so a Jina schema drift
+// doesn't silently zero out the numbers.
+export function extractJinaFields(body: unknown): {
+  regularBalance: number | null;
+  totalBalance: number | null;
+  threshold: number | null;
+} {
+  if (!body || typeof body !== 'object') {
+    return { regularBalance: null, totalBalance: null, threshold: null };
+  }
+  const root = body as Record<string, unknown>;
+  const wallet =
+    typeof root.wallet === 'object' && root.wallet !== null
+      ? (root.wallet as Record<string, unknown>)
+      : {};
+  const metadata =
+    typeof root.metadata === 'object' && root.metadata !== null
+      ? (root.metadata as Record<string, unknown>)
+      : {};
+  const regularBalance = pluckNumber(wallet, [
+    'regular_balance',
+    'regularBalance',
+  ]);
+  const totalBalance = pluckNumber(wallet, [
+    'total_balance',
+    'totalBalance',
+    'balance',
+  ]);
+  const threshold = pluckNumber(metadata, [
+    'threshold',
+    'alert_threshold',
+    'alertThreshold',
+    'low_balance_threshold',
+  ]);
+  return { regularBalance, totalBalance, threshold };
+}
+
+export async function probeJinaAccount(
+  fetchImpl: typeof fetch = fetch,
+): Promise<JinaAccount> {
+  const apiKey = process.env.JINA_API_KEY;
+  if (!apiKey) return { configured: false };
+  const url = `${JINA_USER_ENDPOINT}?api_key=${encodeURIComponent(apiKey)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), JINA_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: { accept: 'application/json' },
+    });
+    const parsed = await readBody(res);
+    if (!res.ok) {
+      return {
+        configured: true,
+        reachable: false,
+        httpStatus: res.status,
+        raw: parsed.value,
+      };
+    }
+    if (parsed.kind !== 'json') {
+      // 2xx but non-JSON — Jina has changed the response format under
+      // us. Treat as unreachable but still surface the body so the
+      // operator can update the schema.
+      return {
+        configured: true,
+        reachable: false,
+        httpStatus: res.status,
+        raw: parsed.value,
+      };
+    }
+    const { regularBalance, totalBalance, threshold } = extractJinaFields(
+      parsed.value,
+    );
+    return {
+      configured: true,
+      reachable: true,
+      httpStatus: res.status,
+      regularBalance,
+      totalBalance,
+      threshold,
+      raw: parsed.value,
+    };
+  } catch (err) {
+    return {
+      configured: true,
+      reachable: false,
+      httpStatus: isAbortError(err) ? 504 : undefined,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // HN marks the logged-in viewer's own pagetop profile link with
@@ -367,12 +531,7 @@ export async function handleAdminRequest(
     configured: Boolean(process.env.GOOGLE_API_KEY),
   };
 
-  // Link-only for now — see the Jina probe follow-up. The /admin page
-  // renders a dashboard link next to this so the operator can check
-  // balance there.
-  const jina: ServiceProbe = {
-    configured: Boolean(process.env.JINA_API_KEY),
-  };
+  const jina = await probeJinaAccount(deps.fetchImpl);
 
   const body: AdminResponse = {
     username,
