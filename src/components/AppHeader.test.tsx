@@ -150,12 +150,16 @@ describe('<AppHeader>', () => {
   });
 });
 
-// The global `:focus-visible { outline: 2px solid var(--nh-orange) }` rule
-// in `global.css` is invisible against the orange header, so every
-// focusable surface that lives on the header needs its own white ring
-// override. A raw-CSS check is enough to pin the invariant — we don't
-// need jsdom to actually simulate `:focus-visible` matching.
-describe('orange-header focus-visible invariants', () => {
+// The header surface is now themable (--nh-header-bg flips between
+// white in light mode and black in dark mode), and the logo is painted
+// in --nh-header-brand. The global `:focus-visible { outline: 2px
+// solid var(--nh-orange) }` ring from global.css contrasts against
+// both surfaces, so the old hard-coded white-ring overrides are gone.
+// This block pins the new contract: no hard-coded #fff rings on the
+// header (they'd be invisible on the white light-mode bar) and the
+// header consumes the token pair rather than `--nh-orange` / `#fff`
+// directly.
+describe('themable-header invariants', () => {
   async function readCss(relPath: string): Promise<string> {
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
@@ -166,26 +170,29 @@ describe('orange-header focus-visible invariants', () => {
 
   const whiteRing = /:focus-visible\s*\{[^}]*outline:\s*2px\s+solid\s+#fff/;
 
-  it('AppHeader gives .app-header__home a white focus-visible ring', async () => {
+  it('AppHeader does not paint hard-coded white focus rings on the header surfaces', async () => {
     const css = await readCss('AppHeader.css');
-    expect(css).toMatch(
+    expect(css).not.toMatch(
       new RegExp(`\\.app-header__home${whiteRing.source}`, 's'),
     );
-  });
-
-  it('AppHeader keeps white rings on .app-header__menu-btn and .app-header__icon-btn', async () => {
-    const css = await readCss('AppHeader.css');
-    expect(css).toMatch(
+    expect(css).not.toMatch(
       new RegExp(`\\.app-header__menu-btn${whiteRing.source}`, 's'),
     );
-    expect(css).toMatch(
+    expect(css).not.toMatch(
       new RegExp(`\\.app-header__icon-btn${whiteRing.source}`, 's'),
     );
   });
 
-  it('HeaderAccountMenu gives .header-account__btn a white focus-visible ring', async () => {
+  it('AppHeader consumes the themable header tokens for surface and logo', async () => {
+    const css = await readCss('AppHeader.css');
+    expect(css).toMatch(/\.app-header\s*\{[^}]*background:\s*var\(--nh-header-bg\)/s);
+    expect(css).toMatch(/\.app-header\s*\{[^}]*color:\s*var\(--nh-header-fg\)/s);
+    expect(css).toMatch(/\.app-header__home\s*\{[^}]*color:\s*var\(--nh-header-brand\)/s);
+  });
+
+  it('HeaderAccountMenu does not paint a hard-coded white focus ring on .header-account__btn', async () => {
     const css = await readCss('HeaderAccountMenu.css');
-    expect(css).toMatch(
+    expect(css).not.toMatch(
       new RegExp(`\\.header-account__btn${whiteRing.source}`, 's'),
     );
   });

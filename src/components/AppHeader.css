@@ -2,14 +2,14 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--nh-orange);
-  color: #fff;
+  background: var(--nh-header-bg);
+  color: var(--nh-header-fg);
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px 12px 4px 4px;
   margin-bottom: 2px;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 0 var(--nh-border);
 }
 
 .app-header__menu-btn {
@@ -20,21 +20,12 @@
   min-height: var(--tap-min);
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--nh-header-fg);
   font-size: 22px;
   line-height: 1;
   padding: 0 8px;
   border-radius: 4px;
   cursor: pointer;
-}
-
-.app-header__menu-btn:focus {
-  outline: none;
-}
-
-.app-header__menu-btn:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: -4px;
 }
 
 .app-header__menu-icon {
@@ -46,7 +37,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #fff;
+  color: var(--nh-header-brand);
   text-decoration: none;
   min-height: var(--tap-min);
   padding: 4px 8px 4px 0;
@@ -57,25 +48,13 @@
   text-decoration: none;
 }
 
-/* The global :focus-visible paints a 2px orange ring, which is invisible
-   against the orange header. Substitute a white inset ring — same
-   treatment as .app-header__menu-btn and .app-header__icon-btn. */
-.app-header__home:focus {
-  outline: none;
-}
-
-.app-header__home:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: -2px;
-}
-
 .app-header__brand {
   display: inline-flex;
   justify-content: center;
   align-items: center;
   width: 28px;
   height: 28px;
-  border: 1px solid #fff;
+  border: 1px solid currentColor;
   border-radius: 50%;
   font-weight: 700;
   font-size: 18px;
@@ -103,25 +82,16 @@
   min-height: var(--tap-min);
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--nh-header-fg);
   padding: 0 6px;
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
 
-.app-header__icon-btn:focus {
-  outline: none;
-}
-
-.app-header__icon-btn:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: -4px;
-}
-
 .app-header__icon-btn:disabled {
   cursor: default;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--nh-meta);
 }
 
 .app-header__offline {
@@ -129,14 +99,14 @@
   align-items: center;
   margin-left: auto;
   padding: 2px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--nh-border);
   border-radius: 10px;
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.02em;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.1);
+  color: var(--nh-header-fg);
+  background: transparent;
 }
 
 .app-header__actions .app-header__offline {

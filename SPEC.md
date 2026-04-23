@@ -28,7 +28,7 @@ We achieve that by:
 
 - Mobile-first responsive layout; also usable on desktop.
 - Fast, minimal-JS bundle; good Lighthouse scores.
-- Familiar HN look & feel — orange `#ff6600` header, cream background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
+- Familiar HN-adjacent look & feel — orange `#ff6600` as the brand accent (logo, upvote arrow, hot tag, focus ring), cream background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site. The top bar is deliberately inverted between themes so the app never looks exactly like HN in either mode: **light mode is a white bar with the orange logo** (neutral surface, logo carries the brand), **dark mode is an orange bar with a white logo** (mirrors HN's own always-orange chrome).
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
 - Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
@@ -124,7 +124,9 @@ server-side with most-recent-first eviction.
    - `/user/:id` shows karma, created date, about text. Submissions/comments lists are out of scope for MVP.
 
 4. **Navigation & Chrome**
-   - Sticky orange header with HN "Y" logo and current feed name.
+   - Sticky top bar with the newshacker brand mark and current feed
+     name. Surface and mark invert between themes: white bar + orange
+     mark in light mode, orange bar + white mark in dark mode.
    - Top nav tabs for feed switching, integrated into the header.
    - Back button on thread/user pages.
 
@@ -156,7 +158,7 @@ server-side with most-recent-first eviction.
      `hn_session` cookie on the user's browser). The login page carries
      a short, honest disclosure to that effect.
 
-6. **Account UI** (header chip, not drawer). The sticky orange header
+6. **Account UI** (header chip, not drawer). The sticky top bar
    gains a single always-visible account control on the far right — one
    extra tap target, 48×48 hit area, on every page. Surfacing auth
    state in the header (rather than behind the drawer) means a first-time

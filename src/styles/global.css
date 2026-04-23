@@ -18,6 +18,20 @@
   --skeleton-highlight: #e4e4e4;
   --tap-min: 48px;
 
+  /* Top bar tokens. The two themes are deliberately inverted so the
+     app never looks quite like HN in either mode — light mode leans
+     into newshacker's own identity (neutral white surface + orange
+     logo), dark mode mirrors HN's own chrome (orange surface + white
+     logo). Whichever theme you're in, the "opposite" treatment is the
+     one HN is known for. Contrast in both modes:
+       - Light: black on white (21:1), orange-on-white logo ~3.1:1
+         (AA-large for the 17px-bold wordmark and 18px-bold "n" badge).
+       - Dark:  white on #ff6600 ~3.1:1 (identical to the pre-change
+         orange header — no regression), matching AA-large threshold. */
+  --nh-header-bg: #ffffff;
+  --nh-header-fg: var(--nh-text);
+  --nh-header-brand: var(--nh-orange);
+
   /* Vertical gap between any two comment borders — the distance a
      reader sees between the last visible element of one comment and
      the border-top of the comment that follows. Used by .comment's
@@ -47,6 +61,9 @@
     --nh-pressed: #2a2a25;
     --skeleton-base: #2a2a25;
     --skeleton-highlight: #3a3a32;
+    --nh-header-bg: var(--nh-orange);
+    --nh-header-fg: #ffffff;
+    --nh-header-brand: #ffffff;
     color-scheme: dark;
   }
 }
@@ -63,6 +80,9 @@
   --nh-pressed: #2a2a25;
   --skeleton-base: #2a2a25;
   --skeleton-highlight: #3a3a32;
+  --nh-header-bg: var(--nh-orange);
+  --nh-header-fg: #ffffff;
+  --nh-header-brand: #ffffff;
   color-scheme: dark;
 }
 
