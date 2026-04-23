@@ -30,7 +30,7 @@ export function UserAvatar({ username, size = 32, imageUrl }: Props) {
     height: size,
     background: username
       ? avatarColorForUsername(username)
-      : 'var(--hn-meta)',
+      : 'var(--nh-meta)',
   };
   if (!username) {
     return (

@@ -20,7 +20,7 @@ Staged so each phase lands as a working, shippable increment. Each phase ends wi
 **Goal:** Orange header, mobile layout, routing skeleton.
 
 - Install React Router.
-- Add CSS variables for the HN palette (`--hn-orange`, `--hn-bg`, `--hn-meta`).
+- Add CSS variables for the HN palette (`--nh-orange`, `--nh-bg`, `--nh-meta`).
 - Build `<AppHeader>` with top tabs for feed switching.
 - Routes: `/`, `/:feed`, `/item/:id`, `/user/:id`, with placeholder pages.
 - Tests: header renders logo + current feed; routing renders correct page for each path.

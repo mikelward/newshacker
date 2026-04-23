@@ -129,7 +129,7 @@ describe('<AppDrawer>', () => {
     const panelRule = css.match(/\.app-drawer__panel\s*\{[^}]*\}/);
     expect(panelRule, 'expected .app-drawer__panel rule').not.toBeNull();
     const block = panelRule![0];
-    expect(block).toMatch(/background:\s*var\(--hn-bg\)/);
+    expect(block).toMatch(/background:\s*var\(--nh-bg\)/);
     expect(block).not.toMatch(/#f6f6ef/i);
   });
 });

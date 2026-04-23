@@ -22,7 +22,7 @@
 }
 
 .cloud-sync-debug__request-detail {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-size: 13px;
   overflow-wrap: anywhere;
 }

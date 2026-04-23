@@ -20,7 +20,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  color: var(--hn-text);
+  color: var(--nh-text);
   text-decoration: none;
   min-height: var(--tap-min);
   padding: 4px 0;
@@ -35,24 +35,24 @@
 }
 
 .story-row__body:visited {
-  color: var(--hn-read);
+  color: var(--nh-read);
 }
 
 .story-row--opened .story-row__body,
 .story-row--opened .story-row__title-text {
-  color: var(--hn-read);
+  color: var(--nh-read);
   font-weight: 400;
 }
 
 .story-row--opened .story-row__meta {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-weight: 400;
 }
 
 .story-row--hidden .story-row__body,
 .story-row--hidden .story-row__title-text,
 .story-row--hidden .story-row__meta {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-weight: 400;
   opacity: 0.75;
 }
@@ -63,16 +63,16 @@
      body still carries its own matching hover rule for the "the
      link is directly targeted" case. */
   .story-row:hover {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
   .story-row__body:hover {
     text-decoration: none;
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
 }
 
 .story-row__body:active {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 .story-row__title-text {
@@ -85,7 +85,7 @@
 
 .story-row__meta {
   display: block;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   /* 13px matches the thread and comment meta. Left padding nudges the
      meta's lowercase/digit first glyph (e.g. "c" in a domain, "4" in
      a point count) into optical alignment with the title's bolder
@@ -102,7 +102,7 @@
 /* Trending flag: orange "hot" text appended to the meta line. Same
    font-size as the rest of the meta; color alone carries the signal. */
 .story-row__hot {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   font-weight: 600;
 }
 
@@ -119,7 +119,7 @@
   padding: 8px;
   border: none;
   background: transparent;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   cursor: pointer;
   border-radius: 8px;
   margin-left: 4px;
@@ -127,17 +127,17 @@
 
 @media (hover: hover) {
   .pin-btn:hover {
-    background: var(--hn-pressed);
-    color: var(--hn-orange);
+    background: var(--nh-pressed);
+    color: var(--nh-orange);
   }
 }
 
 .pin-btn:active {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 .pin-btn--active {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
 }
 
 .pin-btn__icon {

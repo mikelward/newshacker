@@ -22,8 +22,8 @@
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
-  background: var(--hn-bg-card);
-  color: var(--hn-text);
+  background: var(--nh-bg-card);
+  color: var(--nh-text);
   border-top-left-radius: 16px;
   border-top-right-radius: 16px;
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25);
@@ -41,7 +41,7 @@
   min-width: 160px;
   margin: 0;
   border-radius: 10px;
-  border: 1px solid var(--hn-border);
+  border: 1px solid var(--nh-border);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   padding: 6px;
   animation: story-menu-pop 120ms ease-out;
@@ -49,7 +49,7 @@
 
 .story-menu__title {
   font-size: 13px;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   padding: 12px 16px 8px;
   white-space: nowrap;
   overflow: hidden;
@@ -68,7 +68,7 @@
   text-align: left;
   background: transparent;
   border: none;
-  color: var(--hn-text);
+  color: var(--nh-text);
   font-size: 16px;
   font-weight: 500;
   padding: 14px 16px;
@@ -96,16 +96,16 @@
 }
 
 .story-menu__item:focus-visible {
-  background: var(--hn-pressed);
+  background: var(--nh-pressed);
 }
 
 .story-menu__item:active {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 @media (hover: hover) {
   .story-menu__item:hover {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
 }
 
@@ -113,9 +113,9 @@
   display: block;
   width: 100%;
   margin-top: 8px;
-  background: var(--hn-pressed);
+  background: var(--nh-pressed);
   border: none;
-  color: var(--hn-text);
+  color: var(--nh-text);
   font-size: 16px;
   font-weight: 600;
   padding: 14px 16px;
@@ -125,7 +125,7 @@
 
 @media (hover: hover) {
   .story-menu__cancel:hover {
-    background: var(--hn-border);
+    background: var(--nh-border);
   }
 }
 

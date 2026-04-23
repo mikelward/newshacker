@@ -1,10 +1,10 @@
 .thread {
-  background: var(--hn-bg-card);
+  background: var(--nh-bg-card);
 }
 
 .thread__header {
   padding: 16px 16px 8px;
-  border-bottom: 1px solid var(--hn-border);
+  border-bottom: 1px solid var(--nh-border);
 }
 
 /* Zero the last child's own margin-bottom so the gap between the
@@ -26,7 +26,7 @@
   font-size: 20px;
   font-weight: 700;
   line-height: 1.3;
-  color: var(--hn-text);
+  color: var(--nh-text);
 }
 
 /* Single-row layout at every phone width. flex-wrap: wrap is retained
@@ -54,10 +54,10 @@
   gap: 8px;
   min-height: 56px;
   padding: 12px 16px;
-  background: var(--hn-bg-card);
-  border: 1px solid var(--hn-border);
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
   border-radius: 8px;
-  color: var(--hn-text);
+  color: var(--nh-text);
   cursor: pointer;
   text-decoration: none;
   font-size: 16px;
@@ -66,20 +66,20 @@
 
 @media (hover: hover) {
   .thread__action:hover {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
     text-decoration: none;
   }
 }
 
 .thread__action:active {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 .thread__action--primary {
   flex: 1;
   min-width: 0;
-  background: var(--hn-orange);
-  border-color: var(--hn-orange);
+  background: var(--nh-orange);
+  border-color: var(--nh-orange);
   color: #fff;
 }
 
@@ -101,9 +101,9 @@
    already has. The rules below override the --primary declarations, so
    ordering in the .css matters: --read must appear after --primary. */
 .thread__action--read {
-  background: var(--hn-bg-card);
-  border-color: var(--hn-border);
-  color: var(--hn-text);
+  background: var(--nh-bg-card);
+  border-color: var(--nh-border);
+  color: var(--nh-text);
 }
 
 .thread__action-label {
@@ -114,11 +114,11 @@
 
 @media (hover: hover) {
   .thread__action--primary:hover {
-    background: var(--hn-orange);
+    background: var(--nh-orange);
     filter: brightness(0.95);
   }
   .thread__action--read:hover {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
     filter: none;
   }
 }
@@ -130,8 +130,8 @@
 }
 
 .thread__action--active {
-  color: var(--hn-orange);
-  border-color: var(--hn-orange);
+  color: var(--nh-orange);
+  border-color: var(--nh-orange);
 }
 
 .thread__action-icon {
@@ -157,19 +157,19 @@
   display: block;
   margin-bottom: 8px;
   font-size: 13px;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
 }
 
 .thread__summary-body {
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
-  color: var(--hn-text);
+  color: var(--nh-text);
   word-wrap: break-word;
 }
 
 .thread__summary-body--muted {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-style: italic;
 }
 
@@ -178,7 +178,7 @@
   padding-left: 20px;
   font-size: 15px;
   line-height: 1.5;
-  color: var(--hn-text);
+  color: var(--nh-text);
 }
 
 .thread__summary-list li {
@@ -214,9 +214,9 @@
   -webkit-text-fill-color: transparent;
   background-image: linear-gradient(
     90deg,
-    var(--hn-pressed, #ececec) 0%,
-    var(--hn-border, #dcdcdc) 50%,
-    var(--hn-pressed, #ececec) 100%
+    var(--nh-pressed, #ececec) 0%,
+    var(--nh-border, #dcdcdc) 50%,
+    var(--nh-pressed, #ececec) 100%
   );
   background-size: 200% 100%;
   background-clip: text;
@@ -260,7 +260,7 @@
 }
 
 .thread__summary-error {
-  color: var(--hn-text);
+  color: var(--nh-text);
   font-size: 14px;
 }
 
@@ -271,25 +271,25 @@
 .thread__summary-retry {
   min-height: var(--tap-min);
   padding: 8px 16px;
-  background: var(--hn-bg-card);
-  border: 1px solid var(--hn-border);
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--hn-text);
+  color: var(--nh-text);
   cursor: pointer;
 }
 
 @media (hover: hover) {
   .thread__summary-retry:hover {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
 }
 
 .thread__summary-footer {
   margin-top: 8px;
   font-size: 11px;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
 }
 
 /* On the comments card, indent the loading label and footer so they line
@@ -301,7 +301,7 @@
 }
 
 .thread__meta {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-size: 13px;
   margin-bottom: 12px;
 }
@@ -326,17 +326,17 @@
   line-height: 1.5;
   margin-bottom: 12px;
   word-wrap: break-word;
-  color: var(--hn-text);
+  color: var(--nh-text);
 }
 
 .thread__text a {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   text-decoration: underline;
 }
 
 .thread__text pre {
   overflow-x: auto;
-  background: var(--hn-bg-code);
+  background: var(--nh-bg-code);
   padding: 8px;
   border-radius: 4px;
 }
@@ -353,5 +353,5 @@
 
 .thread__footer {
   padding: 16px 16px 4px;
-  border-top: 1px solid var(--hn-border);
+  border-top: 1px solid var(--nh-border);
 }
