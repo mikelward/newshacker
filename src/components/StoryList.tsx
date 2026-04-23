@@ -26,6 +26,12 @@ import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
 import { useFeedBar } from '../hooks/useFeedBar';
 import './StoryList.css';
 
+// Keep in sync with the `story-list__item--sweeping` animation duration
+// in StoryList.css. The timer fires the actual hide + undo-batch record
+// once the CSS animation has played, so the row fades out in place
+// instead of popping.
+const SWEEP_ANIMATION_MS = 180;
+
 interface Props {
   feed: Feed;
 }
@@ -233,10 +239,57 @@ export function StoryList({ feed }: Props) {
     [visibleStories, inViewIds, pinnedIds, hiddenIds],
   );
 
+  // Visual "whoosh" when sweep fires: every unpinned, fully-visible row
+  // slides+fades out together as a single gesture (matches the verb —
+  // sweep is one motion, not a staggered cascade), then the hide
+  // commits once the animation finishes. CSS gates the actual motion
+  // behind `prefers-reduced-motion: no-preference`; JS mirrors that
+  // gate so readers who opted out skip the 180ms delay too.
+  const [sweepingIds, setSweepingIds] = useState<ReadonlySet<number>>(
+    () => new Set(),
+  );
+  const sweepTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (sweepTimerRef.current != null) {
+        window.clearTimeout(sweepTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const handleSweep = useCallback(() => {
     if (sweepableIds.length === 0) return;
-    for (const id of sweepableIds) hide(id);
-    recordHide(sweepableIds);
+    // Ignore repeat taps while a sweep is already playing out — the
+    // second batch would be identical (hiddenIds hasn't updated yet)
+    // and would just reset the timer.
+    if (sweepTimerRef.current != null) return;
+    const ids = sweepableIds.slice();
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) {
+      for (const id of ids) hide(id);
+      recordHide(ids);
+      return;
+    }
+    setSweepingIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    sweepTimerRef.current = window.setTimeout(() => {
+      for (const id of ids) hide(id);
+      recordHide(ids);
+      setSweepingIds((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+      sweepTimerRef.current = null;
+    }, SWEEP_ANIMATION_MS);
   }, [sweepableIds, hide, recordHide]);
 
   useEffect(() => {
@@ -347,7 +400,10 @@ export function StoryList({ feed }: Props) {
           <li
             key={story.id}
             ref={getRowRef(story.id)}
-            className="story-list__item"
+            className={
+              'story-list__item' +
+              (sweepingIds.has(story.id) ? ' story-list__item--sweeping' : '')
+            }
             data-story-id={story.id}
           >
             <StoryListItem

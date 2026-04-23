@@ -9,6 +9,36 @@
   border-bottom: 1px solid var(--hn-border);
 }
 
+/* Sweep animation: every unpinned, fully-visible row slides+fades out
+   together when the broom fires, matching the single-gesture verb.
+   Direction mirrors the swipe-right-to-hide affordance, so the row
+   leaves the way a manually dismissed row leaves. The JS handler in
+   StoryList.tsx holds the actual hide call until this animation
+   completes (SWEEP_ANIMATION_MS), so the row fades in place rather
+   than popping. Reduced-motion readers skip the animation in CSS and
+   the delay in JS — the hide is instant for them. */
+@keyframes story-list__sweep-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(40px, 0, 0);
+  }
+}
+
+.story-list__item--sweeping {
+  animation: story-list__sweep-out 180ms ease-out forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-list__item--sweeping {
+    animation: none;
+  }
+}
+
 /* End-of-list action bar, mirrors `.thread__actions` in Thread.css so the
    bottom of the feed visually matches the bottom of a thread page (same
    row height, padding, gap, wrap behavior). Only the container has the
