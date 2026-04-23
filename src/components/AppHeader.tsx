@@ -51,6 +51,28 @@ function SweepIcon() {
   );
 }
 
+// Brand mark: Material Symbols `push_pin` (filled variant), Apache 2.0,
+// Google — the same icon family as every other header glyph. Rendered
+// at viewBox 0 -960 960 960 with `currentColor` so it inherits the
+// header's white foreground. Same path is embedded in
+// scripts/generate-icons.mjs for the favicon/PWA icons; keep them in
+// sync.
+function PinIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="20"
+      height="20"
+      aria-hidden="true"
+      focusable="false"
+      data-testid="brand-pin"
+    >
+      <path d="m640-480 80 80v80H520v240l-40 40-40-40v-240H240v-80l80-80v-280h-40v-80h400v80h-40v280Z" />
+    </svg>
+  );
+}
+
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
     <svg
@@ -129,7 +151,7 @@ export function AppHeader() {
           aria-label="newshacker home"
         >
           <span className="app-header__brand" aria-hidden="true">
-            n
+            <PinIcon />
           </span>
           <span className="app-header__title">newshacker</span>
         </Link>

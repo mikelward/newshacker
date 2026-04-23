@@ -77,9 +77,8 @@
   height: 28px;
   border: 1px solid #fff;
   border-radius: 50%;
-  font-weight: 700;
-  font-size: 18px;
   line-height: 1;
+  color: #fff;
 }
 
 .app-header__title {

@@ -124,7 +124,7 @@ server-side with most-recent-first eviction.
    - `/user/:id` shows karma, created date, about text. Submissions/comments lists are out of scope for MVP.
 
 4. **Navigation & Chrome**
-   - Sticky orange header with HN "Y" logo and current feed name.
+   - Sticky orange header with the newshacker brand mark (a white pushpin silhouette on an orange disc — see *Install identity* for the full icon description) and the `newshacker` wordmark.
    - Top nav tabs for feed switching, integrated into the header.
    - Back button on thread/user pages.
 
@@ -165,7 +165,7 @@ server-side with most-recent-first eviction.
    - **Logged in:** a 32 px circular **initial avatar** — the user's
      first letter on a color-hashed disc (color deterministically
      derived from the username hash, chosen from a non-orange palette
-     so it never clashes with the brand mark's orange `n`). Tapping
+     so it never clashes with the brand mark's orange disc). Tapping
      opens a small popover with the username, karma (via the existing
      Firebase `getUser` path, cached through React Query), a link to
      `/user/:username`, and a `Log out` button. Closes on Escape,
@@ -577,7 +577,7 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 
 ### Install identity
 - Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /top`.
-- Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. The mark is an orange disc with a white ring and a white "n" centered inside, on a transparent background so the icon reads as circular — never the HN `Y` logo. The maskable variant fills its frame with orange and pulls the ring + glyph into an 80% safe zone so Android adaptive masks don't clip it.
+- Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. The mark is a white Material Symbols `push_pin` (filled variant, Apache 2.0 Google) — an upright thumbtack — centered on an orange disc with a transparent background so the icon reads as circular. Using the same icon family as every other header glyph keeps the mark visually consistent with the rest of the app. The pushpin echoes the app's signature Pinned-stories feature and is distinct from both the HN `Y` logo and Pinterest's red "P" mark (different color, different shape family — not a letterform). The maskable variant fills its frame with orange and pulls the pin into an ~84% safe zone so Android adaptive masks don't clip it. The same pin path is also inlined into the sticky orange header (`<PinIcon>` in `AppHeader.tsx`) inside the 28×28 white-bordered circle, so the header badge reads as a miniature of the installed-app icon — keep the two geometries in sync.
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
 ### Service worker
