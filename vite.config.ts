@@ -1,6 +1,26 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+
+// Captured at config-load time so /debug can show "what commit is this
+// bundle from, and how old is it?" without needing a runtime endpoint.
+// Vercel checks the repo out via git during the build, so `git log`
+// works there. If the command fails (shallow checkout, no git, etc.)
+// we fall back to an empty string and the UI hides the row.
+function readCommitTime(): string {
+  try {
+    return execSync('git log -1 --format=%cI', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return '';
+  }
+}
+
+const buildCommitTime = readCommitTime();
 
 // PWA runtime caches are sized for "browse what you've recently touched
 // while offline". The SW cache is additive to the React Query persister —
@@ -13,6 +33,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 const isTest = process.env.VITEST === 'true';
 
 export default defineConfig({
+  define: {
+    __BUILD_COMMIT_TIME__: JSON.stringify(buildCommitTime),
+  },
   plugins: [
     react(),
     !isTest && VitePWA({
