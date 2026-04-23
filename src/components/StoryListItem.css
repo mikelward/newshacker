@@ -35,11 +35,15 @@
 }
 
 .story-row__body:visited {
-  color: var(--hn-meta);
+  color: var(--hn-read);
 }
 
 .story-row--opened .story-row__body,
-.story-row--opened .story-row__title-text,
+.story-row--opened .story-row__title-text {
+  color: var(--hn-read);
+  font-weight: 400;
+}
+
 .story-row--opened .story-row__meta {
   color: var(--hn-meta);
   font-weight: 400;
