@@ -153,6 +153,157 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   publishers can block us via `robots.txt` or UA allowlist if they
   want. Stealthy bots > nothing, but honest bots > stealthy bots.
 
+- **Paywalled-article summary fallbacks.** When Jina returns a
+  paywall signature (very short body, known overlay markers, JSON-LD
+  `isAccessibleForFree: false`, etc.), today we silently hand the
+  user a summary built from the teaser. Options, roughly in order of
+  upside-per-effort:
+  (a) **Archive links posted in comments.** HN readers routinely
+      paste `archive.org` / `web.archive.org` / `archive.ph` /
+      `archive.today` / `archive.is` / `ghostarchive.org` URLs into
+      the top-level comments on paywalled submissions — we'd just be
+      automating what a reader does manually. We already pull the
+      thread's comments for `/api/comments-summary`, so the
+      incremental work is a regex scan over text we have in hand.
+      Allowlist the archive hosts explicitly; don't follow arbitrary
+      comment URLs (spam / malicious / off-topic). On a hit, re-run
+      Jina against the archive URL and cache under the *original*
+      article's key so we don't re-scan on every request. Label in
+      the UI: "Summary based on archive copy linked by HN user
+      `<username>`." Reliability: archive.ph's Cloudflare challenge
+      blocks a lot of cloud IPs, so ~20–30% of archive.ph fetches
+      will still fail; archive.org is more permissive. Cost: one
+      extra Jina call per paywalled thread on cache miss, same
+      rate-limit bucket as the article summary, free-tier Jina
+      covers it at current traffic.
+  (b) **JSON-LD `NewsArticle` schema.** Many publishers embed the
+      full `articleBody` in a `<script type="application/ld+json">`
+      block so Google's structured-data crawler can read the piece
+      even when the rendered HTML is paywalled. It's public content
+      intended for crawlers — no ToS grey area. Coverage is spotty
+      and shrinking, but it's free when present. Shape: a cheap
+      pre-Jina pass that does a raw `GET`, looks for `@type:
+      NewsArticle` / `Article` in ld+json blocks, and uses the
+      `articleBody` field if the string is long enough to be real
+      (>~1 KB, not a teaser). Same safety rails as the removed
+      raw-HTML fallback: curated allowlist + identifiable
+      `newshacker-*` User-Agent.
+  (c) **RSS / Atom full-text feeds.** Some blogs and smaller outlets
+      still publish the full article in their feed (RSS
+      `<content:encoded>`, Atom `<content type="html">`). Discovery:
+      parse `<link rel="alternate" type="application/rss+xml">` off
+      the article page, fetch the feed, locate the matching `<item>`
+      by `<link>` URL. Minimal value on big-name paywalls (they
+      stripped full-text years ago) but genuinely free when it
+      works, and useful for the long tail of indie blogs.
+  (d) **Labeled comments-only summary.** When (a)–(c) all fail, fall
+      through to `/api/comments-summary` surfaced with a clear
+      "based on the discussion, not the article" header so the user
+      knows what they're reading. The fallback call is already
+      wired; the honest label is the work.
+  Explicit non-goals:
+  (i) **Spoofing Googlebot / Bingbot.** Search engines get full
+      text via IP-verified contractual access ("Flexible Sampling",
+      publisher-side), not via the User-Agent string. Spoofing is
+      ToS-hostile and fails on any site with reverse-DNS checks
+      (all the big paywalls).
+  (ii) **Paid bypass services** (12ft, Diffbot, Scrapfly, etc.) —
+       real money, real ToS exposure, and they don't cover the hard
+       ones anyway.
+  Suggested phasing: detection + (d)-with-label first (smallest
+  change, ends the "teaser masquerading as summary" problem on day
+  one), then (a) as the first real recovery path, then (b) and (c)
+  opportunistically if the paywall-detection signal shows them
+  worth the effort.
+
+- **Self-hosted fetch + content extraction.** Longer-term
+  alternative, or first-pass complement, to Jina Reader: bring the
+  fetch and extraction in-house for the sites where it's honest and
+  safe. Motivations: Jina is a hard dependency today (see
+  "Article-fetch fallback" above), its free tier is not promised
+  forever, and for plain-HTML sites we pay latency going
+  client → Vercel → Jina → origin → Jina → Vercel when we could go
+  direct. Shape has three layers.
+
+  **1. Fetcher.** Server-side `fetch` from the Vercel function with:
+  (i) curated domain allowlist (GitHub, arXiv, Wikipedia, plain-text
+  blogs — the "clearly welcome a plain GET" set called out in the
+  Article-fetch fallback bullet), default-deny for unknown hosts so
+  we're not sneak-scraping;
+  (ii) identifiable User-Agent like
+  `newshacker-summarizer/1.0 (+https://newshacker.app/about-bot)`,
+  so publishers can block us via `robots.txt` or UA allowlist;
+  (iii) `robots.txt` respect — cache per-host in Upstash with a
+  short TTL, fail-closed on disallowed paths;
+  (iv) hard timeouts (e.g. 5 s connect, 10 s body), redirect-depth
+  cap, and a response-size cap (~2 MB raw) so one slow origin can't
+  eat the function budget;
+  (v) per-host rate limit so a cron tick can't accidentally pile on
+  a small publisher;
+  (vi) conditional HTTP (`ETag` / `Last-Modified`) — already
+  sketched under "Pre-fetch short-circuits for the warm cron" (a);
+  a self-hosted fetcher is what finally lets it pay off because we
+  own the request headers, where Jina re-renders and upstream
+  validators don't pass through.
+
+  **2. Extractor.** Run the HTML through a real boilerplate remover
+  rather than hand-rolled regex:
+  - **Preferred: `@mozilla/readability`** (MIT, the library behind
+    Firefox Reader View) on top of `linkedom` or `parse5` for DOM
+    parsing. `jsdom` works but is heavy in a serverless bundle;
+    `linkedom` is ~10× smaller and fast enough. Output is
+    `{ title, byline, excerpt, textContent, content }`; we feed
+    `textContent` into Gemini identically to today's
+    Jina-markdown path. Readability returns `null` for short or
+    non-article pages, which becomes our "fall through to Jina"
+    signal.
+  - **Alternative: `@postlight/parser`** (formerly Mercury). Has
+    per-site custom rules, which can beat Readability on
+    structured sites, but is less maintained.
+  - **Opportunistic boosters** the extractor should also try when
+    present: JSON-LD `NewsArticle.articleBody` (see paywall
+    bullet (b) — free signal, sometimes cleaner than Readability's
+    DOM heuristics); RSS / Atom full-text (see paywall bullet (c)
+    — link-rel discovery from the article page, match by URL).
+  - Gate with a minimum extracted-text length (e.g. ≥ 1 KB of
+    `textContent`) before calling the model — under that, treat it
+    as "didn't find an article" and fall through rather than have
+    Gemini summarize noise.
+
+  **3. Dynamic-rendering escape hatch** — the expensive option,
+  opt-in per host. For sites that truly need JS to render the
+  article (SPA news apps, some newsletters):
+  - **`@sparticuz/chromium` + `playwright-core`** on Vercel. Works,
+    but cold starts are 3–5 s, the Lambda bundle-size ceiling gets
+    tight, and we pay CPU-seconds per page. Cost (rule 11): hard
+    to pin without real traffic — order-of-magnitude 1–5 ¢ per
+    1000 pages of compute plus cold-start tail; new failure modes
+    include "new Chrome release breaks the pinned chromium bundle
+    on deploy" and "cold start exceeds the function timeout".
+  - **Offload to a dedicated renderer** (Browserless, ScrapingBee,
+    Bright Data). Negates the self-hosted win — it's
+    "Jina, different vendor" — so only worth it if Jina has been
+    unreliable *and* we want a replacement, not a redundancy.
+  Keep dynamic rendering off the default path; flip it on per-host
+  once the fetcher confirms the plain-GET body is an empty shell.
+
+  **Phased rollout.** Don't rip out Jina — add self-hosted
+  fetch + Readability as the *first* pass, fall through to Jina on
+  `null` / short output / disallowed host / fetch error.
+  Instrument a `summary_source` field on the cached record
+  (`self` / `jsonld` / `rss` / `jina` / `archive` / `comments`)
+  so the warm-summaries logs can show hit rates by source before
+  we decide whether Jina stays a hard dependency or becomes a
+  fallback. Cost: engineering time only; no new paid services.
+  Net savings on Jina quota if self-hosted covers a material
+  share of hits.
+
+  **Non-goals (principle, not effort):** stealth User-Agent strings,
+  cookie-stuffing to appear logged-in, per-site login automation,
+  reverse-engineered paywall circumvention. Same line drawn in the
+  Article-fetch fallback and "Paywalled-article summary fallbacks"
+  bullets — honest bots > stealthy bots, full stop.
+
 - **Jina retry strategy.** Today a single Jina failure (5xx, timeout,
   rate-limit) returns `source_unreachable` / `source_timeout` on the
   user-facing path immediately, and logs `skipped_unreachable` on the
