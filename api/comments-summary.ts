@@ -87,6 +87,172 @@ const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30;
 // runtime rule (see vite.config.ts).
 const NO_STORE_HEADER = 'private, no-store';
 
+// === Rate limiting (inlined — shared bucket with api/summary.ts) ===
+// See the matching block in api/summary.ts for the full rationale. Both
+// handlers use the same key prefix so one thread view (article + comments)
+// is 2 units against a single per-IP bucket. Cache misses only.
+// Kept duplicated per AGENTS.md § "Vercel api/ gotchas".
+export const RATE_LIMIT_KEY_PREFIX = 'newshacker:ratelimit:aisummary:';
+const RATE_LIMIT_BURST_LIMIT_DEFAULT = 20;
+const RATE_LIMIT_BURST_WINDOW_SECONDS = 600; // 10 min
+const RATE_LIMIT_DAILY_LIMIT_DEFAULT = 200;
+const RATE_LIMIT_DAILY_WINDOW_SECONDS = 86_400; // 24 h
+
+export interface RateLimitStore {
+  incrementWithExpiry(key: string, windowSeconds: number): Promise<number>;
+}
+
+export interface RateLimitTier {
+  name: 'burst' | 'daily';
+  limit: number;
+  windowSeconds: number;
+}
+
+export interface RateLimitResult {
+  ok: boolean;
+  retryAfterSeconds?: number;
+  exceededTier?: string;
+}
+
+export function defaultRateLimitTiers(): RateLimitTier[] {
+  const burst = parsePositiveIntEnv(
+    'SUMMARY_RATE_LIMIT_BURST',
+    RATE_LIMIT_BURST_LIMIT_DEFAULT,
+  );
+  const daily = parsePositiveIntEnv(
+    'SUMMARY_RATE_LIMIT_DAILY',
+    RATE_LIMIT_DAILY_LIMIT_DEFAULT,
+  );
+  const tiers: RateLimitTier[] = [];
+  if (burst !== null) {
+    tiers.push({
+      name: 'burst',
+      limit: burst,
+      windowSeconds: RATE_LIMIT_BURST_WINDOW_SECONDS,
+    });
+  }
+  if (daily !== null) {
+    tiers.push({
+      name: 'daily',
+      limit: daily,
+      windowSeconds: RATE_LIMIT_DAILY_WINDOW_SECONDS,
+    });
+  }
+  return tiers;
+}
+
+function parsePositiveIntEnv(name: string, fallback: number): number | null {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === '') return fallback;
+  if (trimmed === '0' || trimmed === 'off') return null;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n <= 0) return fallback;
+  return n;
+}
+
+export function extractClientIp(headers: Headers): string | null {
+  const xff = headers.get('x-forwarded-for');
+  if (xff) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  const xri = headers.get('x-real-ip');
+  if (xri) {
+    const trimmed = xri.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+// IPv6 /64 normalization — see api/summary.ts for why we key on /64.
+export function normalizeIpForRateLimit(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(trimmed)) return trimmed;
+  if (!trimmed.includes(':')) return trimmed;
+  const addr = trimmed.split('%')[0]!;
+  const groups = addr.includes('::')
+    ? expandIPv6Shorthand(addr)
+    : addr.split(':');
+  const first4 = groups.slice(0, 4).map((g) => g.toLowerCase() || '0');
+  while (first4.length < 4) first4.push('0');
+  return first4.join(':');
+}
+
+function expandIPv6Shorthand(addr: string): string[] {
+  const idx = addr.indexOf('::');
+  const leftStr = addr.slice(0, idx);
+  const rightStr = addr.slice(idx + 2);
+  const leftGroups = leftStr === '' ? [] : leftStr.split(':');
+  const rightGroups = rightStr === '' ? [] : rightStr.split(':');
+  const missing = Math.max(0, 8 - leftGroups.length - rightGroups.length);
+  return [...leftGroups, ...Array(missing).fill('0'), ...rightGroups];
+}
+
+export async function checkRateLimit(
+  store: RateLimitStore,
+  normalizedIp: string,
+  tiers: RateLimitTier[],
+  nowMs: number,
+): Promise<RateLimitResult> {
+  for (const tier of tiers) {
+    const windowIndex = Math.floor(nowMs / (tier.windowSeconds * 1000));
+    const key = `${RATE_LIMIT_KEY_PREFIX}${tier.name}:${normalizedIp}:${windowIndex}`;
+    let count: number;
+    try {
+      count = await store.incrementWithExpiry(key, tier.windowSeconds);
+    } catch {
+      continue;
+    }
+    if (count > tier.limit) {
+      const resetAtMs = (windowIndex + 1) * tier.windowSeconds * 1000;
+      return {
+        ok: false,
+        retryAfterSeconds: Math.max(1, Math.ceil((resetAtMs - nowMs) / 1000)),
+        exceededTier: tier.name,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+let defaultRateLimitStore: RateLimitStore | null | undefined;
+
+function createDefaultRateLimitStore(): RateLimitStore | null {
+  const url =
+    process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token =
+    process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  const redis = new Redis({ url, token });
+  return {
+    async incrementWithExpiry(key: string, windowSeconds: number) {
+      const count = await redis.incr(key);
+      if (count === 1) {
+        try {
+          await redis.expire(key, windowSeconds);
+        } catch {
+          // Best-effort — see api/summary.ts for the full rationale.
+        }
+      }
+      return count;
+    },
+  };
+}
+
+function getDefaultRateLimitStore(): RateLimitStore | null {
+  if (defaultRateLimitStore === undefined) {
+    defaultRateLimitStore = createDefaultRateLimitStore();
+  }
+  return defaultRateLimitStore;
+}
+
+export function _resetRateLimitStoreForTests(): void {
+  defaultRateLimitStore = undefined;
+}
+
 // Max per-comment plaintext length fed into the prompt. Long comments
 // are truncated to keep total prompt size bounded and predictable.
 export const MAX_COMMENT_CHARS = 2000;
@@ -293,6 +459,41 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function rateLimited(retryAfterSeconds: number): Response {
+  return new Response(
+    JSON.stringify({
+      error: 'Too many requests',
+      reason: 'rate_limited',
+      retryAfterSeconds,
+    }),
+    {
+      status: 429,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': NO_STORE_HEADER,
+        'retry-after': String(retryAfterSeconds),
+      },
+    },
+  );
+}
+
+async function applyRateLimit(
+  request: Request,
+  deps: CommentsSummaryDeps,
+): Promise<RateLimitResult | null> {
+  if (deps.rateLimitStore === null) return null;
+  const rateLimitStore = deps.rateLimitStore ?? getDefaultRateLimitStore();
+  if (!rateLimitStore) return null;
+  const tiers = deps.rateLimitTiers ?? defaultRateLimitTiers();
+  if (tiers.length === 0) return null;
+  const rawIp = extractClientIp(request.headers);
+  if (!rawIp) return null;
+  const ip = normalizeIpForRateLimit(rawIp);
+  if (!ip) return null;
+  const nowMs = (deps.now ?? Date.now)();
+  return checkRateLimit(rateLimitStore, ip, tiers, nowMs);
+}
+
 interface GenerateRequest {
   model: string;
   contents: string;
@@ -318,6 +519,10 @@ export interface CommentsSummaryDeps {
   // `null` = explicitly disable the shared cache for this request;
   // `undefined` = use the default (lazy-initialised) Upstash store.
   store?: CommentsSummaryStore | null;
+  // `null` = disable rate limiting for this request (test-only);
+  // `undefined` = use the default Upstash-backed store.
+  rateLimitStore?: RateLimitStore | null;
+  rateLimitTiers?: RateLimitTier[];
 }
 
 export async function handleCommentsSummaryRequest(
@@ -400,6 +605,15 @@ export async function handleCommentsSummaryRequest(
 
   if (usableComments.length === 0) {
     return json({ error: 'No comments to summarize' }, 404);
+  }
+
+  // Rate limit gate — placed after every free validation branch (story
+  // eligibility, kids exist, usable comments exist) and after the API
+  // key check so only requests that would actually pay Gemini consume
+  // quota. See api/summary.ts for the shared-bucket rationale.
+  const rateLimitResult = await applyRateLimit(request, deps);
+  if (rateLimitResult && !rateLimitResult.ok) {
+    return rateLimited(rateLimitResult.retryAfterSeconds ?? 60);
   }
 
   const transcript = buildTranscript(usableComments);

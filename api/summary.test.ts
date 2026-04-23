@@ -1,11 +1,16 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
+  checkRateLimit,
+  extractClientIp,
   handleSummaryRequest,
   hashArticle,
   isAllowedReferer,
   isCaptchaRefusal,
+  normalizeIpForRateLimit,
   parseRecord,
+  type RateLimitStore,
+  type RateLimitTier,
   type SummaryRecord,
   type SummaryStore,
 } from './summary';
@@ -25,13 +30,19 @@ interface HNItemFixture {
 
 function makeRequest(
   storyId: number | null,
-  opts: { referer?: string | null } = {},
+  opts: {
+    referer?: string | null;
+    forwardedFor?: string;
+    realIp?: string;
+  } = {},
 ) {
   const base = 'https://newshacker.app/api/summary';
   const full = storyId === null ? base : `${base}?id=${storyId}`;
   const headers = new Headers();
   const referer = opts.referer === undefined ? ALLOWED_REFERER : opts.referer;
   if (referer !== null) headers.set('referer', referer);
+  if (opts.forwardedFor) headers.set('x-forwarded-for', opts.forwardedFor);
+  if (opts.realIp) headers.set('x-real-ip', opts.realIp);
   return new Request(full, { headers });
 }
 
@@ -45,6 +56,37 @@ function makeRawRequest(
   const referer = opts.referer === undefined ? ALLOWED_REFERER : opts.referer;
   if (referer !== null) headers.set('referer', referer);
   return new Request(full, { headers });
+}
+
+// Shared in-memory RateLimitStore used across tests. The `calls` array
+// records every increment so a shared-bucket test can assert that the
+// same key is touched by both summary handlers.
+export function createTestRateLimitStore(): RateLimitStore & {
+  counts: Map<string, number>;
+  calls: string[];
+  // Force the next N increments to throw — exercises the fail-open path.
+  throwNext: (n: number) => void;
+} {
+  const counts = new Map<string, number>();
+  const calls: string[] = [];
+  let throwRemaining = 0;
+  return {
+    counts,
+    calls,
+    throwNext(n: number) {
+      throwRemaining = n;
+    },
+    async incrementWithExpiry(key: string) {
+      calls.push(key);
+      if (throwRemaining > 0) {
+        throwRemaining -= 1;
+        throw new Error('rate-limit store unavailable');
+      }
+      const next = (counts.get(key) ?? 0) + 1;
+      counts.set(key, next);
+      return next;
+    },
+  };
 }
 
 function fetchItemFor(items: Record<number, HNItemFixture | null>) {
@@ -977,5 +1019,328 @@ describe('isCaptchaRefusal', () => {
         'I cannot summarize the article because the content is behind a paywall.',
       ),
     ).toBe(false);
+  });
+});
+
+describe('rate limiting (helpers)', () => {
+  it('extracts the leftmost IP from x-forwarded-for', () => {
+    const h = new Headers();
+    h.set('x-forwarded-for', '203.0.113.7, 10.0.0.1, 10.0.0.2');
+    expect(extractClientIp(h)).toBe('203.0.113.7');
+  });
+
+  it('falls back to x-real-ip when x-forwarded-for is absent', () => {
+    const h = new Headers();
+    h.set('x-real-ip', '198.51.100.42');
+    expect(extractClientIp(h)).toBe('198.51.100.42');
+  });
+
+  it('returns null when neither header is present', () => {
+    expect(extractClientIp(new Headers())).toBeNull();
+  });
+
+  it('leaves IPv4 addresses unchanged', () => {
+    expect(normalizeIpForRateLimit('203.0.113.7')).toBe('203.0.113.7');
+  });
+
+  it('reduces a full IPv6 address to its /64 prefix', () => {
+    // Two addresses in the same /64 hash to the same key.
+    const a = normalizeIpForRateLimit(
+      '2001:0db8:abcd:0012:0000:0000:0000:0001',
+    );
+    const b = normalizeIpForRateLimit(
+      '2001:0db8:abcd:0012:ffff:ffff:ffff:ffff',
+    );
+    expect(a).toBe(b);
+    expect(a).toBe('2001:0db8:abcd:0012');
+  });
+
+  it('expands :: shorthand before taking the /64', () => {
+    // `::` at the start, end, and middle — all should normalize by
+    // zero-filling then slicing first 4 groups.
+    expect(normalizeIpForRateLimit('2001:db8::1')).toBe('2001:db8:0:0');
+    expect(normalizeIpForRateLimit('::1')).toBe('0:0:0:0');
+    expect(normalizeIpForRateLimit('fe80::abcd:1234')).toBe('fe80:0:0:0');
+  });
+
+  it('strips IPv6 zone identifiers before normalizing', () => {
+    // `fe80::1%eth0` and `fe80::1%wlan0` should hash to the same /64.
+    expect(normalizeIpForRateLimit('fe80::1%eth0')).toBe(
+      normalizeIpForRateLimit('fe80::1%wlan0'),
+    );
+  });
+
+  it('admits requests under the limit and 429s at the first increment that exceeds', async () => {
+    const store = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 2, windowSeconds: 600 },
+    ];
+    const nowMs = 1_700_000_000_000;
+    const r1 = await checkRateLimit(store, '1.2.3.4', tiers, nowMs);
+    const r2 = await checkRateLimit(store, '1.2.3.4', tiers, nowMs);
+    const r3 = await checkRateLimit(store, '1.2.3.4', tiers, nowMs);
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    expect(r3.ok).toBe(false);
+    expect(r3.exceededTier).toBe('burst');
+    expect(r3.retryAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it('reports the first-exceeded tier when multiple tiers are in play', async () => {
+    const store = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 5, windowSeconds: 600 },
+      { name: 'daily', limit: 2, windowSeconds: 86_400 },
+    ];
+    const nowMs = 1_700_000_000_000;
+    await checkRateLimit(store, '1.2.3.4', tiers, nowMs);
+    await checkRateLimit(store, '1.2.3.4', tiers, nowMs);
+    const over = await checkRateLimit(store, '1.2.3.4', tiers, nowMs);
+    expect(over.ok).toBe(false);
+    expect(over.exceededTier).toBe('daily');
+  });
+
+  it('fails open if the store throws on this tier (never blocks)', async () => {
+    const store = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+    const nowMs = 1_700_000_000_000;
+    store.throwNext(10);
+    // Even at 10× the limit, a throwing store yields `ok: true` — we
+    // never block a request when the limiter itself is broken.
+    for (let i = 0; i < 10; i += 1) {
+      const r = await checkRateLimit(store, '1.2.3.4', tiers, nowMs);
+      expect(r.ok).toBe(true);
+    }
+  });
+});
+
+describe('handleSummaryRequest — rate limiting', () => {
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  function buildSuccessDeps(
+    rateLimitStore: RateLimitStore | null,
+    tiers: RateLimitTier[],
+  ) {
+    return {
+      createClient: () => createFakeClient([{ text: 'summary' }]),
+      fetchImpl: createFakeFetch({
+        'https://r.jina.ai/https://example.com/a': { body: jinaBody('body') },
+      }),
+      fetchItem: fetchItemFor({
+        1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
+      }),
+      store: createTestStore(),
+      rateLimitStore,
+      rateLimitTiers: tiers,
+    };
+  }
+
+  it('returns 429 with retry-after after the burst limit is exceeded', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 2, windowSeconds: 600 },
+    ];
+
+    const r1 = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    const r2 = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+
+    const blocked = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(blocked.status).toBe(429);
+    const body = await blocked.json();
+    expect(body.reason).toBe('rate_limited');
+    expect(typeof body.retryAfterSeconds).toBe('number');
+    expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    expect(blocked.headers.get('retry-after')).toBe(
+      String(body.retryAfterSeconds),
+    );
+  });
+
+  it('cache hits bypass the rate-limit bucket entirely', async () => {
+    // Preload the cache with a record for story 1 so the handler never
+    // reaches the rate-limit check.
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      1,
+      {
+        summary: 'cached summary',
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      // Limit of 0 would block a live call, but the cache hit must not
+      // touch the bucket.
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+
+    for (let i = 0; i < 5; i += 1) {
+      const res = await handleSummaryRequest(
+        makeRequest(1, { forwardedFor: '203.0.113.7' }),
+        {
+          store,
+          rateLimitStore,
+          rateLimitTiers: tiers,
+        },
+      );
+      expect(res.status).toBe(200);
+    }
+    expect(rateLimitStore.calls.length).toBe(0);
+  });
+
+  it('fails open when the rate-limit store throws', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    rateLimitStore.throwNext(100);
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+    // Two back-to-back cache-miss requests — both succeed because the
+    // store throws on every increment and the handler fails open.
+    const r1 = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    const r2 = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+  });
+
+  it('buckets two IPv6 addresses in the same /64 together', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+    const r1 = await handleSummaryRequest(
+      makeRequest(1, {
+        forwardedFor: '2001:db8:abcd:12::1',
+      }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    const r2 = await handleSummaryRequest(
+      makeRequest(1, {
+        forwardedFor: '2001:db8:abcd:12:ffff:ffff:ffff:ffff',
+      }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(429);
+  });
+
+  it('keeps separate buckets for different IPs', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+    const r1 = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    const r2 = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '198.51.100.42' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+  });
+
+  it('falls open and skips the check when the client IP is unknown', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 0, windowSeconds: 600 },
+    ];
+    // No x-forwarded-for, no x-real-ip — handler should neither 429 nor
+    // touch the store.
+    const res = await handleSummaryRequest(
+      makeRequest(1),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(res.status).toBe(200);
+    expect(rateLimitStore.calls.length).toBe(0);
+  });
+
+  // Regression guard for the rate-limit gate placement: requests that
+  // end in a 400/404/503 for non-rate-limit reasons (low score,
+  // missing URL, missing GOOGLE_API_KEY) must not consume quota,
+  // because they never reach the paid Gemini / Jina path. If the gate
+  // ever moves back to the top of the handler, these tests start
+  // failing — which is the whole point.
+  it('does not consume quota when the story is ineligible (low score)', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      // A limit of 0 would 429 on the very first call if the gate ran;
+      // the low-score 400 branch must run first and skip the gate.
+      { name: 'burst', limit: 0, windowSeconds: 600 },
+    ];
+    const res = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      {
+        fetchItem: fetchItemFor({
+          1: { id: 1, type: 'story', url: 'https://example.com/a', score: 1 },
+        }),
+        store: null,
+        rateLimitStore,
+        rateLimitTiers: tiers,
+      },
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.reason).toBe('low_score');
+    expect(rateLimitStore.calls.length).toBe(0);
+  });
+
+  it('does not consume quota when GOOGLE_API_KEY is missing', async () => {
+    delete process.env.GOOGLE_API_KEY;
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 0, windowSeconds: 600 },
+    ];
+    const res = await handleSummaryRequest(
+      makeRequest(1, { forwardedFor: '203.0.113.7' }),
+      {
+        fetchItem: fetchItemFor({
+          1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
+        }),
+        store: null,
+        rateLimitStore,
+        rateLimitTiers: tiers,
+      },
+    );
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.reason).toBe('not_configured');
+    expect(rateLimitStore.calls.length).toBe(0);
   });
 });

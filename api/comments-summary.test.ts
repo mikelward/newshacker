@@ -7,6 +7,8 @@ import {
   parseCommentsRecord,
   type CommentsSummaryRecord,
   type CommentsSummaryStore,
+  type RateLimitStore,
+  type RateLimitTier,
 } from './comments-summary';
 // Local type mirrors the handler's internal HNItem — duplicated
 // intentionally so the test doesn't reach into the handler's private
@@ -30,14 +32,49 @@ const ALLOWED_REFERER = 'https://newshacker.app/item/100';
 
 function makeRequest(
   id: string | null,
-  opts: { referer?: string | null } = {},
+  opts: {
+    referer?: string | null;
+    forwardedFor?: string;
+    realIp?: string;
+  } = {},
 ) {
   const base = 'https://newshacker.app/api/comments-summary';
   const full = id === null ? base : `${base}?id=${id}`;
   const headers = new Headers();
   const referer = opts.referer === undefined ? ALLOWED_REFERER : opts.referer;
   if (referer !== null) headers.set('referer', referer);
+  if (opts.forwardedFor) headers.set('x-forwarded-for', opts.forwardedFor);
+  if (opts.realIp) headers.set('x-real-ip', opts.realIp);
   return new Request(full, { headers });
+}
+
+// Shared in-memory RateLimitStore for comments-summary tests. Mirror of
+// the helper in api/summary.test.ts.
+function createTestRateLimitStore(): RateLimitStore & {
+  counts: Map<string, number>;
+  calls: string[];
+  throwNext: (n: number) => void;
+} {
+  const counts = new Map<string, number>();
+  const calls: string[] = [];
+  let throwRemaining = 0;
+  return {
+    counts,
+    calls,
+    throwNext(n: number) {
+      throwRemaining = n;
+    },
+    async incrementWithExpiry(key: string) {
+      calls.push(key);
+      if (throwRemaining > 0) {
+        throwRemaining -= 1;
+        throw new Error('rate-limit store unavailable');
+      }
+      const next = (counts.get(key) ?? 0) + 1;
+      counts.set(key, next);
+      return next;
+    },
+  };
 }
 
 interface GenerateRequest {
@@ -658,5 +695,213 @@ describe('handleCommentsSummaryRequest', () => {
     expect(await res.json()).toEqual({ insights: ['live insight'] });
     expect(store.get).toHaveBeenCalledTimes(1);
     expect(store.set).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('handleCommentsSummaryRequest — rate limiting', () => {
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+  });
+
+  function buildSuccessDeps(
+    rateLimitStore: RateLimitStore | null,
+    tiers: RateLimitTier[],
+  ) {
+    return {
+      fetchItem: fetchItemFrom({
+        1: {
+          id: 1,
+          type: 'story',
+          score: 10,
+          kids: [2],
+          time: OLD_STORY_TIME,
+          title: 'Test',
+        },
+        2: {
+          id: 2,
+          type: 'comment',
+          text: 'Hello world',
+        },
+      }),
+      createClient: () => createFakeClient([{ text: 'an insight' }]),
+      store: createTestStore(),
+      rateLimitStore,
+      rateLimitTiers: tiers,
+    };
+  }
+
+  it('returns 429 with retry-after after the burst limit is exceeded', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 2, windowSeconds: 600 },
+    ];
+    const r1 = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    const r2 = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const blocked = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(blocked.status).toBe(429);
+    const body = await blocked.json();
+    expect(body.reason).toBe('rate_limited');
+    expect(typeof body.retryAfterSeconds).toBe('number');
+    expect(blocked.headers.get('retry-after')).toBe(
+      String(body.retryAfterSeconds),
+    );
+  });
+
+  it('cache hits bypass the rate-limit bucket entirely', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      1,
+      {
+        insights: ['cached'],
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+    for (let i = 0; i < 5; i += 1) {
+      const res = await handleCommentsSummaryRequest(
+        makeRequest('1', { forwardedFor: '203.0.113.7' }),
+        {
+          store,
+          rateLimitStore,
+          rateLimitTiers: tiers,
+        },
+      );
+      expect(res.status).toBe(200);
+    }
+    expect(rateLimitStore.calls.length).toBe(0);
+  });
+
+  it('fails open when the rate-limit store throws', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    rateLimitStore.throwNext(100);
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+    const r1 = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    const r2 = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+  });
+
+  it('buckets two IPv6 addresses in the same /64 together', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 1, windowSeconds: 600 },
+    ];
+    const r1 = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '2001:db8:abcd:12::1' }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    const r2 = await handleCommentsSummaryRequest(
+      makeRequest('1', {
+        forwardedFor: '2001:db8:abcd:12:ffff:ffff:ffff:ffff',
+      }),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(429);
+  });
+
+  it('falls open and skips the check when the client IP is unknown', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 0, windowSeconds: 600 },
+    ];
+    const res = await handleCommentsSummaryRequest(
+      makeRequest('1'),
+      buildSuccessDeps(rateLimitStore, tiers),
+    );
+    expect(res.status).toBe(200);
+    expect(rateLimitStore.calls.length).toBe(0);
+  });
+
+  // Regression guard: the gate sits after all free validation
+  // branches, so 404s (no kids, no usable comments), 400s (low score),
+  // and 503s (missing GOOGLE_API_KEY) must not consume quota.
+  it('does not consume quota when the story has no kids', async () => {
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 0, windowSeconds: 600 },
+    ];
+    const res = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      {
+        fetchItem: fetchItemFrom({
+          1: {
+            id: 1,
+            type: 'story',
+            score: 10,
+            kids: [],
+            time: OLD_STORY_TIME,
+            title: 'no-kids',
+          },
+        }),
+        store: null,
+        rateLimitStore,
+        rateLimitTiers: tiers,
+      },
+    );
+    expect(res.status).toBe(404);
+    expect(rateLimitStore.calls.length).toBe(0);
+  });
+
+  it('does not consume quota when GOOGLE_API_KEY is missing', async () => {
+    delete process.env.GOOGLE_API_KEY;
+    const rateLimitStore = createTestRateLimitStore();
+    const tiers: RateLimitTier[] = [
+      { name: 'burst', limit: 0, windowSeconds: 600 },
+    ];
+    const res = await handleCommentsSummaryRequest(
+      makeRequest('1', { forwardedFor: '203.0.113.7' }),
+      {
+        fetchItem: fetchItemFrom({
+          1: {
+            id: 1,
+            type: 'story',
+            score: 10,
+            kids: [2],
+            time: OLD_STORY_TIME,
+            title: 'unconfigured',
+          },
+          2: { id: 2, type: 'comment', text: 'hi' },
+        }),
+        store: null,
+        rateLimitStore,
+        rateLimitTiers: tiers,
+      },
+    );
+    expect(res.status).toBe(503);
+    expect(rateLimitStore.calls.length).toBe(0);
   });
 });

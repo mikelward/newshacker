@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _fetchCommentsSummaryForTests,
+  CommentsSummaryError,
   commentsSummaryQueryKey,
   commentsSummaryQueryOptions,
 } from './useCommentsSummary';
@@ -78,5 +79,28 @@ describe('useCommentsSummary helpers', () => {
     await expect(_fetchCommentsSummaryForTests(7)).rejects.toThrow(
       /summarization failed/i,
     );
+  });
+
+  it('surfaces a rate_limited reason on 429 responses', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      new Response(
+        JSON.stringify({
+          error: 'Too many requests',
+          reason: 'rate_limited',
+          retryAfterSeconds: 60,
+        }),
+        { status: 429, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    // rejects.toThrow doesn't expose the thrown instance, so catch and
+    // assert directly.
+    const err = await _fetchCommentsSummaryForTests(7).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(CommentsSummaryError);
+    expect((err as CommentsSummaryError).reason).toBe('rate_limited');
   });
 });

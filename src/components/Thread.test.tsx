@@ -976,6 +976,36 @@ describe('<Thread>', () => {
     });
   });
 
+  it('shows a rate-limited message when the summary endpoint 429s', async () => {
+    // Regression guard for the per-IP cache-miss rate limit on
+    // /api/summary. A 429 with `reason: 'rate_limited'` must render
+    // the "Too many requests — try again later." copy, not the
+    // generic "Summarization failed" fallback.
+    installHNFetchMock({
+      items: {
+        820: makeStory(820, {
+          title: 'Rate limited',
+          url: 'https://example.com/820',
+        }),
+      },
+      summaries: {
+        820: {
+          error: 'Too many requests',
+          reason: 'rate_limited',
+          status: 429,
+        },
+      },
+    });
+
+    renderWithProviders(<Thread id={820} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/too many requests — try again later/i),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('shows an unreachable-specific message when the source site blocks us', async () => {
     installHNFetchMock({
       items: {

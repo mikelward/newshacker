@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  _fetchSummaryForTests,
   SUMMARY_FRESHNESS_MS,
   SUMMARY_RETENTION_MS,
+  SummaryError,
   summaryQueryKey,
   summaryQueryOptions,
 } from './useSummary';
@@ -31,5 +33,35 @@ describe('useSummary query options', () => {
   it('pins the constants to their intended values', () => {
     expect(SUMMARY_FRESHNESS_MS).toBe(30 * 60 * 1000);
     expect(SUMMARY_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+});
+
+describe('useSummary fetch error parsing', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('surfaces a rate_limited reason on 429 responses', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: 'Too many requests',
+          reason: 'rate_limited',
+          retryAfterSeconds: 60,
+        }),
+        { status: 429, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const err = await _fetchSummaryForTests(7).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SummaryError);
+    expect((err as SummaryError).reason).toBe('rate_limited');
   });
 });

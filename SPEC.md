@@ -657,6 +657,50 @@ The handler is **fail-open**: if Redis is unreachable, the request
 falls through to live Gemini generation rather than erroring. The
 cache is a latency optimisation, not a correctness boundary.
 
+**Per-IP rate limiting on cache misses.** Both `/api/summary` and
+`/api/comments-summary` share a single per-IP bucket that counts only
+*cache misses* — i.e., only calls that would actually pay Gemini +
+Jina. Cached responses are free and never touch the bucket. The bucket
+is shared across the two endpoints so that a single thread view
+(article summary + comments summary) counts as 2 units against one
+bucket, which matches the cost model.
+
+Two fixed-window tiers are enforced, both env-var tunable without a
+deploy:
+- **Burst:** `SUMMARY_RATE_LIMIT_BURST` cold calls / 10 min / IP
+  (default 20).
+- **Daily:** `SUMMARY_RATE_LIMIT_DAILY` cold calls / 24 h / IP
+  (default 200).
+
+Either limit can be disabled independently by setting the matching
+env var to `0` or `off`. Over-limit responses return
+`HTTP 429 { error: 'Too many requests', reason: 'rate_limited',
+retryAfterSeconds: N }` plus a `Retry-After: N` header; the UI renders
+a short "Too many requests — try again later." message in the
+affected summary card.
+
+Client IP is read from `x-forwarded-for` (leftmost entry) with
+`x-real-ip` as a fallback. IPv4 addresses are bucketed exactly; IPv6
+addresses are reduced to their `/64` prefix so a single subscriber
+can't trivially cycle source addresses within the subnet their ISP
+delegated them. If neither header is present (localhost, unusual
+proxy), the handler **fails open** and skips the check rather than
+blocking. The rate-limit gate runs only after every free validation
+branch (story eligibility, API-key presence, and — for
+`/api/comments-summary` — existence of usable comments), so requests
+that 400 / 404 / 503 for other reasons don't consume quota; only
+requests that would actually reach the paid Gemini/Jina call get
+counted. The backing counter uses the same Upstash Redis store as
+the summary cache, with an `INCR` + conditional `EXPIRE` per enabled
+tier. With both burst and daily tiers on, that's typically 2
+commands steady-state (one `INCR` per tier) and 4 in the first
+window after a counter rolls (adding one `EXPIRE` per tier); the
+Upstash REST client issues each as its own HTTP request rather than
+pipelining. If Redis itself is unreachable or errors mid-check, the
+handler fails open per tier and lets the request through — an
+abuse-prevention loss is strictly preferable to an outage on the
+feature.
+
 Cost and reliability (rule 11): current setup is the free tier
 (~30 MB storage, no HA) — ample for the ~1 KB per key, ~50 key working
 set we'll see at this traffic. Free tier is single-instance, so a

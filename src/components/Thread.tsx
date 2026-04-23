@@ -13,7 +13,10 @@ import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useShareStory } from '../hooks/useShareStory';
 import { useVote } from '../hooks/useVote';
 import { SummaryError, useSummary } from '../hooks/useSummary';
-import { useCommentsSummary } from '../hooks/useCommentsSummary';
+import {
+  CommentsSummaryError,
+  useCommentsSummary,
+} from '../hooks/useCommentsSummary';
 import { useContentWidth } from '../hooks/useContentWidth';
 import { extractDomain, formatStoryMetaTail } from '../lib/format';
 import {
@@ -192,7 +195,19 @@ function summaryErrorDetail(error: unknown): string {
         return "Summaries aren't available right now.";
       case 'summary_budget_exhausted':
         return 'Summaries are temporarily unavailable. Please try again later.';
+      case 'rate_limited':
+        return 'Too many requests — try again later.';
     }
+  }
+  if (error instanceof Error && error.message) {
+    return `${error.message}.`;
+  }
+  return '';
+}
+
+function commentsSummaryErrorDetail(error: unknown): string {
+  if (error instanceof CommentsSummaryError && error.reason === 'rate_limited') {
+    return 'Too many requests — try again later.';
   }
   if (error instanceof Error && error.message) {
     return `${error.message}.`;
@@ -419,9 +434,10 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
         <div className="thread__summary-error">
           <p>
             Could not summarize comments.
-            {error instanceof Error && error.message
-              ? ` ${error.message}.`
-              : ''}
+            {(() => {
+              const detail = commentsSummaryErrorDetail(error);
+              return detail ? ` ${detail}` : '';
+            })()}
           </p>
           <button
             type="button"

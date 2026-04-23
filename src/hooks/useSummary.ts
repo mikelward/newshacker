@@ -37,7 +37,10 @@ export type SummaryErrorReason =
   // The fetched "article" was a CAPTCHA / bot-challenge page, so the
   // model had nothing to summarize. Detected after the fact from the
   // model's refusal text.
-  | 'source_captcha';
+  | 'source_captcha'
+  // Per-IP rate limit on cache-miss generations (shared bucket with
+  // /api/comments-summary). Returned as HTTP 429.
+  | 'rate_limited';
 
 export class SummaryError extends Error {
   readonly reason?: SummaryErrorReason;
@@ -58,7 +61,8 @@ function parseReason(value: unknown): SummaryErrorReason | undefined {
     value === 'no_article' ||
     value === 'low_score' ||
     value === 'story_unreachable' ||
-    value === 'source_captcha'
+    value === 'source_captcha' ||
+    value === 'rate_limited'
   ) {
     return value;
   }
