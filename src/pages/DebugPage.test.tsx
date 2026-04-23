@@ -173,12 +173,16 @@ describe('<DebugPage>', () => {
   });
 
   it('renders the build commit time and a relative age', async () => {
-    // The actual ISO string is substituted at transform time from
-    // `__BUILD_COMMIT_TIME__` (Vite `define`), so the assertion only
-    // checks the structural pieces: a <time> element with a non-empty
-    // ISO `datetime` attribute and a relative-age suffix that ends in
-    // "ago". An empty define would fall back to the "unknown" placeholder
-    // and this test would surface that regression.
+    // `vite.config.ts` pins `__BUILD_COMMIT_TIME__` to
+    // TEST_BUILD_COMMIT_TIME under Vitest so this test is deterministic
+    // regardless of whether the checkout has git metadata. The fallback
+    // (empty string → "unknown") is covered by the next test, which
+    // mocks `../lib/buildInfo` directly.
+    vi.useFakeTimers();
+    // Pin "now" 2 hours after the fixed commit time so the relative age
+    // is a stable "2h ago".
+    vi.setSystemTime(new Date('2026-01-01T02:00:00.000Z'));
+
     mockStatus({
       region: 'iad1',
       build: 'abc1234def5678',
@@ -191,17 +195,52 @@ describe('<DebugPage>', () => {
     });
     renderWithProviders(<DebugPage />, { route: '/debug' });
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(screen.getByText('Built')).toBeInTheDocument();
     });
     const builtRow = screen.getByText('Built').closest('div');
     expect(builtRow).not.toBeNull();
     const timeEl = builtRow!.querySelector('time');
     expect(timeEl).not.toBeNull();
-    expect(timeEl!.getAttribute('datetime')).toMatch(
-      /^\d{4}-\d{2}-\d{2}T/,
-    );
-    expect(builtRow!.textContent).toMatch(/ago\)/);
+    expect(timeEl!.getAttribute('datetime')).toBe('2026-01-01T00:00:00.000Z');
+    expect(builtRow!.textContent).toMatch(/\(2h ago\)/);
+
+    vi.useRealTimers();
+  });
+
+  it('shows "unknown" when the build commit time is empty', async () => {
+    // Covers the deploy scenario where the Vite build ran without git
+    // metadata (shallow checkout, missing .git, etc.) and
+    // `readCommitTime()` fell back to ''. We mock the module rather
+    // than the compile-time define because the define is substituted
+    // at transform time — there's no runtime hook to stub.
+    vi.resetModules();
+    vi.doMock('../lib/buildInfo', () => ({ buildCommitTime: '' }));
+    const { DebugPage: DebugPageWithEmptyBuild } = await import('./DebugPage');
+
+    mockStatus({
+      region: 'iad1',
+      build: null,
+      services: {
+        gemini: { configured: false },
+        jina: { configured: false },
+        redis: { configured: false },
+        sync: { configured: false },
+      },
+    });
+    renderWithProviders(<DebugPageWithEmptyBuild />, { route: '/debug' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Built')).toBeInTheDocument();
+    });
+    const builtRow = screen.getByText('Built').closest('div');
+    expect(builtRow).not.toBeNull();
+    // No <time> element, and the dd contains the italic "unknown".
+    expect(builtRow!.querySelector('time')).toBeNull();
+    expect(builtRow!.textContent).toMatch(/unknown/);
+
+    vi.doUnmock('../lib/buildInfo');
+    vi.resetModules();
   });
 
   it('renders the back-to-Top link', async () => {

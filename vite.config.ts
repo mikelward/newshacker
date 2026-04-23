@@ -3,6 +3,11 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// `process.env.VITEST` is set when vitest boots; we skip the PWA plugin
+// in tests because it adds noticeable startup cost per worker and has
+// no behavior the unit tests exercise.
+const isTest = process.env.VITEST === 'true';
+
 // Captured at config-load time so /debug can show "what commit is this
 // bundle from, and how old is it?" without needing a runtime endpoint.
 // Vercel checks the repo out via git during the build, so `git log`
@@ -20,17 +25,14 @@ function readCommitTime(): string {
   }
 }
 
-const buildCommitTime = readCommitTime();
-
-// PWA runtime caches are sized for "browse what you've recently touched
-// while offline". The SW cache is additive to the React Query persister —
-// RQ hydrates the UI from localStorage on cold start, and Workbox serves
-// any fetches RQ decides to make.
-//
-// `process.env.VITEST` is set when vitest boots; we skip the PWA plugin
-// in tests because it adds noticeable startup cost per worker and has
-// no behavior the unit tests exercise.
-const isTest = process.env.VITEST === 'true';
+// Pin a deterministic ISO string under Vitest so the `/debug` "Built"
+// row tests don't depend on whether the checkout has git metadata
+// (shallow clones, tarballs, sandboxed CI runners without git all
+// return '' from `readCommitTime()`, which would silently flip the
+// UI to "unknown" and break the happy-path assertion). The fallback
+// branch itself is covered by a separate test that mocks the value.
+const TEST_BUILD_COMMIT_TIME = '2026-01-01T00:00:00.000Z';
+const buildCommitTime = isTest ? TEST_BUILD_COMMIT_TIME : readCommitTime();
 
 export default defineConfig({
   define: {
