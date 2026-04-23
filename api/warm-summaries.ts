@@ -867,7 +867,7 @@ export function decideCommentsInterval(
     };
   }
   for (const tier of COMMENTS_TIERS) {
-    if (storyAge <= tier.maxAgeSeconds * 1000) {
+    if (storyAge < tier.maxAgeSeconds * 1000) {
       return {
         shouldCheck: sinceLastCheck >= tier.intervalSeconds * 1000,
         stableFor,
