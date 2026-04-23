@@ -330,6 +330,37 @@ Paste any of these into the Axiom query console:
 ```
 
 ```apl
+// Paywall prevalence per publisher. `paywalled` is the
+// detectPaywall() verdict on the Jina-clean body — true when Jina's
+// response looked like a paywall teaser / overlay, false when it
+// looked like real article content. Filter to outcomes that actually
+// ran the detector (first_seen / unchanged / changed) and group by
+// host to see which publishers Jina is routinely getting a wall from
+// vs the ones it's getting real content from. Combine with the
+// jitter query above to disambiguate "stable paywall" from "stable
+// evergreen article": a host with `paywalledShare > 0.8` AND
+// `changeRate < 0.05` is a confirmed wall-and-nothing-moving; a host
+// with `paywalledShare ~ 0` AND `changeRate < 0.05` is just a static
+// publisher.
+['vercel']
+| where _time > ago(7d)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article"
+| where tostring(e.outcome) in ("first_seen", "unchanged", "changed")
+| where isnotnull(e.paywalled)
+| summarize
+    paywalled = countif(tobool(e.paywalled) == true),
+    total = count()
+  by urlHost = tostring(e.urlHost)
+| extend paywalledShare = round(todouble(paywalled) / todouble(total), 3)
+| where total >= 5  // drop singletons
+| order by paywalledShare desc, total desc
+```
+
+```apl
 // Noise vs real-edit split across all article `changed` events.
 // Two rough histograms over `deltaBytes` — under ~200 B is almost
 // always noise (timestamp flip, reaction count), over ~1 KB is

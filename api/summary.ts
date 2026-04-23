@@ -339,6 +339,15 @@ export interface SummaryRecord {
   // (or by the user-facing handler before its write path was updated)
   // still parse. The next hash-changed tick always populates it.
   contentBytes?: number;
+  // Best-effort paywall detection on the Jina-clean body. `undefined`
+  // on records written before the detector landed; `true` when Jina's
+  // response looked like a paywall overlay / teaser, `false` when it
+  // looked like real article content. The bit is advisory today —
+  // wired only for telemetry — so the handler must not alter behavior
+  // based on it. Kept on the record so cache hits preserve the same
+  // decision the generation-time detector made, and so warm-summaries
+  // `unchanged` logs can carry the field without recomputing.
+  paywalled?: boolean;
 }
 
 export interface SummaryStore {
@@ -427,6 +436,7 @@ export function parseRecord(raw: unknown): SummaryRecord | null {
     ...(typeof r.contentBytes === 'number' && Number.isFinite(r.contentBytes)
       ? { contentBytes: r.contentBytes }
       : {}),
+    ...(typeof r.paywalled === 'boolean' ? { paywalled: r.paywalled } : {}),
   };
 }
 
@@ -551,6 +561,17 @@ export interface SummaryOutcomeExtras {
   // round-trip Jina, so absent there). Matches the `articleTokens` field
   // already logged by the warm cron — same unit, reconcilable.
   jinaTokens?: number;
+  // Paywall-detector verdict on the Jina-clean body. Emitted as
+  // `true` / `false` only on `cached` and `generated` outcomes (both
+  // pull from a record that either carries the field or was just
+  // computed). Deliberately absent on `error` and `rate_limited`
+  // outcomes regardless of whether a verdict may have been known on
+  // that path (e.g. `summarization_failed` / `source_captcha` both
+  // fire after a successful Jina fetch), to keep the
+  // prevalence-share query's numerator and denominator cleanly
+  // scoped to "summaries we actually served". Absent on self-post
+  // summaries (no Jina round-trip, no paywall to detect).
+  paywalled?: boolean;
 }
 
 export function emitSummaryOutcome(
@@ -577,6 +598,7 @@ export function emitSummaryOutcome(
     line.geminiTotalTokens = extras.geminiTotalTokens;
   }
   if (extras.jinaTokens !== undefined) line.jinaTokens = extras.jinaTokens;
+  if (extras.paywalled !== undefined) line.paywalled = extras.paywalled;
   console.log(JSON.stringify(line));
 }
 
@@ -667,6 +689,70 @@ export function isCaptchaRefusal(summary: string): boolean {
   );
 }
 
+// === Paywall detection (inlined — mirrored in api/warm-summaries.ts) ===
+// Best-effort detector over the Jina-clean article body. Returns `true`
+// when the response looks like a paywall overlay / teaser, `false` when
+// it looks like real article content. Advisory only: today we attach
+// the bit to telemetry so operators can see paywall prevalence per
+// domain in the warm-summaries logs. The UI does NOT act on it yet —
+// we want prevalence data before deciding whether the "honest empty
+// state" follow-up is worth the UX work (see TODO.md § "Paywalled-
+// article summary fallbacks"). Conservative on purpose: prefers
+// false negatives over false positives, because a future UX path that
+// hides a "real" summary on a false positive would be worse than
+// today's status quo of showing a teaser.
+//
+// Kept duplicated with api/warm-summaries.ts per AGENTS.md § "Vercel
+// api/ gotchas". Any edit here must be mirrored there — the parity
+// test in api/warm-summaries.test.ts fails loudly if they drift.
+
+// Phrases chosen to match paywall overlay copy, not incidental
+// "subscribe to our newsletter" / "log in" mentions in the body of
+// a full article. Case-insensitive. A single match on short content
+// trips; two matches trip regardless of length (dynamic paywall
+// pages with ads + subscribe forms can run ~3–5 KB).
+const PAYWALL_MARKER_PATTERNS: readonly RegExp[] = [
+  /\bsubscribe\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\bsubscribers?[-\s]+only\b/i,
+  /\bfor\s+subscribers?\s+only\b/i,
+  /\b(sign|log)\s+in\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\b(create|start)\s+(a\s+|your\s+)?(free\s+)?(account|trial)\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\bregister\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\byou[''`]?ve\s+read\s+\d+\s+of\s+\d+\s+free\b/i,
+  /\byou\s+have\s+\d+\s+free\s+articles?\s+(remaining|left)\b/i,
+  /\bthis\s+(article|content|story)\s+is\s+(for|available\s+to|exclusive\s+to)\s+(subscribers|members)\b/i,
+  /\bbecome\s+a\s+(member|subscriber)\b/i,
+  /\bstart\s+your\s+free\s+trial\b/i,
+  /\bunlock\s+this\s+(article|story)\b/i,
+  /\bcontinue\s+reading\s+with\s+a\s+subscription\b/i,
+  /\bplease\s+(sign|log)\s+in\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\bto\s+(continue|read|keep)\s+reading,?\s*(please\s+)?(sign|log)\s+in\b/i,
+];
+
+// schema.org `NewsArticle` publishes `isAccessibleForFree: false` so
+// Google's structured-data crawler knows the body is paywalled. When
+// Jina's fetched HTML (or ld+json block) preserves that field, it's
+// a very strong signal — regardless of marker-phrase hits.
+const JSON_LD_PAYWALL_MARKER = /"isAccessibleForFree"\s*:\s*false\b/i;
+
+// Short-body threshold for the single-marker trip. Paywall overlays
+// are typically ≤ ~2 KB of clean text; a 10 KB article that passively
+// mentions "subscribe to continue" in a sidebar should not trip.
+const PAYWALL_SHORT_BODY_CHARS = 2000;
+
+export function detectPaywall(content: string): boolean {
+  if (!content) return false;
+  if (JSON_LD_PAYWALL_MARKER.test(content)) return true;
+  let hits = 0;
+  for (const pattern of PAYWALL_MARKER_PATTERNS) {
+    if (pattern.test(content)) {
+      hits += 1;
+      if (hits >= 2) return true;
+    }
+  }
+  return hits >= 1 && content.length <= PAYWALL_SHORT_BODY_CHARS;
+}
+
 function clampContent(body: string): string | null {
   const trimmed =
     body.length > MAX_CONTENT_CHARS ? body.slice(0, MAX_CONTENT_CHARS) : body;
@@ -676,7 +762,7 @@ function clampContent(body: string): string | null {
 
 type FetchFailure = 'timeout' | 'unreachable' | 'payment_required';
 type FetchOutcome =
-  | { ok: true; content: string; tokens?: number }
+  | { ok: true; content: string; tokens?: number; paywalled: boolean }
   | { ok: false; failure: FetchFailure };
 
 function isAbortError(err: unknown): boolean {
@@ -748,9 +834,8 @@ async function fetchViaJina(
       typeof rawTokens === 'number' && Number.isFinite(rawTokens)
         ? rawTokens
         : undefined;
-    return content
-      ? { ok: true, content, tokens }
-      : { ok: false, failure: 'unreachable' };
+    if (!content) return { ok: false, failure: 'unreachable' };
+    return { ok: true, content, tokens, paywalled: detectPaywall(content) };
   } catch (err) {
     return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
   } finally {
@@ -788,6 +873,9 @@ export async function handleSummaryRequest(
       if (cached) {
         emitSummaryOutcome('cached', storyId, undefined, {
           chars: cached.summary.length,
+          ...(cached.paywalled !== undefined
+            ? { paywalled: cached.paywalled }
+            : {}),
         });
         return json({ summary: cached.summary, cached: true });
       }
@@ -861,6 +949,9 @@ export async function handleSummaryRequest(
   let content: string;
   let prompt: string;
   let jinaTokens: number | undefined;
+  // URL-post summaries: populated from Jina's detector verdict. Left
+  // undefined on self-posts (no Jina round-trip, no overlay to detect).
+  let paywalled: boolean | undefined;
   if (hasArticleUrl) {
     const articleUrl = story.url!;
     const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
@@ -915,6 +1006,7 @@ export async function handleSummaryRequest(
     }
     content = jinaResult.content;
     jinaTokens = jinaResult.tokens;
+    paywalled = jinaResult.paywalled;
     prompt = buildPrompt(articleUrl, content);
   } else {
     // Self-post path: Ask HN / Show HN / text-only. The body is already
@@ -993,6 +1085,7 @@ export async function handleSummaryRequest(
       // the next hash-change tick, instead of having to skip the
       // first observation after a user-facing write.
       contentBytes: Buffer.byteLength(content, 'utf8'),
+      ...(paywalled !== undefined ? { paywalled } : {}),
     };
     try {
       await store.set(storyId, record, RECORD_TTL_SECONDS);
@@ -1006,6 +1099,7 @@ export async function handleSummaryRequest(
     geminiOutputTokens,
     geminiTotalTokens,
     jinaTokens,
+    ...(paywalled !== undefined ? { paywalled } : {}),
   });
   return json({ summary });
 }

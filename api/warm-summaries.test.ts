@@ -4,6 +4,7 @@ import {
   ageBandFromMinutes,
   decideCommentsInterval,
   decideInterval,
+  detectPaywall as detectPaywallWarm,
   handleWarmRequest,
   hashArticle,
   hashTranscript,
@@ -20,6 +21,7 @@ import {
   type WarmFeed,
   type WarmKnobs,
 } from './warm-summaries';
+import { detectPaywall as detectPaywallSummary } from './summary';
 
 interface HNItemFixture {
   id?: number;
@@ -1489,5 +1491,236 @@ describe('handleWarmRequest', () => {
     expect(article.outcome).toBe('first_seen');
     expect(article.storyAgeMinutes).toBe(45);
     expect(article.ageBand).toBe('0-1h');
+  });
+});
+
+describe('detectPaywall parity between summary.ts and warm-summaries.ts', () => {
+  // The two implementations are duplicated per AGENTS.md § "Vercel api/
+  // gotchas". If they drift, prevalence numbers on the two endpoints
+  // stop being comparable. Lock the fixtures here so any accidental
+  // divergence fails CI loudly on the next push.
+  const fixtures: Array<{ name: string; content: string; expected: boolean }> = [
+    { name: 'empty', content: '', expected: false },
+    {
+      name: 'short paywall overlay',
+      content: 'Subscribe to continue reading this article.',
+      expected: true,
+    },
+    {
+      name: 'isAccessibleForFree ld+json',
+      content: '{"@type":"NewsArticle","isAccessibleForFree": false}',
+      expected: true,
+    },
+    {
+      name: 'long article with no markers',
+      content: 'Weavers gathered in small workshops. '.repeat(100),
+      expected: false,
+    },
+    {
+      name: 'long article with a single passing marker (should not trip)',
+      content:
+        'The tram lines curved past the market square as the rain came on. '.repeat(60) +
+        'Sign in to continue reading on our sister site.',
+      expected: false,
+    },
+    {
+      name: 'dynamic paywall (two marker hits, long body)',
+      content:
+        'Welcome to our site. '.repeat(100) +
+        'This article is for subscribers only. Please sign in to continue reading.',
+      expected: true,
+    },
+    {
+      name: 'free-articles counter',
+      content: 'You have 2 free articles remaining this month.',
+      expected: true,
+    },
+  ];
+
+  for (const { name, content, expected } of fixtures) {
+    it(`${name} → ${expected}`, () => {
+      expect(detectPaywallSummary(content)).toBe(expected);
+      expect(detectPaywallWarm(content)).toBe(expected);
+      // Direct parity — regardless of the expected value, both
+      // implementations must agree byte-for-byte on the same input.
+      expect(detectPaywallWarm(content)).toBe(detectPaywallSummary(content));
+    });
+  }
+});
+
+describe('warm-summaries — paywalled field propagation', () => {
+  const PAYWALL_BODY =
+    'Premium Story\n\nSubscribe to continue reading this article.';
+
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  it('first_seen emits paywalled=true and writes it onto the new record', async () => {
+    const articleUrl = 'https://paywalled.example.com/first';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+    });
+    const fetchItem = fetchItemFor({
+      8001: { id: 8001, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([{ text: 'summary v1' }]);
+    const { logger, stories } = captureLogger();
+    const res = await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [8001],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    expect(res.status).toBe(200);
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(article.paywalled).toBe(true);
+    expect(store.map.get(8001)!.paywalled).toBe(true);
+  });
+
+  it('first_seen emits paywalled=false for real article content', async () => {
+    const articleUrl = 'https://example.com/real';
+    const realBody =
+      'The tram lines curved past the market square as the rain came on. '.repeat(30);
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(realBody) },
+    });
+    const fetchItem = fetchItemFor({
+      8002: { id: 8002, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [8002],
+      createClient: () => createFakeClient([{ text: 'summary' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(article.paywalled).toBe(false);
+    expect(store.map.get(8002)!.paywalled).toBe(false);
+  });
+
+  it('unchanged emits paywalled from the fresh detection (authoritative) and writes it onto the record', async () => {
+    const articleUrl = 'https://paywalled.example.com/stable';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+    });
+    const fetchItem = fetchItemFor({
+      8003: { id: 8003, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const priorNow = 1_700_000_000_000 - 60 * 60 * 1000;
+    // Pre-seed a record with the same hash and no paywalled bit (as a
+    // legacy record would look). The unchanged branch must detect
+    // freshly and backfill `paywalled` onto both the log and the
+    // stored record.
+    store.map.set(8003, {
+      summary: 'old summary',
+      articleHash: hashArticle(PAYWALL_BODY),
+      firstSeenAt: priorNow,
+      summaryGeneratedAt: priorNow,
+      lastCheckedAt: priorNow,
+      lastChangedAt: priorNow,
+    });
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [8003],
+      createClient: () => createFakeClient([]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('unchanged');
+    expect(article.paywalled).toBe(true);
+    expect(store.map.get(8003)!.paywalled).toBe(true);
+  });
+
+  it('changed emits paywalled from the fresh detection and writes it onto the new record', async () => {
+    const articleUrl = 'https://paywalled.example.com/flipped';
+    const newBody = PAYWALL_BODY; // Fresh body looks like a paywall.
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      8004: { id: 8004, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const priorNow = 1_700_000_000_000 - 60 * 60 * 1000;
+    // Pre-seed a record with a *different* hash (was a real article
+    // before, now it's a paywall — e.g. the publisher flipped the
+    // wall). The changed branch should run the detector fresh and
+    // write true onto the new record.
+    store.map.set(8004, {
+      summary: 'old summary',
+      articleHash: 'different-hash',
+      firstSeenAt: priorNow,
+      summaryGeneratedAt: priorNow,
+      lastCheckedAt: priorNow,
+      lastChangedAt: priorNow,
+      paywalled: false,
+    });
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [8004],
+      createClient: () => createFakeClient([{ text: 'new summary' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(article.paywalled).toBe(true);
+    expect(store.map.get(8004)!.paywalled).toBe(true);
+  });
+
+  it('omits paywalled on skipped_unreachable (no Jina fetch happened)', async () => {
+    const articleUrl = 'https://example.com/broken';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { status: 500 },
+    });
+    const fetchItem = fetchItemFor({
+      8005: { id: 8005, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [8005],
+      createClient: () => createFakeClient([]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('skipped_unreachable');
+    expect(article).not.toHaveProperty('paywalled');
   });
 });

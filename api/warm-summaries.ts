@@ -203,6 +203,11 @@ export interface SummaryRecord {
   // Optional — pre-instrumentation records lack it, so the first
   // observation after deploy emits no `deltaBytes` on `changed`.
   contentBytes?: number;
+  // Paywall-detector verdict on the Jina-clean body. `undefined` on
+  // records written before the detector landed; advisory only — see
+  // api/summary.ts § `detectPaywall` for the contract. Persisted so
+  // `unchanged` logs can emit the field without recomputing.
+  paywalled?: boolean;
 }
 
 export interface SummaryStore {
@@ -248,6 +253,7 @@ function parseRecord(raw: unknown): SummaryRecord | null {
     ...(typeof r.contentBytes === 'number' && Number.isFinite(r.contentBytes)
       ? { contentBytes: r.contentBytes }
       : {}),
+    ...(typeof r.paywalled === 'boolean' ? { paywalled: r.paywalled } : {}),
   };
 }
 
@@ -514,8 +520,46 @@ function isAbortError(err: unknown): boolean {
 
 type FetchFailure = 'timeout' | 'unreachable' | 'payment_required';
 type FetchOutcome =
-  | { ok: true; content: string; tokens?: number }
+  | { ok: true; content: string; tokens?: number; paywalled: boolean }
   | { ok: false; failure: FetchFailure };
+
+// === Paywall detection (inlined — mirrored in api/summary.ts) ===
+// See api/summary.ts § `detectPaywall` for the contract and the
+// rationale for the heuristic thresholds. Duplicated per AGENTS.md
+// § "Vercel api/ gotchas"; api/warm-summaries.test.ts § "detectPaywall
+// parity with summary.ts" fails loudly if they drift.
+const PAYWALL_MARKER_PATTERNS: readonly RegExp[] = [
+  /\bsubscribe\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\bsubscribers?[-\s]+only\b/i,
+  /\bfor\s+subscribers?\s+only\b/i,
+  /\b(sign|log)\s+in\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\b(create|start)\s+(a\s+|your\s+)?(free\s+)?(account|trial)\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\bregister\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\byou[''`]?ve\s+read\s+\d+\s+of\s+\d+\s+free\b/i,
+  /\byou\s+have\s+\d+\s+free\s+articles?\s+(remaining|left)\b/i,
+  /\bthis\s+(article|content|story)\s+is\s+(for|available\s+to|exclusive\s+to)\s+(subscribers|members)\b/i,
+  /\bbecome\s+a\s+(member|subscriber)\b/i,
+  /\bstart\s+your\s+free\s+trial\b/i,
+  /\bunlock\s+this\s+(article|story)\b/i,
+  /\bcontinue\s+reading\s+with\s+a\s+subscription\b/i,
+  /\bplease\s+(sign|log)\s+in\s+to\s+(continue|read|keep\s+reading)\b/i,
+  /\bto\s+(continue|read|keep)\s+reading,?\s*(please\s+)?(sign|log)\s+in\b/i,
+];
+const JSON_LD_PAYWALL_MARKER = /"isAccessibleForFree"\s*:\s*false\b/i;
+const PAYWALL_SHORT_BODY_CHARS = 2000;
+
+export function detectPaywall(content: string): boolean {
+  if (!content) return false;
+  if (JSON_LD_PAYWALL_MARKER.test(content)) return true;
+  let hits = 0;
+  for (const pattern of PAYWALL_MARKER_PATTERNS) {
+    if (pattern.test(content)) {
+      hits += 1;
+      if (hits >= 2) return true;
+    }
+  }
+  return hits >= 1 && content.length <= PAYWALL_SHORT_BODY_CHARS;
+}
 
 // Jina's JSON envelope: { code, status, data: { content, usage: { tokens } } }.
 // We ask for JSON (rather than plain text) so the response carries an
@@ -570,7 +614,7 @@ async function fetchViaJina(
     const tokens = typeof rawTokens === 'number' && Number.isFinite(rawTokens)
       ? rawTokens
       : undefined;
-    return { ok: true, content, tokens };
+    return { ok: true, content, tokens, paywalled: detectPaywall(content) };
   } catch (err) {
     return { ok: false, failure: isAbortError(err) ? 'timeout' : 'unreachable' };
   } finally {
@@ -735,6 +779,15 @@ export interface StoryLog {
   // up so operators can watch for budget drift without post-processing
   // the per-story lines.
   tokens?: number;
+  // Article track: `detectPaywall()` verdict on the Jina-clean body.
+  // Present on `first_seen` and `changed` (freshly detected this
+  // tick) and on `unchanged` (propagated from the stored record when
+  // it carries the field; freshly computed as a backfill when it
+  // doesn't). Absent on skipped_* outcomes (no Jina fetch) and on
+  // self-posts (no Jina round-trip). Advisory — today this just
+  // feeds the warm-summaries analytics so we can measure paywall
+  // prevalence per domain before acting on it in the UI.
+  paywalled?: boolean;
   // Article track: `story.url`'s lowercased hostname. Present on
   // every line where the HN item was loaded and the story has a
   // valid URL — first_seen / unchanged / changed and the in-function
@@ -1135,6 +1188,9 @@ async function processArticleTrack(
   let content: string;
   let prompt: string;
   let jinaTokens: number | undefined;
+  // URL-post stories: populated from Jina's paywall detector verdict.
+  // Left undefined on self-posts (no Jina round-trip, no overlay).
+  let paywalled: boolean | undefined;
   if (hasArticleUrl) {
     const articleUrl = story.url!;
     if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
@@ -1147,6 +1203,7 @@ async function processArticleTrack(
     }
     content = res.content;
     jinaTokens = res.tokens;
+    paywalled = res.paywalled;
     prompt = buildPrompt(articleUrl, content);
   } else {
     // Self-post: body is already in the HN item, no Jina fetch needed.
@@ -1158,12 +1215,22 @@ async function processArticleTrack(
   const contentBytes = Buffer.byteLength(content, 'utf8');
 
   if (existing && existing.articleHash === newHash) {
+    // Hash-stable: prefer the fresh detection (it's what hashed to the
+    // same bytes we saw last tick, so it's authoritative now); fall
+    // back to the stored verdict for self-posts (no fresh detection)
+    // so a bit persisted on a prior URL tick isn't lost on a self-post
+    // re-check — though in practice a story's URL-ness doesn't flip.
+    const effectivePaywalled =
+      paywalled !== undefined ? paywalled : existing.paywalled;
     const updated: SummaryRecord = {
       ...existing,
       lastCheckedAt: now,
       // Backfill on the first unchanged tick after deploy for records
       // that predate the persistence. No-op once it's set.
       contentBytes,
+      ...(effectivePaywalled !== undefined
+        ? { paywalled: effectivePaywalled }
+        : {}),
     };
     try {
       await store.set(storyId, updated, RECORD_TTL_SECONDS);
@@ -1177,6 +1244,9 @@ async function processArticleTrack(
       sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
       contentBytes,
       tokens: jinaTokens,
+      ...(effectivePaywalled !== undefined
+        ? { paywalled: effectivePaywalled }
+        : {}),
     });
   }
 
@@ -1207,6 +1277,7 @@ async function processArticleTrack(
     lastCheckedAt: now,
     lastChangedAt: now,
     contentBytes,
+    ...(paywalled !== undefined ? { paywalled } : {}),
   };
   try {
     await store.set(storyId, record, RECORD_TTL_SECONDS);
@@ -1214,7 +1285,12 @@ async function processArticleTrack(
     // best-effort
   }
   if (!existing) {
-    return log({ outcome: 'first_seen', contentBytes, tokens: jinaTokens });
+    return log({
+      outcome: 'first_seen',
+      contentBytes,
+      tokens: jinaTokens,
+      ...(paywalled !== undefined ? { paywalled } : {}),
+    });
   }
   const deltaBytes =
     typeof existing.contentBytes === 'number'
@@ -1229,6 +1305,7 @@ async function processArticleTrack(
     contentBytes,
     ...(deltaBytes !== undefined ? { deltaBytes } : {}),
     tokens: jinaTokens,
+    ...(paywalled !== undefined ? { paywalled } : {}),
   });
 }
 

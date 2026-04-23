@@ -110,7 +110,8 @@ types get documented here in the same commit they ship in.
     "geminiPromptTokens": 1234,
     "geminiOutputTokens": 56,
     "geminiTotalTokens": 1290,
-    "jinaTokens": 4567
+    "jinaTokens": 4567,
+    "paywalled": false
   }
   ```
   `outcome` covers the four alert conditions: cache-hit ratio
@@ -120,6 +121,18 @@ types get documented here in the same commit they ship in.
   skeleton sizing. Gemini token fields are present on every
   generated summary; `jinaTokens` is present on URL-post
   generations only (self-posts don't round-trip Jina).
+  `paywalled` is the `detectPaywall()` verdict on the Jina-clean
+  body — present on `cached` (when the stored record carries it)
+  and `generated` (URL posts only); absent on self-posts, on
+  errors before the Jina round-trip, and on legacy cached records
+  written before the detector landed. Advisory only today: nothing
+  in the handler branches on it, so a faulty detector can't hide a
+  real summary. For paywall-prevalence queries, filter `outcome in
+  ("cached", "generated") and isnotnull(paywalled)` to get the
+  detector's universe; raw counts by `paywalled` tell you the
+  share. See also the matching field on `warm-story` lines —
+  prevalence from the cron's top-N slice is the cleanest
+  per-domain signal.
   `reason` values: `forbidden`, `invalid_id`, `story_unreachable`,
   `story_not_available`, `low_score`, `no_article`,
   `not_configured`, `source_timeout`, `summary_budget_exhausted`,

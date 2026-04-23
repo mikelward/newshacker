@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   checkRateLimit,
+  detectPaywall,
   extractClientIp,
   handleSummaryRequest,
   hashArticle,
@@ -1461,6 +1462,9 @@ describe('handleSummaryRequest — summary-outcome log events', () => {
       geminiOutputTokens: 56,
       geminiTotalTokens: 1290,
       jinaTokens: 4567,
+      // Paywall-detector verdict on the Jina-clean body. "article body"
+      // matches no marker phrases, so this fixture reliably logs false.
+      paywalled: false,
     });
   });
 
@@ -1560,5 +1564,349 @@ describe('handleSummaryRequest — summary-outcome log events', () => {
     } finally {
       errSpy.mockRestore();
     }
+  });
+});
+
+describe('detectPaywall', () => {
+  it('returns false on empty content', () => {
+    expect(detectPaywall('')).toBe(false);
+  });
+
+  it('returns false on a long article that never mentions a paywall marker', () => {
+    // 4 KB of lorem-ish text. No paywall markers. Should stay negative
+    // even though it's a generic article body.
+    const body =
+      'The early 19th-century development of mechanical looms reshaped the textile towns of Lancashire. ' +
+      'Weavers gathered in small workshops, and their apprentices learned the craft by repetition and observation. '.repeat(30);
+    expect(body.length).toBeGreaterThan(2000);
+    expect(detectPaywall(body)).toBe(false);
+  });
+
+  it('returns false on a long article that mentions "subscribe" incidentally', () => {
+    // Long body + one incidental marker ("subscribe to our newsletter" —
+    // not in the overlay-copy pattern table anyway). Nothing matches.
+    const body =
+      'A walking tour of the neighbourhood starts at the old library. '.repeat(80) +
+      '\n\nIf you enjoyed this post, subscribe to our newsletter for more.';
+    expect(body.length).toBeGreaterThan(2000);
+    expect(detectPaywall(body)).toBe(false);
+  });
+
+  it('returns false on a long article with a single real marker (one-marker + short-body gate)', () => {
+    // A long readable article that happens to include overlay-style
+    // copy in a sidebar should NOT trip (body > 2000 gate).
+    const body =
+      'The tram lines curved past the market square as the rain came on. '.repeat(60) +
+      '\n\nSign in to continue reading on our sister site.';
+    expect(body.length).toBeGreaterThan(2000);
+    expect(detectPaywall(body)).toBe(false);
+  });
+
+  it('returns true on a short paywall overlay (single marker + short body)', () => {
+    const body =
+      'Premium Story\n\nSubscribe to continue reading this article. Already a subscriber? Sign in.';
+    expect(body.length).toBeLessThanOrEqual(2000);
+    expect(detectPaywall(body)).toBe(true);
+  });
+
+  it('returns true when two markers hit, regardless of length', () => {
+    // Dynamic paywall page: a few KB of marketing, ad slot copy, and
+    // a sign-in form. Two distinct marker hits trip the 2-hit gate.
+    const body =
+      'Welcome to our site. '.repeat(100) +
+      '\nThis article is for subscribers only. '.repeat(3) +
+      'Please sign in to continue reading. ';
+    expect(body.length).toBeGreaterThan(2000);
+    expect(detectPaywall(body)).toBe(true);
+  });
+
+  it('returns true on a "X of Y free articles" counter', () => {
+    const body =
+      'You have 2 free articles remaining this month.\n\n' +
+      'The conference opened with a keynote on supply-chain economics.';
+    expect(detectPaywall(body)).toBe(true);
+  });
+
+  it('returns true on a JSON-LD isAccessibleForFree:false marker (strong signal)', () => {
+    // This alone should trip, even if the body is otherwise long and
+    // contains no marker phrases — schema.org tells us directly.
+    const body =
+      'The industrial revolution reshaped how textile work was organised. '.repeat(60) +
+      '\n\n<script type="application/ld+json">' +
+      '{"@type":"NewsArticle","isAccessibleForFree": false}</script>';
+    expect(body.length).toBeGreaterThan(2000);
+    expect(detectPaywall(body)).toBe(true);
+  });
+
+  it('matches the isAccessibleForFree marker with whitespace and case variations', () => {
+    expect(detectPaywall('{"isAccessibleForFree":false}')).toBe(true);
+    expect(detectPaywall('{"isAccessibleForFree": false}')).toBe(true);
+    expect(detectPaywall('{"isAccessibleForFree"  :  false}')).toBe(true);
+    // Must be literal `false` — `true` doesn't count.
+    expect(detectPaywall('{"isAccessibleForFree":true}')).toBe(false);
+  });
+
+  it('is case-insensitive across marker phrases', () => {
+    expect(
+      detectPaywall('SUBSCRIBE TO CONTINUE reading this article.'),
+    ).toBe(true);
+    expect(
+      detectPaywall('This Article Is For Subscribers Only.'),
+    ).toBe(true);
+  });
+
+  it('does not trip on the word "paywall" alone', () => {
+    // An article that discusses paywalls should not be flagged as
+    // being paywalled just for mentioning the topic.
+    const body =
+      'The rise of the paywall is a major shift in how digital journalism ' +
+      'funds itself. News outlets have experimented with paywalls of many ' +
+      'shapes, from hard walls to metered models. '.repeat(10);
+    expect(detectPaywall(body)).toBe(false);
+  });
+});
+
+describe('handleSummaryRequest — paywalled field propagation', () => {
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  function outcomeLines(): Array<Record<string, unknown>> {
+    return logSpy.mock.calls
+      .map((c: unknown[]) => (typeof c[0] === 'string' ? c[0] : ''))
+      .map((raw: string): unknown => {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (obj: unknown): obj is Record<string, unknown> =>
+          typeof obj === 'object' &&
+          obj !== null &&
+          (obj as { type?: unknown }).type === 'summary-outcome',
+      );
+  }
+
+  it('writes paywalled=true onto the record and the generated log line when Jina returns a paywall teaser', async () => {
+    const articleUrl = 'https://paywalled.example.com/a';
+    const paywallBody =
+      'Premium Story\n\nSubscribe to continue reading this article.';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(paywallBody) },
+    });
+    const fetchItem = fetchItemFor({
+      700: { id: 700, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([{ text: 'ok' }]);
+    const res = await handleSummaryRequest(makeRequest(700), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(200);
+
+    const record = store.map.get(700)!.record;
+    expect(record.paywalled).toBe(true);
+
+    const lines = outcomeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      outcome: 'generated',
+      storyId: 700,
+      paywalled: true,
+    });
+  });
+
+  it('writes paywalled=false onto the record and the generated log line for real article content', async () => {
+    const articleUrl = 'https://example.com/real';
+    const realBody =
+      'The tram lines curved past the market square as the rain came on. '.repeat(30);
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(realBody) },
+    });
+    const fetchItem = fetchItemFor({
+      701: { id: 701, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    await handleSummaryRequest(makeRequest(701), {
+      createClient: () => createFakeClient([{ text: 'ok' }]),
+      fetchImpl,
+      fetchItem,
+      store,
+    });
+
+    expect(store.map.get(701)!.record.paywalled).toBe(false);
+    const lines = outcomeLines();
+    expect(lines[0]).toMatchObject({ outcome: 'generated', paywalled: false });
+  });
+
+  it('propagates paywalled from a cached record onto the cached log line', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      702,
+      {
+        summary: 'cached summary',
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+        paywalled: true,
+      },
+      60,
+    );
+    await handleSummaryRequest(makeRequest(702), { store });
+    const lines = outcomeLines();
+    expect(lines[0]).toMatchObject({
+      outcome: 'cached',
+      storyId: 702,
+      paywalled: true,
+    });
+  });
+
+  it('omits paywalled on the cached log line when the stored record predates the field', async () => {
+    // Pre-detector records don't carry the field. The log line must
+    // omit it rather than emit `undefined` or `null` — keeps APL
+    // queries simple and avoids false cardinality on the monitor
+    // dashboards.
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      703,
+      {
+        summary: 'legacy summary',
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    await handleSummaryRequest(makeRequest(703), { store });
+    const lines = outcomeLines();
+    expect(lines[0]).toMatchObject({ outcome: 'cached' });
+    expect(lines[0]).not.toHaveProperty('paywalled');
+  });
+
+  it('omits paywalled on self-post generated log lines (no Jina round-trip)', async () => {
+    // Ask HN / Show HN / text-only submissions skip Jina entirely, so
+    // there's nothing to run detection on. The field should be absent
+    // from both the record and the log line — not set to false.
+    const fetchItem = fetchItemFor({
+      704: {
+        id: 704,
+        type: 'story',
+        title: 'Ask HN: anyone else?',
+        text: 'Body of the ask-hn post.',
+        score: 10,
+      },
+    });
+    const store = createTestStore();
+    await handleSummaryRequest(makeRequest(704), {
+      createClient: () => createFakeClient([{ text: 'ok' }]),
+      fetchItem,
+      store,
+    });
+    expect(store.map.get(704)!.record.paywalled).toBeUndefined();
+    const lines = outcomeLines();
+    expect(lines[0]).toMatchObject({ outcome: 'generated', storyId: 704 });
+    expect(lines[0]).not.toHaveProperty('paywalled');
+  });
+
+  it('omits paywalled on summarization_failed even though Jina succeeded', async () => {
+    // `summarization_failed` fires after a successful Jina fetch — so
+    // the detector verdict IS known. We deliberately drop it from
+    // the log line anyway, to keep the paywall-prevalence query's
+    // numerator / denominator cleanly scoped to "summaries we
+    // actually served" (cached + generated). A future change that
+    // emits `paywalled` on error paths would silently skew the
+    // per-host prevalence shares; this test is the regression guard.
+    const articleUrl = 'https://paywalled.example.com/captcha';
+    const paywallBody =
+      'Premium Story\n\nSubscribe to continue reading this article.';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(paywallBody) },
+    });
+    const fetchItem = fetchItemFor({
+      705: { id: 705, type: 'story', url: articleUrl, score: 10 },
+    });
+    // Gemini returns empty → handler falls to summarization_failed.
+    const client = createFakeClient([{ text: null }]);
+    const res = await handleSummaryRequest(makeRequest(705), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(502);
+    const lines = outcomeLines();
+    expect(lines[0]).toMatchObject({
+      outcome: 'error',
+      reason: 'summarization_failed',
+    });
+    expect(lines[0]).not.toHaveProperty('paywalled');
+  });
+});
+
+describe('parseRecord — paywalled field round-trip', () => {
+  it('preserves paywalled=true', () => {
+    const r: SummaryRecord = {
+      summary: 's',
+      articleHash: 'h',
+      firstSeenAt: 1,
+      summaryGeneratedAt: 1,
+      lastCheckedAt: 1,
+      lastChangedAt: 1,
+      paywalled: true,
+    };
+    expect(parseRecord(r)).toEqual(r);
+    expect(parseRecord(JSON.stringify(r))).toEqual(r);
+  });
+
+  it('preserves paywalled=false', () => {
+    const r: SummaryRecord = {
+      summary: 's',
+      articleHash: 'h',
+      firstSeenAt: 1,
+      summaryGeneratedAt: 1,
+      lastCheckedAt: 1,
+      lastChangedAt: 1,
+      paywalled: false,
+    };
+    expect(parseRecord(r)).toEqual(r);
+  });
+
+  it('treats non-boolean paywalled as absent (ignores garbage, not a parse error)', () => {
+    const parsed = parseRecord({
+      summary: 's',
+      articleHash: 'h',
+      firstSeenAt: 1,
+      summaryGeneratedAt: 1,
+      lastCheckedAt: 1,
+      lastChangedAt: 1,
+      paywalled: 'yes' as unknown as boolean,
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.paywalled).toBeUndefined();
   });
 });
