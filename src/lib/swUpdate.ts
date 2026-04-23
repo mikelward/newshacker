@@ -103,3 +103,21 @@ export async function checkForServiceWorkerUpdate(
     // surface as a PTR failure; the feed refresh is the real work.
   }
 }
+
+// Passive counterpart: fire `registration.update()` and forget. No
+// waiting, no reload — intended for triggers where the user hasn't
+// asked for a reload (visibility change, focus return). If the check
+// finds a newer SW, the `AppUpdateWatcher` elsewhere in the tree
+// picks it up via `controllerchange` and surfaces the update-available
+// toast instead.
+export async function pingServiceWorkerForUpdate(): Promise<void> {
+  if (typeof navigator === 'undefined') return;
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    await registration?.update();
+  } catch {
+    // A transient failure re-checking the SW script must never
+    // surface to the user — passive trigger, no spinner to unwind.
+  }
+}
