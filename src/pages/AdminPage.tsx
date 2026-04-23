@@ -141,7 +141,11 @@ function jinaDetail(j: JinaAccount): string {
       ? `configured · unreachable (HTTP ${j.httpStatus})`
       : 'configured · unreachable';
   }
-  return 'configured · reachable';
+  // Tri-state: only claim "reachable" when the server actually says
+  // so. `undefined` means the probe didn't run (or the response
+  // shape is older than this client) — don't paint it green.
+  if (j.reachable === true) return 'configured · reachable';
+  return 'configured';
 }
 
 function formatAmount(n: number | null | undefined): string {
@@ -322,7 +326,7 @@ export function AdminPage() {
             </span>
           </div>
           {data.services.jina.configured &&
-          data.services.jina.reachable !== false ? (
+          data.services.jina.reachable === true ? (
             <dl className="admin-page__list">
               <div>
                 <dt>Total balance</dt>

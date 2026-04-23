@@ -83,9 +83,12 @@ export interface JinaAccount {
   // (401/403) from "rate limit" (429) at a glance.
   reachable?: boolean;
   httpStatus?: number;
-  // Best-effort extraction. `null` = field present in the response
-  // shape but absent for this account; `undefined` = probe didn't
-  // run (e.g. JINA_API_KEY not set).
+  // Best-effort extraction. `null` = missing or unparseable (the
+  // response didn't have a number at the expected key — whether
+  // because Jina omitted it for this account or because the schema
+  // drifted under us). `undefined` = probe didn't run (e.g.
+  // JINA_API_KEY not set, or upstream unreachable before we could
+  // parse).
   regularBalance?: number | null;
   totalBalance?: number | null;
   // Alert threshold the operator has configured on the Jina
