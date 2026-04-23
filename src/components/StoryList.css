@@ -5,8 +5,8 @@
 }
 
 .story-list__item {
-  background: var(--hn-bg-card);
-  border-bottom: 1px solid var(--hn-border);
+  background: var(--nh-bg-card);
+  border-bottom: 1px solid var(--nh-border);
 }
 
 /* Sweep animation: every unpinned, fully-visible row slides+fades out
@@ -75,10 +75,10 @@
   min-width: 0;
   min-height: 56px;
   padding: 12px 16px;
-  background: var(--hn-bg-card);
-  border: 1px solid var(--hn-border);
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
   border-radius: 8px;
-  color: var(--hn-text);
+  color: var(--nh-text);
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
@@ -97,13 +97,13 @@
 @media (hover: hover) {
   .back-to-top-btn:hover,
   .load-more-btn:hover:not(:disabled) {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
 }
 
 .back-to-top-btn:active,
 .load-more-btn:active:not(:disabled) {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 .load-more-btn:disabled {
@@ -129,25 +129,25 @@
   min-height: 56px;
   margin-left: auto;
   padding: 12px;
-  background: var(--hn-bg-card);
-  border: 1px solid var(--hn-border);
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
   border-radius: 8px;
-  color: var(--hn-text);
+  color: var(--nh-text);
   cursor: pointer;
 }
 
 @media (hover: hover) {
   .list-footer__icon-btn:hover:not(:disabled) {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
 }
 
 .list-footer__icon-btn:active:not(:disabled) {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 .list-footer__icon-btn:disabled {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   opacity: 0.5;
   cursor: default;
 }
@@ -166,9 +166,9 @@
   min-height: var(--tap-min);
   padding: 6px 14px;
   border-radius: 6px;
-  border: 1px solid var(--hn-border);
-  background: var(--hn-bg-card);
-  color: var(--hn-text);
+  border: 1px solid var(--nh-border);
+  background: var(--nh-bg-card);
+  color: var(--nh-text);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -176,10 +176,10 @@
 
 @media (hover: hover) {
   .recover-btn:hover {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
 }
 
 .recover-btn:active {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }

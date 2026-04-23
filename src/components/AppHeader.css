@@ -2,7 +2,7 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--hn-orange);
+  background: var(--nh-orange);
   color: #fff;
   display: flex;
   align-items: center;

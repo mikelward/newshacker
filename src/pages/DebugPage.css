@@ -1,8 +1,8 @@
 .debug-page {
-  background: var(--hn-bg-card);
+  background: var(--nh-bg-card);
   padding: 16px;
-  border-bottom: 1px solid var(--hn-border);
-  color: var(--hn-text);
+  border-bottom: 1px solid var(--nh-border);
+  color: var(--nh-text);
   font-size: 15px;
   line-height: 1.5;
 }
@@ -32,7 +32,7 @@
 }
 
 .debug-page__list dt {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   min-width: 72px;
 }
 
@@ -41,7 +41,7 @@
 }
 
 .debug-page__muted {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-size: 13px;
 }
 
@@ -76,7 +76,7 @@
 }
 
 .debug-page__badge[data-state='off'] {
-  background: var(--hn-meta);
+  background: var(--nh-meta);
   opacity: 0.5;
 }
 
@@ -85,7 +85,7 @@
 }
 
 .debug-page__service-detail {
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   font-size: 13px;
 }
 
@@ -94,9 +94,9 @@
 }
 
 .debug-page__refresh {
-  background: var(--hn-bg-card);
-  color: var(--hn-text);
-  border: 1px solid var(--hn-border);
+  background: var(--nh-bg-card);
+  color: var(--nh-text);
+  border: 1px solid var(--nh-border);
   padding: 6px 12px;
   border-radius: 4px;
   font-size: 13px;
@@ -106,12 +106,12 @@
 
 @media (hover: hover) {
   .debug-page__refresh:hover {
-    background: var(--hn-bg);
+    background: var(--nh-bg);
   }
 }
 
 .debug-page__refresh:active {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 .debug-page__refresh:disabled {
@@ -120,14 +120,14 @@
 }
 
 .debug-page code {
-  background: var(--hn-bg-code);
+  background: var(--nh-bg-code);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 13px;
 }
 
 .debug-page a {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   text-decoration: underline;
 }
 

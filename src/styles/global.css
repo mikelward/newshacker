@@ -1,19 +1,19 @@
 :root {
-  --hn-orange: #ff6600;
-  --hn-orange-dark: #e65c00;
-  --hn-bg: #f6f6ef;
-  --hn-meta: #828282;
-  /* Read / already-opened story color. Sits between --hn-meta and
-     --hn-text so an opened title is clearly less prominent than an
-     unread one but still readable — the previous shared --hn-meta
+  --nh-orange: #ff6600;
+  --nh-orange-dark: #e65c00;
+  --nh-bg: #f6f6ef;
+  --nh-meta: #828282;
+  /* Read / already-opened story color. Sits between --nh-meta and
+     --nh-text so an opened title is clearly less prominent than an
+     unread one but still readable — the previous shared --nh-meta
      was too faded against the meta row below it. */
-  --hn-read: #5a5a5a;
-  --hn-border: #e0e0d9;
-  --hn-text: #000;
-  --hn-link: #000;
-  --hn-bg-card: #ffffff;
-  --hn-bg-code: #f4f4ee;
-  --hn-pressed: #ececec;
+  --nh-read: #5a5a5a;
+  --nh-border: #e0e0d9;
+  --nh-text: #000;
+  --nh-link: #000;
+  --nh-bg-card: #ffffff;
+  --nh-bg-code: #f4f4ee;
+  --nh-pressed: #ececec;
   --skeleton-base: #f0f0f0;
   --skeleton-highlight: #e4e4e4;
   --tap-min: 48px;
@@ -36,15 +36,15 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --hn-bg: #1b1b17;
-    --hn-meta: #9a9a8c;
-    --hn-read: #c4c4b5;
-    --hn-border: #2f2f2a;
-    --hn-text: #ececea;
-    --hn-link: #ececea;
-    --hn-bg-card: #222220;
-    --hn-bg-code: #2a2a25;
-    --hn-pressed: #2a2a25;
+    --nh-bg: #1b1b17;
+    --nh-meta: #9a9a8c;
+    --nh-read: #c4c4b5;
+    --nh-border: #2f2f2a;
+    --nh-text: #ececea;
+    --nh-link: #ececea;
+    --nh-bg-card: #222220;
+    --nh-bg-code: #2a2a25;
+    --nh-pressed: #2a2a25;
     --skeleton-base: #2a2a25;
     --skeleton-highlight: #3a3a32;
     color-scheme: dark;
@@ -52,15 +52,15 @@
 }
 
 :root[data-theme='dark'] {
-  --hn-bg: #1b1b17;
-  --hn-meta: #9a9a8c;
-  --hn-read: #c4c4b5;
-  --hn-border: #2f2f2a;
-  --hn-text: #ececea;
-  --hn-link: #ececea;
-  --hn-bg-card: #222220;
-  --hn-bg-code: #2a2a25;
-  --hn-pressed: #2a2a25;
+  --nh-bg: #1b1b17;
+  --nh-meta: #9a9a8c;
+  --nh-read: #c4c4b5;
+  --nh-border: #2f2f2a;
+  --nh-text: #ececea;
+  --nh-link: #ececea;
+  --nh-bg-card: #222220;
+  --nh-bg-code: #2a2a25;
+  --nh-pressed: #2a2a25;
   --skeleton-base: #2a2a25;
   --skeleton-highlight: #3a3a32;
   color-scheme: dark;
@@ -139,12 +139,12 @@ body {
   font-family: var(--font-system);
   font-size: 16px;
   line-height: 1.4;
-  color: var(--hn-text);
-  background: var(--hn-bg);
+  color: var(--nh-text);
+  background: var(--nh-bg);
 }
 
 a {
-  color: var(--hn-link);
+  color: var(--nh-link);
   text-decoration: none;
 }
 
@@ -156,7 +156,7 @@ a {
 }
 
 :focus-visible {
-  outline: 2px solid var(--hn-orange);
+  outline: 2px solid var(--nh-orange);
   outline-offset: 2px;
 }
 
@@ -193,9 +193,9 @@ a {
 }
 
 .retry-btn {
-  background: var(--hn-bg-card);
-  border: 1px solid var(--hn-border);
-  color: var(--hn-text);
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
+  color: var(--nh-text);
   padding: 10px 20px;
   border-radius: 6px;
   min-height: var(--tap-min);
@@ -205,12 +205,12 @@ a {
 
 @media (hover: hover) {
   .retry-btn:hover {
-    background: var(--hn-pressed);
+    background: var(--nh-pressed);
   }
 }
 
 .retry-btn:active {
-  background: var(--hn-border);
+  background: var(--nh-border);
 }
 
 @media (prefers-reduced-motion: reduce) {

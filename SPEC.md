@@ -433,7 +433,7 @@ Thread page mirrors the same discipline: a single primary "Read article" button 
 
 ### Thread action bar
 
-Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin/Unpin** → **Done** → **More actions ⋮**. Each icon button is 48×48px with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--hn-meta` by default and `--hn-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
+Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin/Unpin** → **Done** → **More actions ⋮**. Each icon button is 48×48px with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--nh-meta` by default and `--nh-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
 
 **Read-article "read" state.** The HN-orange Read article button drops to the neutral secondary palette once the reader has opened the article at least once in this browser (tracked by `articleOpenedIds` in the `useOpenedStories` hook, persisted to `localStorage` under `newshacker:openedStoryIds`). Layout, icon, label, and href are unchanged — only the colors shift — so a re-visit still surfaces the link without visually shouting "read this!" at someone who already has. Implemented as a `.thread__action--read` modifier stacked on top of `.thread__action--primary`; ordering in `Thread.css` matters (read overrides primary). Tapping the button still calls `markArticleOpenedId`, which is a no-op if the id is already set. Matches the feed row's "visited" treatment where opened stories fade the title.
 
@@ -473,7 +473,7 @@ Collapsed state (default):
 
 Expanded state:
 
-- Background tints to `--hn-pressed` so the active node stands out in a long thread.
+- Background tints to `--nh-pressed` so the active node stands out in a long thread.
 - Body shows in full.
 - The meta row gains a muted `Reply on HN ↗` link (`news.ycombinator.com/reply?id=:id`, opens in a new tab) inline at its right-hand end, so the meta row doubles as the action row. The row is laid out as a flex row so upvote/downvote buttons can slot in alongside later.
 - Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.

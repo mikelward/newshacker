@@ -1,8 +1,8 @@
 .user-page {
-  background: var(--hn-bg-card);
+  background: var(--nh-bg-card);
   padding: 16px;
-  border-bottom: 1px solid var(--hn-border);
-  color: var(--hn-text);
+  border-bottom: 1px solid var(--nh-border);
+  color: var(--nh-text);
 }
 
 .user-page__id {
@@ -23,7 +23,7 @@
 
 .user-page__stats dt {
   font-size: 12px;
-  color: var(--hn-meta);
+  color: var(--nh-meta);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -40,7 +40,7 @@
 }
 
 .user-page__about a {
-  color: var(--hn-orange);
+  color: var(--nh-orange);
   text-decoration: underline;
 }
 
