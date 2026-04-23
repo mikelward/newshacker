@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _fetchCommentsSummaryForTests,
-  COMMENTS_SUMMARY_FRESHNESS_MS,
-  COMMENTS_SUMMARY_RETENTION_MS,
   commentsSummaryQueryKey,
   commentsSummaryQueryOptions,
 } from './useCommentsSummary';
+import { SUMMARY_FRESHNESS_MS, SUMMARY_RETENTION_MS } from './useSummary';
 
 describe('useCommentsSummary helpers', () => {
   beforeEach(() => {
@@ -26,16 +25,13 @@ describe('useCommentsSummary helpers', () => {
   // loading state even though the bytes were still in the SW cache and the
   // persister. Retention now matches the SW 7-day TTL; freshness matches
   // the cron's default 30-min check interval so we don't over-refetch.
+  // We also share the freshness/retention pair with useSummary so the
+  // two cron-warmed endpoints can't silently drift apart.
   it('splits freshness (staleTime) from retention (gcTime)', () => {
     const opts = commentsSummaryQueryOptions(1);
-    expect(opts.staleTime).toBe(30 * 60 * 1000);
-    expect(opts.gcTime).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(opts.staleTime).toBe(SUMMARY_FRESHNESS_MS);
+    expect(opts.gcTime).toBe(SUMMARY_RETENTION_MS);
     expect(opts.staleTime).toBeLessThan(opts.gcTime);
-  });
-
-  it('exports the constants', () => {
-    expect(COMMENTS_SUMMARY_FRESHNESS_MS).toBe(30 * 60 * 1000);
-    expect(COMMENTS_SUMMARY_RETENTION_MS).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it('hits /api/comments-summary with the story id and returns the insights', async () => {
