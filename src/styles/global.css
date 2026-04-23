@@ -3,6 +3,11 @@
   --hn-orange-dark: #e65c00;
   --hn-bg: #f6f6ef;
   --hn-meta: #828282;
+  /* Read / already-opened story color. Sits between --hn-meta and
+     --hn-text so an opened title is clearly less prominent than an
+     unread one but still readable — the previous shared --hn-meta
+     was too faded against the meta row below it. */
+  --hn-read: #5a5a5a;
   --hn-border: #e0e0d9;
   --hn-text: #000;
   --hn-link: #000;
@@ -33,6 +38,7 @@
   :root:not([data-theme='light']) {
     --hn-bg: #1b1b17;
     --hn-meta: #9a9a8c;
+    --hn-read: #c4c4b5;
     --hn-border: #2f2f2a;
     --hn-text: #ececea;
     --hn-link: #ececea;
@@ -48,6 +54,7 @@
 :root[data-theme='dark'] {
   --hn-bg: #1b1b17;
   --hn-meta: #9a9a8c;
+  --hn-read: #c4c4b5;
   --hn-border: #2f2f2a;
   --hn-text: #ececea;
   --hn-link: #ececea;

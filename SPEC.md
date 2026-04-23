@@ -516,7 +516,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 - Primary color: `#ff6600` (HN orange) for the header and accents.
 - Background: `#f6f6ef` (HN cream) for the page, white for cards/rows.
-- Text: `#000` primary, `#828282` metadata.
+- Text: `#000` primary, `#5a5a5a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
 - **Tap targets: ≥48×48px, ≥8px spacing between any two distinct targets.**
 - **At most 3 tappable zones per story row**, 2 in the shipped UI (row body + pin). Anything else is display-only. Upvoting is not on the row today; it lives on the thread page (see *Thread action bar*).
