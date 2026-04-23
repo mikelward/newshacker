@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
+import { isHotStory } from '../lib/format';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useDoneStories } from '../hooks/useDoneStories';
+import { useFeedFilters } from '../hooks/useFeedFilters';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
@@ -67,6 +69,7 @@ export function StoryList({ feed }: Props) {
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
   const { setSweep, setRefresh, recordHide } = useFeedBar();
+  const { unreadOnly, hotOnly } = useFeedFilters();
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
@@ -97,6 +100,9 @@ export function StoryList({ feed }: Props) {
   // subsequent feed refetch, it rejoins the list automatically.
   // Done stories are also hidden: Done is the completion log, and
   // the feed should represent "what's still worth looking at".
+  // Unread-only and hot-only toggles layer on top: an opened story is
+  // one the reader has tapped into (article or thread), a hot story is
+  // whatever `isHotStory` currently flags.
   const visibleStories = useMemo(
     () =>
       items.filter(
@@ -106,9 +112,20 @@ export function StoryList({ feed }: Props) {
           !it.dead &&
           (it.score ?? 0) > 1 &&
           !hiddenIds.has(it.id) &&
-          !doneIds.has(it.id),
+          !doneIds.has(it.id) &&
+          (!unreadOnly ||
+            (!articleOpenedIds.has(it.id) && !commentsOpenedIds.has(it.id))) &&
+          (!hotOnly || isHotStory(it)),
       ),
-    [items, hiddenIds, doneIds],
+    [
+      items,
+      hiddenIds,
+      doneIds,
+      unreadOnly,
+      hotOnly,
+      articleOpenedIds,
+      commentsOpenedIds,
+    ],
   );
 
   // Opportunistically warm the thread/comment cache for currently-trending

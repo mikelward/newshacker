@@ -15,6 +15,7 @@ function setOnline(value: boolean) {
 describe('<AppHeader>', () => {
   afterEach(() => {
     setOnline(true);
+    window.localStorage.clear();
   });
 
   it('does not render a top-right page-title label', () => {
@@ -147,6 +148,70 @@ describe('<AppHeader>', () => {
       'href',
       '/',
     );
+  });
+
+  describe('unread / hot filter buttons', () => {
+    it('renders both buttons on feed pages, defaulting to pressed=false', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      const hot = screen.getByTestId('hot-toggle');
+      expect(unread).toHaveAttribute('aria-pressed', 'false');
+      expect(hot).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('clicking the unread button flips aria-pressed and persists', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      act(() => {
+        fireEvent.click(unread);
+      });
+      expect(unread).toHaveAttribute('aria-pressed', 'true');
+      const stored = window.localStorage.getItem('newshacker:feedFilters');
+      expect(stored).toBeTruthy();
+      expect(JSON.parse(stored as string)).toMatchObject({ unreadOnly: true });
+    });
+
+    it('the hot button toggles independently of unread', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      const hot = screen.getByTestId('hot-toggle');
+      act(() => {
+        fireEvent.click(hot);
+      });
+      expect(hot).toHaveAttribute('aria-pressed', 'true');
+      expect(unread).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('adds the --on class when a filter is active, and drops it when off', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      expect(unread.className).not.toMatch(/filter-btn--on/);
+      act(() => {
+        fireEvent.click(unread);
+      });
+      expect(unread.className).toMatch(/filter-btn--on/);
+      act(() => {
+        fireEvent.click(unread);
+      });
+      expect(unread.className).not.toMatch(/filter-btn--on/);
+    });
+
+    it('does not render either button on non-feed pages', () => {
+      renderWithProviders(<AppHeader />, { route: '/pinned' });
+      expect(screen.queryByTestId('unread-toggle')).toBeNull();
+      expect(screen.queryByTestId('hot-toggle')).toBeNull();
+    });
+
+    it('buttons sit left of Refresh/Undo/Sweep in DOM order', () => {
+      renderWithProviders(<AppHeader />, { route: '/top' });
+      const unread = screen.getByTestId('unread-toggle');
+      const hot = screen.getByTestId('hot-toggle');
+      const refresh = screen.getByTestId('refresh-btn');
+      const parent = refresh.parentElement!;
+      const buttons = Array.from(parent.children);
+      expect(buttons.indexOf(unread)).toBeLessThan(buttons.indexOf(hot));
+      expect(buttons.indexOf(hot)).toBeLessThan(buttons.indexOf(refresh));
+    });
   });
 });
 

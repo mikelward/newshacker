@@ -124,6 +124,49 @@
   color: rgba(255, 255, 255, 0.45);
 }
 
+/* Pressed-icon filter toggles (eye = unread-only, flame = hot-only).
+   Share .app-header__icon-btn's tap-target geometry; the --on variant
+   paints a white pill under the icon and flips the glyph to orange to
+   mimic the "toggle engaged" state the pin button uses on story rows.
+   Keep :hover wrapped in (hover: hover) so a touch tap doesn't leave
+   a sticky hover on the button after the press — matches the
+   StoryListItem.css pattern. */
+.app-header__filter-btn {
+  border-radius: 999px;
+  padding: 4px;
+}
+
+@media (hover: hover) {
+  .app-header__filter-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .app-header__filter-btn--on:hover {
+    background: #fff;
+  }
+}
+
+.app-header__filter-btn:active {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.app-header__filter-btn--on {
+  background: #fff;
+  color: var(--hn-orange);
+}
+
+.app-header__filter-btn--on:active {
+  background: #fff;
+}
+
+/* On narrow phones the brand title yields the space first. Below
+   ~400px we only show the "n" circle so the two filter buttons and
+   the three action icons can all sit on one row. */
+@media (max-width: 399px) {
+  .app-header__title {
+    display: none;
+  }
+}
+
 .app-header__offline {
   display: inline-flex;
   align-items: center;
