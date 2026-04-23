@@ -487,13 +487,17 @@ Leading quote paragraphs (lines a commenter prefixes with `> ` to re-quote their
 
 ## Top bar controls
 
-On feed pages the sticky orange header carries three feed-scoped action icons on the right, in order **Refresh → Undo → Sweep unpinned**. All three icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.
+On feed pages the sticky orange header carries two filter toggle buttons followed by three feed-scoped action icons on the right, in order **Unread-only → Hot-only → Refresh → Undo → Sweep unpinned**. All five controls stay in place (never shift) so the layout doesn't jump; action icons are disabled when the action is unavailable rather than being hidden, and filter buttons are always enabled.
 
+- **Unread-only filter** (eye icon button, `aria-pressed`) — when on, hides every story the reader has already opened (either the article or the thread, as tracked by `useOpenedStories`). When off, shows everything. The button paints the eye glyph in `var(--hn-orange)` on a white pill background when engaged, mirroring the pressed-state treatment used by the story-row pin button. State is persisted in `localStorage` under `newshacker:feedFilters` (a single JSON object with `unreadOnly` and `hotOnly` booleans) and kept in sync across tabs via the `storage` event.
+- **Hot-only filter** (flame icon button, `aria-pressed`) — when on, hides every story `isHotStory()` does not flag (i.e. non-trending). When off, shows everything. Same pressed-state visual and `newshacker:feedFilters` storage blob as the unread-only button. The two filters are independent — either, neither, or both can be on.
 - **Refresh** (Material Symbols `refresh`) — refetches the current feed and pulls cross-device sync state in one go. Same handler the pull-to-refresh gesture already calls (`Promise.all([refetch(), cloudSyncPullNow()])`); wired through `FeedBarContext` so the header doesn't need to know which feed is on screen. The icon spins while the refresh is in flight and the button is disabled (also disabled when offline). Available on every device — pointer and touch alike — so desktop users (for whom pull-to-refresh is unusable) have a real refresh affordance, and touch users get the same button as a faster alternative to the pull gesture.
 - **Undo** (Material Symbols `undo`) — restores the most recent hide action: either the last swipe-to-hide, the last menu "Hide", or the last sweep (the whole batch at once). One level of undo only; recording a new hide replaces the stored batch. Disabled when there is nothing to undo. Not persisted across reloads.
 - **Sweep unpinned** (Material Symbols `sweep`) — hides every visible unpinned story in one shot. Disabled when there are no unpinned stories to hide.
 
-Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols, outlined weight, viewBox `0 -960 960 960`, drawn with `fill="currentColor"`). No icon font, CSS, or web request is used to load them at runtime.
+Action icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols, outlined weight, viewBox `0 -960 960 960`, drawn with `fill="currentColor"`). The eye and flame glyphs used by the filter buttons are drawn on a `0 0 24 24` viewBox but follow the same inline, monochrome, `currentColor` convention. No icon font, CSS, or web request is used to load them at runtime.
+
+The filters only apply to the feed's regular story rows. Off-feed pinned rows prepended to the top of the list are always visible — pinning is an explicit, durable "keep this in front of me" action and the filter buttons shouldn't override it. Filters do not affect library pages (`/pinned`, `/done`, `/favorites`, `/hidden`, `/opened`) — they're feed-scoped and the buttons only render on feed pages alongside Refresh/Undo/Sweep.
 
 On non-feed pages (thread, `/pinned`, `/done`, `/hidden`, etc.) these icons do not render at all.
 
