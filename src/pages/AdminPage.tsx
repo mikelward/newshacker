@@ -11,13 +11,23 @@ interface ServiceProbe {
   latencyMs?: number;
 }
 
+interface JinaAccount {
+  configured: boolean;
+  reachable?: boolean;
+  httpStatus?: number;
+  regularBalance?: number | null;
+  totalBalance?: number | null;
+  threshold?: number | null;
+  raw?: unknown;
+}
+
 interface AdminResponse {
   username: string;
   region: string | null;
   build: string | null;
   services: {
     gemini: ServiceProbe;
-    jina: ServiceProbe;
+    jina: JinaAccount;
     redis: ServiceProbe;
   };
 }
@@ -107,6 +117,41 @@ function probeDetail(p: ServiceProbe): string {
     return `configured · reachable${latency}`;
   }
   return 'configured · unreachable';
+}
+
+function jinaState(j: JinaAccount): 'ok' | 'warn' | 'off' {
+  if (!j.configured) return 'off';
+  if (j.reachable === false) return 'warn';
+  // Below the operator-configured threshold counts as warn so the
+  // dot turns orange even if everything else is healthy.
+  if (
+    typeof j.threshold === 'number' &&
+    typeof j.totalBalance === 'number' &&
+    j.totalBalance <= j.threshold
+  ) {
+    return 'warn';
+  }
+  return 'ok';
+}
+
+function jinaDetail(j: JinaAccount): string {
+  if (!j.configured) return 'not configured';
+  if (j.reachable === false) {
+    return j.httpStatus
+      ? `configured · unreachable (HTTP ${j.httpStatus})`
+      : 'configured · unreachable';
+  }
+  return 'configured · reachable';
+}
+
+function formatAmount(n: number | null | undefined): string {
+  if (n === undefined) return 'unavailable';
+  if (n === null) return 'unknown';
+  // The dashboard displays raw token counts without currency — the
+  // "wallet" values are Jina API tokens, not dollars. Keep the
+  // locale-aware thousands separator so large balances are
+  // readable.
+  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
 export function AdminPage() {
@@ -270,24 +315,54 @@ export function AdminPage() {
 
           <h2 className="admin-page__heading">Jina</h2>
           <div className="admin-page__service-row">
-            {serviceBadge(probeState(data.services.jina))}
+            {serviceBadge(jinaState(data.services.jina))}
             <span className="admin-page__service-name">Jina</span>
             <span className="admin-page__service-detail">
-              {probeDetail(data.services.jina)}
+              {jinaDetail(data.services.jina)}
             </span>
           </div>
+          {data.services.jina.configured &&
+          data.services.jina.reachable !== false ? (
+            <dl className="admin-page__list">
+              <div>
+                <dt>Total balance</dt>
+                <dd data-testid="admin-jina-total-balance">
+                  {formatAmount(data.services.jina.totalBalance)}
+                </dd>
+              </div>
+              <div>
+                <dt>Regular balance</dt>
+                <dd data-testid="admin-jina-regular-balance">
+                  {formatAmount(data.services.jina.regularBalance)}
+                </dd>
+              </div>
+              <div>
+                <dt>Alert threshold</dt>
+                <dd data-testid="admin-jina-threshold">
+                  {formatAmount(data.services.jina.threshold)}
+                </dd>
+              </div>
+            </dl>
+          ) : null}
+          {data.services.jina.raw !== undefined ? (
+            <details className="admin-page__details">
+              <summary>Raw response from Jina</summary>
+              <pre className="admin-page__raw">
+                {JSON.stringify(data.services.jina.raw, null, 2)}
+              </pre>
+            </details>
+          ) : null}
           <p className="admin-page__note">
-            Jina does not publish a stable balance endpoint, so this
-            page currently only reports whether the API key is
-            configured.{' '}
+            Balance comes from Jina's undocumented dashboard backend —
+            if numbers look wrong, cross-check against the{' '}
             <a
               href="https://jina.ai/api-dashboard/"
               target="_blank"
               rel="noreferrer noopener"
             >
-              Open Jina dashboard
-            </a>{' '}
-            to see live wallet balance, usage, and billing.
+              Jina dashboard
+            </a>
+            .
           </p>
 
           <h2 className="admin-page__heading">Redis (Upstash)</h2>

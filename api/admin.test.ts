@@ -2,12 +2,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   extractHnLoggedInUsername,
+  extractJinaFields,
   handleAdminRequest,
   parseCookieHeader,
   usernameFromSessionValue,
   type AdminResponse,
   type HnVerifyResult,
 } from './admin';
+
+// Helper to build a stubbed `fetch` that returns a fixed JSON body
+// with the given status. Shared across the Jina probe tests.
+function jsonFetch(body: unknown, status = 200): typeof fetch {
+  return (async () =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+}
 
 // A helper so every "logged-in mikelward" test uses the same stub.
 // Tests that want to exercise failure paths override inline.
@@ -168,27 +179,146 @@ describe('handleAdminRequest', () => {
     expect(body.services.gemini.configured).toBe(true);
   });
 
-  it('reports jina as configured when the API key is set', async () => {
-    // Link-only: the /admin page renders a dashboard link next to
-    // this, so we only need the env-var presence. A live balance
-    // probe will come in a follow-up against Jina's dashboard
-    // backend endpoint.
-    process.env.JINA_API_KEY = 'jk';
+  it('reports jina as not configured when JINA_API_KEY is absent', async () => {
+    // When JINA_API_KEY is unset we must NOT make the outbound request —
+    // there's nothing to authenticate with. Assert by passing a fetch
+    // stub that throws and confirming it was never called.
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('should not be called');
+    }) as unknown as typeof fetch;
     const res = await handleAdminRequest(
       requestWithCookie('hn_session=mikelward%26hash'),
-      { pingRedis: async () => ({ ok: false }), verifyHn: verifyMikelward },
-    );
-    const body = await readBody(res);
-    expect(body.services.jina).toEqual({ configured: true });
-  });
-
-  it('reports jina as not configured when the API key is absent', async () => {
-    const res = await handleAdminRequest(
-      requestWithCookie('hn_session=mikelward%26hash'),
-      { pingRedis: async () => ({ ok: false }), verifyHn: verifyMikelward },
+      {
+        fetchImpl,
+        pingRedis: async () => ({ ok: false }),
+        verifyHn: verifyMikelward,
+      },
     );
     const body = await readBody(res);
     expect(body.services.jina).toEqual({ configured: false });
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls)
+      .toHaveLength(0);
+  });
+
+  it('extracts Jina balances + threshold from the fe_user response', async () => {
+    process.env.JINA_API_KEY = 'jk';
+    const fetchImpl = jsonFetch({
+      email: 'ops@example.com',
+      wallet: {
+        regular_balance: 100_000,
+        total_balance: 1_234_567,
+      },
+      metadata: { threshold: 50_000 },
+    });
+    const res = await handleAdminRequest(
+      requestWithCookie('hn_session=mikelward%26hash'),
+      {
+        fetchImpl,
+        pingRedis: async () => ({ ok: false }),
+        verifyHn: verifyMikelward,
+      },
+    );
+    const body = await readBody(res);
+    expect(body.services.jina.configured).toBe(true);
+    expect(body.services.jina.reachable).toBe(true);
+    expect(body.services.jina.regularBalance).toBe(100_000);
+    expect(body.services.jina.totalBalance).toBe(1_234_567);
+    expect(body.services.jina.threshold).toBe(50_000);
+    expect(body.services.jina.raw).toMatchObject({
+      email: 'ops@example.com',
+    });
+  });
+
+  it('passes the Jina API key as a query parameter on the fe_user URL', async () => {
+    // The dashboard uses `?api_key=<KEY>`, not a Bearer header — Bearer
+    // returns "invalid endpoint" on this path.
+    process.env.JINA_API_KEY = 'super-secret-jina-key';
+    let observedUrl: string | null = null;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      observedUrl =
+        typeof input === 'string' ? input : (input as URL).toString();
+      return new Response(
+        JSON.stringify({
+          wallet: { total_balance: 1 },
+          metadata: { threshold: 0 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    const res = await handleAdminRequest(
+      requestWithCookie('hn_session=mikelward%26hash'),
+      {
+        fetchImpl,
+        pingRedis: async () => ({ ok: false }),
+        verifyHn: verifyMikelward,
+      },
+    );
+    expect(observedUrl).toBe(
+      'https://embeddings-dashboard-api.jina.ai/api/v1/api_key/fe_user?api_key=super-secret-jina-key',
+    );
+    // The key must not surface in the admin response body (only the
+    // admin reaches this endpoint, but still — defence in depth).
+    const text = await res.text();
+    expect(text).not.toContain('super-secret-jina-key');
+  });
+
+  it('reports Jina as unreachable with the upstream status on non-2xx', async () => {
+    process.env.JINA_API_KEY = 'jk';
+    const fetchImpl = jsonFetch({ error: 'unauthorized' }, 401);
+    const res = await handleAdminRequest(
+      requestWithCookie('hn_session=mikelward%26hash'),
+      {
+        fetchImpl,
+        pingRedis: async () => ({ ok: false }),
+        verifyHn: verifyMikelward,
+      },
+    );
+    const body = await readBody(res);
+    expect(body.services.jina.reachable).toBe(false);
+    expect(body.services.jina.httpStatus).toBe(401);
+    expect(body.services.jina.totalBalance).toBeUndefined();
+    // Upstream error body is echoed so the operator can see what
+    // Jina said verbatim.
+    expect(body.services.jina.raw).toEqual({ error: 'unauthorized' });
+  });
+
+  it('falls back to the raw text body when Jina returns HTML', async () => {
+    process.env.JINA_API_KEY = 'jk';
+    const html =
+      '<html><body>Attention Required | Cloudflare</body></html>';
+    const fetchImpl = (async () =>
+      new Response(html, {
+        status: 403,
+        headers: { 'content-type': 'text/html' },
+      })) as typeof fetch;
+    const res = await handleAdminRequest(
+      requestWithCookie('hn_session=mikelward%26hash'),
+      {
+        fetchImpl,
+        pingRedis: async () => ({ ok: false }),
+        verifyHn: verifyMikelward,
+      },
+    );
+    const body = await readBody(res);
+    expect(body.services.jina.reachable).toBe(false);
+    expect(body.services.jina.raw).toBe(html);
+  });
+
+  it('reports Jina as unreachable when the request throws', async () => {
+    process.env.JINA_API_KEY = 'jk';
+    const fetchImpl = (async () => {
+      throw new Error('network');
+    }) as typeof fetch;
+    const res = await handleAdminRequest(
+      requestWithCookie('hn_session=mikelward%26hash'),
+      {
+        fetchImpl,
+        pingRedis: async () => ({ ok: false }),
+        verifyHn: verifyMikelward,
+      },
+    );
+    const body = await readBody(res);
+    expect(body.services.jina.reachable).toBe(false);
   });
 
   it('reports Redis reachability and latency', async () => {
@@ -331,6 +461,70 @@ describe('handleAdminRequest', () => {
       );
       const body = await readBody(res);
       expect(body.username).toBe('mikelward');
+    });
+  });
+});
+
+describe('extractJinaFields', () => {
+  it('returns the canonical field set from the live fe_user shape', () => {
+    expect(
+      extractJinaFields({
+        wallet: {
+          regular_balance: 100_000,
+          total_balance: 1_234_567,
+        },
+        metadata: { threshold: 50_000 },
+      }),
+    ).toEqual({
+      regularBalance: 100_000,
+      totalBalance: 1_234_567,
+      threshold: 50_000,
+    });
+  });
+
+  it('returns nulls when the object has no wallet or metadata', () => {
+    expect(extractJinaFields({})).toEqual({
+      regularBalance: null,
+      totalBalance: null,
+      threshold: null,
+    });
+  });
+
+  it('returns nulls for non-object inputs', () => {
+    expect(extractJinaFields(null)).toEqual({
+      regularBalance: null,
+      totalBalance: null,
+      threshold: null,
+    });
+    expect(extractJinaFields('not-an-object')).toEqual({
+      regularBalance: null,
+      totalBalance: null,
+      threshold: null,
+    });
+  });
+
+  it('accepts camelCase variants of the balance keys', () => {
+    // Jina's dashboard has renamed fields across rewrites; lean
+    // towards tolerant extraction so a drift just serves stale
+    // numbers instead of blank cells.
+    expect(
+      extractJinaFields({
+        wallet: { regularBalance: 10, totalBalance: 20 },
+        metadata: { alertThreshold: 5 },
+      }),
+    ).toEqual({ regularBalance: 10, totalBalance: 20, threshold: 5 });
+  });
+
+  it('ignores non-numeric values in the expected slots', () => {
+    expect(
+      extractJinaFields({
+        wallet: { total_balance: 'nope' },
+        metadata: { threshold: null },
+      }),
+    ).toEqual({
+      regularBalance: null,
+      totalBalance: null,
+      threshold: null,
     });
   });
 });
