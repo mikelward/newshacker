@@ -128,9 +128,7 @@ export function AppHeader() {
           className="app-header__home"
           aria-label="newshacker home"
         >
-          <span className="app-header__brand" aria-hidden="true">
-            n
-          </span>
+          <span className="app-header__brand" aria-hidden="true" />
           <span className="app-header__title">newshacker</span>
         </Link>
         {onFeedPage ? (
