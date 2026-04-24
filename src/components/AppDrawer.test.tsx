@@ -5,16 +5,19 @@ import { act, fireEvent, screen } from '@testing-library/react';
 import { AppDrawer } from './AppDrawer';
 import { renderWithProviders } from '../test/renderUtils';
 import { THEME_STORAGE_KEY } from '../lib/theme';
+import { CHROME_STORAGE_KEY } from '../lib/chrome';
 
 describe('<AppDrawer>', () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-chrome');
   });
 
   afterEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-chrome');
   });
   it('renders nothing when closed', () => {
     renderWithProviders(<AppDrawer open={false} onClose={() => {}} />);
@@ -88,9 +91,17 @@ describe('<AppDrawer>', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('exposes a theme radiogroup with System selected by default', () => {
+  it('renders a visible "Theme" section heading above the mode + theme rows', () => {
     renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
-    const group = screen.getByRole('radiogroup', { name: 'Theme' });
+    // Plain <div class="__section-title">, not a heading element — just
+    // visible text above the two segmented rows. Pin its presence so a
+    // refactor doesn't silently drop it (as happened once already).
+    expect(screen.getByText('Theme')).toBeInTheDocument();
+  });
+
+  it('exposes a mode radiogroup with System selected by default', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const group = screen.getByRole('radiogroup', { name: 'Mode' });
     expect(group).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'System' })).toHaveAttribute(
       'aria-checked',
@@ -102,7 +113,7 @@ describe('<AppDrawer>', () => {
     );
   });
 
-  it('switches the theme when a radio is clicked', () => {
+  it('switches the mode when a radio is clicked', () => {
     renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
     fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
@@ -119,6 +130,46 @@ describe('<AppDrawer>', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'System' }));
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+
+  it('exposes a theme radiogroup with Default selected by default', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const group = screen.getByRole('radiogroup', { name: 'Theme' });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Default' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('radio', { name: 'Mono A' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(screen.getByRole('radio', { name: 'Mono B' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('switches the theme when a radio is clicked', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Mono A' }));
+    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('mono-a');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe('mono-a');
+    expect(screen.getByRole('radio', { name: 'Mono A' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Mono B' }));
+    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('mono-b');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe('mono-b');
+
+    // Selecting Default clears both the stored value and the attribute,
+    // returning to the shipping look.
+    fireEvent.click(screen.getByRole('radio', { name: 'Default' }));
+    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBeNull();
+    expect(document.documentElement.hasAttribute('data-chrome')).toBe(false);
   });
 
   it('panel background follows the theme variable, not a hardcoded light color', () => {

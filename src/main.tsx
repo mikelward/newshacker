@@ -7,6 +7,7 @@ import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persist
 import App from './App';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import './styles/global.css';
+import './styles/chromePreview.css';
 
 // Bump when the shape of cached data changes in a way that would break
 // hydrated readers — it busts all persisted queries in one go.

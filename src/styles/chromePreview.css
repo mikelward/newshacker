@@ -1,0 +1,91 @@
+/*
+ * chromePreview.css
+ *
+ * Alternate app-bar color schemes. Activated by setting
+ * `<html data-chrome="…">` — picked via the app-bar theme radiogroup
+ * in the drawer (see `AppDrawer.tsx`), stored under
+ * `newshacker:chrome-preview`, and applied before first paint by the
+ * boot script in `index.html`. Absence of the attribute means default
+ * (today's orange chrome) and no rules in this file apply.
+ *
+ * Cost/reliability: no new infra. Pure client CSS + a single
+ * localStorage key. If the stored value is missing or corrupt, the
+ * app falls back to the default chrome.
+ */
+
+/* ---------- Per-variant tokens ---------- */
+
+:root[data-chrome='mono-a'] {
+  --cp-bar-bg: var(--nh-bg);
+  --cp-bar-fg: var(--nh-text);
+  --cp-wordmark: var(--nh-text);
+  --cp-disc-bg: var(--nh-orange);
+  --cp-disc-fg: #ffffff;
+  --cp-ring: var(--nh-orange);
+  --cp-border: var(--nh-border);
+}
+
+:root[data-chrome='mono-b'] {
+  --cp-bar-bg: var(--nh-bg);
+  --cp-bar-fg: var(--nh-text);
+  --cp-wordmark: var(--nh-orange);
+  --cp-disc-bg: var(--nh-orange);
+  --cp-disc-fg: #ffffff;
+  --cp-ring: var(--nh-orange);
+  --cp-border: var(--nh-border);
+}
+
+/* ---------- Shared body of overrides ---------- */
+
+:root[data-chrome] .app-header {
+  background: var(--cp-bar-bg);
+  color: var(--cp-bar-fg);
+  box-shadow: none;
+  border-bottom: 1px solid var(--cp-border);
+}
+
+:root[data-chrome] .app-header__menu-btn,
+:root[data-chrome] .app-header__icon-btn,
+:root[data-chrome] .header-account__btn {
+  color: var(--cp-bar-fg);
+}
+
+:root[data-chrome] .app-header__home {
+  color: var(--cp-wordmark);
+}
+
+:root[data-chrome] .app-header__brand {
+  background: var(--cp-disc-bg);
+  color: var(--cp-disc-fg);
+  border-color: transparent;
+}
+
+:root[data-chrome] .app-header__menu-btn:focus-visible,
+:root[data-chrome] .app-header__home:focus-visible,
+:root[data-chrome] .app-header__icon-btn:focus-visible,
+:root[data-chrome] .header-account__btn:focus-visible {
+  outline-color: var(--cp-ring);
+}
+
+:root[data-chrome] .app-header__icon-btn:disabled {
+  color: color-mix(in srgb, var(--cp-bar-fg) 45%, transparent);
+}
+
+:root[data-chrome] .app-header__offline {
+  color: var(--cp-bar-fg);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--cp-bar-fg) 60%, transparent);
+}
+
+/* Sticky :hover guard — only apply on devices with a true pointer. The
+   default HeaderAccountMenu rule is already gated; mirror the shape so
+   the preview doesn't regress touch behavior. */
+@media (hover: hover) {
+  :root[data-chrome] .header-account__btn:hover {
+    background: var(--nh-pressed);
+  }
+}
+
+:root[data-chrome] .header-account__btn:active {
+  background: var(--nh-border);
+}
