@@ -174,6 +174,48 @@
   outline-offset: -2px;
 }
 
+/* Voted state — matches HN's own shape+color convention (the arrow
+   stays solid, only the color flips to --nh-orange) and the story
+   vote button in ThreadActionBar. Pinned to aria-pressed="true" so
+   the ARIA state and the visual state can't drift. */
+.comment__toolbar-button--active,
+.comment__toolbar-button[aria-pressed='true'] {
+  color: var(--nh-orange);
+}
+
+@media (hover: hover) {
+  .comment__toolbar-button--active:hover,
+  .comment__toolbar-button[aria-pressed='true']:hover {
+    /* Keep the orange on hover so unvoting still reads as a reversal
+       of the current state rather than turning white first. */
+    color: var(--nh-orange);
+    background: var(--nh-pressed);
+  }
+}
+
+/* Disabled (currently: Downvote placeholder). Muted color + no
+   interactive feedback so it reads as "not yet available" rather
+   than "broken". Matches the `:disabled` attribute AND the explicit
+   `aria-disabled` string since TooltipButton forwards both. */
+.comment__toolbar-button:disabled,
+.comment__toolbar-button[aria-disabled='true'] {
+  color: var(--nh-border);
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .comment__toolbar-button:disabled:hover,
+  .comment__toolbar-button[aria-disabled='true']:hover {
+    color: var(--nh-border);
+    background: transparent;
+  }
+}
+
+.comment__toolbar-button:disabled:active,
+.comment__toolbar-button[aria-disabled='true']:active {
+  background: transparent;
+}
+
 .comment__children {
   /* --comment-stack-gap matches .comment's padding-bottom: the
      parent's padding-bottom only takes effect after all children, so
