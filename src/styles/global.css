@@ -1,6 +1,15 @@
 :root {
-  --nh-orange: #ff6600;
-  --nh-orange-dark: #e65c00;
+  /* Burnt orange — clears WCAG 1.4.11 3:1 against the cream banner
+     and dark surface. We used to ship #ff6600 here, but that hue only
+     scored 2.69:1 against #f6f6ef so the logo tile dissolved into the
+     mono / duo header on mobile. The Classic chrome preset, which
+     paints the whole banner orange with white text on top, restores
+     `--nh-orange: #ff6600` (and `--nh-orange-dark: #e65c00`) under
+     `:root[data-chrome='classic']` in chromePreview.css — Classic is
+     explicitly meant to mimic HN's own header, where the contrast pair
+     is white-on-orange, not orange-on-cream. */
+  --nh-orange: #e65c00;
+  --nh-orange-dark: #c44e00;
   --nh-bg: #f6f6ef;
   --nh-meta: #828282;
   /* Read / already-opened story color. Sits between --nh-meta and
