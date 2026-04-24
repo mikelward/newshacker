@@ -201,6 +201,93 @@ describe('StoryListItem', () => {
     expect(onOpenThread).not.toHaveBeenCalled();
   });
 
+  describe('rightAction override', () => {
+    it('replaces the default pin button with the custom action', () => {
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          onPin={vi.fn()}
+          rightAction={{
+            label: 'Unmark done',
+            icon: <span data-testid="done-icon" />,
+            onToggle: vi.fn(),
+          }}
+        />,
+      );
+      expect(screen.queryByTestId('pin-btn')).toBeNull();
+      expect(screen.getByTestId('row-action-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('done-icon')).toBeInTheDocument();
+    });
+
+    it('uses the label as the button accessible name', () => {
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          rightAction={{
+            label: 'Unfavorite',
+            icon: <span />,
+            onToggle: vi.fn(),
+          }}
+        />,
+      );
+      const btn = screen.getByRole('button', { name: /unfavorite/i });
+      expect(btn).toHaveAttribute('aria-label', 'Unfavorite');
+    });
+
+    it('fires onToggle on click and does not touch onPin/onUnpin', () => {
+      const onToggle = vi.fn();
+      const onPin = vi.fn();
+      const onUnpin = vi.fn();
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          onPin={onPin}
+          onUnpin={onUnpin}
+          rightAction={{
+            label: 'Unhide',
+            icon: <span />,
+            onToggle,
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('row-action-btn'));
+      expect(onToggle).toHaveBeenCalledTimes(1);
+      expect(onPin).not.toHaveBeenCalled();
+      expect(onUnpin).not.toHaveBeenCalled();
+    });
+
+    it('paints the button in the --active (orange) state', () => {
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          rightAction={{
+            label: 'Unmark done',
+            icon: <span />,
+            onToggle: vi.fn(),
+          }}
+        />,
+      );
+      const btn = screen.getByTestId('row-action-btn');
+      expect(btn.className).toContain('pin-btn--active');
+    });
+
+    it('honors a custom testId when provided', () => {
+      renderWithProviders(
+        <StoryListItem
+          story={baseStory}
+          rightAction={{
+            label: 'Unmark done',
+            icon: <span />,
+            onToggle: vi.fn(),
+            testId: 'done-btn',
+          }}
+        />,
+      );
+      expect(screen.getByTestId('done-btn')).toBeInTheDocument();
+      expect(screen.queryByTestId('row-action-btn')).toBeNull();
+    });
+  });
+
   it('dims the row when the comments have been opened', () => {
     renderWithProviders(
       <StoryListItem story={baseStory} commentsOpened={true} />,

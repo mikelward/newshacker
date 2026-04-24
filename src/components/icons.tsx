@@ -8,8 +8,8 @@ type IconProps = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'fill' | 'children'>;
 
 function MaterialIcon({
   children,
-  width = 28,
-  height = 28,
+  width = 22,
+  height = 22,
   ...rest
 }: IconProps & { children: ReactNode }) {
   return (
