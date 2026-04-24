@@ -4,9 +4,9 @@
 //
 //   node scripts/regen-icons.mjs
 //
-// Uses sharp, which is already in node_modules via vite-plugin-pwa's
-// transitive deps. No tooling install is required on CI; this is a
-// dev-time script that writes into public/ and expects the updated
+// Uses the repo's direct `sharp` devDependency — if that ever gets
+// removed or fails to install, this script will stop working. It's a
+// dev-time one-shot: writes into public/, and expects the updated
 // PNGs to be committed alongside the SVG change.
 //
 // Why a script instead of a build step: the icons change rarely and
@@ -28,9 +28,14 @@ const TARGETS = [
   { name: 'icon-192.png', size: 192 },
   { name: 'icon-512.png', size: 512 },
   // Android's adaptive icon crops to a circle/squircle with a ~40%
-  // safe zone. The filled orange disc fills edge-to-edge, so the crop
-  // will never expose transparent corners; the "n" glyph sits well
-  // inside the safe zone so it survives aggressive masks.
+  // safe zone. The maskable variant is rasterized from the same SVG
+  // as the other icons, which draws `<circle r="250">` on a 512×512
+  // canvas — so there's a ~6 px transparent margin outside the disc
+  // that an aggressive crop *can* expose on some OEM launchers. The
+  // "n" glyph stays well inside the safe zone, so the letter itself
+  // is never clipped. If the transparent corners ever become a real
+  // problem, generate the maskable variant from a separate
+  // full-bleed SVG rather than sharing the source with favicon.svg.
   { name: 'icon-512-maskable.png', size: 512 },
 ];
 
