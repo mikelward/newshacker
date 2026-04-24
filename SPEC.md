@@ -28,7 +28,7 @@ We achieve that by:
 
 - Mobile-first responsive layout; also usable on desktop.
 - Fast, minimal-JS bundle; good Lighthouse scores.
-- Familiar HN look & feel — orange `#ff6600` header, cream background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
+- Cream background and compact typography reminiscent of HN, with HN orange (`#ff6600`) reserved for the logo mark (a filled circular "n" disc) and accents rather than painting the whole header. The sticky header uses the page surface tokens (`--nh-bg` / `--nh-text`) so the bar, the body, and the mobile browser URL-bar tint all agree. Tap targets are **fewer, larger, better-spaced** than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
 - Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
@@ -124,7 +124,7 @@ server-side with most-recent-first eviction.
    - `/user/:id` shows karma, created date, about text. Submissions/comments lists are out of scope for MVP.
 
 4. **Navigation & Chrome**
-   - Sticky orange header with HN "Y" logo and current feed name.
+   - Sticky header with a filled orange "n" disc mark, wordmark, and current feed name.
    - Top nav tabs for feed switching, integrated into the header.
    - Back button on thread/user pages.
 
@@ -156,7 +156,7 @@ server-side with most-recent-first eviction.
      `hn_session` cookie on the user's browser). The login page carries
      a short, honest disclosure to that effect.
 
-6. **Account UI** (header chip, not drawer). The sticky orange header
+6. **Account UI** (header chip, not drawer). The sticky header
    gains a single always-visible account control on the far right — one
    extra tap target, 48×48 hit area, on every page. Surfacing auth
    state in the header (rather than behind the drawer) means a first-time
@@ -489,7 +489,7 @@ Leading quote paragraphs (lines a commenter prefixes with `> ` to re-quote their
 
 ## Top bar controls
 
-On feed pages the sticky orange header carries three feed-scoped action icons on the right, in order **Refresh → Undo → Sweep unpinned**. All three icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.
+On feed pages the sticky header carries three feed-scoped action icons on the right, in order **Refresh → Undo → Sweep unpinned**. All three icons stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden.
 
 - **Refresh** (Material Symbols `refresh`) — refetches the current feed and pulls cross-device sync state in one go. Same handler the pull-to-refresh gesture already calls (`Promise.all([refetch(), cloudSyncPullNow()])`); wired through `FeedBarContext` so the header doesn't need to know which feed is on screen. The icon spins while the refresh is in flight and the button is disabled (also disabled when offline). Available on every device — pointer and touch alike — so desktop users (for whom pull-to-refresh is unusable) have a real refresh affordance, and touch users get the same button as a faster alternative to the pull gesture.
 - **Undo** (Material Symbols `undo`) — restores the most recent hide action: either the last swipe-to-hide, the last menu "Hide", or the last sweep (the whole batch at once). One level of undo only; recording a new hide replaces the stored batch. Disabled when there is nothing to undo. Not persisted across reloads.
@@ -517,7 +517,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 ## Visual Design
 
-- Primary color: `#ff6600` (HN orange) for the header and accents.
+- Primary color: `#ff6600` (HN orange) — reserved for the logo mark (the filled "n" disc in the header and the favicon/PWA icon), focus rings, and accents. The sticky header bar itself uses `--nh-bg` / `--nh-text` (cream / near-black) so the bar, the page body, and the mobile browser's URL-bar tint all read as a single surface.
 - Background: `#f6f6ef` (HN cream) for the page, white for cards/rows.
 - Text: `#000` primary, `#5a5a5a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
@@ -551,7 +551,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 - Semantic HTML (`<main>`, `<nav>`, `<article>`).
 - Visible focus styles.
 - `prefers-reduced-motion` respected for the collapse animation and the tooltip fade-in.
-- Color contrast ≥ 4.5:1 for body text (HN orange on white fails for small text — only used on large headers / buttons).
+- Color contrast ≥ 4.5:1 for body text. HN orange `#ff6600` hits only 3.14:1 on white, so it's never used for body text — only as a background behind white glyphs (the filled "n" disc), as an outline color (focus rings, borders, the Classic preset's disc ring), or as the *wordmark* in the Duo preset. WCAG 1.4.3 exempts logotypes from the text-contrast minimum, and "newshacker" in the header is the wordmark side of the logo, not running text — the 3:1 non-text threshold applies instead, which `#ff6600` on `--nh-bg` clears in both light and dark modes.
 - Every icon-only `<button>` has an accessible name — either via `aria-label` or a `visually-hidden` caption inside the button. The long-press tooltip (see *Visual Design*) is visual-only; screen readers rely on the accessible name, not the transient tooltip DOM.
 
 ## Performance Targets

@@ -18,33 +18,35 @@ describe('chrome lib', () => {
     document.documentElement.removeAttribute('data-chrome');
   });
 
-  it('defaults to "default" when storage is empty', () => {
-    expect(getStoredChrome()).toBe('default');
+  it('defaults to "mono" when storage is empty', () => {
+    expect(getStoredChrome()).toBe('mono');
   });
 
   it('reads a stored chrome', () => {
-    window.localStorage.setItem(CHROME_STORAGE_KEY, 'mono-a');
-    expect(getStoredChrome()).toBe('mono-a');
+    window.localStorage.setItem(CHROME_STORAGE_KEY, 'duo');
+    expect(getStoredChrome()).toBe('duo');
   });
 
   it('ignores garbage values in storage', () => {
-    window.localStorage.setItem(CHROME_STORAGE_KEY, 'phosphor');
-    expect(getStoredChrome()).toBe('default');
+    window.localStorage.setItem(CHROME_STORAGE_KEY, 'mono-a');
+    expect(getStoredChrome()).toBe('mono');
   });
 
-  it('setStoredChrome persists non-default variants and sets the attribute', () => {
-    setStoredChrome('mono-a');
-    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('mono-a');
-    expect(document.documentElement.getAttribute('data-chrome')).toBe('mono-a');
+  it('setStoredChrome persists non-mono variants and sets the attribute', () => {
+    setStoredChrome('duo');
+    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('duo');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe('duo');
 
-    setStoredChrome('mono-b');
-    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('mono-b');
-    expect(document.documentElement.getAttribute('data-chrome')).toBe('mono-b');
+    setStoredChrome('classic');
+    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('classic');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe(
+      'classic',
+    );
   });
 
-  it('setStoredChrome("default") clears the attribute and the key', () => {
-    setStoredChrome('mono-a');
-    setStoredChrome('default');
+  it('setStoredChrome("mono") clears the attribute and the key', () => {
+    setStoredChrome('duo');
+    setStoredChrome('mono');
     expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-chrome')).toBe(false);
   });
@@ -52,16 +54,18 @@ describe('chrome lib', () => {
   it('setStoredChrome fires a change event', () => {
     const handler = vi.fn();
     window.addEventListener(CHROME_CHANGE_EVENT, handler);
-    setStoredChrome('mono-a');
+    setStoredChrome('duo');
     expect(handler).toHaveBeenCalledTimes(1);
     window.removeEventListener(CHROME_CHANGE_EVENT, handler);
   });
 
   it('applyChrome toggles the attribute without touching storage', () => {
-    applyChrome('mono-b');
-    expect(document.documentElement.getAttribute('data-chrome')).toBe('mono-b');
+    applyChrome('classic');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe(
+      'classic',
+    );
     expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBeNull();
-    applyChrome('default');
+    applyChrome('mono');
     expect(document.documentElement.hasAttribute('data-chrome')).toBe(false);
   });
 });

@@ -42,20 +42,26 @@ const THEME_OPTIONS: Array<{ value: Theme; label: string; path: string }> = [
   { value: 'system', label: 'System', path: SYSTEM_PATH },
 ];
 
-// App-bar style icon — a small schematic of the bar with the mark (and
-// optionally the wordmark) colored. The disc and the optional wordmark
-// line are painted in brand orange (`--nh-orange`) because the icon
-// acts as a color *swatch*: its job is to show how much orange the
-// chrome carries. The bar outline for the two neutral variants uses
-// `currentColor` so it inherits the button's text color — that way the
-// outline keeps legible contrast against the highlighted surface of
-// the active segmented button.
+// App-bar style icon — a small schematic of the bar showing how much
+// orange the chrome carries. The mark and the optional wordmark line
+// are painted in brand orange (`--nh-orange`) because the icon acts
+// as a color *swatch*. `classic` draws the full orange bar with a
+// white outlined disc; `mono` and `duo` use a neutral outline bar
+// (`currentColor` so the outline inherits the button's text color
+// and stays legible against the highlighted active-button surface).
+// Only `duo` paints the wordmark line in orange — that single-pixel
+// delta is what distinguishes it from `mono`.
 function ChromeIcon({ variant }: { variant: Chrome }) {
-  const barFill = variant === 'default' ? 'var(--nh-orange)' : 'none';
-  const barStroke =
-    variant === 'default' ? 'var(--nh-orange)' : 'currentColor';
-  const discFill =
-    variant === 'default' ? '#ffffff' : 'var(--nh-orange)';
+  const isClassic = variant === 'classic';
+  const barFill = isClassic ? 'var(--nh-orange)' : 'none';
+  const barStroke = isClassic ? 'var(--nh-orange)' : 'currentColor';
+  // Classic's real in-header mark is a transparent disc with a white
+  // ring outline (the orange bar shows through), so the picker icon
+  // mirrors that — `fill='none'` + white stroke. Mono and Duo both
+  // use a filled orange disc.
+  const discFill = isClassic ? 'none' : 'var(--nh-orange)';
+  const discStroke = isClassic ? '#ffffff' : 'none';
+  const discStrokeWidth = isClassic ? 0.75 : 0;
   return (
     <svg
       viewBox="0 0 40 16"
@@ -74,8 +80,15 @@ function ChromeIcon({ variant }: { variant: Chrome }) {
         stroke={barStroke}
         strokeWidth="1.5"
       />
-      <circle cx="7" cy="8" r="3" fill={discFill} />
-      {variant === 'mono-b' ? (
+      <circle
+        cx="7"
+        cy="8"
+        r="3"
+        fill={discFill}
+        stroke={discStroke}
+        strokeWidth={discStrokeWidth}
+      />
+      {variant === 'duo' ? (
         <rect
           x="12"
           y="6.25"
@@ -90,9 +103,9 @@ function ChromeIcon({ variant }: { variant: Chrome }) {
 }
 
 const CHROME_OPTIONS: Array<{ value: Chrome; label: string }> = [
-  { value: 'default', label: 'Default' },
-  { value: 'mono-a', label: 'Mono A' },
-  { value: 'mono-b', label: 'Mono B' },
+  { value: 'mono', label: 'Mono' },
+  { value: 'duo', label: 'Duo' },
+  { value: 'classic', label: 'Classic' },
 ];
 
 interface Props {

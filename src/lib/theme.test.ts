@@ -3,10 +3,23 @@ import {
   THEME_CHANGE_EVENT,
   THEME_STORAGE_KEY,
   applyTheme,
+  applyThemeColorMeta,
   getStoredTheme,
   resolveTheme,
   setStoredTheme,
 } from './theme';
+
+function installMetaThemeColor(initial = ''): HTMLMetaElement {
+  const existing = document.querySelector<HTMLMetaElement>(
+    'meta[name="theme-color"]',
+  );
+  if (existing) existing.remove();
+  const meta = document.createElement('meta');
+  meta.name = 'theme-color';
+  meta.content = initial;
+  document.head.appendChild(meta);
+  return meta;
+}
 
 describe('theme lib', () => {
   beforeEach(() => {
@@ -17,6 +30,8 @@ describe('theme lib', () => {
   afterEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.remove();
   });
 
   it('defaults to "system" when storage is empty', () => {
@@ -69,6 +84,44 @@ describe('theme lib', () => {
   it('resolveTheme returns explicit values as-is', () => {
     expect(resolveTheme('dark')).toBe('dark');
     expect(resolveTheme('light')).toBe('light');
+  });
+
+  it('applyThemeColorMeta writes the cream color for light', () => {
+    const meta = installMetaThemeColor();
+    applyThemeColorMeta('light');
+    expect(meta.content).toBe('#f6f6ef');
+  });
+
+  it('applyThemeColorMeta writes the near-black color for dark', () => {
+    const meta = installMetaThemeColor();
+    applyThemeColorMeta('dark');
+    expect(meta.content).toBe('#1b1b17');
+  });
+
+  it('applyThemeColorMeta is a no-op when the meta is missing', () => {
+    // Ensure no meta is present (afterEach already removed any).
+    expect(
+      document.querySelector('meta[name="theme-color"]'),
+    ).toBeNull();
+    expect(() => applyThemeColorMeta('dark')).not.toThrow();
+  });
+
+  it('applyTheme updates the meta color alongside data-theme', () => {
+    const meta = installMetaThemeColor('#ffffff');
+    applyTheme('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(meta.content).toBe('#1b1b17');
+    applyTheme('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(meta.content).toBe('#f6f6ef');
+  });
+
+  it('setStoredTheme updates the meta color too', () => {
+    const meta = installMetaThemeColor();
+    setStoredTheme('dark');
+    expect(meta.content).toBe('#1b1b17');
+    setStoredTheme('light');
+    expect(meta.content).toBe('#f6f6ef');
   });
 
   it('resolveTheme follows matchMedia when set to system', () => {
