@@ -324,6 +324,98 @@ describe('<Thread>', () => {
     expect(entry?.articleAt).toBeTruthy();
   });
 
+  it('wraps the article title in a link to the article url (new tab, opener-safe)', async () => {
+    installHNFetchMock({
+      items: {
+        721: makeStory(721, {
+          title: 'Tappable headline',
+          url: 'https://example.com/721',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={721} />);
+    await waitFor(() => {
+      expect(screen.getByText('Tappable headline')).toBeInTheDocument();
+    });
+
+    const titleLink = screen.getByTestId('thread-title-link');
+    expect(titleLink).toHaveAttribute('href', 'https://example.com/721');
+    expect(titleLink).toHaveAttribute('target', '_blank');
+    expect(titleLink.getAttribute('rel') ?? '').toMatch(/noopener/);
+    expect(titleLink).toHaveTextContent('Tappable headline');
+  });
+
+  it('renders the article title as plain text for self-posts (no article url)', async () => {
+    installHNFetchMock({
+      items: {
+        722: makeStory(722, {
+          title: 'Ask HN: what about no url?',
+          url: undefined,
+          text: 'body',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={722} />);
+    await waitFor(() => {
+      expect(
+        screen.getByText('Ask HN: what about no url?'),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('thread-title-link')).toBeNull();
+  });
+
+  it('marks the article as opened when the title link is clicked', async () => {
+    installHNFetchMock({
+      items: { 723: makeStory(723, { title: 'Openable headline' }) },
+    });
+
+    renderWithProviders(<Thread id={723} />);
+    await waitFor(() => {
+      expect(screen.getByText('Openable headline')).toBeInTheDocument();
+    });
+
+    const link = screen.getByTestId('thread-title-link');
+    link.addEventListener('click', (e) => e.preventDefault());
+    await userEvent.click(link);
+
+    const stored = window.localStorage.getItem('newshacker:openedStoryIds');
+    expect(stored).toBeTruthy();
+    const parsed = JSON.parse(stored as string) as Array<{
+      id: number;
+      articleAt?: number;
+    }>;
+    const entry = parsed.find((e) => e.id === 723);
+    expect(entry?.articleAt).toBeTruthy();
+  });
+
+  it('does not inline a non-http(s) url into an href (title + Read article both gated)', async () => {
+    installHNFetchMock({
+      items: {
+        724: makeStory(724, {
+          title: 'Sneaky headline',
+          // HN content is untrusted. If a non-web scheme ever gets through,
+          // the title must render as plain text and the Read article button
+          // must not render — otherwise a tap could execute script on our
+          // origin. Guarded by isSafeHttpUrl in Thread.tsx.
+          url: 'javascript:alert(1)',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={724} />);
+    await waitFor(() => {
+      expect(screen.getByText('Sneaky headline')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('thread-title-link')).toBeNull();
+    expect(
+      screen.queryByRole('link', { name: /read article/i }),
+    ).toBeNull();
+  });
+
   it('toggles favorite state via the Favorite entry in the overflow menu, independently of Pin', async () => {
     installHNFetchMock({
       items: { 710: makeStory(710, { title: 'Lovable' }) },

@@ -29,6 +29,30 @@
   color: var(--nh-text);
 }
 
+/* The title doubles as a secondary path to the article URL — "Read
+   article" stays the primary affordance, but a tap on the headline
+   itself also opens the link for readers who reach for it. Stays
+   styled as a heading (inherit color, no underline) so it reads as a
+   title at rest; lights up HN-orange on pointer hover and on press so
+   the affordance is visible without turning it into a blue link. The
+   :hover rule is gated behind (hover: hover) so the color doesn't
+   stick on touch devices after a tap (see CLAUDE.md § CSS gotchas);
+   :active stays outside so touch still gets the pressed-state flash. */
+.thread__title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .thread__title-link:hover {
+    color: var(--nh-orange);
+  }
+}
+
+.thread__title-link:active {
+  color: var(--nh-orange);
+}
+
 /* Single-row layout at every phone width. flex-wrap: wrap is retained
    as a safety net for absurdly narrow viewports (<300px, no real
    device), but the primary/stretch slot has `flex: 1; min-width: 0`

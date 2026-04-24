@@ -8,6 +8,23 @@ export function extractDomain(url: string | undefined): string {
   }
 }
 
+// HN's Firebase API echoes whatever URL the submitter posted. In the
+// very unlikely case that a non-http(s) scheme leaks through
+// (`javascript:`, `data:`, `vbscript:`…), inlining that URL into an
+// `href` would let a tap execute script on our origin. Narrow the
+// allowlist to `http:` and `https:` and render the title / Read-article
+// link as plain text otherwise. Relative and malformed URLs throw from
+// `new URL(url)` and are rejected by the catch.
+export function isSafeHttpUrl(url: string | undefined | null): url is string {
+  if (!url) return false;
+  try {
+    const { protocol } = new URL(url);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // Common second-level labels that sit under a 2-letter ccTLD and behave
 // like a TLD for registration purposes (`bbc.co.uk`, `9news.com.au`,
 // `stuff.co.nz`, `asahi.co.jp`, `naver.or.kr`…). Not a full Public Suffix
