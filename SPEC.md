@@ -28,7 +28,7 @@ We achieve that by:
 
 - Mobile-first responsive layout; also usable on desktop.
 - Fast, minimal-JS bundle; good Lighthouse scores.
-- Cream background and compact typography reminiscent of HN, with HN orange (`#ff6600`) reserved for the logo mark (a filled circular "n" disc) and accents rather than painting the whole header. The sticky header uses the page surface tokens (`--nh-bg` / `--nh-text`) so the bar, the body, and the mobile browser URL-bar tint all agree. Tap targets are **fewer, larger, better-spaced** than HN's own mobile site.
+- Cream background and compact typography reminiscent of HN, with HN orange (`#ff6600`) reserved for the logo mark (a keyboard-keycap "n" on an orange tile) and accents rather than painting the whole header. The sticky header uses the page surface tokens (`--nh-bg` / `--nh-text`) so the bar, the body, and the mobile browser URL-bar tint all agree. Tap targets are **fewer, larger, better-spaced** than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
 - Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
@@ -603,7 +603,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 ## Visual Design
 
-- Primary color: `#ff6600` (HN orange) — reserved for the logo mark (the filled "n" disc in the header and the favicon/PWA icon), focus rings, and accents. The sticky header bar itself uses `--nh-bg` / `--nh-text` (cream / near-black) so the bar, the page body, and the mobile browser's URL-bar tint all read as a single surface.
+- Primary color: `#ff6600` (HN orange) — reserved for the logo mark (the keyboard-keycap "n" in the header and the favicon/PWA icon), focus rings, and accents. The sticky header bar itself uses `--nh-bg` / `--nh-text` (cream / near-black) so the bar, the page body, and the mobile browser's URL-bar tint all read as a single surface.
 - Background: `#f6f6ef` (HN cream) for the page, white for cards/rows.
 - Text: `#000` primary, `#5a5a5a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
@@ -665,7 +665,7 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 
 ### Install identity
 - Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /top`.
-- Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. The mark is an orange disc with a white ring and a white "n" centered inside, on a transparent background so the icon reads as circular — never the HN `Y` logo. The maskable variant fills its frame with orange and pulls the ring + glyph into an 80% safe zone so Android adaptive masks don't clip it.
+- Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. The mark is a keyboard keycap — an orange rounded-square tile, a darker-orange keycap base that peeks out as a lip along the bottom edge, a white keycap face inset on top of it, and a black monospace "n" centered on the face. Says "computers / typing" rather than "disc", and can never be mistaken for the HN `Y` logo. The maskable variant is rasterized from the same SVG; the keycap sits well inside the 80% adaptive-icon safe zone.
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
 ### Service worker

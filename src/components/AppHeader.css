@@ -48,17 +48,44 @@
   text-decoration: none;
 }
 
+/* Keyboard-keycap mark — matches public/favicon.svg. The outer span
+   is the orange tile (keycap "side"); ::before is the inset white
+   keycap top, intentionally a pixel taller at the bottom so the
+   darker tile peeks through as a visual lip; ::after is the black
+   "n" glyph, nudged up 1px to center optically inside the cap
+   rather than the full tile. */
 .app-header__brand {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
+  position: relative;
+  display: inline-block;
   width: 28px;
   height: 28px;
   background: var(--nh-orange);
-  color: #fff;
-  border-radius: 50%;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+.app-header__brand::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  right: 4px;
+  bottom: 5px;
+  background: #fff;
+  border-radius: 3px;
+}
+
+.app-header__brand::after {
+  content: "n";
+  position: absolute;
+  inset: 0 0 2px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1a1a1a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
 }
 
