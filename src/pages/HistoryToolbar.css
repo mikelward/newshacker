@@ -1,29 +1,6 @@
 .history-toolbar {
   display: flex;
-  justify-content: flex-end;
-  padding: 10px 12px;
-  background: var(--nh-bg-card);
-  border-bottom: 1px solid var(--nh-border);
-}
-
-.history-toolbar__forget {
-  min-height: var(--tap-min);
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--nh-border);
-  background: var(--nh-bg-card);
-  color: var(--nh-text);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .history-toolbar__forget:hover {
-    background: var(--nh-pressed);
-  }
-}
-
-.history-toolbar__forget:active {
-  background: var(--nh-border);
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
 }
