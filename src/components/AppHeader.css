@@ -48,17 +48,44 @@
   text-decoration: none;
 }
 
+/* Notched "n" mark — matches public/favicon.svg. Rounded-square tile
+   (not a circle — the tile is the "phone"), a tiny white speaker
+   slot at the top edge, and a white "n" centered in the remaining
+   space. The speaker slot is proportionally thicker than the
+   favicon's 512-viewBox version so it survives anti-aliasing at
+   28×28. */
 .app-header__brand {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
+  position: relative;
+  display: inline-block;
   width: 28px;
   height: 28px;
   background: var(--nh-orange);
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+.app-header__brand::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 2px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+.app-header__brand::after {
+  content: "n";
+  position: absolute;
+  inset: 4px 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #fff;
-  border-radius: 50%;
   font-weight: 700;
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1;
 }
 
