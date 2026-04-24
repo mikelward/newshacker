@@ -9,9 +9,13 @@
 //   405 on non-POST
 //   502 if HN is unreachable or the scraped item page is missing the
 //       expected `vote?id=…&how=…&auth=…` anchor (HN HTML changed,
-//       the user has already voted the way they're trying to, or —
-//       for downvotes — the viewer lacks the karma HN requires
-//       before it will render a downvote anchor for that item).
+//       the user has already voted the way they're trying to, the
+//       item is past HN's voting / downvote window, or — for
+//       downvotes — the viewer lacks the karma HN requires before
+//       it will render a downvote anchor for that item). The
+//       response body carries an action-specific, user-facing
+//       `error` message so the client's toast is something the
+//       reader can act on.
 //
 // The per-item `auth` token is scraped from the item page — HN signs
 // each vote link with a per-user, per-item token that must be
@@ -78,7 +82,9 @@ function json(body: unknown, status = 200): Response {
 //     alongside the upvote anchor once the viewer has enough karma
 //     to downvote that item (~500+; HN's threshold is undocumented
 //     and can vary by item / item author). Absent for low-karma
-//     viewers, on the viewer's own posts, etc.
+//     viewers, on the viewer's own posts, on items past HN's
+//     downvote window (comments are only downvotable for a limited
+//     time after posting), etc.
 //   - `<a href="vote?id=<id>&how=un&auth=<tok>&goto=…">`   — already
 //     voted (either direction); HN uses the same `un` action to
 //     clear an upvote OR a downvote.
@@ -191,14 +197,22 @@ export async function handleVoteRequest(
   const token = extractAuthToken(html, id, how);
   if (!token) {
     // Happens if (a) HN's HTML changed shape, (b) the item is dead /
-    // hidden so HN omits the vote link, or (c) the item is already in
+    // hidden so HN omits the vote link, (c) the item is already in
     // the requested state (asking to upvote something already voted,
-    // or to unvote something not yet voted). We can't distinguish
-    // these without more scraping; treat all as 502.
-    return json(
-      { error: 'Could not find vote link on Hacker News item page' },
-      502,
-    );
+    // or to unvote something not yet voted), (d) the viewer lacks
+    // karma HN requires to downvote that item, or (e) the item is
+    // past HN's downvote / voting window (comments can only be
+    // downvoted for a limited time after posting). We can't
+    // distinguish these without more scraping; surface an
+    // action-specific message so the toast is something the user
+    // can act on rather than the raw "vote link missing" wording.
+    const message =
+      how === 'down'
+        ? 'Downvote unavailable on this item. It may be too old, your karma may not qualify, or you may have already voted.'
+        : how === 'up'
+          ? 'Upvote unavailable on this item. It may be locked, or you may have already voted.'
+          : 'Unvote unavailable on this item. You may not have voted on it, or it may be locked.';
+    return json({ error: message }, 502);
   }
 
   // 2) Issue the vote. HN's vote endpoint 302s back to the item
