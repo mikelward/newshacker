@@ -25,7 +25,6 @@ interface Props {
    */
   seenCommentCount?: number;
   pinned?: boolean;
-  hidden?: boolean;
   onHide?: (id: number) => void;
   onPin?: (id: number) => void;
   onUnpin?: (id: number) => void;
@@ -54,7 +53,6 @@ export function StoryListItem({
   commentsOpened = false,
   seenCommentCount,
   pinned = false,
-  hidden = false,
   onHide,
   onPin,
   onUnpin,
@@ -107,8 +105,26 @@ export function StoryListItem({
     else onPin?.(story.id);
   }, [pinned, onPin, onUnpin, story.id]);
 
+  // Pin and Hide are mutually exclusive: a pinned row can't be hidden
+  // (swipe-right and the row-menu "Hide" item are suppressed) and a
+  // hidden row can't be pinned (swipe-left and the menu "Pin" item
+  // are suppressed when the caller marks the row as hidden; in
+  // practice LibraryStoryList decides that by withholding
+  // onPin/onUnpin from rows in `hiddenIds`). A pin exits via Done
+  // (normal lifecycle, clears the pin as a side effect — see
+  // useDoneStories) or via Unpin (explicit). A hide exits via the
+  // `/hidden` page's recover action or the feed-header Undo button.
+  //
+  // The suppressed gestures still *track* the finger and snap back
+  // on release — rubber-band feedback, not silent absorption. That
+  // comes for free from useSwipeToDismiss: the gesture activates
+  // whenever any handler is wired (long-press always is), the row
+  // translates as the finger moves, and on pointerup the direction
+  // whose `handler` is `undefined` falls through to the hook's
+  // snap-back branch. See SPEC.md under *Pinned vs. Favorite vs.
+  // Done*.
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
-    onSwipeRight: onHide ? handleHide : undefined,
+    onSwipeRight: onHide && !pinned ? handleHide : undefined,
     onSwipeLeft: onPin ? handlePin : undefined,
     onLongPress: openMenu,
   });
@@ -138,8 +154,7 @@ export function StoryListItem({
     'story-row' +
     (dragging ? ' story-row--dragging' : '') +
     (isDismissing ? ' story-row--dismissing' : '') +
-    (rowOpened ? ' story-row--opened' : '') +
-    (hidden ? ' story-row--hidden' : '');
+    (rowOpened ? ' story-row--opened' : '');
 
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
     const items: StoryRowMenuItem[] = [];
@@ -148,7 +163,9 @@ export function StoryListItem({
     } else if (!pinned && onPin) {
       items.push({ key: 'pin', label: 'Pin', onSelect: handlePin });
     }
-    if (onHide) {
+    // Hide is suppressed on pinned rows — same rule as swipe-right.
+    // Pinned exits via Done (lifecycle) or Unpin (explicit).
+    if (onHide && !pinned) {
       items.push({ key: 'hide', label: 'Hide', onSelect: handleHide });
     }
     if (onShare) {

@@ -84,6 +84,65 @@ action has to do double duty.
   interested" (that's Hide) and not "keepsake forever" (that's Favorite).
   Favorites are orthogonal — favoriting and marking done are independent.
 
+**Pin is a shield against Hide.** On a pinned row, swipe-right is
+suppressed and the row menu's "Hide" item is hidden. A pinned story
+leaves the reading list by one of exactly two routes:
+
+- **Done** (normal lifecycle). Marking a story Done from the thread
+  action bar also removes the pin (see *Pinned vs. Favorite vs. Done*
+  above). Done is where reads go when they leave the queue.
+- **Unpin** (explicit, rare). The pin button flips to "Unpin" when
+  the row is pinned — tapping it removes the pin without implying
+  completion. Useful when a reader pinned a story and later decided
+  they don't want to read it after all.
+
+Hide, Sweep, and per-row swipe-right are *never* allowed to remove a
+pin. The sweep button already says "Hide unpinned" and skips pinned
+rows by construction; the row-level suppression keeps the model
+symmetric — a reader can't touch a pin except by Pin/Unpin itself or
+by completing the story via Done.
+
+**Hide also shields against Pin, by the same logic.** On a currently
+hidden row — visible on `/hidden`, and occasionally on `/favorites`
+if a story is both a keepsake and dismissed — swipe-left and the row
+menu's "Pin" item are suppressed. `LibraryStoryList` withholds the
+`onPin`/`onUnpin` callbacks when `hiddenIds.has(story.id)`, which
+is enough to block both entry points in one place. Pinning a story
+that's already hidden would reintroduce exactly the pin ∩ hidden
+collision the shield rule exists to prevent; a reader who wants a
+hidden story back on their reading list unhides it first (via the
+row's recover action on `/hidden`, or the feed-header Undo button)
+and then pins it.
+
+**Suppressed gestures rubber-band; they don't silently absorb.** A
+blocked swipe (swipe-right on a pinned row, swipe-left on a hidden
+row) still tracks the finger — the row translates as the gesture
+moves — and snaps back on release. The reader sees the row
+acknowledge the gesture, then refuse it, so the shield feels
+responsive rather than broken. Implementation-wise, this comes for
+free from `useSwipeToDismiss`: the gesture activates whenever any
+handler is wired (long-press always is), and on `pointerup` the
+direction whose commit-handler is `undefined` falls through to the
+hook's `setOffset(0)` snap-back with its existing 200ms CSS
+transition. No second hook mode, no per-row flag.
+
+Hidden rows show only on `/hidden` (they're filtered from every
+feed). They render with the standard opened/unopened coloring — no
+separate "hidden" dim class. The dim modifier existed briefly to
+flag pin ∩ hidden collisions on the home feed; under the shield rule
+those collisions can't happen, so the extra visual signal has
+nothing to say.
+
+Legacy storage from before the shield rule can carry a pin ∩ hidden
+pair. On first load after upgrade, the hidden-stores module runs a
+one-shot migration (`migratePinHideCollisions` in
+`src/lib/hiddenStories.ts`, gated by the
+`newshacker:pinHideCollisionMigrated` version marker) and drops the
+pin for any such pair — dismiss is the stronger, more recent signal,
+so it wins. The migration is self-limiting (the hidden-store's 7-day
+TTL clears surviving collisions on its own) and is scheduled for
+removal after 2026-05-15.
+
 The four lists live side by side in the drawer ("Favorites", "Pinned",
 "Done", "Hidden") and each has its own localStorage key
 (`newshacker:favoriteStoryIds`, `newshacker:pinnedStoryIds`,

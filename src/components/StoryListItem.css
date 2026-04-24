@@ -49,14 +49,6 @@
   font-weight: 400;
 }
 
-.story-row--hidden .story-row__body,
-.story-row--hidden .story-row__title-text,
-.story-row--hidden .story-row__meta {
-  color: var(--nh-meta);
-  font-weight: 400;
-  opacity: 0.75;
-}
-
 @media (hover: hover) {
   /* Row-wide hover tint on pointer devices so the whole row (body
      and pin-button column alike) signals that it's interactive. The

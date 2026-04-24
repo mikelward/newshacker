@@ -161,6 +161,46 @@ describe('<HiddenPage>', () => {
     expect(JSON.parse(pinned as string)).toHaveLength(1);
   });
 
+  // Hide shields against Pin: the menu "Pin" item must not appear on
+  // a hidden row. Without this, swipe-left or menu "Pin" on /hidden
+  // would recreate the pin ∩ hidden collision the rest of the shield
+  // rule exists to prevent. See SPEC.md under *Pinned vs. Favorite
+  // vs. Done*.
+  it('does not show a Pin menu item on hidden rows', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    installHNFetchMock({
+      items: { 5: makeStory(5, { title: 'Five' }) },
+    });
+    addHiddenId(5);
+
+    renderWithProviders(<HiddenPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Five')).toBeInTheDocument();
+    });
+
+    const row = screen.getByTestId('story-row');
+    // Long-press to open the row menu.
+    const down = new Event('pointerdown', { bubbles: true, cancelable: true });
+    Object.assign(down, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+      isPrimary: true,
+    });
+    act(() => {
+      row.dispatchEvent(down);
+    });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    // Share (and Hide, if present) may render, but Pin must not.
+    expect(screen.queryByTestId('story-row-menu-pin')).toBeNull();
+    expect(screen.queryByTestId('story-row-menu-unpin')).toBeNull();
+    vi.useRealTimers();
+  });
+
   it('orders hidden stories newest first by hide time', async () => {
     installHNFetchMock({
       items: {
