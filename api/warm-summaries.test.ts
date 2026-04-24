@@ -1724,3 +1724,239 @@ describe('warm-summaries — paywalled field propagation', () => {
     expect(article).not.toHaveProperty('paywalled');
   });
 });
+
+describe('warm-summaries — paywall retry behavior', () => {
+  // First-sample-paywalled triggers a second Jina call on the cron
+  // path (no user waiting). A second sample that comes back clean
+  // flips the verdict and uses its content; a second sample that
+  // agrees keeps the first. These tests lock that end-to-end.
+
+  const PAYWALL_BODY =
+    'Premium Story\n\nSubscribe to continue reading this article.';
+  const CLEAN_BODY =
+    'The tram lines curved past the market square as the rain came on. '.repeat(30);
+
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  // Queue-based fetch mock: each call to the same URL pulls the next
+  // response off a FIFO. Makes "first sample paywall, second sample
+  // clean" one-liners to set up. `throws` triggers an exception;
+  // `{}` alone yields an empty 200 body.
+  function createQueuedFetch(queues: Record<string, FakeFetchResult[]>) {
+    return vi.fn(async (url: RequestInfo | URL) => {
+      const key = typeof url === 'string' ? url : url.toString();
+      const q = queues[key];
+      if (!q || q.length === 0) {
+        throw new Error(`unexpected (or exhausted) fetch: ${key}`);
+      }
+      const route = q.shift()!;
+      if (route.throws) throw route.throws;
+      return new Response(route.body ?? '', {
+        status: route.status ?? 200,
+        headers: {
+          'content-type': route.contentType ?? 'text/html; charset=utf-8',
+        },
+      });
+    });
+  }
+
+  it('retries once on first-sample paywall and flips the record when the second sample is clean', async () => {
+    const articleUrl = 'https://paywalled.example.com/flip';
+    const fetchImpl = createQueuedFetch({
+      [`https://r.jina.ai/${articleUrl}`]: [
+        { body: jinaBody(PAYWALL_BODY, 100) },
+        { body: jinaBody(CLEAN_BODY, 200) },
+      ],
+    });
+    const fetchItem = fetchItemFor({
+      9001: { id: 9001, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const { logger, stories, runs } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9001],
+      createClient: () => createFakeClient([{ text: 'summary' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    // Record should reflect the second (clean) sample.
+    expect(article.paywalled).toBe(false);
+    expect(article.paywalledRetried).toBe(true);
+    expect(article.paywalledRetryFlipped).toBe(true);
+    // Token billing: sum across both Jina calls, so articleTokensTotal
+    // still tracks actual spend.
+    expect(article.tokens).toBe(300);
+    expect(runs[0]!.articleTokensTotal).toBe(300);
+    expect(store.map.get(9001)!.paywalled).toBe(false);
+    // Summary is built from the clean body, so articleHash reflects it
+    // (post-clampContent trim).
+    expect(store.map.get(9001)!.articleHash).toBe(
+      hashArticle(CLEAN_BODY.trim()),
+    );
+    // Both queued responses consumed.
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries once on first-sample paywall and keeps the paywalled verdict when the second sample agrees', async () => {
+    const articleUrl = 'https://paywalled.example.com/stable';
+    const fetchImpl = createQueuedFetch({
+      [`https://r.jina.ai/${articleUrl}`]: [
+        { body: jinaBody(PAYWALL_BODY, 100) },
+        { body: jinaBody(PAYWALL_BODY, 120) },
+      ],
+    });
+    const fetchItem = fetchItemFor({
+      9002: { id: 9002, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9002],
+      createClient: () => createFakeClient([{ text: 'summary' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.paywalled).toBe(true);
+    expect(article.paywalledRetried).toBe(true);
+    expect(article.paywalledRetryFlipped).toBe(false);
+    expect(article.tokens).toBe(220);
+    expect(store.map.get(9002)!.paywalled).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the first-sample paywalled verdict when the retry Jina call fails', async () => {
+    const articleUrl = 'https://paywalled.example.com/retry-500';
+    const fetchImpl = createQueuedFetch({
+      [`https://r.jina.ai/${articleUrl}`]: [
+        { body: jinaBody(PAYWALL_BODY, 100) },
+        { status: 500 },
+      ],
+    });
+    const fetchItem = fetchItemFor({
+      9003: { id: 9003, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9003],
+      createClient: () => createFakeClient([{ text: 'summary' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    // First sample's verdict (paywalled) stands; retry failure does
+    // NOT cause a flip to "not paywalled".
+    expect(article.paywalled).toBe(true);
+    expect(article.paywalledRetried).toBe(true);
+    expect(article.paywalledRetryFlipped).toBe(false);
+    expect(store.map.get(9003)!.paywalled).toBe(true);
+  });
+
+  it('does not retry when the first sample is clean', async () => {
+    const articleUrl = 'https://example.com/clean';
+    const fetchImpl = createQueuedFetch({
+      [`https://r.jina.ai/${articleUrl}`]: [
+        { body: jinaBody(CLEAN_BODY, 200) },
+      ],
+    });
+    const fetchItem = fetchItemFor({
+      9004: { id: 9004, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9004],
+      createClient: () => createFakeClient([{ text: 'summary' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.paywalled).toBe(false);
+    expect(article).not.toHaveProperty('paywalledRetried');
+    expect(article).not.toHaveProperty('paywalledRetryFlipped');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('warm-summaries — paywalled record TTL', () => {
+  const PAYWALL_BODY =
+    'Premium Story\n\nSubscribe to continue reading this article.';
+
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  it('writes a paywalled first_seen record with the short 1h TTL', async () => {
+    // The retry returns the same paywall body, so the record lands
+    // as paywalled=true and gets the short TTL. Non-paywalled
+    // records keep the 30d TTL (asserted elsewhere; this test pins
+    // the paywall-specific branch).
+    const articleUrl = 'https://paywalled.example.com/ttl';
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(jinaBody(PAYWALL_BODY), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const fetchItem = fetchItemFor({
+      9010: { id: 9010, type: 'story', url: articleUrl, score: 10 },
+    });
+    const setSpy = vi.fn<SummaryStore['set']>(async () => undefined);
+    const store: SummaryStore = {
+      get: async () => null,
+      set: setSpy,
+    };
+    const { logger } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9010],
+      createClient: () => createFakeClient([{ text: 'summary' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    const [, record, ttlSeconds] = setSpy.mock.calls[0]!;
+    expect(record.paywalled).toBe(true);
+    expect(ttlSeconds).toBe(60 * 60);
+  });
+});
