@@ -31,6 +31,7 @@ import { sanitizeCommentHtml } from '../lib/sanitize';
 import { hasSelfPostBody } from '../lib/selfPostBody';
 import { trackSummaryLayout } from '../lib/analytics';
 import { Comment } from './Comment';
+import { MarkdownText } from './MarkdownText';
 import { ThreadSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
@@ -279,7 +280,12 @@ function SummaryCard({ storyId }: { storyId: number }) {
     trackSummaryLayout({
       kind: 'article',
       cardWidthPx: width,
-      summaryChars: data.summary.length,
+      // Visible characters as actually rendered. `textContent` strips the
+      // <code>/<strong> tags MarkdownText emits, so e.g. "configuring the
+      // `base_url` here" reports the rendered length without the two
+      // backticks. Falls back to the raw string if textContent is null
+      // (it isn't, in practice — element nodes always return a string).
+      summaryChars: bodyEl.textContent?.length ?? data.summary.length,
       reservedContentHeightPx: reserved,
       renderedContentHeightPx: bodyEl.offsetHeight,
     });
@@ -308,7 +314,11 @@ function SummaryCard({ storyId }: { storyId: number }) {
           {articleProbe}
         </p>
       ) : null}
-      {data ? <p className="thread__summary-body">{data.summary}</p> : null}
+      {data ? (
+        <p className="thread__summary-body">
+          <MarkdownText text={data.summary} />
+        </p>
+      ) : null}
       {offlineWithoutCache ? (
         <div className="thread__summary-error" data-testid="summary-offline">
           <p>Summary not available offline. Pin this story while online to keep a copy.</p>
@@ -380,7 +390,10 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
     trackSummaryLayout({
       kind: 'comments',
       cardWidthPx: width,
-      summaryChars: totalChars,
+      // See SummaryCard above — read what the browser actually rendered
+      // (post-MarkdownText) so the chars-vs-height correlation isn't
+      // biased by stripped backtick / asterisk delimiters.
+      summaryChars: listEl.textContent?.length ?? totalChars,
       reservedContentHeightPx: reserved,
       renderedContentHeightPx: listEl.offsetHeight,
       insightCount: data.insights.length,
@@ -415,7 +428,9 @@ function CommentsSummaryCard({ storyId }: { storyId: number }) {
       {data ? (
         <ul className="thread__summary-list">
           {data.insights.map((insight, i) => (
-            <li key={i}>{insight}</li>
+            <li key={i}>
+              <MarkdownText text={insight} />
+            </li>
           ))}
         </ul>
       ) : null}
