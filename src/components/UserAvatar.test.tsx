@@ -14,9 +14,8 @@ describe('avatarColorForUsername', () => {
     // username (that would couple the test to the hash) but we do
     // assert the color is never one of the brand orange hexes.
     const color = avatarColorForUsername('bob');
-    expect(color.toLowerCase()).not.toBe('#c2410c');
-    expect(color.toLowerCase()).not.toBe('#9a3412');
     expect(color.toLowerCase()).not.toBe('#ea580c');
+    expect(color.toLowerCase()).not.toBe('#c2410c');
   });
 
   it('falls back deterministically for an empty username', () => {

@@ -55,7 +55,7 @@ export default defineConfig({
         name: 'newshacker',
         short_name: 'newshacker',
         description: 'A mobile-friendly, unofficial reader for Hacker News.',
-        theme_color: '#c2410c',
+        theme_color: '#ea580c',
         background_color: '#fdf6ec',
         display: 'standalone',
         start_url: '/top',

@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import sharp from 'sharp';
 
-const BG = '#c2410c';
+const BG = '#ea580c';
 const FG = '#ffffff';
 
 // Circle-n mark at viewBox 0 0 512 512. The non-maskable version is an

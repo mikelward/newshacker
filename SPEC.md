@@ -28,7 +28,7 @@ We achieve that by:
 
 - Mobile-first responsive layout; also usable on desktop.
 - Fast, minimal-JS bundle; good Lighthouse scores.
-- Familiar HN look & feel — burnt orange `#c2410c` header, warm-ivory background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
+- Familiar HN look & feel — burnt orange `#ea580c` header, warm-ivory background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
 - Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
@@ -515,7 +515,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 ## Visual Design
 
-- Primary color: `#c2410c` (burnt orange) for the header and accents. In dark mode the accent lifts to `#ea580c` so icons and text retain WCAG AA contrast against the dark background; the light-mode primary becomes the dark-mode hover/pressed shade.
+- Primary color: `#ea580c` (burnt orange, Tailwind orange-600) for the header and accents, in both light and dark mode. The hover/pressed shade is `#c2410c` (Tailwind orange-700). A darker `#c2410c` primary was trialled first but read as too heavy in light mode when viewed in a dark room; the lighter orange carries the brand without the muddy feel.
 - Background: `#fdf6ec` (warm ivory) for the page, white for cards/rows.
 - Text: `#000` primary, `#5a5a5a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
@@ -549,7 +549,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 - Semantic HTML (`<main>`, `<nav>`, `<article>`).
 - Visible focus styles.
 - `prefers-reduced-motion` respected for the collapse animation and the tooltip fade-in.
-- Color contrast ≥ 4.5:1 for body text. The burnt-orange accent (`#c2410c`) clears AA on white (~5.3:1) but is still reserved for headers, buttons, and accents rather than long-form body text — readability of any orange-on-cream paragraph degrades faster than the contrast ratio alone suggests.
+- Color contrast ≥ 4.5:1 for body text. The burnt-orange accent (`#ea580c`) on white is ~3.6:1 — passes WCAG AA for *large* text and UI components but not small body text, so it's used for the header, large buttons (white text on orange → inverse, 5.8:1 ✓), and icons. The darker pressed/hover shade (`#c2410c`) clears AA at ~5.2:1 and is used for small orange-on-white text (e.g. link colors in long-form content).
 - Every icon-only `<button>` has an accessible name — either via `aria-label` or a `visually-hidden` caption inside the button. The long-press tooltip (see *Visual Design*) is visual-only; screen readers rely on the accessible name, not the transient tooltip DOM.
 
 ## Performance Targets
@@ -576,7 +576,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 newshacker is installable as a Progressive Web App on desktop and mobile, and supports offline reading of previously-seen content.
 
 ### Install identity
-- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#c2410c`, background `#fdf6ec`, `display: standalone`, `start_url: /top`.
+- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ea580c`, background `#fdf6ec`, `display: standalone`, `start_url: /top`.
 - Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. The mark is an orange disc with a white ring and a white "n" centered inside, on a transparent background so the icon reads as circular — never the HN `Y` logo. The maskable variant fills its frame with orange and pulls the ring + glyph into an 80% safe zone so Android adaptive masks don't clip it.
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
