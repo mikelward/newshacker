@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react';
 
-const SWIPE_RATIO = 0.35;
-const SWIPE_MIN_PX = 80;
+const SWIPE_RATIO = 0.25;
+const SWIPE_MIN_PX = 56;
 const ANGLE_RATIO = 1.2;
 const START_THRESHOLD_PX = 8;
 const EXIT_DURATION_MS = 200;

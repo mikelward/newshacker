@@ -171,6 +171,28 @@ describe('useSwipeToDismiss', () => {
     expect(row.getAttribute('data-offset')).toBe('0');
   });
 
+  // Regression guard for the "make swipes a little easier to activate"
+  // tuning. On a 300px row, max(SWIPE_MIN_PX, width * SWIPE_RATIO)
+  // must stay ≤ 80px so a modest 80px drag still commits. If a future
+  // change tightens the thresholds back to the old 105px commit, this
+  // test fails loudly instead of quietly regressing the feel.
+  it('commits on a modest 80px swipe (looser threshold)', () => {
+    vi.useFakeTimers();
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} />);
+    const row = screen.getByTestId('row');
+
+    dispatch(row, 'pointerdown', 100, 100);
+    dispatch(row, 'pointermove', 180, 102);
+    dispatch(row, 'pointerup', 180, 102);
+
+    expect(row.getAttribute('data-dismissing')).toBe('true');
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(onSwipeRight).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores predominantly vertical motion (lets the page scroll)', () => {
     const onSwipeRight = vi.fn();
     render(<Harness onSwipeRight={onSwipeRight} />);
