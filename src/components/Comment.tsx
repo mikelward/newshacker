@@ -58,6 +58,22 @@ function ToolbarReplyIcon() {
   );
 }
 
+function ToolbarCollapseIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="22"
+      height="22"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {/* Material Symbols `expand_circle_up` — Apache 2.0, Google. */}
+      <path d="m357-384 123-123 123 123 57-56-180-180-180 180 57 56ZM480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z" />
+    </svg>
+  );
+}
+
 interface Props {
   id: number;
 }
@@ -146,39 +162,46 @@ export function Comment({ id }: Props) {
             {item.by}
           </Link>
         ) : null}
-        <button
-          type="button"
-          className="comment__toggle"
-          aria-expanded={isExpanded}
-          aria-label={isExpanded ? 'Collapse comment' : 'Expand comment'}
-          onClick={toggle}
-        >
-          <span className="comment__toggle-text">{metaSuffix}</span>
-          {/* Expand/collapse affordance at the end of the meta line.
-              Material Symbols `add`/`remove` so collapsed → "+" and
-              expanded → "−"; visible on every device so the control
-              is obvious regardless of whether the reader tries to
-              tap the card body or aim for the icon. */}
-          <span
-            className="comment__toggle-icon"
-            data-expanded={isExpanded ? 'true' : 'false'}
-            aria-hidden="true"
+        {isExpanded ? (
+          // When expanded, the explicit collapse control is the
+          // trailing button in `.comment__toolbar` (bottom-right of
+          // the expanded card), so the meta row here is plain text.
+          // Tapping anywhere else on the card still collapses via
+          // the row's onClick handler.
+          <span className="comment__meta">{metaSuffix}</span>
+        ) : (
+          <button
+            type="button"
+            className="comment__toggle"
+            aria-expanded={false}
+            aria-label="Expand comment"
+            onClick={toggle}
           >
-            <svg
-              viewBox="0 -960 960 960"
-              fill="currentColor"
-              width="18"
-              height="18"
-              focusable="false"
+            <span className="comment__toggle-text">{metaSuffix}</span>
+            {/* Expand affordance pinned to the card's bottom-right
+                corner (via margin-left: auto in Comment.css).
+                Material Symbols `expand_circle_down` — the circled
+                chevron reads as "expand this" unambiguously, and
+                the card-corner placement keeps it out of the meta
+                text. On expand, the matching collapse chevron is
+                the last button in the toolbar strip below. */}
+            <span
+              className="comment__toggle-icon"
+              data-expanded="false"
+              aria-hidden="true"
             >
-              {isExpanded ? (
-                <path d="M200-440v-80h560v80H200Z" />
-              ) : (
-                <path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" />
-              )}
-            </svg>
-          </span>
-        </button>
+              <svg
+                viewBox="0 -960 960 960"
+                fill="currentColor"
+                width="22"
+                height="22"
+                focusable="false"
+              >
+                <path d="m480-340 180-180-57-56-123 123-123-123-57 56 180 180Zm0 260q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z" />
+              </svg>
+            </span>
+          </button>
+        )}
       </div>
       {isExpanded ? (
         <div
@@ -236,6 +259,21 @@ export function Comment({ id }: Props) {
           >
             <ToolbarReplyIcon />
           </a>
+          {/* Collapse chevron pinned to the toolbar's right edge via
+              `margin-left: auto`. Mirrors the collapsed-state chevron
+              at the card's bottom-right corner so "bottom-right =
+              (un)collapse" is the same rule in both states. */}
+          <TooltipButton
+            type="button"
+            className="comment__toolbar-button comment__toolbar-button--collapse"
+            tooltip="Collapse comment"
+            aria-label="Collapse comment"
+            aria-expanded={true}
+            data-testid="comment-collapse"
+            onClick={toggle}
+          >
+            <ToolbarCollapseIcon />
+          </TooltipButton>
         </div>
       ) : null}
       {hasReplies && isExpanded ? (

@@ -765,31 +765,30 @@ ends up on the front page on a given day.
 
 ## Desktop layout
 
-- **Comment expand/collapse button — iterate on position and icon.**
+- **Comment expand/collapse button — second pass shipped.**
   The first desktop pass shipped a Material `add` / `remove` (+/−)
   icon immediately after the meta ("alice · 4m · 12 replies [+]"),
-  visible on every device. Known alternatives we want to try before
-  committing:
-  - Position: to the **left** of the card / meta (before the author
-    link, in its own narrow gutter) so the expand control reads as
-    a row-level control rather than a trailing meta decoration. The
-    gutter can stay narrow (~20 px) if the tap target extends into
-    the card via invisible padding so the visible icon is small but
-    the hit area is still 48×48.
-  - Icon: Material `expand_circle_down` / `expand_circle_up` — a
-    semantic circled chevron that reads as "expand this" at a
-    glance instead of a symbolic +/−. Heavier visual weight than
-    +/− when sitting inline with meta text, so this one likely
-    pairs with a left-gutter position rather than the current
-    end-of-meta position. Plain `expand_more` / `expand_less`
-    chevrons are *out* — too easily confused with directional
-    "next" controls. So are `add_circle`, `add_box`, and the
-    other non-directional decorators — those compete with the
-    meta text for attention without adding semantic value.
-  - Gating: whether the icon should be visible everywhere (current)
-    or only on `(hover: hover)` pointer devices, where tap-anywhere
-    discoverability matters less on mobile.
-  Come back once we have actual usage data from the first pass.
+  visible on every device. The second pass replaced it with Material
+  `expand_circle_down` / `expand_circle_up` (a semantic circled
+  chevron that reads as "expand this") pushed to the card's bottom-
+  right corner via `margin-left: auto` on `.comment__toggle-icon`,
+  rather than left-gutter placement — the right-edge anchor keeps
+  the icon out of the meta text without adding a separate gutter
+  column. Still visible everywhere (no `(hover: hover)` gating). The
+  two alternatives we didn't take and the reasons they stay ruled
+  out:
+  - Left-gutter position — would have meant widening `.comment`'s
+    left padding on every nesting level; the bottom-right anchor
+    is free (the space was already unused) and doesn't change the
+    reading column.
+  - Hover-only gating — tap-anywhere already makes mobile
+    discoverability solved; leaving the icon visible on touch
+    matches the "every tap zone has a visual affordance" rule.
+  Plain `expand_more` / `expand_less` chevrons remain *out* — too
+  easily confused with directional "next" controls. `add_circle`,
+  `add_box`, and the other non-directional decorators are out for
+  the same reason they were originally: they compete with the meta
+  text for attention without adding semantic value.
 
 - **Wider reading column on desktop — shipped (first pass).**
   `.app-main` bumps from 720→860 at `min-width: 960px` (feed and
