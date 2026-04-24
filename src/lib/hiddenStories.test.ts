@@ -266,6 +266,52 @@ describe('hiddenStories', () => {
       expect(getPinnedIds().has(1)).toBe(true);
     });
 
+    it('leaves the marker unset when hiddenStoryIds is unparseable so a later repair can retry', () => {
+      // Unparseable payload (junk string). We can't do anything
+      // useful with it, but we must not burn the marker — cloud
+      // sync's replaceHiddenEntries may write a valid array later,
+      // and the migration needs to run against that.
+      addPinnedId(1);
+      window.localStorage.setItem(
+        'newshacker:hiddenStoryIds',
+        '{not valid json',
+      );
+      getHiddenIds();
+      expect(
+        window.localStorage.getItem(
+          'newshacker:pinHideCollisionMigrated',
+        ),
+      ).toBeNull();
+
+      // Repair: valid array including an id that collides with the pin.
+      window.localStorage.setItem(
+        'newshacker:hiddenStoryIds',
+        JSON.stringify([{ id: 1, at: Date.now() }]),
+      );
+      getHiddenIds();
+      expect(getPinnedIds().has(1)).toBe(false);
+      expect(
+        window.localStorage.getItem(
+          'newshacker:pinHideCollisionMigrated',
+        ),
+      ).toBe('true');
+    });
+
+    it('leaves the marker unset when hiddenStoryIds is not an array', () => {
+      addPinnedId(1);
+      window.localStorage.setItem(
+        'newshacker:hiddenStoryIds',
+        JSON.stringify({ bogus: 'shape' }),
+      );
+      getHiddenIds();
+      expect(
+        window.localStorage.getItem(
+          'newshacker:pinHideCollisionMigrated',
+        ),
+      ).toBeNull();
+      expect(getPinnedIds().has(1)).toBe(true);
+    });
+
     it('ignores expired hidden entries when deciding collisions', () => {
       // Story 1 was hidden 10 days ago (past the 7-day TTL) and
       // later pinned. The expired hide is a ghost that wouldn't

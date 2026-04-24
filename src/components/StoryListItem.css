@@ -1,11 +1,49 @@
 .story-row {
   position: relative;
+  /* Opaque so it covers the shield-hint labels (siblings of the row)
+     when the row is at rest. The list-item <li> supplies the same
+     card color; this duplication is intentional so the row can still
+     paint on top of the hints when it translates over them. */
+  background: var(--nh-bg-card);
+  z-index: 1;
   display: flex;
   align-items: stretch;
   gap: 8px;
   padding: 6px 12px;
   touch-action: pan-y;
   -webkit-touch-callout: none;
+}
+
+/* Swipe-reveal hints. Rendered as siblings of `.story-row` inside
+   each `.story-list__item`, anchored to the left/right edge. Hidden
+   behind the opaque row at rest; revealed as the row translates
+   under a swipe. Each edge labels the outcome of a swipe in that
+   direction — "Pinned"/"Hidden" (shield: gesture blocked) or
+   "Pin"/"Hide" (action: gesture will run). One visual style for
+   both; the word carries the meaning. See SPEC.md under *Pinned
+   vs. Favorite vs. Done*. */
+.story-row__swipe-hint {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  color: var(--nh-meta);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.story-row__swipe-hint--left {
+  left: 0;
+}
+
+.story-row__swipe-hint--right {
+  right: 0;
 }
 
 .story-row--dragging {
