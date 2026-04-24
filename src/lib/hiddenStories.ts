@@ -78,23 +78,31 @@ function migratePinHideCollisions(now: number): void {
   try {
     if (window.localStorage.getItem(PIN_HIDE_MIGRATION_KEY) === 'true') return;
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = null;
-      }
-      if (Array.isArray(parsed)) {
-        const cutoff = now - HIDDEN_STORY_TTL_MS;
-        const pinnedIds = getPinnedIds();
-        for (const entry of parsed) {
-          if (!isEntry(entry)) continue;
-          if (entry.deleted === true) continue;
-          if (entry.at < cutoff) continue;
-          if (pinnedIds.has(entry.id)) removePinnedId(entry.id);
-        }
-      }
+    // No hidden entries at all → nothing to migrate. Mark the
+    // marker so we don't re-scan on every subsequent read.
+    if (!raw) {
+      window.localStorage.setItem(PIN_HIDE_MIGRATION_KEY, 'true');
+      return;
+    }
+    // Unparseable / corrupted payload → leave the marker unset so
+    // the next load can retry. Cloud sync's `replaceHiddenEntries`
+    // might repair the store between now and then, and we don't
+    // want the migration to silently never run against the repaired
+    // data.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!Array.isArray(parsed)) return;
+    const cutoff = now - HIDDEN_STORY_TTL_MS;
+    const pinnedIds = getPinnedIds();
+    for (const entry of parsed) {
+      if (!isEntry(entry)) continue;
+      if (entry.deleted === true) continue;
+      if (entry.at < cutoff) continue;
+      if (pinnedIds.has(entry.id)) removePinnedId(entry.id);
     }
     window.localStorage.setItem(PIN_HIDE_MIGRATION_KEY, 'true');
   } catch {

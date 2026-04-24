@@ -13,6 +13,10 @@ describe('<HiddenPage>', () => {
   afterEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+    // Guarantees timer cleanup even if a test throws before
+    // reaching its own useRealTimers() call — otherwise fake
+    // timers leak into the next test's fetch, waitFor, etc.
+    vi.useRealTimers();
   });
 
   it('shows an empty state when nothing is hidden', () => {
@@ -198,7 +202,8 @@ describe('<HiddenPage>', () => {
     // Share (and Hide, if present) may render, but Pin must not.
     expect(screen.queryByTestId('story-row-menu-pin')).toBeNull();
     expect(screen.queryByTestId('story-row-menu-unpin')).toBeNull();
-    vi.useRealTimers();
+    // Timer cleanup lives in the shared afterEach so a mid-test
+    // throw here can't leak fake timers into sibling tests.
   });
 
   it('orders hidden stories newest first by hide time', async () => {

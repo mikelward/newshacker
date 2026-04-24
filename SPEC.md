@@ -84,9 +84,14 @@ action has to do double duty.
   interested" (that's Hide) and not "keepsake forever" (that's Favorite).
   Favorites are orthogonal — favoriting and marking done are independent.
 
-**Pin is a shield against Hide.** On a pinned row, swipe-right is
-suppressed and the row menu's "Hide" item is hidden. A pinned story
-leaves the reading list by one of exactly two routes:
+**Pin is a shield against every swipe, not just Hide.** On a pinned
+row both swipe directions are suppressed — swipe-right (the Hide
+gesture) and swipe-left (the Pin gesture). The latter matters
+because `addPinnedId` re-writes the entry with a fresh timestamp;
+without this shield, a stray swipe-left on a pinned row would
+silently reorder the pinned list to the top. The row menu's
+"Hide" item is also hidden on pinned rows. A pinned story leaves
+the reading list by one of exactly two routes:
 
 - **Done** (normal lifecycle). Marking a story Done from the thread
   action bar also removes the pin (see *Pinned vs. Favorite vs. Done*
@@ -125,6 +130,31 @@ handler is wired (long-press always is), and on `pointerup` the
 direction whose commit-handler is `undefined` falls through to the
 hook's `setOffset(0)` snap-back with its existing 200ms CSS
 transition. No second hook mode, no per-row flag.
+
+**Every swipe reveals a label that names its outcome.** Behind each
+row sit two absolutely-positioned status labels, clipped by the
+list-item's `overflow: hidden` and covered by the row's opaque
+background at rest; they peek out as the row translates. Each edge
+labels what the swipe in that direction will do:
+
+- Left edge (revealed when the finger pushes right): `Pinned` on
+  pinned rows (shield), otherwise `Hide` when `onHide` is wired
+  (action).
+- Right edge (revealed when the finger pushes left): `Hidden` on
+  hidden rows (shield), `Pinned` on pinned rows (shield — swipe-left
+  is now blocked too; see above), otherwise `Pin` when `onPin` is
+  wired (action).
+
+Pinned rows therefore carry `Pinned` on *both* edges; any swipe
+reveals the shield label and the gesture rubber-bands.
+
+Shield and action labels share one visual style (small uppercase
+muted caption) — the word carries the meaning, not the color.
+Readers get both the rubber-band physics and a reason for it in one
+gesture: "Pinned" explains why the swipe snapped back; "Hide"
+previews what the committed swipe will do. No new DOM elements on
+rows that don't need them; the hints render conditionally from
+`pinned`, `hidden`, `onHide`, and `onPin` props in `StoryListItem`.
 
 Hidden rows show only on `/hidden` (they're filtered from every
 feed). They render with the standard opened/unopened coloring — no

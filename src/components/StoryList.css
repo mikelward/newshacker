@@ -5,6 +5,11 @@
 }
 
 .story-list__item {
+  position: relative;
+  /* Clip the swipe-hint labels (rendered as siblings of the row's
+     <article>) so they only peek out as the row translates under a
+     swipe. See `.story-row__swipe-hint` in StoryListItem.css. */
+  overflow: hidden;
   background: var(--nh-bg-card);
   border-bottom: 1px solid var(--nh-border);
 }

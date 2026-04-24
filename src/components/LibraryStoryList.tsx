@@ -139,6 +139,7 @@ export function LibraryStoryList({
                 commentsOpened={commentsOpenedIds.has(story.id)}
                 seenCommentCount={seenCommentCounts.get(story.id)}
                 pinned={pinnedIds.has(story.id)}
+                hidden={isHidden}
                 onHide={hide}
                 onPin={isHidden ? undefined : pin}
                 onUnpin={isHidden ? undefined : unpin}

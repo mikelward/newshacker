@@ -101,6 +101,84 @@ describe('StoryListItem', () => {
     );
   });
 
+  describe('swipe-reveal hint labels', () => {
+    it('renders a "Pinned" shield hint on the left edge of pinned rows (revealed by finger-pushing-right)', () => {
+      renderWithProviders(<StoryListItem story={baseStory} pinned />);
+      const hint = screen.getByTestId('swipe-hint-pinned-left');
+      expect(hint).toHaveTextContent('Pinned');
+      expect(hint).toHaveClass('story-row__swipe-hint--left');
+      expect(hint).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('also renders a "Pinned" shield hint on the right edge of pinned rows (revealed by finger-pushing-left)', () => {
+      // Both swipe directions are shielded on pinned rows — the
+      // rubber-band is symmetric, and so is the reveal label.
+      renderWithProviders(<StoryListItem story={baseStory} pinned />);
+      const hint = screen.getByTestId('swipe-hint-pinned-right');
+      expect(hint).toHaveTextContent('Pinned');
+      expect(hint).toHaveClass('story-row__swipe-hint--right');
+    });
+
+    it('renders a "Hidden" shield hint on hidden rows (right edge, revealed by finger-pushing-left)', () => {
+      renderWithProviders(<StoryListItem story={baseStory} hidden />);
+      const hint = screen.getByTestId('swipe-hint-hidden');
+      expect(hint).toHaveTextContent('Hidden');
+      expect(hint).toHaveClass('story-row__swipe-hint--right');
+      expect(hint).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('renders a "Hide" action hint on the left when onHide is wired on an unpinned row', () => {
+      renderWithProviders(
+        <StoryListItem story={baseStory} onHide={vi.fn()} />,
+      );
+      const hint = screen.getByTestId('swipe-hint-hide');
+      expect(hint).toHaveTextContent('Hide');
+      expect(hint).toHaveClass('story-row__swipe-hint--left');
+    });
+
+    it('renders a "Pin" action hint on the right when onPin is wired on an unpinned, unhidden row', () => {
+      renderWithProviders(
+        <StoryListItem story={baseStory} onPin={vi.fn()} />,
+      );
+      const hint = screen.getByTestId('swipe-hint-pin');
+      expect(hint).toHaveTextContent('Pin');
+      expect(hint).toHaveClass('story-row__swipe-hint--right');
+    });
+
+    it('shield wins: pinned rows show "Pinned" instead of "Hide" even when onHide is wired', () => {
+      renderWithProviders(
+        <StoryListItem story={baseStory} pinned onHide={vi.fn()} />,
+      );
+      expect(screen.getByTestId('swipe-hint-pinned-left')).toBeInTheDocument();
+      expect(screen.queryByTestId('swipe-hint-hide')).toBeNull();
+    });
+
+    it('shield wins: hidden rows show "Hidden" instead of "Pin" even when onPin is wired', () => {
+      renderWithProviders(
+        <StoryListItem story={baseStory} hidden onPin={vi.fn()} />,
+      );
+      expect(screen.getByTestId('swipe-hint-hidden')).toBeInTheDocument();
+      expect(screen.queryByTestId('swipe-hint-pin')).toBeNull();
+    });
+
+    it('shield wins: pinned rows show "Pinned" on the right edge instead of "Pin" (no re-pin via stray swipe)', () => {
+      renderWithProviders(
+        <StoryListItem story={baseStory} pinned onPin={vi.fn()} />,
+      );
+      expect(screen.getByTestId('swipe-hint-pinned-right')).toBeInTheDocument();
+      expect(screen.queryByTestId('swipe-hint-pin')).toBeNull();
+    });
+
+    it('renders no hints on a row with no swipe handlers wired', () => {
+      renderWithProviders(<StoryListItem story={baseStory} />);
+      expect(screen.queryByTestId('swipe-hint-pinned-left')).toBeNull();
+      expect(screen.queryByTestId('swipe-hint-pinned-right')).toBeNull();
+      expect(screen.queryByTestId('swipe-hint-hidden')).toBeNull();
+      expect(screen.queryByTestId('swipe-hint-hide')).toBeNull();
+      expect(screen.queryByTestId('swipe-hint-pin')).toBeNull();
+    });
+  });
+
   it('renders a pin button that toggles pinned state via onPin / onUnpin', () => {
     const onPin = vi.fn();
     const onUnpin = vi.fn();

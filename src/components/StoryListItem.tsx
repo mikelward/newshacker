@@ -25,6 +25,15 @@ interface Props {
    */
   seenCommentCount?: number;
   pinned?: boolean;
+  /**
+   * Renders the "Hidden" swipe-hint label behind the row's right
+   * edge and suppresses the "Pin" action hint there (swipe-left on
+   * a hidden row rubber-bands — pin-on-hidden is blocked). Set by
+   * LibraryStoryList when `hiddenIds.has(story.id)`. The row itself
+   * is not dimmed — the pin ∩ hidden invariant removed the need for
+   * a separate visual state; this prop is strictly the hint driver.
+   */
+  hidden?: boolean;
   onHide?: (id: number) => void;
   onPin?: (id: number) => void;
   onUnpin?: (id: number) => void;
@@ -53,6 +62,7 @@ export function StoryListItem({
   commentsOpened = false,
   seenCommentCount,
   pinned = false,
+  hidden = false,
   onHide,
   onPin,
   onUnpin,
@@ -110,7 +120,10 @@ export function StoryListItem({
   // hidden row can't be pinned (swipe-left and the menu "Pin" item
   // are suppressed when the caller marks the row as hidden; in
   // practice LibraryStoryList decides that by withholding
-  // onPin/onUnpin from rows in `hiddenIds`). A pin exits via Done
+  // onPin/onUnpin from rows in `hiddenIds`). Additionally, a pinned
+  // row rejects swipe-left as well — both swipe directions are
+  // shielded on pinned rows, so a pin can't be re-timestamped
+  // (silent reordering) by a stray swipe. A pin exits via Done
   // (normal lifecycle, clears the pin as a side effect — see
   // useDoneStories) or via Unpin (explicit). A hide exits via the
   // `/hidden` page's recover action or the feed-header Undo button.
@@ -125,7 +138,7 @@ export function StoryListItem({
   // Done*.
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
     onSwipeRight: onHide && !pinned ? handleHide : undefined,
-    onSwipeLeft: onPin ? handlePin : undefined,
+    onSwipeLeft: onPin && !pinned ? handlePin : undefined,
     onLongPress: openMenu,
   });
 
@@ -186,15 +199,63 @@ export function StoryListItem({
 
   const pinLabel = pinned ? `Unpin ${title}` : `Pin ${title}`;
 
+  // Swipe-reveal hints, shown behind the row. Each edge labels the
+  // outcome of a swipe that reveals *that* edge: shield text when
+  // the row's state blocks the gesture, action text when the
+  // gesture commits. Static layout, revealed by the row's own
+  // translate3d at rest vs. mid-swipe. See SPEC.md under *Pinned
+  // vs. Favorite vs. Done*.
+  //
+  //   left edge  (revealed when finger pushes right):
+  //     pinned      → "Pinned" (shield — swipe-right blocked)
+  //     has onHide  → "Hide"   (action — swipe-right will hide)
+  //   right edge (revealed when finger pushes left):
+  //     hidden      → "Hidden" (shield — swipe-left blocked)
+  //     pinned      → "Pinned" (shield — swipe-left also blocked,
+  //                             both directions on a pinned row
+  //                             rubber-band identically)
+  //     has onPin   → "Pin"    (action — swipe-left will pin)
+  const leftHint = pinned
+    ? { label: 'Pinned', testId: 'swipe-hint-pinned-left' }
+    : onHide
+    ? { label: 'Hide', testId: 'swipe-hint-hide' }
+    : null;
+  const rightHint = hidden
+    ? { label: 'Hidden', testId: 'swipe-hint-hidden' }
+    : pinned
+    ? { label: 'Pinned', testId: 'swipe-hint-pinned-right' }
+    : onPin
+    ? { label: 'Pin', testId: 'swipe-hint-pin' }
+    : null;
+
   return (
-    <article
-      ref={articleRef}
-      className={rowClass}
-      data-testid="story-row"
-      style={style}
-      {...handlers}
-      onContextMenu={handleContextMenu}
-    >
+    <>
+      {leftHint ? (
+        <span
+          className="story-row__swipe-hint story-row__swipe-hint--left"
+          data-testid={leftHint.testId}
+          aria-hidden="true"
+        >
+          {leftHint.label}
+        </span>
+      ) : null}
+      {rightHint ? (
+        <span
+          className="story-row__swipe-hint story-row__swipe-hint--right"
+          data-testid={rightHint.testId}
+          aria-hidden="true"
+        >
+          {rightHint.label}
+        </span>
+      ) : null}
+      <article
+        ref={articleRef}
+        className={rowClass}
+        data-testid="story-row"
+        style={style}
+        {...handlers}
+        onContextMenu={handleContextMenu}
+      >
       <Link
         to={`/item/${story.id}`}
         className="story-row__body story-row__body--stretched"
@@ -265,6 +326,7 @@ export function StoryListItem({
           onClose={closeMenu}
         />
       ) : null}
-    </article>
+      </article>
+    </>
   );
 }
