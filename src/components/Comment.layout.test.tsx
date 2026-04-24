@@ -62,6 +62,26 @@ describe('<Comment> nested layout CSS invariants', () => {
     );
   });
 
+  it('.comment__toggle-icon is pushed to the right edge via margin-left: auto', async () => {
+    // Regression guard for the "expand/collapse icon sits at the
+    // card's bottom-right corner" rule. If a refactor reverts the
+    // icon to sitting immediately after the meta text (the original
+    // "12 replies [+]" layout), margin-left stops being `auto` and
+    // this test fails. The toggle button itself must also be a
+    // flex item that grows, otherwise `margin-left: auto` has no
+    // free space to consume.
+    const css = await loadCommentCss();
+    const iconRule = extractRule(css, '.comment__toggle-icon');
+    expect(iconRule).not.toBeNull();
+    expect(iconRule!).toMatch(/margin-left\s*:\s*auto/);
+    const toggleRule = extractRule(css, '.comment__toggle');
+    expect(toggleRule).not.toBeNull();
+    // Accept either the shorthand or a flex-grow longhand — any
+    // non-zero grow value is enough to let margin-left:auto push
+    // the icon right.
+    expect(toggleRule!).toMatch(/flex(?:-grow)?\s*:\s*[^0;][^;]*/);
+  });
+
   it('.comment__children negates --comment-gutter on the right only, not the left', async () => {
     const css = await loadCommentCss();
 

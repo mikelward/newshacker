@@ -25,7 +25,7 @@ describe('<Comment> expand/collapse icon affordance', () => {
     window.localStorage.clear();
   });
 
-  it('renders a +/- icon at the end of the toggle whose data-expanded flips on click', async () => {
+  it('renders an expand_circle_down/up icon at the card\'s bottom-right whose data-expanded flips on click', async () => {
     const items: Record<number, HNItem> = {
       7100: commentFixture(7100, { kids: [] }),
     };
@@ -38,8 +38,9 @@ describe('<Comment> expand/collapse icon affordance', () => {
     const icon = toggle.querySelector('.comment__toggle-icon');
     expect(icon).not.toBeNull();
     expect(icon).toHaveAttribute('data-expanded', 'false');
-    // Collapsed state renders the "add" (+) icon — the meta-text span
-    // sits before the icon so the +/− lands at the end of the line.
+    // Icon is the last child of the toggle (meta text sits before
+    // it) so the CSS `margin-left: auto` can push it to the card's
+    // bottom-right corner regardless of how long the meta text is.
     const iconParent = icon!.parentElement as HTMLElement;
     const children = Array.from(iconParent.children);
     expect(children[children.length - 1]).toBe(icon);

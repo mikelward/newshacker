@@ -154,11 +154,12 @@ export function Comment({ id }: Props) {
           onClick={toggle}
         >
           <span className="comment__toggle-text">{metaSuffix}</span>
-          {/* Expand/collapse affordance at the end of the meta line.
-              Material Symbols `add`/`remove` so collapsed → "+" and
-              expanded → "−"; visible on every device so the control
-              is obvious regardless of whether the reader tries to
-              tap the card body or aim for the icon. */}
+          {/* Expand/collapse affordance pinned to the card's bottom-
+              right corner (via margin-left: auto in Comment.css).
+              Material Symbols `expand_circle_down` when collapsed and
+              `expand_circle_up` when expanded — the circled chevron
+              reads as "expand this" unambiguously, and the card-
+              corner placement keeps it out of the meta text. */}
           <span
             className="comment__toggle-icon"
             data-expanded={isExpanded ? 'true' : 'false'}
@@ -167,14 +168,14 @@ export function Comment({ id }: Props) {
             <svg
               viewBox="0 -960 960 960"
               fill="currentColor"
-              width="18"
-              height="18"
+              width="22"
+              height="22"
               focusable="false"
             >
               {isExpanded ? (
-                <path d="M200-440v-80h560v80H200Z" />
+                <path d="m357-384 123-123 123 123 57-56-180-180-180 180 57 56ZM480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z" />
               ) : (
-                <path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" />
+                <path d="m480-340 180-180-57-56-123 123-123-123-57 56 180 180Zm0 260q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z" />
               )}
             </svg>
           </span>

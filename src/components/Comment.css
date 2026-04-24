@@ -43,12 +43,12 @@
 }
 
 .comment__toggle {
-  /* Content-sized (not flex: 1) so the +/− icon inside sits
-     immediately after the last meta piece — "12 replies [+]" —
-     rather than being pushed to the far right of a stretched
-     button. Reply and vote actions live below the header in the
-     `.comment__toolbar` strip, so nothing needs the right edge of
-     this row. */
+  /* Full-width inside the header row so the trailing
+     .comment__toggle-icon can float to the card's bottom-right
+     corner via `margin-left: auto`. The meta text (time + reply
+     count) stays left-aligned and ellipses if the row is narrow;
+     the icon keeps its full 22×22 footprint at the right edge. */
+  flex: 1 1 auto;
   padding: 4px 2px;
   border: 0;
   background: transparent;
@@ -69,14 +69,17 @@
   text-overflow: ellipsis;
 }
 
-/* +/− expand icon, rendered immediately after the meta text.
-   Visible on every device so the control is obvious regardless of
-   whether the reader taps the card body or aims for the icon. */
+/* Expand/collapse icon — Material Symbols expand_circle_down /
+   expand_circle_up. Pinned to the far right of the header row (via
+   `margin-left: auto`) so the control sits at the card's bottom-
+   right corner, visible on every device regardless of whether the
+   reader taps the card body or aims for the icon. */
 .comment__toggle-icon {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  margin-left: auto;
   color: var(--nh-meta);
 }
 
