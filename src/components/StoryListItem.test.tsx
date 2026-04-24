@@ -442,6 +442,9 @@ describe('StoryListItem long-press menu', () => {
     });
     expect(screen.getByTestId('story-row-menu-unpin')).toBeInTheDocument();
     expect(screen.queryByTestId('story-row-menu-pin')).toBeNull();
+    // Pin is a shield against Hide — the Hide menu item is suppressed
+    // on pinned rows. Pinned exits via Done or Unpin, not Hide.
+    expect(screen.queryByTestId('story-row-menu-hide')).toBeNull();
   });
 
   it('invokes onPin when Pin is selected from the menu', () => {

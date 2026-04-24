@@ -79,7 +79,19 @@ export function StoryList({ feed }: Props) {
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
-  const { stories: offFeedPinnedStories } = useOffFeedPinnedStories(allIds);
+  const { stories: rawOffFeedPinnedStories } =
+    useOffFeedPinnedStories(allIds);
+  // Pin is a shield against Hide, so new state can't produce a pin ∩
+  // hidden collision (swipe-right and menu "Hide" are blocked on
+  // pinned rows; see StoryListItem). This filter is defense-in-depth
+  // for legacy storage that predates that rule and for brief
+  // cross-device-sync windows where the two stores could disagree —
+  // without it, a surviving collision would render the pinned row on
+  // the home feed while `hiddenIds` said it should be gone.
+  const offFeedPinnedStories = useMemo(
+    () => rawOffFeedPinnedStories.filter((s) => !hiddenIds.has(s.id)),
+    [rawOffFeedPinnedStories, hiddenIds],
+  );
 
   const handlePin = useCallback(
     (id: number) => {
@@ -444,7 +456,6 @@ export function StoryList({ feed }: Props) {
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned
-              hidden={hiddenIds.has(story.id)}
               onHide={handleHideOne}
               onPin={handlePin}
               onUnpin={unpin}
@@ -470,7 +481,6 @@ export function StoryList({ feed }: Props) {
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned={pinnedIds.has(story.id)}
-              hidden={hiddenIds.has(story.id)}
               onHide={handleHideOne}
               onPin={handlePin}
               onUnpin={unpin}

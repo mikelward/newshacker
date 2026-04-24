@@ -9,6 +9,11 @@ import {
   removeHiddenId,
   replaceHiddenEntries,
 } from './hiddenStories';
+import {
+  addPinnedId,
+  getAllPinnedEntries,
+  getPinnedIds,
+} from './pinnedStories';
 
 describe('hiddenStories', () => {
   beforeEach(() => {
@@ -194,6 +199,89 @@ describe('hiddenStories', () => {
         JSON.stringify([{ id: 999, at: now - 1000 }]),
       );
       expect(getHiddenIds(now)).toEqual(new Set([1]));
+    });
+  });
+
+  // TODO: delete this describe block together with
+  // `migratePinHideCollisions` in hiddenStories.ts after 2026-05-15.
+  describe('pin ∩ hidden one-shot migration', () => {
+    it('drops the pin for ids that are live in hiddenIds (dismiss wins)', () => {
+      addPinnedId(1);
+      addPinnedId(2);
+      addPinnedId(3);
+      // Directly seed hidden storage without going through the
+      // library, so the migration marker is unset when readRaw runs.
+      window.localStorage.setItem(
+        'newshacker:hiddenStoryIds',
+        JSON.stringify([
+          { id: 2, at: Date.now() },
+          { id: 3, at: Date.now() },
+        ]),
+      );
+      expect(getPinnedIds()).toEqual(new Set([1, 2, 3]));
+
+      // First read of hidden triggers the migration.
+      getHiddenIds();
+
+      expect(getPinnedIds()).toEqual(new Set([1]));
+      expect(
+        window.localStorage.getItem(
+          'newshacker:pinHideCollisionMigrated',
+        ),
+      ).toBe('true');
+    });
+
+    it('is a no-op on a fresh install (no pins, no hidden)', () => {
+      getHiddenIds();
+      expect(getAllPinnedEntries()).toEqual([]);
+      expect(
+        window.localStorage.getItem(
+          'newshacker:pinHideCollisionMigrated',
+        ),
+      ).toBe('true');
+    });
+
+    it('does not drop a pin for an id that is only tombstoned in hidden', () => {
+      addPinnedId(1);
+      window.localStorage.setItem(
+        'newshacker:hiddenStoryIds',
+        JSON.stringify([{ id: 1, at: Date.now(), deleted: true }]),
+      );
+      getHiddenIds();
+      expect(getPinnedIds().has(1)).toBe(true);
+    });
+
+    it('short-circuits on subsequent reads once the marker is set', () => {
+      window.localStorage.setItem(
+        'newshacker:pinHideCollisionMigrated',
+        'true',
+      );
+      addPinnedId(1);
+      window.localStorage.setItem(
+        'newshacker:hiddenStoryIds',
+        JSON.stringify([{ id: 1, at: Date.now() }]),
+      );
+      getHiddenIds();
+      // Pin survives because the migration didn't run.
+      expect(getPinnedIds().has(1)).toBe(true);
+    });
+
+    it('ignores expired hidden entries when deciding collisions', () => {
+      // Story 1 was hidden 10 days ago (past the 7-day TTL) and
+      // later pinned. The expired hide is a ghost that wouldn't
+      // surface in the UI; the migration must not drop the pin
+      // based on it. Reads prune in-memory but don't rewrite
+      // localStorage, so the old entry can still be there.
+      const now = Date.now();
+      addPinnedId(1);
+      window.localStorage.setItem(
+        'newshacker:hiddenStoryIds',
+        JSON.stringify([
+          { id: 1, at: now - 10 * 24 * 60 * 60 * 1000 },
+        ]),
+      );
+      getHiddenIds(now);
+      expect(getPinnedIds().has(1)).toBe(true);
     });
   });
 });

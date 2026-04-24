@@ -40,7 +40,7 @@ export function LibraryStoryList({
   emptyMessage,
   rightAction,
 }: Props) {
-  const { hide } = useHiddenStories();
+  const { hide, hiddenIds } = useHiddenStories();
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts } =
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
@@ -120,33 +120,44 @@ export function LibraryStoryList({
       }
     >
       <ol className="story-list">
-        {stories.map((story, idx) => (
-          <li key={story.id} className="story-list__item">
-            <StoryListItem
-              story={story}
-              rank={idx + 1}
-              articleOpened={articleOpenedIds.has(story.id)}
-              commentsOpened={commentsOpenedIds.has(story.id)}
-              seenCommentCount={seenCommentCounts.get(story.id)}
-              pinned={pinnedIds.has(story.id)}
-              onHide={hide}
-              onPin={pin}
-              onUnpin={unpin}
-              onShare={shareStory}
-              onOpenThread={handleOpenThread}
-              rightAction={
-                rightAction
-                  ? {
-                      label: rightAction.label,
-                      icon: rightAction.icon,
-                      testId: rightAction.testId,
-                      onToggle: () => rightAction.onToggle(story.id),
-                    }
-                  : undefined
-              }
-            />
-          </li>
-        ))}
+        {stories.map((story, idx) => {
+          // Pin and Hide are mutually exclusive — see SPEC.md under
+          // *Pinned vs. Favorite vs. Done*. StoryList already blocks
+          // swipe-right and menu "Hide" on pinned rows; here on the
+          // library side we withhold onPin/onUnpin when the story is
+          // currently hidden, so swipe-left and menu "Pin" can't
+          // create the inverse collision (visible mainly on
+          // /hidden, where every row is hidden, but also catches
+          // the /favorites case of a hidden+favorited story).
+          const isHidden = hiddenIds.has(story.id);
+          return (
+            <li key={story.id} className="story-list__item">
+              <StoryListItem
+                story={story}
+                rank={idx + 1}
+                articleOpened={articleOpenedIds.has(story.id)}
+                commentsOpened={commentsOpenedIds.has(story.id)}
+                seenCommentCount={seenCommentCounts.get(story.id)}
+                pinned={pinnedIds.has(story.id)}
+                onHide={hide}
+                onPin={isHidden ? undefined : pin}
+                onUnpin={isHidden ? undefined : unpin}
+                onShare={shareStory}
+                onOpenThread={handleOpenThread}
+                rightAction={
+                  rightAction
+                    ? {
+                        label: rightAction.label,
+                        icon: rightAction.icon,
+                        testId: rightAction.testId,
+                        onToggle: () => rightAction.onToggle(story.id),
+                      }
+                    : undefined
+                }
+              />
+            </li>
+          );
+        })}
       </ol>
       <div className="story-list__footer">
         <BackToTopButton />

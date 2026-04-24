@@ -1,5 +1,8 @@
+import { getPinnedIds, removePinnedId } from './pinnedStories';
+
 const STORAGE_KEY = 'newshacker:hiddenStoryIds';
 const LEGACY_DISMISSED_KEY = 'newshacker:dismissedStoryIds';
+const PIN_HIDE_MIGRATION_KEY = 'newshacker:pinHideCollisionMigrated';
 export const HIDDEN_STORIES_CHANGE_EVENT =
   'newshacker:hiddenStoriesChanged';
 export const HIDDEN_STORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -48,9 +51,61 @@ function migrateLegacyKey(): void {
   }
 }
 
+// One-shot migration: resolve legacy pin ∩ hidden pairs in favor of
+// hidden. Before we made Pin a shield against Hide (swipe-right and
+// the row-menu "Hide" item are now suppressed on pinned rows — see
+// StoryListItem), a reader could hide a pinned story and leave both
+// stores carrying the same id. Under the new model that pair can't
+// be produced, but it can still be *stored* from a previous version.
+// Dismiss is the more recent and specific user signal, so we drop
+// the pin to honor it. This keeps `/hidden` and `/pinned`
+// internally consistent — a story sits in exactly one of them.
+//
+// Apply the same TTL cutoff `readRaw` uses: an expired hide is a
+// ghost that wouldn't affect the UI and shouldn't affect the pin
+// either. Without this filter, the migration could drop a pin that
+// the reader made months after a stale hide — reads prune
+// in-memory but don't rewrite localStorage, so old entries persist.
+//
+// Self-limiting: the version marker ensures it runs at most once per
+// install, and the hidden store's 7-day TTL clears any surviving
+// collision on its own after ~a week of uptime. TODO: delete this
+// function and its call site in `readRaw` after 2026-05-15. At that
+// point every stored hide that predates the shield is either gone
+// (expired) or migrated.
+function migratePinHideCollisions(now: number): void {
+  if (!hasWindow()) return;
+  try {
+    if (window.localStorage.getItem(PIN_HIDE_MIGRATION_KEY) === 'true') return;
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+      if (Array.isArray(parsed)) {
+        const cutoff = now - HIDDEN_STORY_TTL_MS;
+        const pinnedIds = getPinnedIds();
+        for (const entry of parsed) {
+          if (!isEntry(entry)) continue;
+          if (entry.deleted === true) continue;
+          if (entry.at < cutoff) continue;
+          if (pinnedIds.has(entry.id)) removePinnedId(entry.id);
+        }
+      }
+    }
+    window.localStorage.setItem(PIN_HIDE_MIGRATION_KEY, 'true');
+  } catch {
+    // ignore storage failures; we'll retry on next load.
+  }
+}
+
 function readRaw(now: number): HiddenEntry[] {
   if (!hasWindow()) return [];
   migrateLegacyKey();
+  migratePinHideCollisions(now);
   let raw: string | null;
   try {
     raw = window.localStorage.getItem(STORAGE_KEY);
