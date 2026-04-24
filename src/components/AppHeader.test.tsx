@@ -22,10 +22,10 @@ describe('<AppHeader>', () => {
     expect(document.querySelector('.app-header__feed')).toBeNull();
   });
 
-  it('renders exactly one newshacker brand label', () => {
+  it('renders exactly one nack brand label', () => {
     renderWithProviders(<AppHeader />, { route: '/no/such/path' });
     const banner = screen.getByRole('banner');
-    const matches = banner.textContent?.match(/newshacker/g) ?? [];
+    const matches = banner.textContent?.match(/nack/g) ?? [];
     expect(matches).toHaveLength(1);
   });
 
@@ -143,7 +143,7 @@ describe('<AppHeader>', () => {
 
   it('points the brand/home link at / (not /top)', () => {
     renderWithProviders(<AppHeader />, { route: '/new' });
-    expect(screen.getByRole('link', { name: /newshacker home/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /nack home/i })).toHaveAttribute(
       'href',
       '/',
     );
