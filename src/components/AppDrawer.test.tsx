@@ -132,19 +132,19 @@ describe('<AppDrawer>', () => {
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
 
-  it('exposes a theme radiogroup with Default selected by default', () => {
+  it('exposes a theme radiogroup with Mono selected by default', () => {
     renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
     const group = screen.getByRole('radiogroup', { name: 'Theme' });
     expect(group).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Default' })).toHaveAttribute(
+    expect(screen.getByRole('radio', { name: 'Mono' })).toHaveAttribute(
       'aria-checked',
       'true',
     );
-    expect(screen.getByRole('radio', { name: 'Mono A' })).toHaveAttribute(
+    expect(screen.getByRole('radio', { name: 'Duo' })).toHaveAttribute(
       'aria-checked',
       'false',
     );
-    expect(screen.getByRole('radio', { name: 'Mono B' })).toHaveAttribute(
+    expect(screen.getByRole('radio', { name: 'Classic' })).toHaveAttribute(
       'aria-checked',
       'false',
     );
@@ -153,21 +153,24 @@ describe('<AppDrawer>', () => {
   it('switches the theme when a radio is clicked', () => {
     renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Mono A' }));
-    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('mono-a');
-    expect(document.documentElement.getAttribute('data-chrome')).toBe('mono-a');
-    expect(screen.getByRole('radio', { name: 'Mono A' })).toHaveAttribute(
+    fireEvent.click(screen.getByRole('radio', { name: 'Duo' }));
+    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('duo');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe('duo');
+    expect(screen.getByRole('radio', { name: 'Duo' })).toHaveAttribute(
       'aria-checked',
       'true',
     );
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Mono B' }));
-    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('mono-b');
-    expect(document.documentElement.getAttribute('data-chrome')).toBe('mono-b');
+    fireEvent.click(screen.getByRole('radio', { name: 'Classic' }));
+    expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBe('classic');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe(
+      'classic',
+    );
 
-    // Selecting Default clears both the stored value and the attribute,
-    // returning to the shipping look.
-    fireEvent.click(screen.getByRole('radio', { name: 'Default' }));
+    // Selecting Mono clears both the stored value and the attribute,
+    // returning to the shipping baseline (painted by base CSS with no
+    // `data-chrome` override).
+    fireEvent.click(screen.getByRole('radio', { name: 'Mono' }));
     expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-chrome')).toBe(false);
   });

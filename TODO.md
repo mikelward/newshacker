@@ -52,44 +52,30 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   mid-PTR could drop unsent user input — swap in an update-available
   toast, defer the reload until after the POST resolves, or gate
   the reload on "no draft in flight".
-- **Update the favicon, PWA icons, and chrome metadata if the default
-  theme ever changes.** The drawer's Theme picker (`default` / `mono-a` /
-  `mono-b`) only restyles the in-page `<header>` — it doesn't reach any
-  OS/browser-owned surface. If we ever flip the shipping default to
-  `mono-a` (or anything non-orange), the following still paint the old
-  colors and need coordinated updates in the same PR:
-  - `public/favicon.svg` — decide whether to keep the white inner ring
-    or drop it. Current SVG is a filled orange disc + a white ring at
-    `r=200 stroke=16` + a white "n". The in-header mark under mono-a /
-    mono-b is a *filled* orange disc with a white "n" and no inner
-    ring, so dropping the ring would make the favicon match the mark
-    exactly. Keeping it gives the icon more visual detail at small
-    sizes (16/32px favicons, home-screen icons among a sea of orange
-    apps) — the extra ring is legitimately useful for recognition,
-    and plenty of apps run a busier icon than their in-app chrome.
-    Pick one and apply it consistently to the SVG + all PNG
-    rasterizations.
-  - Raster icons (`favicon-32.png`, `apple-touch-icon.png`,
-    `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`) must be
-    regenerated from the updated SVG. No SVG-to-PNG tool is installed in
-    the sandbox — options are (a) add a small `scripts/regen-icons.mjs`
-    using `sharp`, (b) regenerate locally via `rsvg-convert` / Inkscape /
-    Figma and commit the new PNGs.
-  - `index.html` `<meta name="theme-color" content="#ff6600">` — split
-    into two metas with `media="(prefers-color-scheme: light)"` /
-    `"(prefers-color-scheme: dark)"` so the Android URL-bar / iOS 15+
-    bar tint matches the in-page header in each mode.
-  - `vite.config.ts` manifest `theme_color` / `background_color` —
-    decide whether to match the new default (`#ffffff` / neutral) or
-    keep `#ff6600` for the branded PWA task-switcher card and Android
-    splash. Manifests can't do light/dark, so pick one.
-  - `apple-mobile-web-app-status-bar-style` currently `black-translucent`
-    forces white status-bar text — breaks over a white header. Pick
-    `default` (black text) if the light header wins in practice, or
-    leave a solid brand strip under the safe-area inset so the status
-    bar always sits over a known color.
-  - Update `SPEC.md` § Design (line ~31 and ~518) — "orange `#ff6600`
-    header" prose needs to reflect the new default.
+- **iOS status-bar style on installed PWA.** `index.html` still sets
+  `apple-mobile-web-app-status-bar-style=black-translucent`, which
+  forces *white* status-bar text over whatever paints under it. Over
+  the current cream `--nh-bg` header that's white-on-cream — fine in
+  a browser tab (where the meta isn't consulted), but unreadable
+  when the app is added to the iOS home screen and launched as a
+  PWA. iOS can't swap this per color scheme, so the options are:
+  (a) switch to `default` — black text, readable on a cream light
+  header but unreadable over a dark header,
+  (b) switch to `black` — fixed solid black strip above the page,
+  always legible but a visible letterbox,
+  (c) leave a fixed brand-colored safe-area strip (e.g. the orange
+  disc color) under the status bar so the bar always sits over a
+  known color regardless of theme.
+  Only matters for iOS-installed PWAs; defer until someone actually
+  uses the app that way.
+- **Swap HN orange (`#ff6600`) to a non-HN hex if we want a distinct
+  brand.** Today `--nh-orange` is HN's exact orange, used for the
+  logo disc, focus rings, and accents. Replacing it is a one-token
+  swap (plus a favicon re-rasterize and a manifest `theme_color`
+  update to match) — easy to land independently once a preferred
+  hex is chosen. Candidates surveyed in chat: Tailwind orange-500
+  (`#f97316`), orange-600 (`#ea580c`), orange-700 / "Burnt"
+  (`#c2410c`).
 
 ## Optimistic-action feedback
 

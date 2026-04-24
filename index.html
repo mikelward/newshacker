@@ -3,7 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#ff6600" />
+    <!-- Match the in-app header bg (`--nh-bg` in global.css) so the
+         mobile browser URL-bar tint and the sticky app header paint
+         the same color. The `content` is seeded by the boot script
+         below and kept in sync by `applyTheme` / `useTheme`. We
+         can't use `media="(prefers-color-scheme: …)"` because the
+         app supports an explicit light/dark override (the drawer's
+         Mode picker) that must take precedence over the OS
+         preference. `content` starts at the light value so the
+         pre-JS paint is correct for the majority case. -->
+    <meta name="theme-color" content="#f6f6ef" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
@@ -23,12 +32,34 @@
       (function () {
         try {
           var t = localStorage.getItem('newshacker:theme');
-          if (t === 'dark' || t === 'light') {
-            document.documentElement.setAttribute('data-theme', t);
+          var theme = t === 'dark' || t === 'light' ? t : 'system';
+          if (theme !== 'system') {
+            document.documentElement.setAttribute('data-theme', theme);
           }
           var c = localStorage.getItem('newshacker:chrome-preview');
-          if (c === 'mono-a' || c === 'mono-b') {
+          // Whitelist is explicit (not a regex) so a corrupt or
+          // renamed-variant value in storage falls back to the mono
+          // baseline. `mono` isn't in the list because it's the
+          // baseline — no attribute needed.
+          if (c === 'duo' || c === 'classic') {
             document.documentElement.setAttribute('data-chrome', c);
+          }
+          // Seed the <meta name="theme-color"> from the *resolved* theme
+          // (explicit override first, OS preference second). Keeping this
+          // in lockstep with the inline boot avoids a visible flash of
+          // the wrong browser-chrome color before React mounts. Values
+          // mirror META_THEME_COLORS in src/lib/theme.ts.
+          var resolved = theme;
+          if (resolved === 'system') {
+            resolved =
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          }
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.content = resolved === 'dark' ? '#1b1b17' : '#f6f6ef';
           }
         } catch (e) {
           /* ignore */

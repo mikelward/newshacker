@@ -25,6 +25,28 @@ export function getStoredTheme(): Theme {
   }
 }
 
+// These have to match the `--nh-bg` values in `global.css`: the browser
+// paints `<meta name="theme-color">` above the page, and we want that
+// strip to be indistinguishable from the sticky app header.
+const META_THEME_COLORS = {
+  light: '#f6f6ef',
+  dark: '#1b1b17',
+} as const;
+
+// Keep the browser's address-bar / OS-chrome tint in sync with the
+// resolved theme. The inline boot script in index.html seeds this on
+// first paint; this module keeps it current when the user flips the
+// drawer toggle or the OS `prefers-color-scheme` changes under a
+// `system` selection. Without this, forcing dark-on-light (or vice
+// versa) leaves a stale band of the wrong color above the header.
+export function applyThemeColorMeta(resolved: 'light' | 'dark'): void {
+  if (typeof document === 'undefined') return;
+  const meta = document.querySelector<HTMLMetaElement>(
+    'meta[name="theme-color"]',
+  );
+  if (meta) meta.content = META_THEME_COLORS[resolved];
+}
+
 export function applyTheme(theme: Theme): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
@@ -33,6 +55,7 @@ export function applyTheme(theme: Theme): void {
   } else {
     root.setAttribute('data-theme', theme);
   }
+  applyThemeColorMeta(resolveTheme(theme));
 }
 
 export function setStoredTheme(theme: Theme): void {
