@@ -631,6 +631,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 | `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
 | `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
+| `/logo-preview` | draft logo concepts rendered at 512/128/32 px for internal comparison; not linked from the UI |
 
 ## Accessibility
 

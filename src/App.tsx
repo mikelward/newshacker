@@ -22,6 +22,7 @@ import { AboutPage } from './pages/AboutPage';
 import { DebugPage } from './pages/DebugPage';
 import { AdminPage } from './pages/AdminPage';
 import { LoginPage } from './pages/LoginPage';
+import { LogoPreviewPage } from './pages/LogoPreviewPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 function CloudSyncBridge() {
@@ -67,6 +68,7 @@ export default function App() {
             <Route path="/debug" element={<DebugPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/logo-preview" element={<LogoPreviewPage />} />
             <Route path="/item/:id" element={<ItemPage />} />
             <Route path="/user/:id" element={<UserPage />} />
             <Route path="/:feed" element={<FeedPage />} />
