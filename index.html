@@ -14,12 +14,21 @@
     <title>newshacker — a reader for Hacker News</title>
     <meta name="description" content="A mobile-friendly, unofficial reader for Hacker News." />
     <script>
-      // Apply a stored theme before first paint to avoid a flash.
+      // Apply stored mode + app-bar theme before first paint to avoid a
+      // flash. The chrome whitelist is explicit (mono-a / mono-b) rather
+      // than a regex so a corrupt or renamed-variant value in storage
+      // falls back to the default chrome — if we let any `[a-z0-9-]+`
+      // through, `:root[data-chrome]` CSS overrides would activate
+      // without matching `--cp-*` tokens and break the header.
       (function () {
         try {
           var t = localStorage.getItem('newshacker:theme');
           if (t === 'dark' || t === 'light') {
             document.documentElement.setAttribute('data-theme', t);
+          }
+          var c = localStorage.getItem('newshacker:chrome-preview');
+          if (c === 'mono-a' || c === 'mono-b') {
+            document.documentElement.setAttribute('data-chrome', c);
           }
         } catch (e) {
           /* ignore */

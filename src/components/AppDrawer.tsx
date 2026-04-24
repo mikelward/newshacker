@@ -4,7 +4,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { FEEDS, feedLabel } from '../lib/feeds';
 import { getStoryIds } from '../lib/hn';
 import { useTheme } from '../hooks/useTheme';
+import { useChrome } from '../hooks/useChrome';
 import type { Theme } from '../lib/theme';
+import type { Chrome } from '../lib/chrome';
 import { TooltipButton } from './TooltipButton';
 import './AppDrawer.css';
 
@@ -40,6 +42,59 @@ const THEME_OPTIONS: Array<{ value: Theme; label: string; path: string }> = [
   { value: 'system', label: 'System', path: SYSTEM_PATH },
 ];
 
+// App-bar style icon — a small schematic of the bar with the mark (and
+// optionally the wordmark) colored. The disc and the optional wordmark
+// line are painted in brand orange (`--nh-orange`) because the icon
+// acts as a color *swatch*: its job is to show how much orange the
+// chrome carries. The bar outline for the two neutral variants uses
+// `currentColor` so it inherits the button's text color — that way the
+// outline keeps legible contrast against the highlighted surface of
+// the active segmented button.
+function ChromeIcon({ variant }: { variant: Chrome }) {
+  const barFill = variant === 'default' ? 'var(--nh-orange)' : 'none';
+  const barStroke =
+    variant === 'default' ? 'var(--nh-orange)' : 'currentColor';
+  const discFill =
+    variant === 'default' ? '#ffffff' : 'var(--nh-orange)';
+  return (
+    <svg
+      viewBox="0 0 40 16"
+      width="34"
+      height="14"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect
+        x="0.75"
+        y="0.75"
+        width="38.5"
+        height="14.5"
+        rx="3"
+        fill={barFill}
+        stroke={barStroke}
+        strokeWidth="1.5"
+      />
+      <circle cx="7" cy="8" r="3" fill={discFill} />
+      {variant === 'mono-b' ? (
+        <rect
+          x="12"
+          y="6.25"
+          width="20"
+          height="3.5"
+          rx="1"
+          fill="var(--nh-orange)"
+        />
+      ) : null}
+    </svg>
+  );
+}
+
+const CHROME_OPTIONS: Array<{ value: Chrome; label: string }> = [
+  { value: 'default', label: 'Default' },
+  { value: 'mono-a', label: 'Mono A' },
+  { value: 'mono-b', label: 'Mono B' },
+];
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -49,6 +104,7 @@ export function AppDrawer({ open, onClose }: Props) {
   const location = useLocation();
   const lastLocationRef = useRef(location.key);
   const { theme, setTheme } = useTheme();
+  const { chrome, setChrome } = useChrome();
   const client = useQueryClient();
 
   useEffect(() => {
@@ -145,13 +201,11 @@ export function AppDrawer({ open, onClose }: Props) {
             </Link>
           </li>
         </ul>
-        <div className="app-drawer__section-title" id="app-drawer-theme-label">
-          Theme
-        </div>
+        <div className="app-drawer__section-title">Theme</div>
         <div
           className="app-drawer__segmented"
           role="radiogroup"
-          aria-labelledby="app-drawer-theme-label"
+          aria-label="Mode"
         >
           {THEME_OPTIONS.map((opt) => (
             <TooltipButton
@@ -166,6 +220,27 @@ export function AppDrawer({ open, onClose }: Props) {
               onClick={() => setTheme(opt.value)}
             >
               <ThemeIcon path={opt.path} />
+            </TooltipButton>
+          ))}
+        </div>
+        <div
+          className="app-drawer__segmented"
+          role="radiogroup"
+          aria-label="Theme"
+        >
+          {CHROME_OPTIONS.map((opt) => (
+            <TooltipButton
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={chrome === opt.value}
+              tooltip={opt.label}
+              aria-label={opt.label}
+              className="app-drawer__segmented-btn"
+              data-active={chrome === opt.value || undefined}
+              onClick={() => setChrome(opt.value)}
+            >
+              <ChromeIcon variant={opt.value} />
             </TooltipButton>
           ))}
         </div>
