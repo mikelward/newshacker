@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- White halo: ring at the outer edge of the canvas. -->
+  <circle cx="256" cy="256" r="250" fill="#ffffff"/>
+  <!-- Inset orange disc. The 16px gap between r=250 and r=234 paints
+       the white ring; the rest is the orange face of the icon. -->
+  <circle cx="256" cy="256" r="234" fill="#ff6600"/>
+  <text x="50%" y="50%"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-weight="700"
+        font-size="340"
+        fill="#ffffff">n</text>
+</svg>
