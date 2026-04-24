@@ -12,13 +12,22 @@ const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30;
 // live-state signal, not a stable property of the URL. Publishers
 // flip A/B paywall buckets, metered counters reset, and Jina
 // rotates its upstream fetch strategies, all on timescales under a
-// day. A 1 h TTL forces the next reader to re-evaluate, which
+// day. A 3 h TTL forces the next reader to re-evaluate, which
 // self-heals false positives (transient Jina flakes that produced
 // a short body) and picks up wall flips without waiting for Upstash
 // to evict 30 days later. Non-paywalled records keep the long TTL
 // because the cron owns freshness there. Mirrored in
 // api/warm-summaries.ts per AGENTS.md § "Vercel api/ gotchas".
-const PAYWALLED_RECORD_TTL_SECONDS = 60 * 60;
+//
+// Value is deliberately larger than the cron's
+// `DEFAULT_STABLE_CHECK_INTERVAL` (2 h in api/warm-summaries.ts):
+// once a paywalled article goes stable, the cron backs off to the
+// stable interval, and if the TTL were shorter the record would
+// expire between cron ticks — the next tick would then see
+// `existing === null` and pay a fresh Gemini regeneration even
+// though the content hash hadn't changed. Keeping TTL > max cron
+// backoff avoids that self-inflicted cost regression.
+const PAYWALLED_RECORD_TTL_SECONDS = 60 * 60 * 3;
 const MAX_URL_LEN = 2048;
 const MAX_CONTENT_CHARS = 200_000;
 

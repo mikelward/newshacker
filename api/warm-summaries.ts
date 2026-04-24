@@ -33,13 +33,31 @@ const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 // Paywalled records expire quickly so the next reader (or cron tick)
 // re-evaluates. See api/summary.ts § PAYWALLED_RECORD_TTL_SECONDS for
 // the full rationale; mirrored here per AGENTS.md § "Vercel api/
-// gotchas".
-const PAYWALLED_RECORD_TTL_SECONDS = 60 * 60; // 1 hour
+// gotchas". Deliberately larger than DEFAULT_STABLE_CHECK_INTERVAL
+// (2 h) so a stable paywalled record doesn't expire between cron
+// ticks and force a Gemini regeneration on the next tick.
+const PAYWALLED_RECORD_TTL_SECONDS = 60 * 60 * 3; // 3 hours
 
 function articleRecordTtlSeconds(record: { paywalled?: boolean }): number {
   return record.paywalled
     ? PAYWALLED_RECORD_TTL_SECONDS
     : RECORD_TTL_SECONDS;
+}
+
+// Sum two optional Jina token counts, preserving `undefined` when both
+// operands are undefined. Matters for spend-telemetry honesty: a raw
+// `(a ?? 0) + (b ?? 0)` would coerce "both unknown" into
+// "authoritatively zero", which an operator reading
+// `articleTokensTotal` would take as "Jina billed us nothing this
+// tick". Jina normally returns a `usage.tokens` on every JSON
+// response, but the field is advertised as best-effort; the cron's
+// telemetry must not paper over its absence.
+function sumJinaTokens(
+  a: number | undefined,
+  b: number | undefined,
+): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
 }
 
 const MAX_URL_LEN = 2048;
@@ -1250,7 +1268,7 @@ async function processArticleTrack(
       paywalledRetried = true;
       const second = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
       if (second.ok) {
-        jinaTokens = (jinaTokens ?? 0) + (second.tokens ?? 0);
+        jinaTokens = sumJinaTokens(jinaTokens, second.tokens);
         if (second.paywalled === false) {
           // Retry flipped: the second sample looks clean, use it.
           content = second.content;

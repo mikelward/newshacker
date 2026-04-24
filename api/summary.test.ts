@@ -822,11 +822,14 @@ describe('handleSummaryRequest', () => {
     expect(ttlSeconds).toBe(60 * 60 * 24 * 30);
   });
 
-  it('writes a paywalled record with the short 1h TTL', async () => {
+  it('writes a paywalled record with the short 3h TTL', async () => {
     // Paywall detection is a live-state signal, not a stable property
     // of the URL, so paywalled records expire quickly and force the
     // next reader to re-evaluate. Self-heals transient Jina flakes
     // and picks up publisher wall flips without waiting 30 days.
+    // 3 h (not 1 h) so the cron's 2 h stable re-check interval can't
+    // land between TTL expiry and the next tick — would force a
+    // Gemini regeneration on unchanged content.
     const articleUrl = 'https://paywalled.example.com/ttl';
     const paywallBody =
       'Premium Story\n\nSubscribe to continue reading this article.';
@@ -846,7 +849,7 @@ describe('handleSummaryRequest', () => {
     expect(set).toHaveBeenCalledTimes(1);
     const [, record, ttlSeconds] = set.mock.calls[0]!;
     expect(record.paywalled).toBe(true);
-    expect(ttlSeconds).toBe(60 * 60);
+    expect(ttlSeconds).toBe(60 * 60 * 3);
   });
 
   it('sets no-store Cache-Control on successful responses', async () => {

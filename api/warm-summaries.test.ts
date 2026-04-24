@@ -1923,11 +1923,14 @@ describe('warm-summaries — paywalled record TTL', () => {
     else process.env.JINA_API_KEY = origJina;
   });
 
-  it('writes a paywalled first_seen record with the short 1h TTL', async () => {
+  it('writes a paywalled first_seen record with the short 3h TTL', async () => {
     // The retry returns the same paywall body, so the record lands
     // as paywalled=true and gets the short TTL. Non-paywalled
     // records keep the 30d TTL (asserted elsewhere; this test pins
-    // the paywall-specific branch).
+    // the paywall-specific branch). 3h, not 1h, so the record
+    // outlives the cron's 2h stable re-check interval and the next
+    // tick finds it and runs the unchanged path instead of paying
+    // a fresh Gemini call.
     const articleUrl = 'https://paywalled.example.com/ttl';
     const fetchImpl = vi.fn(
       async () =>
@@ -1957,6 +1960,6 @@ describe('warm-summaries — paywalled record TTL', () => {
     expect(setSpy).toHaveBeenCalledTimes(1);
     const [, record, ttlSeconds] = setSpy.mock.calls[0]!;
     expect(record.paywalled).toBe(true);
-    expect(ttlSeconds).toBe(60 * 60);
+    expect(ttlSeconds).toBe(60 * 60 * 3);
   });
 });
