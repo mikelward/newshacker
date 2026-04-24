@@ -30,7 +30,7 @@
 
 /* The global :focus-visible paints a 2px orange ring, which is invisible
    against the orange header. Substitute a white inset ring — same
-   treatment as .app-header__menu-btn and .app-header__icon-btn. */
+   treatment as .app-header__menu-btn. */
 .header-account__btn:focus {
   outline: none;
 }

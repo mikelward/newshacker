@@ -1,0 +1,85 @@
+/* Top action bar for feed pages — sweep + undo. Visually styled after
+   the orange AppHeader (transparent buttons, no borders, tight gap)
+   but on the neutral page background, so it reads as a second,
+   lower-key chrome strip rather than a competing card-styled
+   container. Inherits its width from `.app-main` (720/860px), so it
+   lines up flush with the article rows below. Right-padding + 4px gap
+   match the app header; left side has no padding so the buttons can
+   sit flush with the list's left edge when they're pushed there by
+   the first-child `margin-left: auto`. */
+.feed-action-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px 4px 4px;
+  background: transparent;
+}
+
+.feed-action-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--nh-text);
+  cursor: pointer;
+}
+
+/* The first button absorbs all free space to the left, pushing the
+   cluster to the right edge of the bar. Mirrors the app header's
+   right-anchored actions group. */
+.feed-action-toolbar__btn:first-child {
+  margin-left: auto;
+}
+
+.feed-action-toolbar__btn:focus {
+  outline: none;
+}
+
+.feed-action-toolbar__btn:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .feed-action-toolbar__btn:hover:not(:disabled) {
+    background: var(--nh-pressed);
+  }
+}
+
+.feed-action-toolbar__btn:active:not(:disabled) {
+  background: var(--nh-border);
+}
+
+.feed-action-toolbar__btn:disabled {
+  color: var(--nh-meta);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.feed-action-toolbar__icon {
+  display: block;
+}
+
+.feed-action-toolbar__icon--spinning {
+  animation: feed-action-toolbar-refresh-spin 900ms linear infinite;
+}
+
+@keyframes feed-action-toolbar-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-action-toolbar__icon--spinning {
+    animation: none;
+  }
+}
