@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCommentItem } from '../hooks/useItemTree';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
+import { useVote } from '../hooks/useVote';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { getItems } from '../lib/hn';
@@ -66,6 +67,8 @@ export function Comment({ id }: Props) {
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
   const queryClient = useQueryClient();
+  const { isVoted, toggleVote } = useVote();
+  const voted = isVoted(id);
 
   if (isLoading || !item) {
     return (
@@ -189,29 +192,33 @@ export function Comment({ id }: Props) {
         >
           <TooltipButton
             type="button"
-            className="comment__toolbar-button"
-            tooltip="Upvote"
-            aria-label="Upvote"
-            aria-pressed={false}
+            className={
+              'comment__toolbar-button' +
+              (voted ? ' comment__toolbar-button--active' : '')
+            }
+            tooltip={voted ? 'Unvote' : 'Upvote'}
+            aria-label={voted ? 'Unvote' : 'Upvote'}
+            aria-pressed={voted}
             data-testid="comment-upvote"
-            onClick={() => {
-              // Placeholder — comment voting isn't wired up yet. The
-              // button is here so the layout/feel of the toolbar is
-              // visible in the UI.
-            }}
+            onClick={() => toggleVote(id)}
           >
             <ToolbarUpArrowIcon />
           </TooltipButton>
+          {/* Downvote is a placeholder for now: HN's downvote anchor
+              is karma-gated (~500+) and needs a small set of backend,
+              hook, and UX changes to ship (direction-switch chaining,
+              per-leg rollback, a low-karma error toast). Disabled so
+              the button reads as "coming soon" rather than broken,
+              and tracked in TODO.md § "Comment downvoting". */}
           <TooltipButton
             type="button"
             className="comment__toolbar-button"
-            tooltip="Downvote"
-            aria-label="Downvote"
+            tooltip="Downvote (coming soon)"
+            aria-label="Downvote (coming soon)"
             aria-pressed={false}
+            aria-disabled="true"
+            disabled
             data-testid="comment-downvote"
-            onClick={() => {
-              // Placeholder — see Upvote above.
-            }}
           >
             <ToolbarDownArrowIcon />
           </TooltipButton>

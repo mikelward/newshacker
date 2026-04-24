@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Comment } from './Comment';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock } from '../test/mockFetch';
 import type { HNItem } from '../lib/hn';
+import { addVotedId } from '../lib/votes';
 
 function commentFixture(id: number, overrides: Partial<HNItem> = {}): HNItem {
   return {
@@ -58,7 +59,15 @@ describe('<Comment> action toolbar', () => {
     const reply = screen.getByTestId('comment-reply');
 
     expect(upvote).toHaveAttribute('aria-label', 'Upvote');
-    expect(downvote).toHaveAttribute('aria-label', 'Downvote');
+    // Downvote is a placeholder until the backend + direction-switch
+    // work lands (see TODO.md § "Comment downvoting"); rendered
+    // disabled so the affordance is visible but inert.
+    expect(downvote).toHaveAttribute(
+      'aria-label',
+      'Downvote (coming soon)',
+    );
+    expect(downvote).toBeDisabled();
+    expect(downvote).toHaveAttribute('aria-disabled', 'true');
     expect(reply).toHaveAttribute('aria-label', 'Reply on HN');
     expect(reply).toHaveAttribute(
       'href',
@@ -68,7 +77,7 @@ describe('<Comment> action toolbar', () => {
     expect(reply).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
-  it('tapping upvote or downvote does not collapse the comment', async () => {
+  it('tapping upvote does not collapse the comment', async () => {
     installHNFetchMock({ items: { 9102: commentFixture(9102) } });
     renderWithProviders(<Comment id={9102} />);
 
@@ -88,10 +97,170 @@ describe('<Comment> action toolbar', () => {
     expect(
       screen.getByRole('button', { name: /collapse comment/i }),
     ).toBeInTheDocument();
+  });
+});
 
-    await userEvent.click(screen.getByTestId('comment-downvote'));
-    expect(
-      screen.getByRole('button', { name: /collapse comment/i }),
-    ).toBeInTheDocument();
+// Fetch mock that layers /api/me and /api/vote on top of the
+// HN item fixtures — installHNFetchMock doesn't speak our server
+// endpoints, and the upvote path needs both to be present. Kept
+// local to this file because it's a one-off testing concern; if a
+// second spec needs the same shape, promote to src/test/.
+interface VoteFetchPlan {
+  me: string | null;
+  items?: Record<number, HNItem>;
+  vote?: (body: { id: number; how: string }) => Response;
+}
+
+function stubVoteFetch(plan: VoteFetchPlan) {
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url === '/api/me') {
+      if (plan.me) {
+        return new Response(JSON.stringify({ username: plan.me }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ error: 'nope' }), { status: 401 });
+    }
+    if (url === '/api/vote') {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      const handler = plan.vote ?? (() => new Response(null, { status: 204 }));
+      return handler(body as { id: number; how: string });
+    }
+    const m = url.match(/\/item\/(\d+)\.json/);
+    if (m) {
+      const id = Number(m[1]);
+      return new Response(JSON.stringify(plan.items?.[id] ?? null), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response('{}', { status: 200 });
+  });
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}
+
+describe('<Comment> upvote wiring', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('signed-in user tapping upvote POSTs /api/vote with how=up and flips aria-pressed', async () => {
+    const fetchMock = stubVoteFetch({
+      me: 'alice',
+      items: { 9200: commentFixture(9200) },
+    });
+    renderWithProviders(<Comment id={9200} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('body 9200')).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: /expand comment/i }),
+    );
+
+    const upvote = await screen.findByTestId('comment-upvote');
+    expect(upvote).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(upvote);
+    // Optimistic flip — aria-pressed should already be true before
+    // the network call settles.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('comment-upvote'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(calls.length).toBe(1);
+    });
+    const call = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/vote',
+    )!;
+    const body = JSON.parse(String((call[1] as RequestInit).body));
+    expect(body).toEqual({ id: 9200, how: 'up' });
+  });
+
+  it('tapping an already-upvoted comment sends how=un and clears aria-pressed', async () => {
+    addVotedId('alice', 9201);
+    const fetchMock = stubVoteFetch({
+      me: 'alice',
+      items: { 9201: commentFixture(9201) },
+    });
+    renderWithProviders(<Comment id={9201} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('body 9201')).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: /expand comment/i }),
+    );
+
+    const upvote = await screen.findByTestId('comment-upvote');
+    await waitFor(() => {
+      expect(upvote).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(upvote).toHaveAttribute('aria-label', 'Unvote');
+
+    await userEvent.click(upvote);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('comment-upvote'),
+      ).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(calls.length).toBe(1);
+    });
+    const call = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/vote',
+    )!;
+    const body = JSON.parse(String((call[1] as RequestInit).body));
+    expect(body).toEqual({ id: 9201, how: 'un' });
+  });
+
+  it('logged-out tap is a no-op — no request, no aria-pressed flip', async () => {
+    // Guards the contract: useVote.toggleVote returns early when
+    // there's no signed-in user, so the comment row shouldn't surface
+    // a "failed to upvote" toast either. This test would regress if a
+    // refactor started POSTing speculatively and relying on the
+    // server to 401.
+    const fetchMock = stubVoteFetch({
+      me: null,
+      items: { 9202: commentFixture(9202) },
+    });
+    renderWithProviders(<Comment id={9202} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('body 9202')).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: /expand comment/i }),
+    );
+
+    const upvote = await screen.findByTestId('comment-upvote');
+    await userEvent.click(upvote);
+
+    // Give the optimistic path + any async auth settling a beat.
+    await waitFor(() => {
+      expect(upvote).toHaveAttribute('aria-pressed', 'false');
+    });
+    const voteCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url) === '/api/vote',
+    );
+    expect(voteCalls.length).toBe(0);
   });
 });
