@@ -60,11 +60,13 @@ expands it: the full body appears, and its immediate replies show up
 below — each itself a three-line preview that you can tap to drill
 in. Tapping again collapses back.
 
-Tapping the author name still goes to their profile, and an expanded
-comment picks up a muted **Reply on HN ↗** link at the bottom that
-hands you off to Hacker News itself — newshacker doesn't submit
-comments. Deleted and empty comments are hidden from the thread
-entirely.
+Tapping the author name still goes to their profile. An expanded
+comment also picks up a thin action toolbar at the bottom with
+**Upvote**, **Downvote**, and **Reply on HN ↗** buttons. Reply hands
+you off to Hacker News itself — newshacker doesn't submit comments.
+Upvote and Downvote are visible placeholders today; comment voting
+isn't wired up yet. Deleted and empty comments are hidden from the
+thread entirely.
 
 ## Opened
 

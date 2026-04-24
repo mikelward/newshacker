@@ -453,7 +453,7 @@ Naming convention for share entries: a noun ("Share **article**") names *what* i
 
 ## Comment row layout
 
-Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, the **Reply on HN** link on expanded comments, and any future upvote/downvote buttons) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors.
+Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, and the action toolbar's upvote / downvote / **Reply on HN** buttons on expanded comments) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors. The toolbar's own wrapper stops propagation too, so a tap in the strip's dead space between buttons doesn't leak up to the row and collapse the comment.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -475,7 +475,7 @@ Expanded state:
 
 - Background tints to `--nh-pressed` so the active node stands out in a long thread.
 - Body shows in full.
-- The meta row gains a muted `Reply on HN ↗` link (`news.ycombinator.com/reply?id=:id`, opens in a new tab) inline at its right-hand end, so the meta row doubles as the action row. The row is laid out as a flex row so upvote/downvote buttons can slot in alongside later.
+- A thin borderless action toolbar appears below the meta row and above the nested replies. Left-to-right it carries **Upvote** (▲), **Downvote** (▼), and **Reply on HN** (`news.ycombinator.com/reply?id=:id`, opens in a new tab). Upvote and Downvote are icon-only placeholders today — the buttons render and paint hover/active state so the shape of the toolbar is visible, but no write-path is wired up yet; comment voting is a future enhancement. Reply is a working link that hands off to HN (newshacker doesn't submit comments itself). Buttons have no individual borders — the strip reads as a single toolbar rather than a row of separate controls — and each is ≥44×44px so the icons stay tappable. Each icon button carries a tooltip + `aria-label` (icon-only buttons need an accessible name; the tooltip is visual-only).
 - Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
 - Cursor reverts to `default` (reading state).
 

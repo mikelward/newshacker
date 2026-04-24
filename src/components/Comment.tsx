@@ -7,7 +7,55 @@ import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { formatTimeAgo, pluralize } from '../lib/format';
 import { getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
+import { TooltipButton } from './TooltipButton';
 import './Comment.css';
+
+const MS_VIEWBOX = '0 -960 960 960';
+
+function ToolbarUpArrowIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="22"
+      height="22"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M480-720 220-320h520L480-720Z" />
+    </svg>
+  );
+}
+
+function ToolbarDownArrowIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="22"
+      height="22"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M480-240 220-640h520L480-240Z" />
+    </svg>
+  );
+}
+
+function ToolbarReplyIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="22"
+      height="22"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M760-200v-160q0-50-35-85t-85-35H273l144 144-57 57-241-241 241-241 57 57-144 144h367q83 0 141.5 58.5T840-360v160h-80Z" />
+    </svg>
+  );
+}
 
 interface Props {
   id: number;
@@ -127,17 +175,59 @@ export function Comment({ id }: Props) {
             </svg>
           </span>
         </button>
-        {isExpanded ? (
+      </div>
+      {isExpanded ? (
+        <div
+          className="comment__toolbar"
+          onClick={(e) => {
+            // Keeps a tap on the strip's dead space between buttons
+            // from reaching the row's toggle handler and collapsing
+            // the comment. Button/link taps already bail out via the
+            // row's closest('a, button') guard.
+            e.stopPropagation();
+          }}
+        >
+          <TooltipButton
+            type="button"
+            className="comment__toolbar-button"
+            tooltip="Upvote"
+            aria-label="Upvote"
+            aria-pressed={false}
+            data-testid="comment-upvote"
+            onClick={() => {
+              // Placeholder — comment voting isn't wired up yet. The
+              // button is here so the layout/feel of the toolbar is
+              // visible in the UI.
+            }}
+          >
+            <ToolbarUpArrowIcon />
+          </TooltipButton>
+          <TooltipButton
+            type="button"
+            className="comment__toolbar-button"
+            tooltip="Downvote"
+            aria-label="Downvote"
+            aria-pressed={false}
+            data-testid="comment-downvote"
+            onClick={() => {
+              // Placeholder — see Upvote above.
+            }}
+          >
+            <ToolbarDownArrowIcon />
+          </TooltipButton>
           <a
-            className="comment__action"
+            className="comment__toolbar-button comment__toolbar-button--link"
             href={`https://news.ycombinator.com/reply?id=${id}`}
             target="_blank"
             rel="noopener noreferrer"
+            aria-label="Reply on HN"
+            title="Reply on HN"
+            data-testid="comment-reply"
           >
-            Reply on HN ↗
+            <ToolbarReplyIcon />
           </a>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {hasReplies && isExpanded ? (
         <ol className="comment__children">
           {kids.map((kidId) => (
