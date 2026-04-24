@@ -316,6 +316,21 @@ ends up on the front page on a given day.
 
 ## Backend / infrastructure
 
+- **Consider asking Gemini to return markdown explicitly.** Today
+  `api/summary.ts` doesn't mention markdown in the prompt and
+  `api/comments-summary.ts` tells the model *not* to emit it — yet
+  inline markdown (backticks, `**bold**`) still leaks through into the
+  article summary, which we now render client-side via a hand-rolled
+  inline converter (`<code>`, `<strong>`). If we ever want
+  block-level structure in summaries (short lists, paragraph breaks,
+  linked references), the move is to flip both prompts to "return
+  markdown" and upgrade the converter (or a sanitizer) to handle a
+  wider subset. Decide up front which tags are worth the risk surface
+  — `<a>` means handling model-supplied URLs, which is a different
+  trust story than the current two-tag inline allowlist. Not urgent;
+  revisit the first time a product reason for block-level structure
+  comes up (e.g. a "key facts" comments-summary variant).
+
 - **Max-story-age should use HN `story.time`, not `firstSeenAt`.**
   Today the cron's `shouldSkipByBackoff` ages out a story when
   `now - record.firstSeenAt > WARM_MAX_STORY_AGE_SECONDS`. That's
