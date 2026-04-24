@@ -1,18 +1,18 @@
 :root {
-  --nh-orange: #ff6600;
-  --nh-orange-dark: #e65c00;
-  --nh-bg: #f6f6ef;
+  --nh-orange: #e65100;
+  --nh-orange-dark: #bf360c;
+  --nh-bg: #ffffff;
   --nh-meta: #828282;
   /* Read / already-opened story color. Sits between --nh-meta and
      --nh-text so an opened title is clearly less prominent than an
      unread one but still readable — the previous shared --nh-meta
      was too faded against the meta row below it. */
   --nh-read: #5a5a5a;
-  --nh-border: #e0e0d9;
+  --nh-border: #e0e0e0;
   --nh-text: #000;
   --nh-link: #000;
   --nh-bg-card: #ffffff;
-  --nh-bg-code: #f4f4ee;
+  --nh-bg-code: #f5f5f5;
   --nh-pressed: #ececec;
   --skeleton-base: #f0f0f0;
   --skeleton-highlight: #e4e4e4;
@@ -36,33 +36,33 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --nh-bg: #1b1b17;
-    --nh-meta: #9a9a8c;
-    --nh-read: #c4c4b5;
-    --nh-border: #2f2f2a;
-    --nh-text: #ececea;
-    --nh-link: #ececea;
-    --nh-bg-card: #222220;
-    --nh-bg-code: #2a2a25;
-    --nh-pressed: #2a2a25;
-    --skeleton-base: #2a2a25;
-    --skeleton-highlight: #3a3a32;
+    --nh-bg: #1b1b1b;
+    --nh-meta: #9a9a9a;
+    --nh-read: #c4c4c4;
+    --nh-border: #2f2f2f;
+    --nh-text: #ececec;
+    --nh-link: #ececec;
+    --nh-bg-card: #222222;
+    --nh-bg-code: #2a2a2a;
+    --nh-pressed: #2a2a2a;
+    --skeleton-base: #2a2a2a;
+    --skeleton-highlight: #3a3a3a;
     color-scheme: dark;
   }
 }
 
 :root[data-theme='dark'] {
-  --nh-bg: #1b1b17;
-  --nh-meta: #9a9a8c;
-  --nh-read: #c4c4b5;
-  --nh-border: #2f2f2a;
-  --nh-text: #ececea;
-  --nh-link: #ececea;
-  --nh-bg-card: #222220;
-  --nh-bg-code: #2a2a25;
-  --nh-pressed: #2a2a25;
-  --skeleton-base: #2a2a25;
-  --skeleton-highlight: #3a3a32;
+  --nh-bg: #1b1b1b;
+  --nh-meta: #9a9a9a;
+  --nh-read: #c4c4c4;
+  --nh-border: #2f2f2f;
+  --nh-text: #ececec;
+  --nh-link: #ececec;
+  --nh-bg-card: #222222;
+  --nh-bg-code: #2a2a2a;
+  --nh-pressed: #2a2a2a;
+  --skeleton-base: #2a2a2a;
+  --skeleton-highlight: #3a3a3a;
   color-scheme: dark;
 }
 

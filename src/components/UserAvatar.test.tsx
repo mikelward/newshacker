@@ -9,15 +9,15 @@ describe('avatarColorForUsername', () => {
   });
 
   it('returns a color from the non-orange palette', () => {
-    // Palette entries are explicitly chosen to not clash with the HN
+    // Palette entries are explicitly chosen to not clash with the
     // brand mark's orange. We don't assert the exact hex per username
     // (that would couple the test to the hash) but we do assert the
-    // color is never an HN-orange hue.
+    // color is never a brand-orange hue.
     const color = avatarColorForUsername('bob');
-    // `#ff6600` and neighbors — none of the palette entries should
-    // match these.
-    expect(color.toLowerCase()).not.toMatch(/^#ff6[0-9a-f]{3}$/);
-    expect(color.toLowerCase()).not.toMatch(/^#e65c00$/);
+    // Brand orange and its darker hover shade — none of the palette
+    // entries should match these.
+    expect(color.toLowerCase()).not.toMatch(/^#e651[0-9a-f]{2}$/);
+    expect(color.toLowerCase()).not.toMatch(/^#bf360c$/);
   });
 
   it('falls back deterministically for an empty username', () => {
