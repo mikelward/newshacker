@@ -18,10 +18,10 @@ The existing HN mobile site crams many small, adjacent tappable elements onto ea
 
 We achieve that by:
 
-1. **At most three tap zones per row**, always in the same positions: the row body (title + meta) as a single stretched link on the left, a pin button on the right, and a reserved slot in between for at most one additional action. No hide, no past, no web, no flag, no inline author link, no rank number, no separate comments button. The shipped UI uses only two (row body + pin); voting currently lives on the thread page rather than the row (see *Thread action bar*).
+1. **At most three tap zones per row**, always in the same positions: the row body (title + meta) as a single stretched link on the left, a right-side icon button, and a reserved slot in between for at most one additional action. No hide, no past, no web, no flag, no inline author link, no rank number, no separate comments button. The shipped UI uses only two (row body + right-side button); voting currently lives on the thread page rather than the row (see *Thread action bar*).
 2. **Large, well-spaced hit areas.** Minimum 48×48px per tappable, ≥8px dead space between adjacent targets.
-3. **Metadata is display-only.** Domain, points, comment count, and age are plain text inside the row's stretched link; only the row body and the pin button are distinct tap targets today.
-4. **The pin button is a real icon button** on the right, not an inline text link — visually obvious and easy to aim for.
+3. **Metadata is display-only.** Domain, points, comment count, and age are plain text inside the row's stretched link; only the row body and the right-side icon button are distinct tap targets today.
+4. **The right-side button is a real icon button** on the right, not an inline text link — visually obvious and easy to aim for. On feed views it toggles pinned state (Pin/Unpin); on library views (/pinned, /favorites, /done, /hidden) it toggles the view's own state (see *Library views* under *Story row layout*).
 5. **Obvious zones, not clever ones.** A reader should be able to glance at the row and know, without reading, what each tap will do.
 
 ## Goals
@@ -65,15 +65,19 @@ action has to do double duty.
   them — explicit in, explicit out. The verb pair "Pin / Unpin" makes the
   intent obvious in both directions, which "Star / Unstar" never quite did.
 - **Favorite (heart)** is a **permanent keepsake**. You favorite from the
-  **article comments view** (thread page), not from the row — a row-level
-  heart would add a fourth tap target and undo the whole "fewer, larger tap
-  zones" rule. Favorites never auto-expire and are not swept. The intent is
+  **article comments view** (thread page) on feeds — a row-level heart on a
+  feed would add a fourth tap target and undo the whole "fewer, larger tap
+  zones" rule. On the `/favorites` library view the row's right-side slot
+  carries an orange filled heart that unfavorites (see *Library views*
+  below). Favorites never auto-expire and are not swept. The intent is
   "I loved this and want to remember it", not "I want to come back to this
   soon".
 - **Done (check)** is your **completion log**. You mark done from the
-  **article comments view** (thread page, action bar), not from the row.
-  Tapping Done also unpins the story — Pin is the active queue, Done is
-  where items go when they leave the queue, and a story can't be in both.
+  **article comments view** (thread page, action bar) on feeds; on the
+  `/done` library view the row carries an orange filled check that unmarks
+  done (see *Library views* below). Tapping Done also unpins the story —
+  Pin is the active queue, Done is where items go when they leave the
+  queue, and a story can't be in both.
   Done stories are filtered out of every feed (same as Hidden, but
   permanent instead of the Hidden list's 7-day TTL). The intent is
   "I engaged with this thread and I'm finished with it", not "not
@@ -403,9 +407,9 @@ This is the single most important UI decision in the app, so it is specified in 
 Tap zones — there are never more than three, and the shipped UI uses two:
 
 - **Row body** — the title and meta line share a single stretched `<Link to="/item/:id">`, so a tap anywhere on the row opens the thread. The article itself is opened from a prominent "Read article" button on the thread page. Self-posts behave the same way (they've never had an external article to begin with).
-- **Pin button** — a real icon button on the right, not an inline text link. Tapping toggles pinned state. Has its own 48×48px hit area and ≥8px horizontal gap from the row body.
+- **Right-side icon button** — a real icon button on the right, not an inline text link. Has its own 48×48px hit area and ≥8px horizontal gap from the row body. On **feed views** (Top / New / Best / Ask / Show / Jobs, and the "off-feed pins" prepended to the home feed) this is the **Pin/Unpin** button and tapping toggles pinned state. On **library views** (/pinned, /favorites, /done, /hidden) every visible row already has the state the view is filtered to, so the right-side slot carries the view-contextual inverse — orange filled pin / heart / check / visibility-off respectively — and tapping removes the story from that library. See *Library views* below.
 
-A third slot is reserved between the row body and the pin button for at most one additional per-row action. It's currently unused — voting took the slot in an earlier design and has since been moved to the thread page action bar (see below). Any future use of the slot has to clear a high bar: the action has to be something the reader actually wants to do from a scrolling feed without opening the story, not merely something we're capable of adding.
+A third slot is reserved between the row body and the right-side icon button for at most one additional per-row action. It's currently unused — voting took the slot in an earlier design and has since been moved to the thread page action bar (see below). Any future use of the slot has to clear a high bar: the action has to be something the reader actually wants to do from a scrolling feed without opening the story, not merely something we're capable of adding.
 
 **Voting deliberately lives on the thread page, not the row.** An earlier draft reserved a third tap zone on the left for the vote arrow (visible only when logged in). We dropped it: the row stays a pure browsing surface, and upvoting becomes an intentional act on the page where the reader has context — title, domain, points, article summary, comment summary, comments themselves. See *Thread action bar* below.
 
@@ -430,6 +434,27 @@ Spacing / sizing:
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
 
 Thread page mirrors the same discipline: a single primary "Read article" button at the top of a story view (hidden for self-posts), with Upvote (logged-in only), Pin/Unpin, Done, and a vertical-ellipsis (⋮) **More actions** button laid out beside it on the icon row, and a single primary tap target per comment row. See *Comment row layout* below.
+
+### Library views
+
+The library views — `/pinned`, `/favorites`, `/done`, `/hidden` — reuse the exact feed row layout (same row body on the left, same right-side icon button on the right, same `StoryListItem` component), with one deliberate swap: the **right-side button is whatever action the view implies**, not Pin/Unpin.
+
+| View         | Right-side button          | Icon (Material Symbols)        | Tap → |
+|--------------|----------------------------|--------------------------------|-------|
+| `/pinned`    | Pin/Unpin (unchanged)      | `push_pin` — always filled     | unpin |
+| `/favorites` | Unfavorite                 | `favorite` — always filled     | unfavorite |
+| `/done`      | Unmark done                | `check_circle` — always filled | unmark done |
+| `/hidden`    | Unhide                     | `visibility_off` — always filled | unhide |
+
+The icon is always painted in HN orange (`.pin-btn--active`) because every visible row on a library view already has the state in question — the button is the "undo" for the filter the reader used to land on this view. After tapping, the row disappears from the list (it no longer matches the filter). Rule of thumb: the right-side button on a library row mirrors the bar button that puts a story into the library (Favorite heart on thread → Unfavorite heart on `/favorites`, Done check on thread → Unmark-done check on `/done`, and so on).
+
+**What this buys us.** One visual language between feed rows and library rows — a reader who knows what the right-side button does on `/top` knows what it does on `/done`, because the geometry and pressed-state are identical. It also kills the old below-the-row "Forget" / "Unpin" text button that used to hang off library rows, and trims `/pinned`'s redundant double-affordance (the pre-refactor UI had both an active orange pin *and* a text Unpin beneath every row, doing the same thing).
+
+**Tap-zone accounting is unchanged.** Still at most three zones per row, still two in the shipped UI (row body + right-side button). Swapping the action behind the right-side icon is a per-view re-skin, not a new tap target — and the corollary under CLAUDE.md rule 5 (Favorite / Upvote stay off feed rows) still holds: the heart only appears as a row-level button once you're already *inside* the Favorites library, never on a feed row.
+
+**Things you lose.** On `/done`, `/favorites`, `/hidden` you can no longer pin a story with a single row tap — the right-side slot is the view-contextual action. Pin/Unpin is still one long-press away via the overflow menu (`StoryRowMenu`), and stays on the thread action bar. `/pinned` keeps the single-tap pin/unpin because that *is* the view-contextual action.
+
+**Per-view "Forget all" toolbar.** `/done`, `/opened`, `/hidden` still render the standard chunky action button above the list for the bulk-clear action ("Forget all done", "Forget all opened", "Forget all hidden"), using the shared `.nh-action-btn` style (same visual vocabulary as the thread action bar; see `src/styles/global.css`). `/favorites` and `/pinned` don't have this toolbar — Favorites is the keepsake list (forgetting in bulk is never the right default) and Pinned auto-prunes nothing but can be emptied one row at a time.
 
 ### Thread action bar
 
@@ -524,7 +549,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 - Text: `#000` primary, `#5a5a5a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
 - **Tap targets: ≥48×48px, ≥8px spacing between any two distinct targets.**
-- **At most 3 tappable zones per story row**, 2 in the shipped UI (row body + pin). Anything else is display-only. Upvoting is not on the row today; it lives on the thread page (see *Thread action bar*).
+- **At most 3 tappable zones per story row**, 2 in the shipped UI (row body + right-side icon button). Anything else is display-only. The right-side button is Pin/Unpin on feed views and the view's own "undo" toggle on library views (see *Library views*). Upvoting is not on the row today; it lives on the thread page (see *Thread action bar*).
 - Layout: single column, centered on desktop. Max-width `720px` up to a viewport of `960px`, then `860px` at `≥960px` so a laptop/desktop monitor doesn't leave the layout feeling like a phone-stretched-wide. Same cap for feed and thread. Collapsed comments keep the same 3-line `-webkit-line-clamp` at every width — the wider column already fits more characters per line, so the same 3 lines surface meaningfully more text on desktop without touching the clamp. Iterating on the clamp (or widening the thread more than the feed) is open follow-up in `TODO.md § Desktop layout`.
 - Active/pressed state on every tappable zone (subtle background darkening) so the user sees which region received their tap.
 - **Tooltip on every button, touch, desktop, and keyboard.** Every interactive `<button>` in the app (icon-only and text alike) routes through the shared `<TooltipButton tooltip="…">` component. It shows the same styled floating tooltip in three modes: (a) on a touch or pen pointer, a 500 ms hold shows the tooltip for ~1.2 s and swallows the follow-up click so the user can inspect a control without firing it; (b) on a mouse pointer, a 500 ms hover shows the tooltip and holds it until the cursor leaves or the button loses focus (no auto-hide timer, no click-swallowing); (c) when the button receives `:focus-visible` (keyboard tabbing), the same tooltip is shown after the same 500 ms delay and hides on blur. Mouse-click focus does NOT trigger the tooltip (the `:focus-visible` match is false, so tabbing through is discoverable but clicking to activate doesn't flash the label). These three paths are the touch / mouse / keyboard trio of the same affordance. Native `title` is no longer emitted by default (it would double-overlap our portal tooltip on desktop); icon-only buttons carry an `aria-label` for screen readers. The tooltip is portaled into `document.body`, position-flipped when there isn't room above, and `position: fixed` with px offsets (no `vh`) so the mobile address bar collapsing doesn't misalign it. iOS Safari doesn't fire `contextmenu` on long-press, so the native callout / selection magnifier is suppressed via CSS instead (`touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-tap-highlight-color: transparent`). Android Chrome's `contextmenu` (which does fire) is `preventDefault`-ed while the long-press is pending. No haptic feedback.

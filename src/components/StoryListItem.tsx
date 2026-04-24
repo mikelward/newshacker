@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { MouseEvent } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
 import {
@@ -31,6 +31,21 @@ interface Props {
   onUnpin?: (id: number) => void;
   onShare?: (story: HNItem) => void;
   onOpenThread?: (id: number) => void;
+  /**
+   * Replaces the default Pin/Unpin button on the right side of the row
+   * with a view-contextual action — used by library views (/done,
+   * /favorites, /hidden) where every visible row already has the state
+   * the button represents, so the "primary" row action is the inverse
+   * (Unmark done, Unfavorite, Unhide) rather than Pin. The button
+   * always paints in the --active orange state; see SPEC.md §
+   * "Library views" for the rationale.
+   */
+  rightAction?: {
+    label: string;
+    icon: ReactNode;
+    onToggle: () => void;
+    testId?: string;
+  };
 }
 
 export function StoryListItem({
@@ -45,6 +60,7 @@ export function StoryListItem({
   onUnpin,
   onShare,
   onOpenThread,
+  rightAction,
 }: Props) {
   const hasExternalUrl = !!story.url;
   const domain = formatDisplayDomain(story.url);
@@ -183,32 +199,45 @@ export function StoryListItem({
         </span>
       </Link>
 
-      <TooltipButton
-        type="button"
-        className={'pin-btn' + (pinned ? ' pin-btn--active' : '')}
-        data-testid="pin-btn"
-        aria-pressed={pinned}
-        aria-label={pinLabel}
-        tooltip={pinned ? 'Unpin' : 'Pin'}
-        onClick={handleTogglePin}
-      >
-        <svg
-          className="pin-btn__icon"
-          viewBox="0 0 24 24"
-          width="22"
-          height="22"
-          fill="currentColor"
-          aria-hidden="true"
-          focusable="false"
+      {rightAction ? (
+        <TooltipButton
+          type="button"
+          className="pin-btn pin-btn--active"
+          data-testid={rightAction.testId ?? 'row-action-btn'}
+          aria-label={rightAction.label}
+          tooltip={rightAction.label}
+          onClick={rightAction.onToggle}
         >
-          {/* Material Icons push_pin — Apache 2.0, Google. */}
-          {pinned ? (
-            <path d="M16 9V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z" />
-          ) : (
-            <path d="M14 4v5c0 1.12.37 2.16 1 3H9c.65-.86 1-1.9 1-3V4h4m3-2H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1z" />
-          )}
-        </svg>
-      </TooltipButton>
+          <span className="pin-btn__icon">{rightAction.icon}</span>
+        </TooltipButton>
+      ) : (
+        <TooltipButton
+          type="button"
+          className={'pin-btn' + (pinned ? ' pin-btn--active' : '')}
+          data-testid="pin-btn"
+          aria-pressed={pinned}
+          aria-label={pinLabel}
+          tooltip={pinned ? 'Unpin' : 'Pin'}
+          onClick={handleTogglePin}
+        >
+          <svg
+            className="pin-btn__icon"
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="currentColor"
+            aria-hidden="true"
+            focusable="false"
+          >
+            {/* Material Icons push_pin — Apache 2.0, Google. */}
+            {pinned ? (
+              <path d="M16 9V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z" />
+            ) : (
+              <path d="M14 4v5c0 1.12.37 2.16 1 3H9c.65-.86 1-1.9 1-3V4h4m3-2H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1z" />
+            )}
+          </svg>
+        </TooltipButton>
+      )}
 
       {menuItems.length > 0 ? (
         <StoryRowMenu

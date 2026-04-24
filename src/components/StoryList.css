@@ -155,31 +155,3 @@
 .list-footer__icon {
   display: block;
 }
-
-.story-list__recover {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 12px 10px;
-}
-
-.recover-btn {
-  min-height: var(--tap-min);
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px solid var(--nh-border);
-  background: var(--nh-bg-card);
-  color: var(--nh-text);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .recover-btn:hover {
-    background: var(--nh-pressed);
-  }
-}
-
-.recover-btn:active {
-  background: var(--nh-border);
-}

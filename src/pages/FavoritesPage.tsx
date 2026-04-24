@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FAVORITES_CHANGE_EVENT,
   getFavoriteEntries,
   removeFavoriteId,
 } from '../lib/favorites';
 import { LibraryStoryList } from '../components/LibraryStoryList';
+import { HeartFilledIcon } from '../components/icons';
 
 function readFavoriteIdsNewestFirst(): number[] {
   return getFavoriteEntries()
@@ -29,15 +30,21 @@ export function FavoritesPage() {
     removeFavoriteId(id);
   }, []);
 
+  const rightAction = useMemo(
+    () => ({
+      label: 'Unfavorite',
+      icon: <HeartFilledIcon />,
+      onToggle: handleUnfavorite,
+    }),
+    [handleUnfavorite],
+  );
+
   return (
     <LibraryStoryList
       queryKey="favorites"
       ids={ids}
       emptyMessage="No favorites yet. Tap Favorite on a story page to keep it here for good."
-      recover={{
-        label: () => 'Unfavorite',
-        onRecover: handleUnfavorite,
-      }}
+      rightAction={rightAction}
     />
   );
 }

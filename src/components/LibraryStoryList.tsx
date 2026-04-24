@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getItems } from '../lib/hn';
 import { useHiddenStories } from '../hooks/useHiddenStories';
@@ -19,9 +20,17 @@ interface Props {
   queryKey: string;
   ids: number[];
   emptyMessage: string;
-  recover?: {
-    label: (id: number) => string;
-    onRecover: (id: number) => void;
+  /**
+   * Swaps the row's default Pin/Unpin button for a view-contextual
+   * "undo" action (Unmark done, Unfavorite, Unhide, …) on library
+   * views. When omitted, the default Pin/Unpin button renders — used
+   * by /pinned, where Pin/Unpin is already the right action.
+   */
+  rightAction?: {
+    label: string;
+    icon: ReactNode;
+    onToggle: (id: number) => void;
+    testId?: string;
   };
 }
 
@@ -29,7 +38,7 @@ export function LibraryStoryList({
   queryKey,
   ids,
   emptyMessage,
-  recover,
+  rightAction,
 }: Props) {
   const { hide } = useHiddenStories();
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts } =
@@ -125,18 +134,17 @@ export function LibraryStoryList({
               onUnpin={unpin}
               onShare={shareStory}
               onOpenThread={handleOpenThread}
+              rightAction={
+                rightAction
+                  ? {
+                      label: rightAction.label,
+                      icon: rightAction.icon,
+                      testId: rightAction.testId,
+                      onToggle: () => rightAction.onToggle(story.id),
+                    }
+                  : undefined
+              }
             />
-            {recover ? (
-              <div className="story-list__recover">
-                <button
-                  type="button"
-                  className="recover-btn"
-                  onClick={() => recover.onRecover(story.id)}
-                >
-                  {recover.label(story.id)}
-                </button>
-              </div>
-            ) : null}
           </li>
         ))}
       </ol>
