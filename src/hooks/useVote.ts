@@ -86,21 +86,20 @@ export function useVote(): UseVoteResult {
   // direction. HN requires an explicit `un` before the new vote can
   // be cast, so we chain un → new. Each leg is isolated so a partial
   // failure leaves local state matching the server rather than lying
-  // about it.
+  // about it, and the fallback toast describes the actual failing
+  // leg rather than always naming the final-direction action — if
+  // the `un` leg is what failed the user otherwise sees "Could not
+  // downvote" when the real problem is the unvote step.
   //   1. `un` fails           → server still at `from`; restore the
-  //                             `from`-direction local state.
+  //                             `from`-direction local state. Toast
+  //                             says "Could not unvote."
   //   2. `un` ok, new fails   → server now NEUTRAL; clear both local
   //                             sets (do NOT roll back to `from`).
-  //                             Otherwise we'd display a vote HN no
-  //                             longer has.
+  //                             Toast says "Could not up/downvote."
+  //                             matching the final-leg action.
   //   3. both ok              → optimistic state is correct.
   const chainSwitch = useCallback(
-    (
-      id: number,
-      from: 'up' | 'down',
-      to: 'up' | 'down',
-      fallback: string,
-    ) => {
+    (id: number, from: 'up' | 'down', to: 'up' | 'down') => {
       void (async () => {
         try {
           await postVote(id, 'un');
@@ -113,7 +112,9 @@ export function useVote(): UseVoteResult {
             addDownvotedId(username, id);
           }
           const message =
-            err instanceof VoteError && err.message ? err.message : fallback;
+            err instanceof VoteError && err.message
+              ? err.message
+              : 'Could not unvote.';
           showToast({ message });
           return;
         }
@@ -122,6 +123,8 @@ export function useVote(): UseVoteResult {
         } catch (err: unknown) {
           removeVotedId(username, id);
           removeDownvotedId(username, id);
+          const fallback =
+            to === 'up' ? 'Could not upvote.' : 'Could not downvote.';
           const message =
             err instanceof VoteError && err.message ? err.message : fallback;
           showToast({ message });
@@ -151,7 +154,7 @@ export function useVote(): UseVoteResult {
         // down → up: chained unvote then upvote.
         removeDownvotedId(username, id);
         addVotedId(username, id);
-        chainSwitch(id, 'down', 'up', 'Could not upvote.');
+        chainSwitch(id, 'down', 'up');
         return;
       }
       addVotedId(username, id);
@@ -186,7 +189,7 @@ export function useVote(): UseVoteResult {
         // up → down: chained unvote then downvote.
         removeVotedId(username, id);
         addDownvotedId(username, id);
-        chainSwitch(id, 'up', 'down', 'Could not downvote.');
+        chainSwitch(id, 'up', 'down');
         return;
       }
       addDownvotedId(username, id);

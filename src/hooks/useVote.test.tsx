@@ -308,6 +308,66 @@ describe('useVote', () => {
     expect(bodies[1]).toEqual({ id: 50, how: 'down' });
   });
 
+  it('direction switch: `un` leg fallback message names the unvote action, not the final direction', async () => {
+    // Pins the per-leg fallback. When `un` fails without a specific
+    // error body from the server, the toast should say "Could not
+    // unvote" because that's the operation that actually failed —
+    // not "Could not downvote", which would mislead the reader
+    // about which leg is broken.
+    addVotedId('alice', 72);
+    const toasts: ToastOptions[] = [];
+    stubFetch({
+      me: 'alice',
+      vote: () =>
+        // No error body — forces the fallback path.
+        new Response(null, { status: 502 }),
+    });
+    const { result } = renderVoteAndAuth(newClient(), toasts);
+    await waitUntilLoggedIn(result, 'alice');
+    await waitFor(() => {
+      expect(result.current.vote.isVoted(72)).toBe(true);
+    });
+
+    act(() => {
+      result.current.vote.toggleDownvote(72);
+    });
+    await waitFor(() => {
+      expect(toasts.length).toBeGreaterThan(0);
+    });
+    expect(toasts[toasts.length - 1].message).toBe('Could not unvote.');
+  });
+
+  it('direction switch: second-leg fallback message names the final direction', async () => {
+    // Pins the per-leg fallback's other branch. `un` succeeds but
+    // the `down` leg fails without an error body — the fallback
+    // should now read "Could not downvote." matching the action
+    // the user initiated.
+    addVotedId('alice', 73);
+    const toasts: ToastOptions[] = [];
+    let call = 0;
+    stubFetch({
+      me: 'alice',
+      vote: () => {
+        call += 1;
+        if (call === 1) return new Response(null, { status: 204 });
+        return new Response(null, { status: 502 });
+      },
+    });
+    const { result } = renderVoteAndAuth(newClient(), toasts);
+    await waitUntilLoggedIn(result, 'alice');
+    await waitFor(() => {
+      expect(result.current.vote.isVoted(73)).toBe(true);
+    });
+
+    act(() => {
+      result.current.vote.toggleDownvote(73);
+    });
+    await waitFor(() => {
+      expect(toasts.length).toBeGreaterThan(0);
+    });
+    expect(toasts[toasts.length - 1].message).toBe('Could not downvote.');
+  });
+
   it('direction switch: `un` leg failing restores the original direction', async () => {
     // Starting: upvoted. Tap Downvote. The `un` call fails (server
     // still has the upvote). Local must restore the upvote so the
