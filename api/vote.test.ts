@@ -227,11 +227,14 @@ describe('handleVoteRequest HN round-trip', () => {
     );
   });
 
-  it('returns 502 on a downvote when HN omits the how=down anchor (karma-gated)', async () => {
-    // Matches the low-karma / ineligible-item case: HN renders the
-    // upvote anchor but no downvote one. The handler can't
-    // distinguish "low karma" from "HTML changed" at this layer —
-    // both surface as 502 and the client toasts a generic error.
+  it('returns 502 on a downvote when HN omits the how=down anchor (karma-gated / too old)', async () => {
+    // Matches the low-karma / ineligible-item / past-downvote-window
+    // case: HN renders the upvote anchor but no downvote one. The
+    // handler can't distinguish "low karma" from "comment too old"
+    // from "HTML changed" at this layer — all surface as 502. The
+    // error body is an action-specific, user-facing message so the
+    // client toast is something the reader can actually act on
+    // instead of the raw "vote link missing" wording.
     const fetchImpl = vi.fn(async (url) => {
       if (String(url).startsWith('https://news.ycombinator.com/item')) {
         return htmlResponse(
@@ -246,6 +249,10 @@ describe('handleVoteRequest HN round-trip', () => {
       { fetchImpl },
     );
     expect(res.status).toBe(502);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/downvote/i);
+    expect(body.error).toMatch(/too old|karma/i);
+    expect(body.error).not.toMatch(/vote link/i);
   });
 
   it('issues the how=un variant for unvote', async () => {
@@ -280,6 +287,9 @@ describe('handleVoteRequest HN round-trip', () => {
       { fetchImpl },
     );
     expect(res.status).toBe(502);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/upvote/i);
+    expect(body.error).not.toMatch(/vote link/i);
   });
 
   it('returns 401 when the item fetch is redirected to login', async () => {
