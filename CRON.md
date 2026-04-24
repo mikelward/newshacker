@@ -361,6 +361,32 @@ Paste any of these into the Axiom query console:
 ```
 
 ```apl
+// Paywall retry flip rate. The cron makes a second Jina call when
+// the first sample looks paywalled; this query shows how often that
+// second sample disagrees ("flips" to not paywalled). A high flip
+// share means we'd have emitted a lot of false positives without
+// the retry — validates keeping it on. A very low flip share
+// (<1 %) plus a non-trivial tokens spend is the signal to consider
+// dropping the retry; a high share means leave it alone. Article
+// track only; only fires when the first sample was paywalled, so
+// `paywalledRetried=true` is the denominator.
+['vercel']
+| where _time > ago(7d)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tobool(e.paywalledRetried) == true
+| summarize
+    flipped = countif(tobool(e.paywalledRetryFlipped) == true),
+    total = count()
+  by urlHost = tostring(e.urlHost)
+| extend flipShare = round(todouble(flipped) / todouble(total), 3)
+| where total >= 3
+| order by flipShare desc, total desc
+```
+
+```apl
 // Noise vs real-edit split across all article `changed` events.
 // Two rough histograms over `deltaBytes` — under ~200 B is almost
 // always noise (timestamp flip, reaction count), over ~1 KB is

@@ -30,6 +30,35 @@ import { createHash } from 'node:crypto';
 
 const MODEL = 'gemini-2.5-flash-lite';
 const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+// Paywalled records expire quickly so the next reader (or cron tick)
+// re-evaluates. See api/summary.ts § PAYWALLED_RECORD_TTL_SECONDS for
+// the full rationale; mirrored here per AGENTS.md § "Vercel api/
+// gotchas". Deliberately larger than DEFAULT_STABLE_CHECK_INTERVAL
+// (2 h) so a stable paywalled record doesn't expire between cron
+// ticks and force a Gemini regeneration on the next tick.
+const PAYWALLED_RECORD_TTL_SECONDS = 60 * 60 * 3; // 3 hours
+
+function articleRecordTtlSeconds(record: { paywalled?: boolean }): number {
+  return record.paywalled
+    ? PAYWALLED_RECORD_TTL_SECONDS
+    : RECORD_TTL_SECONDS;
+}
+
+// Sum two optional Jina token counts, preserving `undefined` when both
+// operands are undefined. Matters for spend-telemetry honesty: a raw
+// `(a ?? 0) + (b ?? 0)` would coerce "both unknown" into
+// "authoritatively zero", which an operator reading
+// `articleTokensTotal` would take as "Jina billed us nothing this
+// tick". Jina normally returns a `usage.tokens` on every JSON
+// response, but the field is advertised as best-effort; the cron's
+// telemetry must not paper over its absence.
+function sumJinaTokens(
+  a: number | undefined,
+  b: number | undefined,
+): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
 
 const MAX_URL_LEN = 2048;
 const MAX_CONTENT_CHARS = 200_000;
@@ -788,6 +817,21 @@ export interface StoryLog {
   // feeds the warm-summaries analytics so we can measure paywall
   // prevalence per domain before acting on it in the UI.
   paywalled?: boolean;
+  // Article track: `true` when the first Jina sample looked paywalled
+  // and the cron made a second Jina call before writing the record.
+  // Absent when the first sample already looked clean (no retry
+  // needed) and on skipped_* / self-posts. Retries exist to dampen
+  // false positives from transient Jina hiccups — real publisher
+  // paywalls are stable across seconds, transient flakes aren't.
+  paywalledRetried?: boolean;
+  // Article track: set only when `paywalledRetried` is true. `true`
+  // if the second sample's paywall verdict differed from the first
+  // (i.e. the retry "flipped" the result, almost always first=true
+  // → second=false); `false` when both samples agreed. Operators
+  // watch `paywalledRetryFlipped=true` share as the first-order
+  // signal of how often the detector would have emitted a false
+  // positive without the retry.
+  paywalledRetryFlipped?: boolean;
   // Article track: `story.url`'s lowercased hostname. Present on
   // every line where the HN item was loaded and the story has a
   // valid URL — first_seen / unchanged / changed and the in-function
@@ -1191,20 +1235,56 @@ async function processArticleTrack(
   // URL-post stories: populated from Jina's paywall detector verdict.
   // Left undefined on self-posts (no Jina round-trip, no overlay).
   let paywalled: boolean | undefined;
+  // Retry telemetry (article track only). See StoryLog comments for
+  // the contract. `retried` is strictly the "did we run a second Jina
+  // call this tick?" bit; `retryFlipped` is meaningful only when
+  // `retried` is true.
+  let paywalledRetried: boolean | undefined;
+  let paywalledRetryFlipped: boolean | undefined;
   if (hasArticleUrl) {
     const articleUrl = story.url!;
     if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
-    const res = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
-    if (!res.ok) {
-      if (res.failure === 'payment_required') {
+    const first = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
+    if (!first.ok) {
+      if (first.failure === 'payment_required') {
         return log({ outcome: 'skipped_payment_required' });
       }
       return log({ outcome: 'skipped_unreachable' });
     }
-    content = res.content;
-    jinaTokens = res.tokens;
-    paywalled = res.paywalled;
+    content = first.content;
+    jinaTokens = first.tokens;
+    paywalled = first.paywalled;
     prompt = buildPrompt(articleUrl, content);
+    // Paywall-detection retry. On the cron side only — no user is
+    // waiting on this fetch, so the added latency is free, and a
+    // second sample meaningfully dampens false positives from
+    // Jina's own strategy rotation + transient flakes. We retry at
+    // most once per story per tick; if the second sample fails
+    // outright we keep the first result as-is (don't flip to "not
+    // paywalled" just because the retry didn't land). Token counts
+    // from both calls are summed so `articleTokensTotal` still
+    // reflects actual Jina spend.
+    if (paywalled === true) {
+      paywalledRetried = true;
+      const second = await fetchViaJina(articleUrl, jinaApiKey, fetchFn);
+      if (second.ok) {
+        jinaTokens = sumJinaTokens(jinaTokens, second.tokens);
+        if (second.paywalled === false) {
+          // Retry flipped: the second sample looks clean, use it.
+          content = second.content;
+          paywalled = false;
+          prompt = buildPrompt(articleUrl, content);
+          paywalledRetryFlipped = true;
+        } else {
+          paywalledRetryFlipped = false;
+        }
+      } else {
+        // Retry failed (timeout / unreachable / payment_required).
+        // Keep the first sample's verdict and content; log the retry
+        // as non-flipping so dashboards don't inflate the flip rate.
+        paywalledRetryFlipped = false;
+      }
+    }
   } else {
     // Self-post: body is already in the HN item, no Jina fetch needed.
     content = selfPostBody;
@@ -1233,7 +1313,7 @@ async function processArticleTrack(
         : {}),
     };
     try {
-      await store.set(storyId, updated, RECORD_TTL_SECONDS);
+      await store.set(storyId, updated, articleRecordTtlSeconds(updated));
     } catch {
       // best-effort
     }
@@ -1246,6 +1326,10 @@ async function processArticleTrack(
       tokens: jinaTokens,
       ...(effectivePaywalled !== undefined
         ? { paywalled: effectivePaywalled }
+        : {}),
+      ...(paywalledRetried !== undefined ? { paywalledRetried } : {}),
+      ...(paywalledRetryFlipped !== undefined
+        ? { paywalledRetryFlipped }
         : {}),
     });
   }
@@ -1280,7 +1364,7 @@ async function processArticleTrack(
     ...(paywalled !== undefined ? { paywalled } : {}),
   };
   try {
-    await store.set(storyId, record, RECORD_TTL_SECONDS);
+    await store.set(storyId, record, articleRecordTtlSeconds(record));
   } catch {
     // best-effort
   }
@@ -1290,6 +1374,10 @@ async function processArticleTrack(
       contentBytes,
       tokens: jinaTokens,
       ...(paywalled !== undefined ? { paywalled } : {}),
+      ...(paywalledRetried !== undefined ? { paywalledRetried } : {}),
+      ...(paywalledRetryFlipped !== undefined
+        ? { paywalledRetryFlipped }
+        : {}),
     });
   }
   const deltaBytes =
@@ -1306,6 +1394,10 @@ async function processArticleTrack(
     ...(deltaBytes !== undefined ? { deltaBytes } : {}),
     tokens: jinaTokens,
     ...(paywalled !== undefined ? { paywalled } : {}),
+    ...(paywalledRetried !== undefined ? { paywalledRetried } : {}),
+    ...(paywalledRetryFlipped !== undefined
+      ? { paywalledRetryFlipped }
+      : {}),
   });
 }
 

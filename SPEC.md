@@ -592,7 +592,7 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - **App shell**: precached at build time so the app boots offline. Navigation falls back to precached `index.html`; React Router takes over client-side.
 - **HN items** (`/item/:id.json`): StaleWhileRevalidate, 7-day TTL, 500 entries.
 - **Feed lists** (`topstories`, `newstories`, etc.): NetworkFirst with 10s timeout, 1-day TTL, 10 entries. The longer timeout stops ordinary mobile-data latency from flipping the strategy to "serve last-known list" on reload.
-- **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, summary records live in KV for **30 days** and freshness is owned by the warm-summaries cron (see *Scheduled warming and change analytics* below) rather than a short per-record TTL. The user-facing handler returns any present record unconditionally.
+- **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, summary records live in KV for **30 days** and freshness is owned by the warm-summaries cron (see *Scheduled warming and change analytics* below) rather than a short per-record TTL. The user-facing handler returns any present record unconditionally. Exception: records with `paywalled: true` get a **3-hour** TTL so the next reader (or cron tick) re-evaluates — paywall detection is a live-state signal (publishers flip A/B buckets, metered counters reset, Jina rotates upstream strategies) rather than a stable property of the URL, and the short TTL self-heals false positives without waiting 30 days. 3 h (not 1 h) keeps it larger than the cron's 2 h stable re-check interval so a stable paywalled record doesn't expire between cron ticks and force an unnecessary Gemini regeneration.
 - **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, comment-summary records also live in KV for **30 days** and freshness is owned by the same warm-summaries cron.
 - **Summary React Query cache (client):** both hooks use a **30-minute `staleTime` / 7-day `gcTime`** split. Retention (7 d) matches the SW runtime cache so a pinned story revisited mid-week is a synchronous cache hit with no loading flash. Freshness (30 min) matches the cron's default `WARM_REFRESH_CHECK_INTERVAL_SECONDS` — so we never ask for a version newer than what the cron could have produced, but we do ask often enough to surface cron-regenerated updates. The SW's StaleWhileRevalidate absorbs the refetch latency: the UI renders from the React Query cache immediately, the refetch hits the SW cache first, and only surfaces a changed response if the server actually has one.
 - **Items batch proxy** (`/api/items`): NetworkFirst with 10s timeout, 1-day TTL, 50 entries. The batch URL keys on the exact id set, which means a refresh of the same feed page hits the same cache entry — SWR here would silently repaint yesterday's score/comment counts. NetworkFirst still falls back to the cache when the user is genuinely offline, so `/pinned` and friends keep working.
@@ -608,6 +608,9 @@ on the cron for in-window freshness — the cron re-hashes the source
 (article body for `/api/summary`, top-20-transcript for
 `/api/comments-summary`) and only burns Gemini tokens when the hash
 changes. See *Scheduled warming and change analytics* below.
+Paywalled article records (see above) get a 3-hour TTL instead of
+30 days so paywall state revalidates quickly; see
+`PAYWALLED_RECORD_TTL_SECONDS` in both files.
 Reads from a
 function in the same AWS region as the Redis primary are single-digit
 ms — fast enough that the per-instance in-memory `Map` we used to keep
