@@ -114,49 +114,6 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   so behavior is consistent. Also revisit the toast copy for
   failures while you're in there.
 
-## Comment downvoting
-
-- **Wire up the comment Downvote button.** Shipping upvoting
-  (`comment-upvote` → `useVote.toggleVote`) left the Downvote button
-  in the comment toolbar rendered as a disabled placeholder: visible
-  so readers can see the planned affordance, but `disabled` +
-  `aria-disabled="true"` so it reads as "coming soon" rather than
-  broken. To finish it:
-  1. Extend `/api/vote` to accept `how: "down"` (the current
-     validator only allows `"up" | "un"`; `api/vote.test.ts` has a
-     `returns 400 on unknown how` case that uses `"down"` as its
-     example of unknown — update accordingly, and add a happy-path
-     test that scrapes the `how=down` anchor). The scrape + forward
-     body is already direction-agnostic, so this is mostly validator
-     + tests.
-  2. Extend `VoteHow` in `src/lib/vote.ts` and the default error
-     message to include a 'down' case.
-  3. In `src/lib/votes.ts` add a parallel `downvotedItemIds:<user>`
-     storage key (keep the legacy `votedStoryIds:<user>` as the
-     upvote set, no migration needed). Two disjoint sets per user.
-  4. In `useVote` grow `toggleDownvote` / `isDownvoted` /
-     `downvotedIds`. Direction switching (up→down, down→up) has to
-     chain `un` then the new direction — that's two API hits, and
-     the per-leg failure paths need separate handling: if `un`
-     succeeds but the second leg fails, land at NEUTRAL locally, not
-     rolled back to the original direction, or the UI will lie
-     about a vote HN no longer has.
-  5. In `Comment.tsx` drop the `disabled` / `aria-disabled` on the
-     Downvote button, wire `onClick={() => toggleDownvote(id)}`, and
-     mirror the upvote's `aria-pressed` / `--active` CSS treatment.
-  6. **Karma gate:** HN only renders a `how=down` anchor on the item
-     page for viewers above ~500 karma, and not for the viewer's own
-     posts / some other item states. Tapping Downvote as a low-karma
-     user will surface as a 502 from the scrape step; the hook
-     toasts. Pre-checking would cost an extra item-page fetch per
-     menu open — not worth it. Document in `SPEC.md` alongside the
-     upvote path.
-  7. Tests: round-trip for `'down'` in `api/vote.test.ts`,
-     downvote-storage tests in `src/lib/votes.test.ts`, hook tests
-     in `src/hooks/useVote.test.tsx` (including the per-leg failure
-     cases), and a Downvote-wiring spec in
-     `src/components/Comment.toolbar.test.tsx`.
-
 ## Thread overflow menu
 
 - **Add Hide / Unhide.** The thread `⋮` menu currently only has

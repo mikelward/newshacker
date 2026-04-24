@@ -4,7 +4,12 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useVote } from './useVote';
 import { useAuth } from './useAuth';
-import { addVotedId, getVotedIds } from '../lib/votes';
+import {
+  addDownvotedId,
+  addVotedId,
+  getDownvotedIds,
+  getVotedIds,
+} from '../lib/votes';
 import { ToastContext, type ToastOptions } from './useToast';
 
 function newClient() {
@@ -195,8 +200,9 @@ describe('useVote', () => {
 
   it('logged-out hook exposes an empty set even when some user has ids stored', async () => {
     // Pre-populate alice's store; with no signed-in user, useVote
-    // should still read an empty set.
+    // should still read an empty set for both directions.
     addVotedId('alice', 1);
+    addDownvotedId('alice', 2);
     stubFetch({
       me: null,
       vote: () => new Response(null, { status: 204 }),
@@ -206,6 +212,164 @@ describe('useVote', () => {
       expect(result.current.auth.user).toBeNull();
     });
     expect(result.current.vote.votedIds.size).toBe(0);
+    expect(result.current.vote.downvotedIds.size).toBe(0);
     expect(result.current.vote.isVoted(1)).toBe(false);
+    expect(result.current.vote.isDownvoted(2)).toBe(false);
+  });
+
+  it('logged in: toggleDownvote flips optimistically and POSTs how=down', async () => {
+    const fetchMock = stubFetch({
+      me: 'alice',
+      vote: () => new Response(null, { status: 204 }),
+    });
+    const { result } = renderVoteAndAuth(newClient());
+    await waitUntilLoggedIn(result, 'alice');
+
+    act(() => {
+      result.current.vote.toggleDownvote(99);
+    });
+    expect(result.current.vote.isDownvoted(99)).toBe(true);
+    expect(getDownvotedIds('alice').has(99)).toBe(true);
+
+    await waitFor(() => {
+      const votes = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(votes.length).toBeGreaterThan(0);
+    });
+    const call = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/vote',
+    );
+    const body = JSON.parse(String((call![1] as RequestInit).body));
+    expect(body).toEqual({ id: 99, how: 'down' });
+  });
+
+  it('logged in: toggling an already-downvoted item sends how=un', async () => {
+    addDownvotedId('alice', 99);
+    const fetchMock = stubFetch({
+      me: 'alice',
+      vote: () => new Response(null, { status: 204 }),
+    });
+    const { result } = renderVoteAndAuth(newClient());
+    await waitUntilLoggedIn(result, 'alice');
+    await waitFor(() => {
+      expect(result.current.vote.isDownvoted(99)).toBe(true);
+    });
+
+    act(() => {
+      result.current.vote.toggleDownvote(99);
+    });
+    expect(result.current.vote.isDownvoted(99)).toBe(false);
+
+    await waitFor(() => {
+      const votes = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(votes.length).toBeGreaterThan(0);
+    });
+    const call = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/vote',
+    );
+    const body = JSON.parse(String((call![1] as RequestInit).body));
+    expect(body).toEqual({ id: 99, how: 'un' });
+  });
+
+  it('switching upvote → downvote chains un then down', async () => {
+    addVotedId('alice', 50);
+    const fetchMock = stubFetch({
+      me: 'alice',
+      vote: () => new Response(null, { status: 204 }),
+    });
+    const { result } = renderVoteAndAuth(newClient());
+    await waitUntilLoggedIn(result, 'alice');
+    await waitFor(() => {
+      expect(result.current.vote.isVoted(50)).toBe(true);
+    });
+
+    act(() => {
+      result.current.vote.toggleDownvote(50);
+    });
+    expect(result.current.vote.isVoted(50)).toBe(false);
+    expect(result.current.vote.isDownvoted(50)).toBe(true);
+
+    await waitFor(() => {
+      const votes = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(votes.length).toBe(2);
+    });
+    const voteCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url) === '/api/vote',
+    );
+    const bodies = voteCalls.map(([, init]) =>
+      JSON.parse(String((init as RequestInit).body)),
+    );
+    expect(bodies[0]).toEqual({ id: 50, how: 'un' });
+    expect(bodies[1]).toEqual({ id: 50, how: 'down' });
+  });
+
+  it('direction switch: `un` leg failing restores the original direction', async () => {
+    // Starting: upvoted. Tap Downvote. The `un` call fails (server
+    // still has the upvote). Local must restore the upvote so the
+    // UI and server agree.
+    addVotedId('alice', 70);
+    const toasts: ToastOptions[] = [];
+    stubFetch({
+      me: 'alice',
+      vote: () =>
+        new Response(JSON.stringify({ error: 'un failed' }), {
+          status: 502,
+          headers: { 'content-type': 'application/json' },
+        }),
+    });
+    const { result } = renderVoteAndAuth(newClient(), toasts);
+    await waitUntilLoggedIn(result, 'alice');
+    await waitFor(() => {
+      expect(result.current.vote.isVoted(70)).toBe(true);
+    });
+
+    act(() => {
+      result.current.vote.toggleDownvote(70);
+    });
+    await waitFor(() => {
+      expect(toasts.length).toBeGreaterThan(0);
+    });
+    expect(result.current.vote.isVoted(70)).toBe(true);
+    expect(result.current.vote.isDownvoted(70)).toBe(false);
+  });
+
+  it('direction switch: second leg failing after successful `un` leaves the item NEUTRAL', async () => {
+    // Starting: upvoted. Tap Downvote. `un` succeeds (server now
+    // neutral) but `down` fails (e.g. karma gate). Local must end
+    // at NEUTRAL — not restore upvoted — or the UI lies about a
+    // vote HN no longer has.
+    addVotedId('alice', 71);
+    const toasts: ToastOptions[] = [];
+    let call = 0;
+    stubFetch({
+      me: 'alice',
+      vote: () => {
+        call += 1;
+        if (call === 1) return new Response(null, { status: 204 });
+        return new Response(JSON.stringify({ error: 'down failed' }), {
+          status: 502,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+    const { result } = renderVoteAndAuth(newClient(), toasts);
+    await waitUntilLoggedIn(result, 'alice');
+    await waitFor(() => {
+      expect(result.current.vote.isVoted(71)).toBe(true);
+    });
+
+    act(() => {
+      result.current.vote.toggleDownvote(71);
+    });
+    await waitFor(() => {
+      expect(toasts.length).toBeGreaterThan(0);
+    });
+    expect(result.current.vote.isVoted(71)).toBe(false);
+    expect(result.current.vote.isDownvoted(71)).toBe(false);
   });
 });
