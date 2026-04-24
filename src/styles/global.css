@@ -1,7 +1,7 @@
 :root {
-  --nh-orange: #ff6600;
-  --nh-orange-dark: #e65c00;
-  --nh-bg: #f6f6ef;
+  --nh-orange: #c2410c;
+  --nh-orange-dark: #9a3412;
+  --nh-bg: #fdf6ec;
   --nh-meta: #828282;
   /* Read / already-opened story color. Sits between --nh-meta and
      --nh-text so an opened title is clearly less prominent than an
@@ -36,6 +36,12 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    /* Burnt orange (#c2410c) is too dark for text/icons against the
+       dark background — it tests below WCAG AA. Lift the accent to
+       Tailwind orange-600 in dark mode; the hover variant becomes the
+       light-mode primary so pressed states still read as "darker". */
+    --nh-orange: #ea580c;
+    --nh-orange-dark: #c2410c;
     --nh-bg: #1b1b17;
     --nh-meta: #9a9a8c;
     --nh-read: #c4c4b5;
@@ -52,6 +58,8 @@
 }
 
 :root[data-theme='dark'] {
+  --nh-orange: #ea580c;
+  --nh-orange-dark: #c2410c;
   --nh-bg: #1b1b17;
   --nh-meta: #9a9a8c;
   --nh-read: #c4c4b5;

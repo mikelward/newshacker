@@ -2,7 +2,7 @@
 
 ## Overview
 
-**newshacker** is a mobile-friendly, responsive web **reader for [Hacker News](https://news.ycombinator.com)**, built with React + TypeScript and deployed on Vercel. The goal is to deliver a clean, fast, thumb-friendly reading experience that keeps the familiar HN orange look while trimming the interface down to the features that matter on a phone.
+**newshacker** is a mobile-friendly, responsive web **reader for [Hacker News](https://news.ycombinator.com)**, built with React + TypeScript and deployed on Vercel. The goal is to deliver a clean, fast, thumb-friendly reading experience with a warm burnt-orange palette that nods at HN's familiar look while trimming the interface down to the features that matter on a phone.
 
 Primary domain: **newshacker.app**. `hnews.app` is also owned and redirects (301) to `newshacker.app`.
 
@@ -28,7 +28,7 @@ We achieve that by:
 
 - Mobile-first responsive layout; also usable on desktop.
 - Fast, minimal-JS bundle; good Lighthouse scores.
-- Familiar HN look & feel — orange `#ff6600` header, cream background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
+- Familiar HN look & feel — burnt orange `#c2410c` header, warm-ivory background, compact typography — but with **fewer, larger, better-spaced** tap targets than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
 - Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
@@ -435,7 +435,7 @@ Thread page mirrors the same discipline: a single primary "Read article" button 
 
 Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin/Unpin** → **Done** → **More actions ⋮**. Each icon button is 48×48px with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--nh-meta` by default and `--nh-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
 
-**Read-article "read" state.** The HN-orange Read article button drops to the neutral secondary palette once the reader has opened the article at least once in this browser (tracked by `articleOpenedIds` in the `useOpenedStories` hook, persisted to `localStorage` under `newshacker:openedStoryIds`). Layout, icon, label, and href are unchanged — only the colors shift — so a re-visit still surfaces the link without visually shouting "read this!" at someone who already has. Implemented as a `.thread__action--read` modifier stacked on top of `.thread__action--primary`; ordering in `Thread.css` matters (read overrides primary). Tapping the button still calls `markArticleOpenedId`, which is a no-op if the id is already set. Matches the feed row's "visited" treatment where opened stories fade the title.
+**Read-article "read" state.** The burnt-orange Read article button drops to the neutral secondary palette once the reader has opened the article at least once in this browser (tracked by `articleOpenedIds` in the `useOpenedStories` hook, persisted to `localStorage` under `newshacker:openedStoryIds`). Layout, icon, label, and href are unchanged — only the colors shift — so a re-visit still surfaces the link without visually shouting "read this!" at someone who already has. Implemented as a `.thread__action--read` modifier stacked on top of `.thread__action--primary`; ordering in `Thread.css` matters (read overrides primary). Tapping the button still calls `markArticleOpenedId`, which is a no-op if the id is already set. Matches the feed row's "visited" treatment where opened stories fade the title.
 
 The **Pin/Unpin** button (Material Symbols `push_pin`, outline → filled on toggle) is the same pinned state as the row-level pin on feeds; label and tooltip flip between "Pin" and "Unpin" based on current state. Reachable from the thread page so stories opened directly from a share link (where there's no feed row to tap) can be pinned and unpinned in the same place. The **Done** button (Material Symbols `done`, outline → filled on toggle) sits immediately right of Pin/Unpin and marks the thread complete: the story is filtered out of every feed (see *Pinned vs. Favorite vs. Done* above) and added to the synced Done list. Tapping Done on a pinned story also unpins it; Done and Pin are mutually exclusive. Tapping **Mark done** also closes the thread — it pops back to the previous entry (usually the feed) via `navigate(-1)`, or lands on the home feed if there's no in-app history (deep link, refresh, shared URL). This mirrors the "mark read" gesture on Apollo-style Reddit clients: the Done tap is "I'm finished, move on". **Unmark done** does *not* navigate — the user is usually on the thread deliberately to revisit a completed item, so yanking them away would be hostile. Browser back is the recovery path for an accidental mark-done; there is no Done toast — the button state (and the story's disappearance from feeds) is the single source of truth, matching Pin.
 
@@ -515,8 +515,8 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 ## Visual Design
 
-- Primary color: `#ff6600` (HN orange) for the header and accents.
-- Background: `#f6f6ef` (HN cream) for the page, white for cards/rows.
+- Primary color: `#c2410c` (burnt orange) for the header and accents. In dark mode the accent lifts to `#ea580c` so icons and text retain WCAG AA contrast against the dark background; the light-mode primary becomes the dark-mode hover/pressed shade.
+- Background: `#fdf6ec` (warm ivory) for the page, white for cards/rows.
 - Text: `#000` primary, `#5a5a5a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
 - **Tap targets: ≥48×48px, ≥8px spacing between any two distinct targets.**
@@ -549,7 +549,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 - Semantic HTML (`<main>`, `<nav>`, `<article>`).
 - Visible focus styles.
 - `prefers-reduced-motion` respected for the collapse animation and the tooltip fade-in.
-- Color contrast ≥ 4.5:1 for body text (HN orange on white fails for small text — only used on large headers / buttons).
+- Color contrast ≥ 4.5:1 for body text. The burnt-orange accent (`#c2410c`) clears AA on white (~5.3:1) but is still reserved for headers, buttons, and accents rather than long-form body text — readability of any orange-on-cream paragraph degrades faster than the contrast ratio alone suggests.
 - Every icon-only `<button>` has an accessible name — either via `aria-label` or a `visually-hidden` caption inside the button. The long-press tooltip (see *Visual Design*) is visual-only; screen readers rely on the accessible name, not the transient tooltip DOM.
 
 ## Performance Targets
@@ -576,7 +576,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 newshacker is installable as a Progressive Web App on desktop and mobile, and supports offline reading of previously-seen content.
 
 ### Install identity
-- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /top`.
+- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#c2410c`, background `#fdf6ec`, `display: standalone`, `start_url: /top`.
 - Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-32.png`. The mark is an orange disc with a white ring and a white "n" centered inside, on a transparent background so the icon reads as circular — never the HN `Y` logo. The maskable variant fills its frame with orange and pulls the ring + glyph into an 80% safe zone so Android adaptive masks don't clip it.
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
