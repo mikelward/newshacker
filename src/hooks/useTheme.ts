@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   THEME_CHANGE_EVENT,
   type Theme,
+  applyThemeColorMeta,
   getStoredTheme,
   resolveTheme,
   setStoredTheme,
@@ -30,7 +31,15 @@ export function useTheme() {
   useEffect(() => {
     if (theme !== 'system' || typeof window.matchMedia !== 'function') return;
     const mql = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => setResolved(resolveTheme('system'));
+    const onChange = () => {
+      const next = resolveTheme('system');
+      setResolved(next);
+      // Keep the browser chrome tint in sync when the OS flips under a
+      // `system` selection — `applyTheme` only runs on explicit user
+      // changes, so without this the meta would lag the CSS by a
+      // whole page reload.
+      applyThemeColorMeta(next);
+    };
     mql.addEventListener('change', onChange);
     return () => mql.removeEventListener('change', onChange);
   }, [theme]);
