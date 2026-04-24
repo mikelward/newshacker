@@ -8,6 +8,15 @@
  * boot script in `index.html`. Absence of the attribute means default
  * (today's orange chrome) and no rules in this file apply.
  *
+ * Selectors are scoped to the *known* variants via
+ * `:root:is([data-chrome='mono-a'], [data-chrome='mono-b'])` rather
+ * than the simpler `:root[data-chrome]`. Defense in depth: the boot
+ * script and `setStoredChrome` already whitelist, but if someone
+ * manually sets `data-chrome` to an unknown value (devtools), or a
+ * future variant is added to the Chrome type without matching
+ * `--cp-*` tokens here, the scoped selector keeps the shipping look
+ * instead of half-applying overrides with unresolved vars.
+ *
  * Cost/reliability: no new infra. Pure client CSS + a single
  * localStorage key. If the stored value is missing or corrupt, the
  * app falls back to the default chrome.
@@ -37,41 +46,41 @@
 
 /* ---------- Shared body of overrides ---------- */
 
-:root[data-chrome] .app-header {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header {
   background: var(--cp-bar-bg);
   color: var(--cp-bar-fg);
   box-shadow: none;
   border-bottom: 1px solid var(--cp-border);
 }
 
-:root[data-chrome] .app-header__menu-btn,
-:root[data-chrome] .app-header__icon-btn,
-:root[data-chrome] .header-account__btn {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__menu-btn,
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__icon-btn,
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .header-account__btn {
   color: var(--cp-bar-fg);
 }
 
-:root[data-chrome] .app-header__home {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__home {
   color: var(--cp-wordmark);
 }
 
-:root[data-chrome] .app-header__brand {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__brand {
   background: var(--cp-disc-bg);
   color: var(--cp-disc-fg);
   border-color: transparent;
 }
 
-:root[data-chrome] .app-header__menu-btn:focus-visible,
-:root[data-chrome] .app-header__home:focus-visible,
-:root[data-chrome] .app-header__icon-btn:focus-visible,
-:root[data-chrome] .header-account__btn:focus-visible {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__menu-btn:focus-visible,
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__home:focus-visible,
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__icon-btn:focus-visible,
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .header-account__btn:focus-visible {
   outline-color: var(--cp-ring);
 }
 
-:root[data-chrome] .app-header__icon-btn:disabled {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__icon-btn:disabled {
   color: color-mix(in srgb, var(--cp-bar-fg) 45%, transparent);
 }
 
-:root[data-chrome] .app-header__offline {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .app-header__offline {
   color: var(--cp-bar-fg);
   background: transparent;
   border-color: color-mix(in srgb, var(--cp-bar-fg) 60%, transparent);
@@ -81,11 +90,11 @@
    default HeaderAccountMenu rule is already gated; mirror the shape so
    the preview doesn't regress touch behavior. */
 @media (hover: hover) {
-  :root[data-chrome] .header-account__btn:hover {
+  :root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .header-account__btn:hover {
     background: var(--nh-pressed);
   }
 }
 
-:root[data-chrome] .header-account__btn:active {
+:root:is([data-chrome='mono-a'], [data-chrome='mono-b']) .header-account__btn:active {
   background: var(--nh-border);
 }
