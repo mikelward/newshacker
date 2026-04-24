@@ -228,7 +228,9 @@ a {
 /* Shared chunky action button — matches `.thread__action` in
    Thread.css so buttons on library pages (/done, /opened, /hidden)
    don't drift visually from the thread action bar. Keep in sync
-   with `.thread__action` until the two are unified. */
+   with `.thread__action` until the two are unified. Includes
+   `text-decoration: none` so the class can be applied to `<a>` /
+   `<Link>` without picking up the global `a:hover` underline. */
 .nh-action-btn {
   display: inline-flex;
   align-items: center;
@@ -241,6 +243,7 @@ a {
   border-radius: 8px;
   color: var(--nh-text);
   cursor: pointer;
+  text-decoration: none;
   font-size: 16px;
   font-weight: 600;
 }
@@ -248,6 +251,7 @@ a {
 @media (hover: hover) {
   .nh-action-btn:hover {
     background: var(--nh-pressed);
+    text-decoration: none;
   }
 }
 
