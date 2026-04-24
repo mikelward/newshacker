@@ -130,6 +130,6 @@ describe('<AppDrawer>', () => {
     expect(panelRule, 'expected .app-drawer__panel rule').not.toBeNull();
     const block = panelRule![0];
     expect(block).toMatch(/background:\s*var\(--nh-bg\)/);
-    expect(block).not.toMatch(/#f6f6ef/i);
+    expect(block).not.toMatch(/#fdf6ec/i);
   });
 });
