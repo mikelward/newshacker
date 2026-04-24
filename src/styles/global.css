@@ -225,6 +225,36 @@ a {
   background: var(--nh-border);
 }
 
+/* Shared chunky action button — matches `.thread__action` in
+   Thread.css so buttons on library pages (/done, /opened, /hidden)
+   don't drift visually from the thread action bar. Keep in sync
+   with `.thread__action` until the two are unified. */
+.nh-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 12px 16px;
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
+  border-radius: 8px;
+  color: var(--nh-text);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  .nh-action-btn:hover {
+    background: var(--nh-pressed);
+  }
+}
+
+.nh-action-btn:active {
+  background: var(--nh-border);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

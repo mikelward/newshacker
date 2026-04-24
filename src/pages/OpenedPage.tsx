@@ -43,7 +43,7 @@ export function OpenedPage() {
         <div className="history-toolbar">
           <button
             type="button"
-            className="history-toolbar__forget"
+            className="nh-action-btn"
             onClick={handleForgetAll}
           >
             Forget all opened
