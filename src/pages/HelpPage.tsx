@@ -102,10 +102,12 @@ export function HelpPage() {
           doesn&rsquo;t toggle the comment.
         </li>
         <li>
-          Expanded comments pick up a muted{' '}
-          <strong>Reply on HN ↗</strong> link on the meta row.
-          newshacker doesn&rsquo;t submit comments itself, so that link
-          hands you off to Hacker News to write the reply there.
+          Expanded comments pick up a thin action toolbar at the
+          bottom with <strong>Upvote</strong>, <strong>Downvote</strong>,
+          and <strong>Reply on HN ↗</strong> buttons. Reply hands you
+          off to Hacker News itself — newshacker doesn&rsquo;t submit
+          comments. Upvote and Downvote are visible placeholders today;
+          comment voting isn&rsquo;t wired up yet.
         </li>
       </ul>
 

@@ -46,8 +46,9 @@
   /* Content-sized (not flex: 1) so the +/− icon inside sits
      immediately after the last meta piece — "12 replies [+]" —
      rather than being pushed to the far right of a stretched
-     button. The `Reply on HN` link uses `margin-left: auto` to
-     pin itself to the right edge instead. */
+     button. Reply and vote actions live below the header in the
+     `.comment__toolbar` strip, so nothing needs the right edge of
+     this row. */
   padding: 4px 2px;
   border: 0;
   background: transparent;
@@ -127,20 +128,50 @@
   margin-bottom: 0;
 }
 
-.comment__action {
+/* Thin borderless action strip at the bottom of an expanded comment.
+   Sits between the meta row and the nested replies so the primary
+   per-comment actions (vote up/down, reply) are reachable without
+   leaving the card. Borderless on purpose — the strip reads as a
+   single toolbar rather than a row of separate controls. */
+.comment__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 0;
+}
+
+.comment__toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
   color: var(--nh-meta);
+  cursor: pointer;
+  border-radius: 4px;
   text-decoration: none;
-  padding: 4px 2px;
-  /* The toggle button is now content-sized so the +/− lands next
-     to the meta text; push Reply on HN to the right edge of the
-     header row instead. */
-  margin-left: auto;
+  font: inherit;
 }
 
 @media (hover: hover) {
-  .comment__action:hover {
-    text-decoration: underline;
+  .comment__toolbar-button:hover {
+    color: var(--nh-text);
+    background: var(--nh-pressed);
+    text-decoration: none;
   }
+}
+
+.comment__toolbar-button:active {
+  background: var(--nh-border);
+}
+
+.comment__toolbar-button:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
 }
 
 .comment__children {
