@@ -62,6 +62,20 @@ describe('<Comment> nested layout CSS invariants', () => {
     );
   });
 
+  it('.comment__toolbar-button--collapse is pushed to the toolbar\'s right edge via margin-left: auto', async () => {
+    // Regression guard for the "expanded card's collapse control
+    // sits at the bottom-right corner" rule. The collapse button is
+    // the last toolbar button, so pushing it right with
+    // `margin-left: auto` spaces it away from the [upvote][downvote]
+    // [reply] cluster. Siblings match the collapsed-state icon's
+    // margin-left:auto so "bottom-right = (un)collapse" is the same
+    // rule in both states.
+    const css = await loadCommentCss();
+    const rule = extractRule(css, '.comment__toolbar-button--collapse');
+    expect(rule).not.toBeNull();
+    expect(rule!).toMatch(/margin-left\s*:\s*auto/);
+  });
+
   it('.comment__toggle-icon is pushed to the right edge via margin-left: auto', async () => {
     // Regression guard for the "expand/collapse icon sits at the
     // card's bottom-right corner" rule. If a refactor reverts the

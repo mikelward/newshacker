@@ -69,6 +69,20 @@
   text-overflow: ellipsis;
 }
 
+/* Plain meta row used when the comment is expanded. The explicit
+   collapse control in that state is the trailing button in
+   .comment__toolbar, so the header here is non-interactive text. The
+   4px vertical padding keeps the row's height matched to the
+   collapsed-state .comment__toggle button above, so the line doesn't
+   shift when a reader expands/collapses a card. */
+.comment__meta {
+  padding: 4px 2px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Expand/collapse icon — Material Symbols expand_circle_down /
    expand_circle_up. Pinned to the far right of the header row (via
    `margin-left: auto`) so the control sits at the card's bottom-
@@ -217,6 +231,13 @@
 .comment__toolbar-button:disabled:active,
 .comment__toolbar-button[aria-disabled='true']:active {
   background: transparent;
+}
+
+/* Collapse chevron — pushed to the toolbar's right edge so it mirrors
+   the collapsed-state expand chevron at the card's bottom-right
+   corner. Same "bottom-right = (un)collapse" rule in both states. */
+.comment__toolbar-button--collapse {
+  margin-left: auto;
 }
 
 .comment__children {

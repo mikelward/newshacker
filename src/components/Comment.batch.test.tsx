@@ -25,7 +25,7 @@ describe('<Comment> expand/collapse icon affordance', () => {
     window.localStorage.clear();
   });
 
-  it('renders an expand_circle_down/up icon at the card\'s bottom-right whose data-expanded flips on click', async () => {
+  it('renders the expand chevron at the header\'s right edge and flips to a toolbar-right collapse button on expand', async () => {
     const items: Record<number, HNItem> = {
       7100: commentFixture(7100, { kids: [] }),
     };
@@ -34,24 +34,37 @@ describe('<Comment> expand/collapse icon affordance', () => {
     await waitFor(() => {
       expect(screen.getByText('body 7100')).toBeInTheDocument();
     });
+    // Collapsed state: the expand chevron sits at the right edge of
+    // the header's toggle button, after the meta text, so the CSS
+    // `margin-left: auto` can push it to the card's bottom-right
+    // corner regardless of how long the meta text is.
     const toggle = screen.getByRole('button', { name: /expand comment/i });
     const icon = toggle.querySelector('.comment__toggle-icon');
     expect(icon).not.toBeNull();
     expect(icon).toHaveAttribute('data-expanded', 'false');
-    // Icon is the last child of the toggle (meta text sits before
-    // it) so the CSS `margin-left: auto` can push it to the card's
-    // bottom-right corner regardless of how long the meta text is.
     const iconParent = icon!.parentElement as HTMLElement;
     const children = Array.from(iconParent.children);
     expect(children[children.length - 1]).toBe(icon);
+
     act(() => {
       fireEvent.click(toggle);
     });
-    await waitFor(() => {
-      expect(
-        toggle.querySelector('.comment__toggle-icon'),
-      ).toHaveAttribute('data-expanded', 'true');
-    });
+
+    // Expanded state: the header's toggle button is gone (meta row
+    // is plain text) and the collapse affordance is the last button
+    // in the toolbar, pinned to the right via margin-left:auto.
+    const collapseBtn = await screen.findByTestId('comment-collapse');
+    expect(collapseBtn).toHaveAttribute('aria-label', 'Collapse comment');
+    const toolbar = collapseBtn.closest('.comment__toolbar') as HTMLElement;
+    const toolbarButtons = Array.from(
+      toolbar.querySelectorAll('.comment__toolbar-button'),
+    );
+    expect(toolbarButtons[toolbarButtons.length - 1]).toBe(collapseBtn);
+    expect(collapseBtn).toHaveClass('comment__toolbar-button--collapse');
+    // Header no longer has a toggle button in expanded state.
+    expect(
+      screen.queryByRole('button', { name: /expand comment/i }),
+    ).toBeNull();
   });
 });
 
