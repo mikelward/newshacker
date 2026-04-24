@@ -7,7 +7,7 @@
      larger than the top. The padding-bottom value comes from
      --comment-stack-gap so it stays locked to .comment__children's
      margin-top below — see global.css for the pairing rationale. */
-  padding: 8px 12px var(--comment-stack-gap);
+  padding: 8px var(--comment-gutter) var(--comment-stack-gap);
   border-top: 1px solid var(--nh-border);
   background: var(--nh-bg-card);
   color: var(--nh-text);
@@ -221,10 +221,21 @@
      parent's padding-bottom only takes effect after all children, so
      this margin-top is what sets the gap before the first nested
      reply's border. Sharing the token keeps parent → first-child and
-     sibling → sibling gaps identical. Visual hierarchy comes from
-     each comment's own left stripe (see .comment box-shadow), so
-     this list adds no left offset of its own. */
-  margin: var(--comment-stack-gap) 0 0;
+     sibling → sibling gaps identical.
+
+     The horizontal margin is deliberately asymmetric:
+       - LEFT stays at 0, so the nested list sits inside the parent's
+         --comment-gutter left padding. That left indent is the visual
+         cue for reply depth — a reader sees nesting through the
+         stacked left edge, not just the left stripe.
+       - RIGHT is negative --comment-gutter, pulling the nested list
+         out of the parent's right padding so a nested reply's right
+         edge reaches the thread's right edge. Otherwise each level
+         of nesting would shrink the reading column by another gutter
+         on the right, which compounds into a lopsided margin that
+         has nothing to do with depth. Right-gutter width is the same
+         for every comment, top-level or nested. */
+  margin: var(--comment-stack-gap) calc(var(--comment-gutter) * -1) 0 0;
   padding: 0;
   list-style: none;
 }

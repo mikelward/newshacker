@@ -28,6 +28,18 @@
      invariant self-enforcing instead of prose-enforced. */
   --comment-stack-gap: 4px;
 
+  /* Horizontal gutter on either side of every comment card. Used as
+     .comment's left/right padding AND — asymmetrically — as the
+     negative RIGHT margin on .comment__children so a nested reply
+     escapes the parent's right padding and reaches the thread's
+     right edge. The nested list's LEFT margin stays at 0 on purpose:
+     the parent's left padding is the intentional indent that signals
+     reply depth. Sharing this token between .comment's padding and
+     .comment__children's negative right margin keeps the "one gutter
+     per side of the column, regardless of depth" invariant
+     self-enforcing. */
+  --comment-gutter: 12px;
+
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
 
