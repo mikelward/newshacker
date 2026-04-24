@@ -223,7 +223,7 @@ export function Comment({ id }: Props) {
             <ToolbarDownArrowIcon />
           </TooltipButton>
           <a
-            className="comment__toolbar-button comment__toolbar-button--link"
+            className="comment__toolbar-button"
             href={`https://news.ycombinator.com/reply?id=${id}`}
             target="_blank"
             rel="noopener noreferrer"
