@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  _downvoteStorageKeyForTests,
   _storageKeyForTests,
+  addDownvotedId,
   addVotedId,
   clearVotedIds,
+  getDownvotedIds,
   getVotedIds,
+  removeDownvotedId,
   removeVotedId,
   VOTES_CHANGE_EVENT,
 } from './votes';
@@ -85,5 +89,50 @@ describe('votes store', () => {
       JSON.stringify(['nope', 1, -2, 3.5, 4]),
     );
     expect(getVotedIds('alice')).toEqual(new Set([1, 4]));
+  });
+});
+
+describe('downvotes store', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('starts empty and round-trips added ids', () => {
+    expect(getDownvotedIds('alice')).toEqual(new Set());
+    addDownvotedId('alice', 10);
+    addDownvotedId('alice', 11);
+    expect(getDownvotedIds('alice')).toEqual(new Set([10, 11]));
+  });
+
+  it('removes ids', () => {
+    addDownvotedId('alice', 10);
+    addDownvotedId('alice', 11);
+    removeDownvotedId('alice', 10);
+    expect(getDownvotedIds('alice')).toEqual(new Set([11]));
+  });
+
+  it('uses a distinct storage key from the upvote set', () => {
+    addVotedId('alice', 1);
+    addDownvotedId('alice', 2);
+    expect(getVotedIds('alice')).toEqual(new Set([1]));
+    expect(getDownvotedIds('alice')).toEqual(new Set([2]));
+    expect(_downvoteStorageKeyForTests('alice')).not.toBe(
+      _storageKeyForTests('alice'),
+    );
+  });
+
+  it('clearVotedIds wipes both directions for that user only', () => {
+    addVotedId('alice', 1);
+    addDownvotedId('alice', 2);
+    addVotedId('bob', 3);
+    addDownvotedId('bob', 4);
+    clearVotedIds('alice');
+    expect(getVotedIds('alice')).toEqual(new Set());
+    expect(getDownvotedIds('alice')).toEqual(new Set());
+    expect(getVotedIds('bob')).toEqual(new Set([3]));
+    expect(getDownvotedIds('bob')).toEqual(new Set([4]));
   });
 });

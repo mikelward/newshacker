@@ -5,7 +5,7 @@ import { Comment } from './Comment';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock } from '../test/mockFetch';
 import type { HNItem } from '../lib/hn';
-import { addVotedId } from '../lib/votes';
+import { addDownvotedId, addVotedId } from '../lib/votes';
 
 function commentFixture(id: number, overrides: Partial<HNItem> = {}): HNItem {
   return {
@@ -59,15 +59,8 @@ describe('<Comment> action toolbar', () => {
     const reply = screen.getByTestId('comment-reply');
 
     expect(upvote).toHaveAttribute('aria-label', 'Upvote');
-    // Downvote is a placeholder until the backend + direction-switch
-    // work lands (see TODO.md § "Comment downvoting"); rendered
-    // disabled so the affordance is visible but inert.
-    expect(downvote).toHaveAttribute(
-      'aria-label',
-      'Downvote (coming soon)',
-    );
-    expect(downvote).toBeDisabled();
-    expect(downvote).toHaveAttribute('aria-disabled', 'true');
+    expect(downvote).toHaveAttribute('aria-label', 'Downvote');
+    expect(downvote).not.toBeDisabled();
     expect(reply).toHaveAttribute('aria-label', 'Reply on HN');
     expect(reply).toHaveAttribute(
       'href',
@@ -262,5 +255,143 @@ describe('<Comment> upvote wiring', () => {
       ([url]) => String(url) === '/api/vote',
     );
     expect(voteCalls.length).toBe(0);
+  });
+});
+
+describe('<Comment> downvote wiring', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('signed-in user tapping downvote POSTs /api/vote with how=down and flips aria-pressed', async () => {
+    const fetchMock = stubVoteFetch({
+      me: 'alice',
+      items: { 9300: commentFixture(9300) },
+    });
+    renderWithProviders(<Comment id={9300} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('body 9300')).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: /expand comment/i }),
+    );
+
+    const downvote = await screen.findByTestId('comment-downvote');
+    expect(downvote).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(downvote);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('comment-downvote'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(calls.length).toBe(1);
+    });
+    const call = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/vote',
+    )!;
+    const body = JSON.parse(String((call[1] as RequestInit).body));
+    expect(body).toEqual({ id: 9300, how: 'down' });
+  });
+
+  it('tapping an already-downvoted comment sends how=un and clears aria-pressed', async () => {
+    addDownvotedId('alice', 9301);
+    const fetchMock = stubVoteFetch({
+      me: 'alice',
+      items: { 9301: commentFixture(9301) },
+    });
+    renderWithProviders(<Comment id={9301} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('body 9301')).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: /expand comment/i }),
+    );
+
+    const downvote = await screen.findByTestId('comment-downvote');
+    await waitFor(() => {
+      expect(downvote).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(downvote).toHaveAttribute('aria-label', 'Undownvote');
+
+    await userEvent.click(downvote);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('comment-downvote'),
+      ).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(calls.length).toBe(1);
+    });
+    const call = fetchMock.mock.calls.find(
+      ([url]) => String(url) === '/api/vote',
+    )!;
+    const body = JSON.parse(String((call[1] as RequestInit).body));
+    expect(body).toEqual({ id: 9301, how: 'un' });
+  });
+
+  it('switching from upvoted to downvoted swaps aria-pressed on both buttons', async () => {
+    addVotedId('alice', 9302);
+    const fetchMock = stubVoteFetch({
+      me: 'alice',
+      items: { 9302: commentFixture(9302) },
+    });
+    renderWithProviders(<Comment id={9302} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('body 9302')).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: /expand comment/i }),
+    );
+
+    const upvote = await screen.findByTestId('comment-upvote');
+    const downvote = screen.getByTestId('comment-downvote');
+    await waitFor(() => {
+      expect(upvote).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    await userEvent.click(downvote);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('comment-upvote'),
+      ).toHaveAttribute('aria-pressed', 'false');
+      expect(
+        screen.getByTestId('comment-downvote'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    // Chained: un then down — two POSTs, in that order.
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(calls.length).toBe(2);
+    });
+    const voteCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url) === '/api/vote',
+    );
+    const bodies = voteCalls.map(([, init]) =>
+      JSON.parse(String((init as RequestInit).body)),
+    );
+    expect(bodies[0]).toEqual({ id: 9302, how: 'un' });
+    expect(bodies[1]).toEqual({ id: 9302, how: 'down' });
   });
 });

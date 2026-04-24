@@ -67,8 +67,9 @@ export function Comment({ id }: Props) {
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
   const queryClient = useQueryClient();
-  const { isVoted, toggleVote } = useVote();
+  const { isVoted, isDownvoted, toggleVote, toggleDownvote } = useVote();
   const voted = isVoted(id);
+  const downvoted = isDownvoted(id);
 
   if (isLoading || !item) {
     return (
@@ -204,21 +205,23 @@ export function Comment({ id }: Props) {
           >
             <ToolbarUpArrowIcon />
           </TooltipButton>
-          {/* Downvote is a placeholder for now: HN's downvote anchor
-              is karma-gated (~500+) and needs a small set of backend,
-              hook, and UX changes to ship (direction-switch chaining,
-              per-leg rollback, a low-karma error toast). Disabled so
-              the button reads as "coming soon" rather than broken,
-              and tracked in TODO.md § "Comment downvoting". */}
+          {/* Downvote — HN gates the `how=down` anchor behind ~500
+              karma and some per-item rules (own posts, etc). For
+              low-karma viewers the scrape step in /api/vote returns
+              502 and useVote surfaces a toast. We don't pre-check
+              that; it would cost an extra item-page fetch per
+              render for a minority case. */}
           <TooltipButton
             type="button"
-            className="comment__toolbar-button"
-            tooltip="Downvote (coming soon)"
-            aria-label="Downvote (coming soon)"
-            aria-pressed={false}
-            aria-disabled="true"
-            disabled
+            className={
+              'comment__toolbar-button' +
+              (downvoted ? ' comment__toolbar-button--active' : '')
+            }
+            tooltip={downvoted ? 'Undownvote' : 'Downvote'}
+            aria-label={downvoted ? 'Undownvote' : 'Downvote'}
+            aria-pressed={downvoted}
             data-testid="comment-downvote"
+            onClick={() => toggleDownvote(id)}
           >
             <ToolbarDownArrowIcon />
           </TooltipButton>
