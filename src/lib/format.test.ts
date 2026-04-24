@@ -6,6 +6,7 @@ import {
   formatStoryMetaTail,
   formatTimeAgo,
   isHotStory,
+  isSafeHttpUrl,
   pluralize,
 } from './format';
 
@@ -21,6 +22,30 @@ describe('extractDomain', () => {
   it('returns empty string for missing or invalid url', () => {
     expect(extractDomain(undefined)).toBe('');
     expect(extractDomain('not a url')).toBe('');
+  });
+});
+
+describe('isSafeHttpUrl', () => {
+  it('accepts http and https', () => {
+    expect(isSafeHttpUrl('http://example.com/x')).toBe(true);
+    expect(isSafeHttpUrl('https://example.com/x')).toBe(true);
+  });
+
+  it('rejects javascript: and data: schemes', () => {
+    expect(isSafeHttpUrl('javascript:alert(1)')).toBe(false);
+    expect(isSafeHttpUrl('JAVASCRIPT:alert(1)')).toBe(false);
+    expect(isSafeHttpUrl('data:text/html,<script>alert(1)</script>')).toBe(
+      false,
+    );
+    expect(isSafeHttpUrl('vbscript:msgbox(1)')).toBe(false);
+  });
+
+  it('rejects missing, relative, or malformed urls', () => {
+    expect(isSafeHttpUrl(undefined)).toBe(false);
+    expect(isSafeHttpUrl(null)).toBe(false);
+    expect(isSafeHttpUrl('')).toBe(false);
+    expect(isSafeHttpUrl('/relative/path')).toBe(false);
+    expect(isSafeHttpUrl('not a url')).toBe(false);
   });
 });
 

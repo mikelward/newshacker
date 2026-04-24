@@ -18,7 +18,11 @@ import {
   useCommentsSummary,
 } from '../hooks/useCommentsSummary';
 import { useContentWidth } from '../hooks/useContentWidth';
-import { extractDomain, formatStoryMetaTail } from '../lib/format';
+import {
+  extractDomain,
+  formatStoryMetaTail,
+  isSafeHttpUrl,
+} from '../lib/format';
 import {
   markArticleOpenedId,
   markCommentsOpenedId,
@@ -538,7 +542,7 @@ function ThreadActionBar({
           <VerticalAlignTopIcon />
           <span className="thread__action-label">Back to top</span>
         </button>
-      ) : articleUrl ? (
+      ) : isSafeHttpUrl(articleUrl) ? (
         <a
           className={
             'thread__action thread__action--primary' +
@@ -808,7 +812,22 @@ export function Thread({ id }: Props) {
   return (
     <article className="thread">
       <header className="thread__header">
-        <h1 className="thread__title">{item.title ?? '[untitled]'}</h1>
+        <h1 className="thread__title">
+          {isSafeHttpUrl(item.url) ? (
+            <a
+              className="thread__title-link"
+              data-testid="thread-title-link"
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => markArticleOpenedId(item.id)}
+            >
+              {item.title ?? '[untitled]'}
+            </a>
+          ) : (
+            item.title ?? '[untitled]'
+          )}
+        </h1>
         {item.url || hasSelfPostBody(item.text) ? (
           <SummaryCard storyId={id} />
         ) : null}
