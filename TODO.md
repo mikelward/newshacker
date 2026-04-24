@@ -91,6 +91,22 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   - Update `SPEC.md` § Design (line ~31 and ~518) — "orange `#ff6600`
     header" prose needs to reflect the new default.
 
+## Layout
+
+- **More right gutter app-wide.** Comments now have only ~12px of
+  breathing room on the right (`--comment-x-pad: 12px`); content
+  wraps right up against the card edge and the comment toolbar's
+  rightmost button (Reply ↗) sits a little tight. Story rows have a
+  similar feel. Bumping the right gutter would help readability of
+  long lines, give icon buttons more breathing room from the edge,
+  and feel less cramped on small phones. Open question: bump just
+  `--comment-x-pad` (asymmetric — 12px left for the indent cue, more
+  on the right), or introduce a separate `--comment-right-pad` /
+  `--card-right-pad` token to tune comment cards and story rows
+  together. The shared-token + invariant test in
+  `src/components/Comment.css.test.ts` keeps the
+  `.comment` ↔ `.comment__children` pairing safe across the change.
+
 ## Optimistic-action feedback
 
 - **Consider a pending state or animation for server-persisted

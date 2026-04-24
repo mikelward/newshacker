@@ -7,7 +7,7 @@
      larger than the top. The padding-bottom value comes from
      --comment-stack-gap so it stays locked to .comment__children's
      margin-top below — see global.css for the pairing rationale. */
-  padding: 8px 12px var(--comment-stack-gap);
+  padding: 8px var(--comment-x-pad) var(--comment-stack-gap);
   border-top: 1px solid var(--nh-border);
   background: var(--nh-bg-card);
   color: var(--nh-text);
@@ -217,14 +217,24 @@
 }
 
 .comment__children {
-  /* --comment-stack-gap matches .comment's padding-bottom: the
-     parent's padding-bottom only takes effect after all children, so
-     this margin-top is what sets the gap before the first nested
-     reply's border. Sharing the token keeps parent → first-child and
-     sibling → sibling gaps identical. Visual hierarchy comes from
-     each comment's own left stripe (see .comment box-shadow), so
-     this list adds no left offset of its own. */
-  margin: var(--comment-stack-gap) 0 0;
+  /* Top margin: --comment-stack-gap matches .comment's padding-
+     bottom; the parent's padding-bottom only takes effect after all
+     children, so this margin-top sets the gap before the first
+     nested reply's border. Sharing the token keeps parent →
+     first-child and sibling → sibling gaps identical.
+     Right margin: negative one --comment-x-pad unit to cancel the
+     parent's right padding, pulling the nested list's right edge
+     back to the parent's right edge. Without this, each level of
+     nesting eats another 12px off the right — cumulative — so
+     per-comment toolbar buttons (and any other right-anchored
+     content) visibly drift leftward the deeper you go. With it,
+     nested comments end at the same right edge as their top-level
+     ancestor regardless of depth.
+     Left margin stays at 0 so the parent's left padding continues
+     to indent nested replies: indent on the left only, flush on
+     the right. The padding/margin pairing is asserted by
+     Comment.css.test.ts. */
+  margin: var(--comment-stack-gap) calc(-1 * var(--comment-x-pad)) 0 0;
   padding: 0;
   list-style: none;
 }
