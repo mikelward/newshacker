@@ -28,6 +28,19 @@
      invariant self-enforcing instead of prose-enforced. */
   --comment-stack-gap: 4px;
 
+  /* Horizontal padding inside every .comment card. Same value is
+     negated by .comment__children's margin-right so a nested list's
+     right edge pulls back out to the parent's border-box right
+     edge — otherwise a 1-deep nested comment would be 12px narrower
+     on the right, a 2-deep one 24px narrower, and so on, which
+     visibly drifts the per-comment toolbar leftward the deeper you
+     go. The invariant: --comment-x-pad (negated) MUST equal
+     .comment__children's margin-right, or per-depth right drift
+     returns silently. The pairing is asserted by
+     Comment.css.test.ts so the two rules can't drift apart on a
+     future tweak. */
+  --comment-x-pad: 12px;
+
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
 
