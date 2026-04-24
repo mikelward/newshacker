@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   HIDDEN_STORIES_CHANGE_EVENT,
   clearHiddenIds,
@@ -10,6 +10,7 @@ import {
   getOpenedIds,
 } from '../lib/openedStories';
 import { LibraryStoryList } from '../components/LibraryStoryList';
+import { VisibilityOffIcon } from '../components/icons';
 import './HistoryToolbar.css';
 
 function readHiddenIdsNewestFirst(): number[] {
@@ -39,6 +40,15 @@ export function HiddenPage() {
     removeHiddenId(id);
   }, []);
 
+  const rightAction = useMemo(
+    () => ({
+      label: 'Unhide',
+      icon: <VisibilityOffIcon />,
+      onToggle: handleUnhide,
+    }),
+    [handleUnhide],
+  );
+
   const handleForgetAll = useCallback(() => {
     const count = ids.length;
     if (count === 0) return;
@@ -67,10 +77,7 @@ export function HiddenPage() {
         queryKey="hidden"
         ids={ids}
         emptyMessage="Nothing hidden. Stories you swipe away or scroll past without opening appear here."
-        recover={{
-          label: () => 'Unhide',
-          onRecover: handleUnhide,
-        }}
+        rightAction={rightAction}
       />
     </>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DONE_STORIES_CHANGE_EVENT,
   clearDoneIds,
@@ -6,6 +6,7 @@ import {
   removeDoneId,
 } from '../lib/doneStories';
 import { LibraryStoryList } from '../components/LibraryStoryList';
+import { DoneFilledIcon } from '../components/icons';
 import './HistoryToolbar.css';
 
 function readDoneIdsNewestFirst(): number[] {
@@ -30,6 +31,15 @@ export function DonePage() {
   const handleUnmarkDone = useCallback((id: number) => {
     removeDoneId(id);
   }, []);
+
+  const rightAction = useMemo(
+    () => ({
+      label: 'Unmark done',
+      icon: <DoneFilledIcon />,
+      onToggle: handleUnmarkDone,
+    }),
+    [handleUnmarkDone],
+  );
 
   const handleForgetAll = useCallback(() => {
     const count = ids.length;
@@ -59,10 +69,7 @@ export function DonePage() {
         queryKey="done"
         ids={ids}
         emptyMessage="Nothing marked done yet. Tap the check on a thread when you've finished reading it."
-        recover={{
-          label: () => 'Unmark done',
-          onRecover: handleUnmarkDone,
-        }}
+        rightAction={rightAction}
       />
     </>
   );

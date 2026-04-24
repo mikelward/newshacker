@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   PINNED_STORIES_CHANGE_EVENT,
   getPinnedEntries,
-  removePinnedId,
 } from '../lib/pinnedStories';
 import { LibraryStoryList } from '../components/LibraryStoryList';
 
@@ -25,19 +24,11 @@ export function PinnedPage() {
     };
   }, []);
 
-  const handleUnpin = useCallback((id: number) => {
-    removePinnedId(id);
-  }, []);
-
   return (
     <LibraryStoryList
       queryKey="pinned"
       ids={ids}
       emptyMessage="Nothing pinned yet. Tap the pin on a row, swipe a story left, or pin from the story page to keep it here."
-      recover={{
-        label: () => 'Unpin',
-        onRecover: handleUnpin,
-      }}
     />
   );
 }
