@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
 import { useHotFeedItems } from '../hooks/useHotFeedItems';
+import { usePinnedStories } from '../hooks/usePinnedStories';
 import { StoryListImpl } from '../components/StoryList';
 import type { RowFlag } from '../components/StoryListItem';
 import {
@@ -1091,6 +1092,26 @@ interface PreviewProps {
   }) => boolean;
 }
 
+// Material Symbols `priority_high` — Apache 2.0, Google. A bold
+// exclamation glyph; the right-side icon for pinned-but-not-rule-
+// matching rows in the Preview, signalling "you cared about this
+// but the rule wouldn't surface it" without using the pin icon
+// (which already means "I pinned this").
+function PriorityHighIcon() {
+  return (
+    <svg
+      viewBox="0 -960 960 960"
+      width="22"
+      height="22"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M480-200q-33 0-56.5-23.5T400-280q0-33 23.5-56.5T480-360q33 0 56.5 23.5T560-280q0 33-23.5 56.5T480-200Zm-80-240v-320h160v320H400Z" />
+    </svg>
+  );
+}
+
 // Live `/hot`-with-tunable-rule preview. Reuses the *exact* render
 // path /hot uses (`StoryListImpl`, populated by `useHotFeedItems`)
 // so what the operator sees here pixel-matches what /hot would
@@ -1100,12 +1121,59 @@ interface PreviewProps {
 // `['feedItems', 'hot']` React Query cache — predicate is applied
 // at filter time, not in the queryKey, so adjusting a slider
 // re-filters without re-fetching HN.
+//
+// The combined predicate `rule(item) || isPinned(item)` widens the
+// Preview to also include pinned articles still in `/top ∪ /new`
+// that the rule alone wouldn't surface. Those rows render with a
+// `priority_high` (exclamation) icon in place of the pin button so
+// the operator can see at a glance "this is in your reading list
+// but the current rule wouldn't promote it" — useful signal for
+// loosening the rule. Pinned articles that have *fully* dropped
+// off both source feeds (off-feed pinned) still don't appear:
+// `useHotFeedItems` only fetches from `/top ∪ /new`, and we keep
+// `includeOffFeedPinned={false}` to skip the StoryListImpl overlay.
 function ThresholdPreview({ itemPredicate }: PreviewProps) {
-  const feedItems = useHotFeedItems(itemPredicate);
+  const { pinnedIds } = usePinnedStories();
+  const combinedPredicate = useCallback(
+    (item: {
+      id?: number;
+      score?: number;
+      time?: number;
+      descendants?: number;
+      type?: string;
+    }) => {
+      if (typeof item.id === 'number' && pinnedIds.has(item.id)) return true;
+      return itemPredicate(item);
+    },
+    [itemPredicate, pinnedIds],
+  );
+  const feedItems = useHotFeedItems(combinedPredicate);
   const newSourceIds = feedItems.newSourceIds;
   const flagFor = useCallback(
     (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
     [newSourceIds],
+  );
+  // Per-row right-side override: pinned rows that the rule itself
+  // wouldn't have matched get the exclam icon. The button is a
+  // no-op (not a toggle) — the Preview is read-only, the operator
+  // tunes the rule via the controls above instead of pinning /
+  // unpinning here.
+  const rightActionFor = useCallback(
+    (id: number) => {
+      if (!pinnedIds.has(id)) return undefined;
+      const item = feedItems.items.find(
+        (it): it is NonNullable<typeof it> => it?.id === id,
+      );
+      if (!item) return undefined;
+      if (itemPredicate(item)) return undefined; // rule already matches; show pin
+      return {
+        label: 'Pinned, but the rule above would not surface this story',
+        icon: <PriorityHighIcon />,
+        onToggle: () => {},
+        testId: 'preview-pinned-not-hot-btn',
+      };
+    },
+    [pinnedIds, feedItems.items, itemPredicate],
   );
   return (
     <details data-testid="threshold-preview" open>
@@ -1116,11 +1184,14 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         What <code>/hot</code> would render right now under the
         threshold above. Source: live <code>/top ∪ /new</code>;
         re-filters as you adjust the expression or sliders without
-        re-fetching.
+        re-fetching. Rows with an exclamation icon are stories
+        you've pinned that the current rule wouldn't surface — a
+        cue to loosen the rule (or unpin the story).
       </p>
       <StoryListImpl
         feedItems={feedItems}
         flagFor={flagFor}
+        rightActionFor={rightActionFor}
         emptyMessage="Nothing matches the current rule."
         sourceFeed="tuning"
         // No off-feed-pinned overlay on the Preview — the page is

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AnimationEvent as ReactAnimationEvent } from 'react';
+import type {
+  AnimationEvent as ReactAnimationEvent,
+  ReactNode,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
@@ -71,6 +74,21 @@ interface ImplProps {
   // and the pin overlay would conflate the rule's output with
   // the reader's curated list, defeating the tuning question.
   includeOffFeedPinned?: boolean;
+  // Per-row override for the right-side icon button. When the
+  // callback returns a value for a given id, it replaces the
+  // default Pin/Unpin button on that row. Used by the /tuning
+  // Preview: rule-passing rows get the default Pin/Unpin, while
+  // pinned-but-not-rule-matching rows get an exclamation icon
+  // ("you cared about this but the rule wouldn't surface it").
+  // Returning `undefined` falls through to the default behavior.
+  rightActionFor?: (id: number) => StoryListItemRightAction | undefined;
+}
+
+interface StoryListItemRightAction {
+  label: string;
+  icon: ReactNode;
+  onToggle: () => void;
+  testId?: string;
 }
 
 function measureHeaderInset(): number {
@@ -139,6 +157,7 @@ export function StoryListImpl({
   emptyMessage = 'No stories yet.',
   sourceFeed,
   includeOffFeedPinned = true,
+  rightActionFor,
 }: ImplProps) {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -574,6 +593,7 @@ export function StoryListImpl({
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned
               flag={flagFor?.(story.id)}
+              rightAction={rightActionFor?.(story.id)}
               onHide={handleHideOne}
               onPin={handlePin}
               onUnpin={unpin}
@@ -596,6 +616,7 @@ export function StoryListImpl({
               story={story}
               rank={idx + 1}
               flag={flagFor?.(story.id)}
+              rightAction={rightActionFor?.(story.id)}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
