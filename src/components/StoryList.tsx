@@ -60,6 +60,17 @@ interface ImplProps {
   // at score X" vs "rejected from /top at score X". See
   // `src/lib/telemetry.ts`.
   sourceFeed: string;
+  // Whether to prepend the reader's off-feed pinned stories (the
+  // pinned reading list overlay that SPEC.md *Off-feed pinned
+  // stories pinned to the top* describes). Default `true` —
+  // every shipping feed view (Top, New, Best, Ask, Show, Jobs,
+  // Hot) wants the overlay so a pinned story that has dropped
+  // off the source feed is still reachable from the home view.
+  // The /tuning Preview passes `false`: there the page is
+  // explicitly asking "what would /hot render under this rule?"
+  // and the pin overlay would conflate the rule's output with
+  // the reader's curated list, defeating the tuning question.
+  includeOffFeedPinned?: boolean;
 }
 
 function measureHeaderInset(): number {
@@ -127,6 +138,7 @@ export function StoryListImpl({
   flagFor,
   emptyMessage = 'No stories yet.',
   sourceFeed,
+  includeOffFeedPinned = true,
 }: ImplProps) {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -149,10 +161,14 @@ export function StoryListImpl({
   // cross-device-sync windows where the two stores could disagree —
   // without it, a surviving collision would render the pinned row on
   // the home feed while `hiddenIds` said it should be gone.
-  const offFeedPinnedStories = useMemo(
-    () => rawOffFeedPinnedStories.filter((s) => !hiddenIds.has(s.id)),
-    [rawOffFeedPinnedStories, hiddenIds],
-  );
+  const offFeedPinnedStories = useMemo(() => {
+    // The /tuning Preview opts out — see ImplProps comment. We
+    // still call `useOffFeedPinnedStories` above so React's hook
+    // order stays stable across renders, but discard its result
+    // when the consumer doesn't want the overlay.
+    if (!includeOffFeedPinned) return [];
+    return rawOffFeedPinnedStories.filter((s) => !hiddenIds.has(s.id));
+  }, [rawOffFeedPinnedStories, hiddenIds, includeOffFeedPinned]);
 
   // Pin/hide can target either an in-feed row or one of the
   // off-feed pinned rows that prepend the list (the user re-pinning

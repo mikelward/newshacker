@@ -1123,6 +1123,12 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         flagFor={flagFor}
         emptyMessage="Nothing matches the current rule."
         sourceFeed="tuning"
+        // No off-feed-pinned overlay on the Preview — the page is
+        // asking "what would /hot render under this rule?", and
+        // the pin overlay would inject the reader's curated list
+        // on top, conflating "rule output" with "things you've
+        // saved". Pure rule output is what's being tuned.
+        includeOffFeedPinned={false}
       />
     </details>
   );

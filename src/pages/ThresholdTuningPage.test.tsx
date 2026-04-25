@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThresholdTuningPage } from './ThresholdTuningPage';
 import { renderWithProviders } from '../test/renderUtils';
+import { addPinnedId } from '../lib/pinnedStories';
 
 interface ServerEvent {
   action: 'pin' | 'hide';
@@ -256,6 +257,94 @@ describe('<ThresholdTuningPage>', () => {
     // Score-5 story doesn't pass the default isHotStory rule, so
     // the Preview filters it out.
     expect(screen.queryByText('cold-skip-story')).toBeNull();
+  });
+
+  it('does not prepend off-feed pinned stories into the Preview', async () => {
+    // The reader has pinned a cold story (score 5). On /hot it
+    // would show up at the top via the off-feed-pinned overlay
+    // even though it doesn't pass isHotStory. /tuning's Preview
+    // is asking "what would the *rule* render?" so the pin
+    // overlay must be suppressed.
+    addPinnedId(999);
+    const nowS = Math.floor(Date.now() / 1000);
+    const pinnedColdStory = {
+      id: 999,
+      type: 'story',
+      title: 'pinned-but-not-hot',
+      url: 'https://example.com/999',
+      by: 'alice',
+      score: 5,
+      descendants: 1,
+      time: nowS - 24 * 60 * 60,
+    };
+    const hotStory = {
+      id: 100,
+      type: 'story',
+      title: 'genuinely-hot',
+      url: 'https://example.com/100',
+      by: 'bob',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          // Pinned id 999 is *not* in /top — it's off-feed.
+          return new Response(JSON.stringify([100]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids = new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) =>
+            id === 100 ? hotStory : id === 999 ? pinnedColdStory : null,
+          );
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(screen.getByText('genuinely-hot')).toBeInTheDocument(),
+    );
+    // The pinned-but-cold story would appear via the off-feed-
+    // pinned overlay on /hot; it must not appear in the Preview.
+    expect(screen.queryByText('pinned-but-not-hot')).toBeNull();
   });
 
   it('renders type breakdown counts', async () => {
