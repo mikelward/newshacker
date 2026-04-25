@@ -6,6 +6,7 @@ import { AppDrawer } from './AppDrawer';
 import { renderWithProviders } from '../test/renderUtils';
 import { THEME_STORAGE_KEY } from '../lib/theme';
 import { CHROME_STORAGE_KEY } from '../lib/chrome';
+import { HOME_FEED_STORAGE_KEY } from '../lib/homeFeed';
 
 describe('<AppDrawer>', () => {
   beforeEach(() => {
@@ -194,6 +195,34 @@ describe('<AppDrawer>', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Mono' }));
     expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-chrome')).toBe(false);
+  });
+
+  it('exposes a home-feed radiogroup with Top selected by default', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const group = screen.getByRole('radiogroup', { name: 'Home feed' });
+    expect(group).toBeInTheDocument();
+    expect(
+      screen.getByRole('radio', { name: 'Home shows Top' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(
+      screen.getByRole('radio', { name: 'Home shows Hot' }),
+    ).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('switches the home feed when a radio is clicked', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Home shows Hot' }));
+    expect(window.localStorage.getItem(HOME_FEED_STORAGE_KEY)).toBe('hot');
+    expect(
+      screen.getByRole('radio', { name: 'Home shows Hot' }),
+    ).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Home shows Top' }));
+    expect(window.localStorage.getItem(HOME_FEED_STORAGE_KEY)).toBeNull();
+    expect(
+      screen.getByRole('radio', { name: 'Home shows Top' }),
+    ).toHaveAttribute('aria-checked', 'true');
   });
 
   it('panel background follows the theme variable, not a hardcoded light color', () => {

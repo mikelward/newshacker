@@ -117,6 +117,11 @@
   color: var(--nh-text);
 }
 
+.app-drawer__segmented-btn--text {
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .app-drawer__segmented-btn[data-active] {
   background: var(--nh-bg-card);
   color: var(--nh-orange);

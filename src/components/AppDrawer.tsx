@@ -5,8 +5,10 @@ import { FEEDS, feedLabel } from '../lib/feeds';
 import { getStoryIds } from '../lib/hn';
 import { useTheme } from '../hooks/useTheme';
 import { useChrome } from '../hooks/useChrome';
+import { useHomeFeed } from '../hooks/useHomeFeed';
 import type { Theme } from '../lib/theme';
 import type { Chrome } from '../lib/chrome';
+import type { HomeFeed } from '../lib/homeFeed';
 import { TooltipButton } from './TooltipButton';
 import './AppDrawer.css';
 
@@ -108,6 +110,11 @@ const CHROME_OPTIONS: Array<{ value: Chrome; label: string }> = [
   { value: 'classic', label: 'Classic' },
 ];
 
+const HOME_FEED_OPTIONS: Array<{ value: HomeFeed; label: string }> = [
+  { value: 'top', label: 'Top' },
+  { value: 'hot', label: 'Hot' },
+];
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -118,6 +125,7 @@ export function AppDrawer({ open, onClose }: Props) {
   const lastLocationRef = useRef(location.key);
   const { theme, setTheme } = useTheme();
   const { chrome, setChrome } = useChrome();
+  const { homeFeed, setHomeFeed } = useHomeFeed();
   const client = useQueryClient();
 
   useEffect(() => {
@@ -231,6 +239,28 @@ export function AppDrawer({ open, onClose }: Props) {
             </Link>
           </li>
         </ul>
+        <div className="app-drawer__section-title">Home</div>
+        <div
+          className="app-drawer__segmented"
+          role="radiogroup"
+          aria-label="Home feed"
+        >
+          {HOME_FEED_OPTIONS.map((opt) => (
+            <TooltipButton
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={homeFeed === opt.value}
+              tooltip={`Home shows ${opt.label}`}
+              aria-label={`Home shows ${opt.label}`}
+              className="app-drawer__segmented-btn app-drawer__segmented-btn--text"
+              data-active={homeFeed === opt.value || undefined}
+              onClick={() => setHomeFeed(opt.value)}
+            >
+              {opt.label}
+            </TooltipButton>
+          ))}
+        </div>
         <div className="app-drawer__section-title">Theme</div>
         <div
           className="app-drawer__segmented"
