@@ -1194,6 +1194,7 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         rightActionFor={rightActionFor}
         emptyMessage="Nothing matches the current rule."
         sourceFeed="tuning"
+        showVelocity
         // No off-feed-pinned overlay on the Preview — the page is
         // asking "what would /hot render under this rule?", and
         // the pin overlay would inject the reader's curated list

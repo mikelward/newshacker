@@ -213,22 +213,96 @@ export function isHotStory(item: StoryMetaInput, now: Date = new Date()): boolea
   return ageHours >= 0 && ageHours < HOT_RECENT_WINDOW_HOURS;
 }
 
+// Shared core for the `(N/h)` velocity readouts. Returns `null`
+// when there isn't enough signal — `time` missing, `value` <= 0,
+// age sub-minute (matches `formatTimeAgo`'s `< MINUTE` boundary so
+// "just now" stories don't display a wildly extrapolated rate),
+// or the rate ends up non-finite.
+function formatRatePerHour(
+  time: number | undefined,
+  value: number,
+  now: Date,
+): string | null {
+  if (!time) return null;
+  if (value <= 0) return null;
+  const nowS = Math.floor(now.getTime() / 1000);
+  const ageS = nowS - time;
+  if (ageS < 60) return null;
+  const ageHours = ageS / 3600;
+  const rate = Math.round(value / ageHours);
+  if (!Number.isFinite(rate)) return null;
+  return `${rate}/h`;
+}
+
+/**
+ * Velocity in points per hour at `now`. Returns `null` when there
+ * isn't enough information (no `time` or `score`) or the story is
+ * effectively age-zero (avoids `Infinity` for stories submitted in
+ * the same second the reader hits the page). Used by the optional
+ * velocity readout in the meta line on `/hot` and `/tuning` —
+ * "this story is climbing at N points/h" is exactly the signal
+ * the threshold-tuning question wants.
+ */
+export function formatVelocity(
+  item: Pick<StoryMetaInput, 'time' | 'score'>,
+  now: Date = new Date(),
+): string | null {
+  return formatRatePerHour(item.time, item.score ?? 0, now);
+}
+
+/**
+ * Comment velocity — descendants (top-level + replies) per hour
+ * at `now`. Same shape as `formatVelocity` but on the comments
+ * track. Used to surface "this story is generating discussion at
+ * N comments/h" alongside the score velocity, since a high-comment
+ * low-score story is a different beast from a high-score
+ * low-comment one.
+ */
+export function formatCommentVelocity(
+  item: Pick<StoryMetaInput, 'time' | 'descendants'>,
+  now: Date = new Date(),
+): string | null {
+  return formatRatePerHour(item.time, item.descendants ?? 0, now);
+}
+
 /**
  * Formats the trailing segment of a story's metadata line used in
  * both the list row and the thread header: `"{age} · {N} point(s) · {M}
  * comment(s)"`. Callers prepend the view-specific prefix (plain-text
  * domain on the list, author or domain link on the thread) so the
  * ordering, pluralization, and separator live in one place.
+ *
+ * `showVelocity` (default `false`) tucks an inline `(N/h)` rate
+ * suffix into both the points segment AND the comments segment —
+ * `"… · 50 points (25/h) · 10 comments (5/h)"`. Inline rather
+ * than separate `· 25/h ·` dot-segments so narrow phones don't
+ * lose a row to extra separators. Only `/hot` and the `/tuning`
+ * Preview enable it; the standard feed views keep the row meta
+ * tight to honor the fewer-density goal.
  */
-export function formatStoryMetaTail(item: StoryMetaInput, now?: Date): string {
+export function formatStoryMetaTail(
+  item: StoryMetaInput,
+  now?: Date,
+  options: { showVelocity?: boolean } = {},
+): string {
   const parts: string[] = [];
   const age = item.time ? formatTimeAgo(item.time, now) : '';
   if (age) parts.push(age);
   const points = item.score ?? 0;
-  parts.push(`${points} ${pluralize(points, 'point')}`);
+  let pointsPart = `${points} ${pluralize(points, 'point')}`;
+  if (options.showVelocity) {
+    const v = formatVelocity(item, now);
+    if (v) pointsPart += ` (${v})`;
+  }
+  parts.push(pointsPart);
   const comments = item.descendants ?? 0;
   const newCount = item.newCommentCount ?? 0;
   const countText = newCount > 0 ? `${newCount}/${comments}` : `${comments}`;
-  parts.push(`${countText} ${pluralize(comments, 'comment')}`);
+  let commentsPart = `${countText} ${pluralize(comments, 'comment')}`;
+  if (options.showVelocity) {
+    const cv = formatCommentVelocity(item, now);
+    if (cv) commentsPart += ` (${cv})`;
+  }
+  parts.push(commentsPart);
   return parts.join(' · ');
 }

@@ -3,8 +3,10 @@ import { describe, it, expect } from 'vitest';
 import {
   extractDomain,
   formatDisplayDomain,
+  formatCommentVelocity,
   formatStoryMetaTail,
   formatTimeAgo,
+  formatVelocity,
   isHotStory,
   isSafeHttpUrl,
   pluralize,
@@ -219,6 +221,108 @@ describe('formatStoryMetaTail', () => {
         now,
       ),
     ).toBe('1h · 10 points · 8 comments');
+  });
+
+  it('attaches the velocity to the points segment AND comment velocity to the comments segment when showVelocity is set', () => {
+    // Inline parentheticals, not separate dot-segments, to keep the
+    // meta line short on narrow phones. 50 points / 2 h → 25/h;
+    // 10 comments / 2 h → 5/h.
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60 * 2, score: 50, descendants: 10 },
+        now,
+        { showVelocity: true },
+      ),
+    ).toBe('2h · 50 points (25/h) · 10 comments (5/h)');
+  });
+
+  it('omits the comment-velocity suffix when descendants is 0', () => {
+    // No comments → no `(0/h)` noise on the comments segment.
+    // Points-velocity still renders.
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60 * 2, score: 50, descendants: 0 },
+        now,
+        { showVelocity: true },
+      ),
+    ).toBe('2h · 50 points (25/h) · 0 comments');
+  });
+
+  it('omits the velocity segment when showVelocity is false (default)', () => {
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 60 * 60 * 2, score: 50, descendants: 10 },
+        now,
+      ),
+    ).toBe('2h · 50 points · 10 comments');
+  });
+
+  it('omits the velocity segment when age is sub-minute (no signal yet)', () => {
+    expect(
+      formatStoryMetaTail(
+        { time: nowS - 30, score: 50, descendants: 10 },
+        now,
+        { showVelocity: true },
+      ),
+    ).toBe('just now · 50 points · 10 comments');
+  });
+});
+
+describe('formatCommentVelocity', () => {
+  const now = new Date('2026-04-18T12:00:00Z');
+  const nowS = Math.floor(now.getTime() / 1000);
+
+  it('returns null when descendants is missing or zero', () => {
+    expect(formatCommentVelocity({ time: nowS - 3600 }, now)).toBeNull();
+    expect(
+      formatCommentVelocity({ time: nowS - 3600, descendants: 0 }, now),
+    ).toBeNull();
+  });
+
+  it('returns null when age is sub-minute', () => {
+    expect(
+      formatCommentVelocity({ time: nowS - 30, descendants: 50 }, now),
+    ).toBeNull();
+  });
+
+  it('rounds to integer comments-per-hour', () => {
+    // 20 comments at 4 h → 5/h.
+    expect(
+      formatCommentVelocity({ time: nowS - 4 * 3600, descendants: 20 }, now),
+    ).toBe('5/h');
+    // 100 comments at 30 min → 200/h.
+    expect(
+      formatCommentVelocity({ time: nowS - 1800, descendants: 100 }, now),
+    ).toBe('200/h');
+  });
+});
+
+describe('formatVelocity', () => {
+  const now = new Date('2026-04-18T12:00:00Z');
+  const nowS = Math.floor(now.getTime() / 1000);
+
+  it('returns null when time is missing', () => {
+    expect(formatVelocity({ score: 100 }, now)).toBeNull();
+  });
+
+  it('returns null when score is missing or zero', () => {
+    expect(formatVelocity({ time: nowS - 3600 }, now)).toBeNull();
+    expect(formatVelocity({ time: nowS - 3600, score: 0 }, now)).toBeNull();
+  });
+
+  it('returns null when age is sub-minute', () => {
+    expect(formatVelocity({ time: nowS - 30, score: 50 }, now)).toBeNull();
+  });
+
+  it('rounds to integer points-per-hour for steady stories', () => {
+    // 50 points at 2 h → 25/h.
+    expect(formatVelocity({ time: nowS - 7200, score: 50 }, now)).toBe('25/h');
+    // 4 points at 30 min → 8/h (rounded from 8.0).
+    expect(formatVelocity({ time: nowS - 1800, score: 4 }, now)).toBe('8/h');
+    // 100 points at 5 h → 20/h.
+    expect(formatVelocity({ time: nowS - 5 * 3600, score: 100 }, now)).toBe(
+      '20/h',
+    );
   });
 });
 

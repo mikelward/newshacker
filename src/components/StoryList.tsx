@@ -82,6 +82,10 @@ interface ImplProps {
   // ("you cared about this but the rule wouldn't surface it").
   // Returning `undefined` falls through to the default behavior.
   rightActionFor?: (id: number) => StoryListItemRightAction | undefined;
+  // When true, every row's meta line picks up a points-per-hour
+  // velocity segment between points and comments. Off by default;
+  // /hot and the /tuning Preview turn it on.
+  showVelocity?: boolean;
 }
 
 interface StoryListItemRightAction {
@@ -141,6 +145,7 @@ export function HotStoryList() {
       flagFor={flagFor}
       emptyMessage="Nothing hot right now."
       sourceFeed="hot"
+      showVelocity
     />
   );
 }
@@ -158,6 +163,7 @@ export function StoryListImpl({
   sourceFeed,
   includeOffFeedPinned = true,
   rightActionFor,
+  showVelocity = false,
 }: ImplProps) {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -594,6 +600,7 @@ export function StoryListImpl({
               pinned
               flag={flagFor?.(story.id)}
               rightAction={rightActionFor?.(story.id)}
+              showVelocity={showVelocity}
               onHide={handleHideOne}
               onPin={handlePin}
               onUnpin={unpin}
@@ -617,6 +624,7 @@ export function StoryListImpl({
               rank={idx + 1}
               flag={flagFor?.(story.id)}
               rightAction={rightActionFor?.(story.id)}
+              showVelocity={showVelocity}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
