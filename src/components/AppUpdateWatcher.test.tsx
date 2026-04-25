@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { AppUpdateWatcher } from './AppUpdateWatcher';
+import { AppUpdateWatcher, SW_INSTALLED_FLAG } from './AppUpdateWatcher';
 import { ToastProvider } from './Toast';
 
 vi.mock('../lib/swUpdate', () => ({
@@ -55,9 +55,17 @@ function setVisibility(state: 'hidden' | 'visible') {
 }
 
 describe('<AppUpdateWatcher>', () => {
+  beforeEach(() => {
+    // Each test starts on a fresh "this device has never installed
+    // the SW" baseline so the install-suppression behavior is
+    // deterministic.
+    localStorage.removeItem(SW_INSTALLED_FLAG);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    localStorage.removeItem(SW_INSTALLED_FLAG);
     // Reset visibilityState so a test that flipped it to 'hidden'
     // doesn't leak into the next. Using defineProperty directly
     // (no event dispatch) to avoid firing a visibilitychange at an
@@ -124,6 +132,77 @@ describe('<AppUpdateWatcher>', () => {
     expect(screen.queryByText(/new version available/i)).toBeNull();
     fireControllerChange({ id: 'redeploy' });
     expect(screen.getByText(/new version available/i)).toBeInTheDocument();
+  });
+
+  it('toasts when controller is null at mount but the SW has been installed before', () => {
+    // The bug that stranded users on stale bundles: on a hard-reload
+    // (Cmd/Ctrl+Shift+R), Chrome session-restore, or an iOS PWA
+    // relaunch, `navigator.serviceWorker.controller` can read null at
+    // mount even though the SW was installed long ago. The previous
+    // in-memory "null at mount" heuristic suppressed the next
+    // controllerchange — i.e. the new SW claiming the stale tab —
+    // and the user kept running old code until they refreshed enough
+    // times for the browser to background-update again.
+    localStorage.setItem(SW_INSTALLED_FLAG, '1');
+    const { fireControllerChange } = stubServiceWorker(null);
+    render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} />
+      </ToastProvider>,
+    );
+    fireControllerChange({ id: 'new' });
+    expect(screen.getByText(/new version available/i)).toBeInTheDocument();
+  });
+
+  it('fails open when localStorage is unavailable (Safari private mode etc.)', () => {
+    // If readInstalledFlag returned `false` on a thrown getItem, the
+    // watcher would treat the device as never-installed and suppress
+    // *every* controllerchange — silently reintroducing the stale-tab
+    // bug on browsers that disable storage. Verify the failure mode
+    // is "show the toast" instead.
+    const broken: Storage = {
+      getItem: () => {
+        throw new Error('SecurityError: localStorage disabled');
+      },
+      setItem: () => {
+        throw new Error('SecurityError: localStorage disabled');
+      },
+      // No-op so the afterEach `removeItem(SW_INSTALLED_FLAG)` cleanup
+      // doesn't throw before vitest restores the real localStorage.
+      // The component never calls these — this test only exercises
+      // getItem/setItem on the readInstalledFlag/writeInstalledFlag
+      // path.
+      removeItem: () => {},
+      clear: () => {},
+      key: () => null,
+      length: 0,
+    };
+    vi.stubGlobal('localStorage', broken);
+    const { fireControllerChange } = stubServiceWorker(null);
+    render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} />
+      </ToastProvider>,
+    );
+    fireControllerChange({ id: 'new' });
+    expect(screen.getByText(/new version available/i)).toBeInTheDocument();
+    // Vitest's `unstubGlobals: true` restores the real localStorage
+    // between tests automatically — no manual cleanup needed.
+  });
+
+  it('persists the installed flag once a controller is observed at mount', () => {
+    // First mount with a controller already in place writes the flag,
+    // so a subsequent session that mounts with controller=null is
+    // recognized as "we've installed before" and toasts on the next
+    // claim.
+    stubServiceWorker({ id: 'ctrl' });
+    const { unmount } = render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} />
+      </ToastProvider>,
+    );
+    expect(localStorage.getItem(SW_INSTALLED_FLAG)).toBe('1');
+    unmount();
   });
 
   it('pings the SW when the tab returns from hidden after the threshold', () => {
