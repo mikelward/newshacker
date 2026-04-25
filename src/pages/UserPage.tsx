@@ -62,7 +62,11 @@ async function findRootStories(
       ),
     );
     if (idsToFetch.length > 0) {
-      const fetched = await getItems(idsToFetch, signal);
+      // `fields: 'full'` keeps `parent` on each fetched ancestor so
+      // the next level's frontier can keep walking. Without it the
+      // /api/items proxy thins the response and we'd never find the
+      // root story — every comment would resolve to a null root.
+      const fetched = await getItems(idsToFetch, signal, { fields: 'full' });
       idsToFetch.forEach((fetchedId, i) => {
         const it = fetched[i];
         if (it) itemCache.set(fetchedId, it);
@@ -143,7 +147,12 @@ export function UserPage() {
     refetch: refetchRecent,
   } = useQuery({
     queryKey: ['user', id, 'recent', submittedHead.join(',')],
-    queryFn: ({ signal }) => getItems(submittedHead, signal),
+    // `fields: 'full'` keeps `parent` (and `kids`) on the response.
+    // The default `/api/items` thinning strips both, which would leave
+    // every comment with `parent === undefined` and make the parent-
+    // chain walk below resolve every comment to a null root — the
+    // grouping would collapse into one unheaded fallback group.
+    queryFn: ({ signal }) => getItems(submittedHead, signal, { fields: 'full' }),
     enabled: submittedHead.length > 0,
   });
 

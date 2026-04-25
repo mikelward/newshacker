@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { UserPage } from './UserPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock } from '../test/mockFetch';
+import type { HNItem } from '../lib/hn';
 
 function renderAt(route: string) {
   return renderWithProviders(
@@ -155,6 +156,66 @@ describe('<UserPage>', () => {
     // Groups are ordered by the first comment that resolves to each
     // story — and `submitted` is 402, 404, 406 → A, B, C.
     expect(headings).toEqual(['Article A', 'Article B', 'Article C']);
+  });
+
+  it('still renders the article heading when /api/items thins responses (fields=full required for parent)', async () => {
+    // Regression: the /api/items proxy strips `parent` and `kids` from
+    // its response unless the caller passes ?fields=full. If UserPage
+    // forgets that flag, every comment's `parent` arrives as undefined,
+    // the parent-walk resolves every comment to a null root, and the
+    // article heading collapses into an unheaded fallback group.
+    const now = Math.floor(Date.now() / 1000);
+    const items: Record<number, HNItem> = {
+      702: { id: 702, type: 'comment', by: 'frank', time: now - 1, text: 'on D', parent: 701 },
+      701: { id: 701, type: 'story', title: 'Article D', time: now - 100 },
+    };
+    function thinForFeed<T extends HNItem>(it: T): T {
+      // Mirrors api/items.ts thinForFeed: drops `parent` and `kids`.
+      const { id, type, by, time, title, url, text, score, descendants, dead, deleted } = it;
+      return { id, type, by, time, title, url, text, score, descendants, dead, deleted } as T;
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/items')) {
+          const parsed = new URL(url, 'http://localhost');
+          const ids = (parsed.searchParams.get('ids') ?? '')
+            .split(',')
+            .map((s) => Number(s.trim()))
+            .filter(Number.isFinite);
+          const isFull = parsed.searchParams.get('fields') === 'full';
+          const body = ids.map((cid) => {
+            const it = items[cid];
+            if (!it) return null;
+            return isFull ? it : thinForFeed(it);
+          });
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.endsWith('/v0/user/frank.json')) {
+          return new Response(
+            JSON.stringify({
+              id: 'frank',
+              karma: 1,
+              created: now - 60,
+              submitted: [702],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    renderAt('/user/frank');
+
+    const section = await screen.findByRole('region', { name: /recent comments/i });
+    const heading = await within(section).findByRole('link', {
+      name: 'Article D',
+    });
+    expect(heading).toHaveAttribute('href', '/item/701');
   });
 
   it('renders comments without a heading when the parent walk cannot reach a root story', async () => {
