@@ -69,6 +69,24 @@ describe('<AppDrawer>', () => {
     );
   });
 
+  it('orders sections Home → Library → Theme → Feeds → App from top to bottom', () => {
+    // The drawer leads with the highest-frequency setting (the
+    // Home Top/Hot toggle, governs what `/` renders) and pushes
+    // the per-feed deep links down to just above the App section
+    // so they sit out of the way of the more common Home + Library
+    // taps. Pin the order so a later refactor doesn't drift the
+    // sections back to the original Feeds-first layout.
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const sections = ['Home', 'Library', 'Theme', 'Feeds', 'App'];
+    const headings = sections.map((label) => screen.getByText(label));
+    for (let i = 1; i < headings.length; i++) {
+      expect(
+        headings[i - 1].compareDocumentPosition(headings[i]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
   it('lists Hot between Top and New in the Feeds section', () => {
     // SPEC.md *Story feeds → /hot* slots /hot in right after Top
     // so it sits next to the closest-related feed. Pin the
