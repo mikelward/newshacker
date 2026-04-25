@@ -31,7 +31,12 @@ export function UserPage() {
 
   const submittedHead = data?.submitted?.slice(0, RECENT_FETCH_LIMIT) ?? [];
 
-  const { data: recentItems, isLoading: isRecentLoading } = useQuery({
+  const {
+    data: recentItems,
+    isLoading: isRecentLoading,
+    isError: isRecentError,
+    refetch: refetchRecent,
+  } = useQuery({
     queryKey: ['user', id, 'recent', submittedHead.join(',')],
     queryFn: ({ signal }) => getItems(submittedHead, signal),
     enabled: submittedHead.length > 0,
@@ -105,6 +110,11 @@ export function UserPage() {
           <h2 className="user-page__recent-heading">Recent comments</h2>
           {isRecentLoading ? (
             <p className="user-page__recent-status">Loading recent comments…</p>
+          ) : isRecentError ? (
+            <ErrorState
+              message="Could not load recent comments."
+              onRetry={() => refetchRecent()}
+            />
           ) : recentComments.length > 0 ? (
             <ol className="user-page__recent-list">
               {recentComments.map((c) => (

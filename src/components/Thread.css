@@ -417,11 +417,12 @@
   }
 }
 
-/* "View full thread →" link below the focused comment body. Ties
-   the comment back to its story so the reader can fall into the wider
-   discussion if they want context. Sits inside .thread__header so the
-   header's padding-bottom and last-child margin rule absorb its
-   spacing naturally. */
+/* "View parent →" fallback link below the focused comment body, only
+   rendered when the parent walk fails to reach a root story (so the
+   reader still has an upward escape). On the success path the root
+   story title heading link does this job and this block stays unused.
+   Sits inside .thread__header so the header's padding-bottom and
+   last-child margin rule absorb its spacing naturally. */
 .thread__comment-context {
   margin: 12px 0 0;
   font-size: 14px;
