@@ -198,9 +198,10 @@ describe('<HotStoryList>', () => {
     expect(screen.getByText('page-0-hot')).toBeInTheDocument();
   });
 
-  it('renders the velocity segment in the meta line', async () => {
-    // 200 points / 4 h = 50/h. Use a single hot story so the
-    // story-meta testid resolves unambiguously to one row.
+  it('does not render the velocity segment in the meta line', async () => {
+    // /hot used to surface a "(N/h)" inline rate next to points;
+    // it was pulled to keep the row meta tight on phones, leaving
+    // velocity exclusive to the operator-only /tuning Preview.
     const nowS = Math.floor(Date.now() / 1000);
     installHNFetchMock({
       feeds: { topstories: [10], newstories: [] },
@@ -216,10 +217,7 @@ describe('<HotStoryList>', () => {
     await waitFor(() => {
       expect(screen.getByText('velocity-row')).toBeInTheDocument();
     });
-    // Meta line should include "50/h" — rendered inline inside the
-    // points segment as a parenthetical ("200 points (50/h)") so the
-    // assertion just looks for the substring.
     const meta = screen.getByTestId('story-meta');
-    expect(meta.textContent).toMatch(/\b50\/h\b/);
+    expect(meta.textContent).not.toMatch(/\/h\b/);
   });
 });

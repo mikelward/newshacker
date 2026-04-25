@@ -239,7 +239,7 @@ function formatRatePerHour(
  * isn't enough information (no `time` or `score`) or the story is
  * effectively age-zero (avoids `Infinity` for stories submitted in
  * the same second the reader hits the page). Used by the optional
- * velocity readout in the meta line on `/hot` and `/tuning` —
+ * velocity readout in the meta line on the `/tuning` Preview —
  * "this story is climbing at N points/h" is exactly the signal
  * the threshold-tuning question wants.
  */
@@ -276,9 +276,9 @@ export function formatCommentVelocity(
  * suffix into both the points segment AND the comments segment —
  * `"… · 50 points (25/h) · 10 comments (5/h)"`. Inline rather
  * than separate `· 25/h ·` dot-segments so narrow phones don't
- * lose a row to extra separators. Only `/hot` and the `/tuning`
- * Preview enable it; the standard feed views keep the row meta
- * tight to honor the fewer-density goal.
+ * lose a row to extra separators. Only the `/tuning` Preview
+ * enables it; the standard feed views (including `/hot`) keep
+ * the row meta tight to honor the fewer-density goal.
  */
 export function formatStoryMetaTail(
   item: StoryMetaInput,

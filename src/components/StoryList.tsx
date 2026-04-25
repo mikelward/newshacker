@@ -84,7 +84,7 @@ interface ImplProps {
   rightActionFor?: (id: number) => StoryListItemRightAction | undefined;
   // When true, every row's meta line picks up a points-per-hour
   // velocity segment between points and comments. Off by default;
-  // /hot and the /tuning Preview turn it on.
+  // only the /tuning Preview turns it on.
   showVelocity?: boolean;
   // When true, rows the reader has marked done are still rendered
   // (instead of being filtered out alongside hidden / dead / score
@@ -178,7 +178,6 @@ export function HotStoryList() {
       flagFor={flagFor}
       emptyMessage="Nothing hot right now."
       sourceFeed="hot"
-      showVelocity
     />
   );
 }
