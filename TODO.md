@@ -770,6 +770,64 @@ ends up on the front page on a given day.
   thresholds settle and we have a real signal that users would
   benefit from being asked rather than left to discover.
 
+## Onboarding / education
+
+- **Teach Pin and Done without getting in the way.** Today the
+  Pin button (row + thread) and Done button (thread) carry
+  long-press tooltips via `<TooltipButton>` — discoverable only
+  *if* the user already pressed the button. The swipe-to-pin
+  gesture self-teaches via the label reveal behind each swipe.
+  `HelpPage` covers Pin in detail (`Pinning stories`, `Pinned,
+  favorite, hidden`) but doesn't mention Done at all. `/pinned`
+  and `/done` already carry instructional empty-state copy
+  ("Tap the pin on a row, swipe a story left, or pin from the
+  story page…" / "Tap the check on a thread when you've finished
+  reading it.") — but only users who already navigate there see
+  them. So the two real teaching gaps are: **(a)** `HelpPage`
+  Done coverage, and **(b)** discoverability of Pin/Done for a
+  user who hasn't yet tapped either. Options to weigh, cheapest
+  → most intrusive:
+  1. **Add Done to `HelpPage`.** Two paragraphs alongside the
+     existing Pin sections — what Done means (filtered out of
+     every feed, lives at `/done`, mutually exclusive with Pin
+     — see `SPEC.md` *Pinned vs. Favorite vs. Done*) and the
+     gesture (check button on the thread action bar). Zero
+     intrusion, only reaches users who visit Help. **Treat this
+     as unconditional** — it's a documentation bug, not an
+     onboarding decision.
+  2. **First-thread bottom hint.** On the user's first ever
+     thread open (no `newshacker:openedStoryIds` entries yet),
+     render a single sentence under the thread action bar:
+     "Tip: pin to save, mark done when you're finished." Self-
+     dismisses on second visit. One localStorage flag, one line
+     of render. Sits inches from the buttons it describes; gone
+     after one read. Doesn't introduce a new tap target.
+  3. **Drawer subtitle on Pinned / Done while empty.** When the
+     user has zero pins, the drawer's Pinned entry carries a
+     one-line subtitle ("Save stories from the feed"); same for
+     Done ("Mark threads finished to clear them from feeds").
+     Subtitle disappears as soon as the list is non-empty. Zero
+     new surface, very passive — pairs well with (2).
+  4. **One-time toast on first feed visit.** `showToast('Tip:
+     long-press the pin to save a story')` after ~2 s on the
+     first ever feed paint. Auto-dismisses, never repeats. Risk:
+     blocks the visual hierarchy of the first feed render;
+     toast-trained users dismiss before reading. Don't ship
+     unless (2) and (3) prove insufficient.
+  5. **Coachmark / spotlight on Pin.** Brief overlay with an
+     arrow pointing at the row's pin button on first feed visit.
+     More attention-grabbing, more positioning code, "in the
+     way" by design. Likely too intrusive for the project's
+     stated tone — defer unless real data shows users never
+     find Pin.
+
+  Rough phasing: ship (1) on its own because it's a doc gap, then
+  pair (2) + (3) as the first onboarding pass — both are passive,
+  both fade as soon as the user gives any signal that they
+  already know, and neither adds a new tap target. Hold (4) and
+  (5) unless analytics (or feedback) show users still aren't
+  discovering Pin/Done after that.
+
 ## Desktop layout
 
 - **Comment expand/collapse button — iterate on position and icon.**
