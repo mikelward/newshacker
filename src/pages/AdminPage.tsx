@@ -171,8 +171,11 @@ export function AdminPage() {
     queryKey: ['admin-status'],
     queryFn: ({ signal }) => fetchAdmin(signal),
     enabled,
+    // `staleTime: 0` so a manual refresh always refetches; the
+    // default `gcTime` (~5 min) lets `/tuning` paint from cache
+    // when the operator navigates between the two pages without
+    // burning a second HN round-trip.
     staleTime: 0,
-    gcTime: 0,
     refetchOnWindowFocus: false,
     retry: false,
   });

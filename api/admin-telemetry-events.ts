@@ -18,6 +18,7 @@
 // this.
 
 import { Redis } from '@upstash/redis';
+import { parse as parseHtml } from 'node-html-parser';
 
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'hn_session';
 const HN_USERNAME_RE = /^[a-zA-Z0-9_-]{2,32}$/;
@@ -80,14 +81,19 @@ function isAbortError(err: unknown): boolean {
 
 // Find HN's "logged in as <user>" marker in the front-page HTML.
 // HN renders this as `<a id="me" href="user?id=NAME">NAME</a>` for
-// signed-in viewers. Anonymous viewers get a "login" link in the
-// same slot. Substring match is sufficient — we only need to know
-// whether the slot is present and what name it points at.
+// signed-in viewers; anonymous viewers get a `login?goto=…` link
+// in the same slot, so the *href shape* is the unambiguous signal
+// (the anchor text alone could be repurposed by a future HN
+// layout). Mirrors api/admin.ts's parser-based implementation —
+// kept inline rather than imported per AGENTS.md *Vercel api/
+// gotchas* (handlers can't share modules).
 function extractHnLoggedInUsername(html: string): string | null {
-  const m = html.match(/<a[^>]*id=["']me["'][^>]*>([^<]+)<\/a>/i);
-  if (!m) return null;
-  const name = m[1].trim();
-  return HN_USERNAME_RE.test(name) ? name : null;
+  const root = parseHtml(html);
+  const me = root.querySelector('a#me');
+  if (!me) return null;
+  const href = me.getAttribute('href') ?? '';
+  const match = /^user\?id=([a-zA-Z0-9_-]{2,32})$/.exec(href);
+  return match ? match[1] : null;
 }
 
 async function verifyHnSession(sessionValue: string): Promise<HnVerifyResult> {

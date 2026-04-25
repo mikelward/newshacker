@@ -30,9 +30,10 @@ interface TaggedEvent extends TelemetryEvent {
 
 // `/api/admin` is the auth gate. We piggyback on its existing
 // HN-round-trip + admin-username check rather than building a
-// second one. Same query key as AdminPage so the cache is shared
-// — visit /admin first and /tuning paints instantly with the
-// session already verified.
+// second one. Same query key as AdminPage so both pages read and
+// write the same React Query entry — with the default `gcTime`
+// (~5 min) below, navigating from one page to the other paints
+// from cache instead of re-running the HN round-trip.
 interface AdminGateResponse {
   username: string;
 }
@@ -88,8 +89,10 @@ export function ThresholdTuningPage() {
     queryKey: ['admin-status'],
     queryFn: ({ signal }) => fetchAdminGate(signal),
     enabled,
+    // Default `gcTime` (~5 min) so navigating from /admin to
+    // /tuning (or vice versa) paints from cache when the operator
+    // hops between them, instead of round-tripping HN twice.
     staleTime: 0,
-    gcTime: 0,
     refetchOnWindowFocus: false,
     retry: false,
   });
