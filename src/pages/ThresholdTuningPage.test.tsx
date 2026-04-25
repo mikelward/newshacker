@@ -129,6 +129,47 @@ describe('<ThresholdTuningPage>', () => {
     expect(expr.value).toMatch(/min_descendants/);
   });
 
+  it('makes every analytics section collapsible and keeps controls + Preview always visible', async () => {
+    // Consistency invariant: the operator's working pair (Controls
+    // + Preview) renders as plain <section>, while every reference
+    // section above (Live counts, Distribution, Pin/hide
+    // percentiles, By type, Article opened first) renders as a
+    // <details open>. Lock this in so a future "let me just turn
+    // this one into a section" change has to consciously update
+    // the test.
+    installMock({
+      events: {
+        user: [
+          makeEvent({ action: 'pin', id: 1, articleOpened: true, type: 'story' }),
+          makeEvent({ action: 'hide', id: 2, articleOpened: false, type: 'job' }),
+        ],
+      },
+    });
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    // ThresholdTypeBreakdown / ThresholdOpenedRatio render `null`
+    // until the telemetry events fetch resolves, so wait for the
+    // last-arriving section to appear before sampling tags.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('threshold-type-breakdown'),
+      ).toBeInTheDocument(),
+    );
+    const collapsible = [
+      'threshold-live-counts',
+      'threshold-scatters',
+      'threshold-action-stats',
+      'threshold-type-breakdown',
+      'threshold-opened-ratio',
+    ];
+    for (const id of collapsible) {
+      const el = screen.getByTestId(id);
+      expect(el.tagName).toBe('DETAILS');
+      expect((el as HTMLDetailsElement).open).toBe(true);
+    }
+    expect(screen.getByTestId('threshold-controls').tagName).toBe('SECTION');
+    expect(screen.getByTestId('threshold-preview').tagName).toBe('SECTION');
+  });
+
   it('updates the live counts when the expression changes', async () => {
     installMock({
       events: {
