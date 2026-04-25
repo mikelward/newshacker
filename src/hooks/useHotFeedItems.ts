@@ -43,14 +43,18 @@ export interface HotFeedItemsState extends FeedItemsState {
 // "deliberately different from the other feeds" framing.
 
 // Combined view over `/top ∪ /new` story-id lists, paginated 30 ids
-// from *each* source per page (so up to 60 candidates), with the
-// `isHotStory` predicate applied to render only "trending enough"
-// rows — same rule that drives the row-level Hot flag, so the row
-// flag and the list filter never disagree. Rows that came from
-// `/new` and were not also in the `/top` slice for the page where
-// they first appeared are tagged `'new'` so the renderer can swap
-// the suppressed `hot` segment for a `new` debug segment (see
-// SPEC.md *Hot flag*).
+// from *each* source per page (so up to 60 candidates), deduped
+// across pages, with `predicate` applied on top to filter the
+// rendered set. Defaults to `isHotStory` so /hot's `<HotStoryList>`
+// gets the production rule unchanged. The /tuning Preview passes
+// a compiled expression instead, so adjusting a slider re-filters
+// without re-fetching HN (the React Query cache key is
+// `['feedItems', 'hot']`, predicate-independent — both consumers
+// share the same fetched candidates). Rows that came from `/new`
+// and were not also in the `/top` slice for the page where they
+// first appeared are tagged `'new'` so the renderer can swap the
+// suppressed `hot` segment for a `new` debug segment (see SPEC.md
+// *Hot flag*).
 //
 // Pagination: each "More" tap advances both source feeds one page
 // (30 ids) in lockstep. The button disappears when both source
@@ -64,7 +68,9 @@ export interface HotFeedItemsState extends FeedItemsState {
 // traffic per `/hot` load), all on the existing items proxy with
 // no new infra. Reliability: if either source feed errors, the
 // page degrades to whichever survived rather than blanking.
-export function useHotFeedItems(): HotFeedItemsState {
+export function useHotFeedItems(
+  predicate: (item: HNItem) => boolean = isHotStory,
+): HotFeedItemsState {
   const topQuery = useStoryIds('top');
   const newQuery = useStoryIds('new');
   const topIds = topQuery.data;
@@ -128,15 +134,15 @@ export function useHotFeedItems(): HotFeedItemsState {
     refetchOnWindowFocus: true,
   });
 
-  // Cross-page dedup + the `isHotStory` filter. The queryFn already
-  // dedupes within a page; this layer drops anything that re-surfaces
-  // in a later page after climbing between feeds. Filtering by
-  // `isHotStory` here (rather than in StoryListImpl) keeps
-  // `FeedItemsState`'s `items` semantics unchanged — Impl still
-  // applies its own visibility filter (`score > 1`, `!hidden`,
-  // `!done`, `!dead`, `!deleted`) on top, and the score floor in
-  // `isHotStory` (≥ 40 anywhere it returns true) makes the `> 1`
-  // check effectively a no-op here, exactly as SPEC.md describes.
+  // Cross-page dedup. The queryFn already dedupes within a page;
+  // this layer drops anything that re-surfaces in a later page
+  // after climbing between feeds. The `isHotStory` filter is
+  // *not* applied here — consumers each pick their own predicate
+  // so /hot uses the production rule while /tuning's Preview can
+  // re-evaluate against a tunable expression without re-fetching.
+  // StoryListImpl still applies its visibility filter (`score > 1`,
+  // `!hidden`, `!done`, `!dead`, `!deleted`) on top of whichever
+  // predicate the consumer applies.
   const { items, newSourceIds, allIds } = useMemo(() => {
     const seen = new Set<number>();
     const out: Array<HNItem | null> = [];
@@ -149,13 +155,13 @@ export function useHotFeedItems(): HotFeedItemsState {
         idsCombined.push(entry.id);
         const it = entry.item;
         if (!it) continue;
-        if (!isHotStory(it)) continue;
+        if (!predicate(it)) continue;
         if (entry.source === 'new') newSrc.add(entry.id);
         out.push(it);
       }
     }
     return { items: out, newSourceIds: newSrc, allIds: idsCombined };
-  }, [pages.data]);
+  }, [pages.data, predicate]);
 
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = pages;
   const topRefetch = topQuery.refetch;

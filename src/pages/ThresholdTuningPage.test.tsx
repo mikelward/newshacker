@@ -168,49 +168,94 @@ describe('<ThresholdTuningPage>', () => {
     expect(expr.value).toMatch(/normal_threshold/);
   });
 
-  it('renders the event list with a hot-or-not flag per row', async () => {
-    installMock({
-      events: {
-        user: [
-          makeEvent({
-            action: 'pin',
-            id: 7,
-            score: 200,
-            title: 'big-pin-title',
-          }),
-          makeEvent({
-            action: 'hide',
-            id: 8,
-            score: 3,
-            isHot: false,
-            title: 'cold-hide-title',
-          }),
-        ],
-      },
-    });
+  it('renders the live Preview with /top ∪ /new candidates filtered by the rule', async () => {
+    // Bootstrap the Preview's data path: /top + /new id lists +
+    // /api/items batch. The mock dispatches by URL so the HN
+    // endpoints (used by useHotFeedItems) and the auth endpoints
+    // (/api/me, /api/admin) coexist.
+    const nowS = Math.floor(Date.now() / 1000);
+    const hotStory = {
+      id: 100,
+      type: 'story',
+      title: 'big-hot-story',
+      url: 'https://example.com/100',
+      by: 'alice',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    const coldStory = {
+      id: 200,
+      type: 'story',
+      title: 'cold-skip-story',
+      url: 'https://example.com/200',
+      by: 'bob',
+      score: 5,
+      descendants: 1,
+      time: nowS - 12 * 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          return new Response(JSON.stringify([100, 200]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids = new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) =>
+            id === 100 ? hotStory : id === 200 ? coldStory : null,
+          );
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
     renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    // Preview is open by default — story title appears once the
+    // /top fetch + /api/items batch resolve.
     await waitFor(() =>
-      expect(screen.getByTestId('threshold-event-list')).toBeInTheDocument(),
+      expect(screen.getByTestId('threshold-preview')).toBeInTheDocument(),
     );
-    // The event list is collapsed by default in the UI — happy-dom
-    // doesn't render `<details>` children until the element is
-    // open. Click the summary to expand it.
-    const user = userEvent.setup();
-    await user.click(
-      screen.getByTestId('threshold-event-list').querySelector('summary')!,
+    await waitFor(() =>
+      expect(screen.getByText('big-hot-story')).toBeInTheDocument(),
     );
-    const rows = await screen.findAllByTestId('threshold-event-row');
-    expect(rows).toHaveLength(2);
-    // Match flags reflect the default expression (score >= 100 ||
-    // score >= 40 with age < 2h). Score-200 pin → matches; score-3
-    // hide → doesn't.
-    const matchByTitle: Record<string, string | null> = {};
-    for (const row of rows) {
-      const title = row.querySelector('a')?.textContent ?? '';
-      matchByTitle[title] = row.getAttribute('data-matches');
-    }
-    expect(matchByTitle['big-pin-title']).toBe('true');
-    expect(matchByTitle['cold-hide-title']).toBe('false');
+    // Score-5 story doesn't pass the default isHotStory rule, so
+    // the Preview filters it out.
+    expect(screen.queryByText('cold-skip-story')).toBeNull();
   });
 
   it('renders type breakdown counts', async () => {

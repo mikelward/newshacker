@@ -2,6 +2,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
+import { useHotFeedItems } from '../hooks/useHotFeedItems';
+import { StoryListImpl } from '../components/StoryList';
+import type { RowFlag } from '../components/StoryListItem';
 import {
   HOT_MIN_SCORE_ANY_AGE,
   HOT_MIN_SCORE_RECENT,
@@ -274,24 +277,30 @@ function defaultSliders(): ThresholdSliderState {
   };
 }
 
-// Compile a user-typed expression into a predicate against an event
-// + the current slider values. Runs inside a `Function` constructor
-// because /tuning is operator-only and gated behind /api/admin's
-// HN round-trip — the audience is the verified admin, who already
-// has full control of their own session. Wrapped in try/catch so a
-// syntax error or runtime throw shows an inline message instead of
-// crashing the page.
+// Compile a user-typed expression into a raw predicate function.
+// Runs inside a `Function` constructor because /tuning is operator-
+// only and gated behind /api/admin's HN round-trip — the audience
+// is the verified admin, who already has full control of their own
+// session. Wrapped in try/catch so a syntax error or runtime throw
+// shows an inline message instead of crashing the page.
+//
+// Returns the raw function with named parameter slots; callers
+// (`evalForEvent`, `evalForItem` below) assemble the args from
+// whichever input shape they're working against. This means the
+// same compiled function evaluates the historical `TelemetryEvent`
+// (for the live counts and scatter outlines) and a live `HNItem`
+// (for the Preview's filter), without recompiling per call.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RawPredicate = (...args: any[]) => unknown;
+
 function compileExpression(
   expr: string,
-): { ok: true; fn: (e: TelemetryEvent, s: ThresholdSliderState) => boolean }
-  | { ok: false; error: string } {
+): { ok: true; fn: RawPredicate } | { ok: false; error: string } {
   if (expr.trim().length === 0) {
     return { ok: false, error: 'Expression is empty.' };
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let raw: any;
   try {
-    raw = new Function(
+    const fn = new Function(
       'score',
       'age',
       'descendants',
@@ -303,38 +312,84 @@ function compileExpression(
       'young_threshold',
       'normal_threshold',
       `return (${expr});`,
-    );
+    ) as RawPredicate;
+    return { ok: true, fn };
   } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
     };
   }
-  return {
-    ok: true,
-    fn: (e: TelemetryEvent, s: ThresholdSliderState): boolean => {
-      const age = ageHoursAtAction(e);
-      const safeAge = Math.max(age, 0.01);
-      try {
-        return Boolean(
-          raw(
-            e.score,
-            age,
-            e.descendants ?? 0,
-            e.type ?? '',
-            e.isHot,
-            e.score / safeAge,
-            (e.descendants ?? 0) / safeAge,
-            s.young_age,
-            s.young_threshold,
-            s.normal_threshold,
-          ),
-        );
-      } catch {
-        return false;
-      }
-    },
-  };
+}
+
+// Apply the compiled expression to a historical telemetry event.
+// `age` is age-at-action time (eventTime - story.time), so the
+// predicate evaluates against the snapshot the operator captured
+// when they pinned/hid the story.
+function evalForEvent(
+  raw: RawPredicate,
+  e: TelemetryEvent,
+  s: ThresholdSliderState,
+): boolean {
+  const age = ageHoursAtAction(e);
+  const safeAge = Math.max(age, 0.01);
+  try {
+    return Boolean(
+      raw(
+        e.score,
+        age,
+        e.descendants ?? 0,
+        e.type ?? '',
+        e.isHot,
+        e.score / safeAge,
+        (e.descendants ?? 0) / safeAge,
+        s.young_age,
+        s.young_threshold,
+        s.normal_threshold,
+      ),
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Apply the compiled expression to a *live* HNItem at the moment
+// the page rendered. `age` is now-relative, `isHot` is computed via
+// the production rule. Used to filter the live `/top ∪ /new`
+// candidates for the Preview section so the operator can see what
+// /hot would look like under the current expression.
+function evalForItem(
+  raw: RawPredicate,
+  item: { score?: number; time?: number; descendants?: number; type?: string },
+  s: ThresholdSliderState,
+  nowMs: number = Date.now(),
+): boolean {
+  const score = item.score ?? 0;
+  const time = item.time ?? 0;
+  const age = time > 0 ? Math.max(0, (nowMs / 1000 - time) / 3600) : 0;
+  const safeAge = Math.max(age, 0.01);
+  const descendants = item.descendants ?? 0;
+  const isHot =
+    score >= HOT_MIN_SCORE_ANY_AGE ||
+    (score >= HOT_MIN_SCORE_RECENT && age < HOT_RECENT_WINDOW_HOURS);
+  try {
+    return Boolean(
+      raw(
+        score,
+        age,
+        descendants,
+        item.type ?? '',
+        isHot,
+        score / safeAge,
+        descendants / safeAge,
+        s.young_age,
+        s.young_threshold,
+        s.normal_threshold,
+      ),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function ThresholdTuningBody({ events }: BodyProps) {
@@ -345,15 +400,16 @@ function ThresholdTuningBody({ events }: BodyProps) {
 
   const compiled = useMemo(() => compileExpression(expression), [expression]);
 
-  // Per-event "would be hot under current expression" flag. Recomputed
-  // whenever the expression or slider values change. Cheap — even at
-  // 10k events the eval is sub-millisecond.
+  // Per-event "would be hot under current expression" flag for the
+  // historical telemetry rows (live counts, scatter outlines).
+  // Recomputes when expression or sliders change; even at 10k
+  // events the eval is sub-millisecond.
   const flags = useMemo(() => {
     if (!compiled.ok) return new Map<string, boolean>();
     const out = new Map<string, boolean>();
     for (const e of events) {
       const key = `${e.eventTime}|${e.id}|${e.action}`;
-      out.set(key, compiled.fn(e, sliders));
+      out.set(key, evalForEvent(compiled.fn, e, sliders));
     }
     return out;
   }, [compiled, events, sliders]);
@@ -362,6 +418,18 @@ function ThresholdTuningBody({ events }: BodyProps) {
     (e: TelemetryEvent) =>
       flags.get(`${e.eventTime}|${e.id}|${e.action}`) ?? false,
     [flags],
+  );
+
+  // Predicate over a *live* HNItem, used by the Preview section
+  // below to filter the same `/top ∪ /new` candidates `/hot`
+  // renders. Built fresh whenever the expression or sliders
+  // change, so the preview re-filters without re-fetching HN.
+  const itemPredicate = useCallback(
+    (item: { score?: number; time?: number; descendants?: number; type?: string }) => {
+      if (!compiled.ok) return false;
+      return evalForItem(compiled.fn, item, sliders);
+    },
+    [compiled, sliders],
   );
 
   return (
@@ -374,11 +442,11 @@ function ThresholdTuningBody({ events }: BodyProps) {
         compileError={compiled.ok ? null : compiled.error}
       />
       <ThresholdLiveCounts events={events} flagFor={flagFor} />
+      <ThresholdPreview itemPredicate={itemPredicate} />
       <ThresholdScatters events={events} flagFor={flagFor} sliders={sliders} />
       <ThresholdActionStats events={events} />
       <ThresholdTypeBreakdown events={events} />
       <ThresholdOpenedRatio events={events} />
-      <ThresholdEventList events={events} flagFor={flagFor} />
     </>
   );
 }
@@ -1014,103 +1082,48 @@ function ThresholdOpenedRatio({ events }: StatsProps) {
   );
 }
 
-interface EventListProps {
-  events: TaggedEvent[];
-  flagFor: (e: TelemetryEvent) => boolean;
+interface PreviewProps {
+  itemPredicate: (item: {
+    score?: number;
+    time?: number;
+    descendants?: number;
+    type?: string;
+  }) => boolean;
 }
 
-function ThresholdEventList({ events, flagFor }: EventListProps) {
-  // Newest first — most relevant for tuning.
-  const sorted = [...events].sort((a, b) => b.eventTime - a.eventTime);
+// Live `/hot`-with-tunable-rule preview. Reuses the *exact* render
+// path /hot uses (`StoryListImpl`, populated by `useHotFeedItems`)
+// so what the operator sees here pixel-matches what /hot would
+// render if the production thresholds were changed to whatever
+// the expression + sliders currently say. The data is the same
+// `/top ∪ /new` candidate set /hot fetches, sharing the
+// `['feedItems', 'hot']` React Query cache — predicate is applied
+// at filter time, not in the queryKey, so adjusting a slider
+// re-filters without re-fetching HN.
+function ThresholdPreview({ itemPredicate }: PreviewProps) {
+  const feedItems = useHotFeedItems(itemPredicate);
+  const newSourceIds = feedItems.newSourceIds;
+  const flagFor = useCallback(
+    (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
+    [newSourceIds],
+  );
   return (
-    <details data-testid="threshold-event-list">
+    <details data-testid="threshold-preview" open>
       <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
-        Events ({sorted.length})
+        Preview
       </summary>
       <p className="admin-page__note">
-        Each row shows whether the current threshold rule matches it
-        (✓ = "would surface as hot"). Click a story to inspect the
-        thread.
+        What <code>/hot</code> would render right now under the
+        threshold above. Source: live <code>/top ∪ /new</code>;
+        re-filters as you adjust the expression or sliders without
+        re-fetching.
       </p>
-      <table
-        style={{ borderCollapse: 'collapse', fontSize: '0.92em', width: '100%' }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left', padding: '0.2em 0.5em 0.2em 0' }}>
-              hot?
-            </th>
-            <th style={{ textAlign: 'left', padding: '0.2em 0.5em 0.2em 0' }}>
-              action
-            </th>
-            <th style={{ textAlign: 'right', padding: '0.2em 0.5em 0.2em 0' }}>
-              score
-            </th>
-            <th style={{ textAlign: 'right', padding: '0.2em 0.5em 0.2em 0' }}>
-              age (h)
-            </th>
-            <th style={{ textAlign: 'right', padding: '0.2em 0.5em 0.2em 0' }}>
-              cmts
-            </th>
-            <th style={{ textAlign: 'left', padding: '0.2em 0.5em 0.2em 0' }}>
-              type
-            </th>
-            <th style={{ textAlign: 'left', padding: '0.2em 0' }}>title</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((e, i) => {
-            const matches = flagFor(e);
-            const age = ageHoursAtAction(e);
-            return (
-              <tr
-                key={`${e.source}-${e.eventTime}-${e.id}-${i}`}
-                data-testid="threshold-event-row"
-                data-matches={matches ? 'true' : 'false'}
-              >
-                <td style={{ padding: '0.2em 0.5em 0.2em 0' }}>
-                  {matches ? '✓' : '·'}
-                </td>
-                <td style={{ padding: '0.2em 0.5em 0.2em 0' }}>
-                  <code>{e.action}</code>
-                </td>
-                <td
-                  style={{
-                    textAlign: 'right',
-                    padding: '0.2em 0.5em 0.2em 0',
-                  }}
-                >
-                  {e.score}
-                </td>
-                <td
-                  style={{
-                    textAlign: 'right',
-                    padding: '0.2em 0.5em 0.2em 0',
-                  }}
-                >
-                  {formatNumber(age)}
-                </td>
-                <td
-                  style={{
-                    textAlign: 'right',
-                    padding: '0.2em 0.5em 0.2em 0',
-                  }}
-                >
-                  {e.descendants ?? 0}
-                </td>
-                <td style={{ padding: '0.2em 0.5em 0.2em 0' }}>
-                  <code>{e.type ?? '—'}</code>
-                </td>
-                <td style={{ padding: '0.2em 0' }}>
-                  <Link to={`/item/${e.id}`}>
-                    {e.title ?? `#${e.id}`}
-                  </Link>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <StoryListImpl
+        feedItems={feedItems}
+        flagFor={flagFor}
+        emptyMessage="Nothing matches the current rule."
+        sourceFeed="tuning"
+      />
     </details>
   );
 }
