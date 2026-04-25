@@ -729,7 +729,16 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 
 **Local mirror.** Every emitted event is also appended to a per-device localStorage ring buffer (`newshacker:telemetry:events`, capped at the last 2 000 entries). The `/admin` view reads server *and* local, deduping on `eventTime|id|action`, so the page renders something even when the server endpoint is unreachable (e.g. a fresh device before the first round-trip lands, or a 503 from Redis). First-per-story dedup is per-device only — first-pinning the same story on two devices yields two events. Accepted noise.
 
-**`/admin` "Hot threshold tuning" section.** Renders a dot scatter (pin = green, hide = red) on a score (y) × age-hours (x) plane, with dashed reference lines at the current `score ≥ 100` (horizontal) and the `score ≥ 40` + `age < 2 h` corner (L-shape). Below the plot, P25 / median / P75 of score and of age-at-action time, computed separately for pin vs. hide events. Operator eyeballs the cluster and decides whether to tighten or loosen the thresholds in `src/lib/format.ts`. Buttons: Export local JSON (dumps the device's ring buffer for offline analysis), Clear local buffer (server data untouched).
+**`/tuning` page.** Standalone operator-only view (linked from `/admin`, same HN-round-trip auth gate) that renders the threshold-tuning UI in a dedicated layout — `/admin` would otherwise crowd this view against the per-vendor status section. Captures (per event): `action`, `id`, `score`, `time`, `descendants`, `type`, `isHot`, `sourceFeed`, `eventTime`, `articleOpened`, `title`. Layout, top to bottom:
+
+- **Threshold expression + sliders.** A free-form text input takes a JS-style boolean expression (default `score >= normal_threshold || (age < young_age && score >= young_threshold)` — the current `isHotStory` rule with the constants exposed). Three sliders (`young_age`, `young_threshold`, `normal_threshold`) feed values into the expression so the operator can tweak constants without retyping. The expression compiles via `new Function(...)` — acceptable on this admin-only page, which is gated behind `/api/admin`'s HN round-trip and only ever served to the verified admin. Identifiers exposed: `score`, `age` (hours), `descendants`, `type`, `isHot` (current rule), `velocity` (`score/age`), `commentVelocity` (`descendants/age`), plus the three slider variables.
+- **Live counts** of pinned and hidden events that match the expression. A good rule maximizes pin-matches (you'd see what you wanted) while minimizing hide-matches (you wouldn't be surfaced what you'd already dismissed).
+- **Distribution** (collapsible, open by default): two scatters — score-vs-age and comments-vs-age. Pin events render as triangles, hide events as circles; events that match the current expression carry a green outline. Dashed orange reference lines mark the slider values.
+- **Pinned / Hidden P25 / median / P75** stats for score, age-at-action, and comments — computed separately per action.
+- **By type** breakdown: counts of pin vs. hide events per HN type (`story`, `job`, `ask`, `show`, `poll`).
+- **Article opened first** ratios: pinned-after-opening and hidden-after-opening, surfaced because pin-after-reading is a stronger "yes" than pin-from-headline.
+- **Events list** (collapsible, closed by default): every event newest-first with a hot-or-not flag column, score, age, comments, type, and the story title linking to `/item/:id`. Long enough to be a drill-down rather than the front-and-center view.
+- **Export local JSON** / **Clear local buffer** buttons. Server data is untouched by the latter — only the device's local ring buffer is wiped.
 
 **Cost / reliability (rule 11).** One Redis `LPUSH` + `LTRIM` per pin or hide that the client decides to emit (post-dedup). At ~50 actions/day for a heavy user that's ~100 ops/day — well under the Upstash free tier's daily limit. No new infra (existing Redis), no new vendor. Failure modes: telemetry endpoint down → fail-open client side, local ring buffer still grows; `/admin` view down → it just doesn't render the section. Nothing user-facing breaks at any point in the pipeline.
 
@@ -747,7 +756,8 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 | `/opened` | recently opened stories (7-day history) |
 | `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
-| `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis; *Hot threshold tuning* — see *Threshold tuning telemetry*) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
+| `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis; link to `/tuning`) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
+| `/tuning` | operator-only Hot threshold tuning view (interactive expression + sliders, score and comments scatters, event list) — same auth gate as `/admin`; not linked from the UI |
 
 ## Accessibility
 

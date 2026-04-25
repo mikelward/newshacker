@@ -173,10 +173,20 @@ export function StoryListImpl({
       const story = lookupStory(id);
       if (story) {
         prefetchPinnedStory(queryClient, story);
-        recordFirstAction('pin', story, sourceFeed, { isAuthenticated });
+        recordFirstAction('pin', story, sourceFeed, {
+          isAuthenticated,
+          articleOpened: articleOpenedIds.has(id),
+        });
       }
     },
-    [pin, lookupStory, queryClient, sourceFeed, isAuthenticated],
+    [
+      pin,
+      lookupStory,
+      queryClient,
+      sourceFeed,
+      isAuthenticated,
+      articleOpenedIds,
+    ],
   );
 
   const handleHideOne = useCallback(
@@ -185,10 +195,20 @@ export function StoryListImpl({
       recordHide([id]);
       const story = lookupStory(id);
       if (story) {
-        recordFirstAction('hide', story, sourceFeed, { isAuthenticated });
+        recordFirstAction('hide', story, sourceFeed, {
+          isAuthenticated,
+          articleOpened: articleOpenedIds.has(id),
+        });
       }
     },
-    [hide, recordHide, lookupStory, sourceFeed, isAuthenticated],
+    [
+      hide,
+      recordHide,
+      lookupStory,
+      sourceFeed,
+      isAuthenticated,
+      articleOpenedIds,
+    ],
   );
 
   // Visibility floor: filter out stories that haven't earned at least one

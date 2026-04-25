@@ -21,6 +21,7 @@ import { HelpPage } from './pages/HelpPage';
 import { AboutPage } from './pages/AboutPage';
 import { DebugPage } from './pages/DebugPage';
 import { AdminPage } from './pages/AdminPage';
+import { ThresholdTuningPage } from './pages/ThresholdTuningPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
@@ -72,6 +73,11 @@ export default function App() {
             <Route path="/about" element={<AboutPage />} />
             <Route path="/debug" element={<DebugPage />} />
             <Route path="/admin" element={<AdminPage />} />
+            {/* `/tuning` — operator-only Hot threshold tuning UI;
+                same auth gate as `/admin`. Pulled out of the
+                AdminPage so the event list and expression
+                preview have proper room. */}
+            <Route path="/tuning" element={<ThresholdTuningPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/item/:id" element={<ItemPage />} />
             <Route path="/user/:id" element={<UserPage />} />
