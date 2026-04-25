@@ -23,6 +23,8 @@ import {
   prefetchFeedStory,
 } from '../lib/feedStoryPrefetch';
 import { warmFeedSummaries } from '../lib/feedSummaryWarm';
+import { recordFirstAction } from '../lib/telemetry';
+import { useAuth } from '../hooks/useAuth';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
 import { useFeedBar } from '../hooks/useFeedBar';
@@ -52,6 +54,12 @@ interface ImplProps {
   feedItems: ReturnType<typeof useFeedItems>;
   flagFor?: FlagFor;
   emptyMessage?: string;
+  // Free-form short label (`'top'`, `'hot'`, `'new'`, …) tagged
+  // onto every threshold-tuning telemetry event fired from this
+  // list — so the /admin scatter can slice "rejected from /hot
+  // at score X" vs "rejected from /top at score X". See
+  // `src/lib/telemetry.ts`.
+  sourceFeed: string;
 }
 
 function measureHeaderInset(): number {
@@ -83,7 +91,7 @@ function SweepIcon() {
 
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
-  return <StoryListImpl feedItems={feedItems} />;
+  return <StoryListImpl feedItems={feedItems} sourceFeed={feed} />;
 }
 
 // `/hot` shim: same render path, different data source + a per-row
@@ -103,6 +111,7 @@ export function HotStoryList() {
       feedItems={feedItems}
       flagFor={flagFor}
       emptyMessage="Nothing hot right now."
+      sourceFeed="hot"
     />
   );
 }
@@ -117,8 +126,10 @@ export function StoryListImpl({
   feedItems,
   flagFor,
   emptyMessage = 'No stories yet.',
+  sourceFeed,
 }: ImplProps) {
   const queryClient = useQueryClient();
+  const { isAuthenticated } = useAuth();
   const { hiddenIds, hide } = useHiddenStories();
   const { doneIds } = useDoneStories();
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts } =
@@ -143,21 +154,41 @@ export function StoryListImpl({
     [rawOffFeedPinnedStories, hiddenIds],
   );
 
+  // Pin/hide can target either an in-feed row or one of the
+  // off-feed pinned rows that prepend the list (the user re-pinning
+  // or hiding a story whose feed slot has rolled off). Look in both
+  // collections so the telemetry call doesn't silently miss the
+  // off-feed-pinned case.
+  const lookupStory = useCallback(
+    (id: number) =>
+      items.find((it): it is NonNullable<typeof it> => it?.id === id) ??
+      offFeedPinnedStories.find((s) => s.id === id) ??
+      null,
+    [items, offFeedPinnedStories],
+  );
+
   const handlePin = useCallback(
     (id: number) => {
       pin(id);
-      const story = items.find((it): it is NonNullable<typeof it> => it?.id === id);
-      if (story) prefetchPinnedStory(queryClient, story);
+      const story = lookupStory(id);
+      if (story) {
+        prefetchPinnedStory(queryClient, story);
+        recordFirstAction('pin', story, sourceFeed, { isAuthenticated });
+      }
     },
-    [pin, items, queryClient],
+    [pin, lookupStory, queryClient, sourceFeed, isAuthenticated],
   );
 
   const handleHideOne = useCallback(
     (id: number) => {
       hide(id);
       recordHide([id]);
+      const story = lookupStory(id);
+      if (story) {
+        recordFirstAction('hide', story, sourceFeed, { isAuthenticated });
+      }
     },
-    [hide, recordHide],
+    [hide, recordHide, lookupStory, sourceFeed, isAuthenticated],
   );
 
   // Visibility floor: filter out stories that haven't earned at least one

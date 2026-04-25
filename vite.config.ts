@@ -34,9 +34,23 @@ function readCommitTime(): string {
 const TEST_BUILD_COMMIT_TIME = '2026-01-01T00:00:00.000Z';
 const buildCommitTime = isTest ? TEST_BUILD_COMMIT_TIME : readCommitTime();
 
+// Captured at config-load time and inlined into the client bundle so
+// the threshold-tuning telemetry (see `src/lib/telemetry.ts`) knows
+// which Vercel environment it's running in. `production` and `preview`
+// are the two states we care about — the telemetry endpoint accepts
+// admin-authed events from `production` and anonymous events from
+// `preview` (so the Vercel preview URL collects from any visitor while
+// production stays gated). Falls back to `'development'` for `npm run
+// dev`, and is pinned to `'test'` under Vitest so unit tests don't
+// accidentally pick up a stray VERCEL_ENV from a CI shell.
+const deployEnv = isTest
+  ? 'test'
+  : process.env.VERCEL_ENV ?? 'development';
+
 export default defineConfig({
   define: {
     __BUILD_COMMIT_TIME__: JSON.stringify(buildCommitTime),
+    __DEPLOY_ENV__: JSON.stringify(deployEnv),
   },
   plugins: [
     react(),
