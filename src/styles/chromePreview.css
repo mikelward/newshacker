@@ -33,7 +33,22 @@
  * wordmark + icons, outlined disc mark, white focus rings (needed
  * because the global orange ring is invisible against an orange bar),
  * and the offline-pill / disabled-button styles that assumed white
- * text on an orange surface. */
+ * text on an orange surface.
+ *
+ * The defaults shifted `--nh-orange` to the accessible burnt orange
+ * `#e65c00` (mono / duo paint a small tile on a cream banner, where
+ * `#ff6600` only scored 2.69:1 contrast). Classic paints the *whole*
+ * banner orange with white text on top — a different contrast pair
+ * that was never the issue — and is explicitly meant to look like
+ * HN's own header, so we put HN's exact `#ff6600` back here. The
+ * paired `--nh-orange-dark` returns to its pre-change value (`#e65c00`)
+ * for the same reason — the login submit button's hover/active feedback
+ * needs to match the rest-state shade it's contrasting against. */
+
+:root[data-chrome='classic'] {
+  --nh-orange: #ff6600;
+  --nh-orange-dark: #e65c00;
+}
 
 :root[data-chrome='classic'] .app-header {
   background: var(--nh-orange);
