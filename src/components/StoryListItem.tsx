@@ -71,6 +71,15 @@ interface Props {
     icon: ReactNode;
     onToggle: () => void;
     testId?: string;
+    /**
+     * When explicitly false, the button renders without the
+     * `pin-btn--active` orange tint — used for "informational
+     * inactive" affordances (e.g. the /tuning Preview's
+     * read-only hollow-pin variant). Default true preserves
+     * backwards compat: every existing rightAction caller
+     * (library views, exclam icons) wants the orange paint.
+     */
+    active?: boolean;
   };
   /**
    * When true, the meta line tucks points-per-hour into the
@@ -318,7 +327,9 @@ export function StoryListItem({
       {rightAction ? (
         <TooltipButton
           type="button"
-          className="pin-btn pin-btn--active"
+          className={
+            'pin-btn' + (rightAction.active === false ? '' : ' pin-btn--active')
+          }
           data-testid={rightAction.testId ?? 'row-action-btn'}
           aria-label={rightAction.label}
           tooltip={rightAction.label}

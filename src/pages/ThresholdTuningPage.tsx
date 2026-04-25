@@ -1250,6 +1250,19 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
     (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
     [newSourceIds],
   );
+  // Precomputed id → item map so `rightActionFor` can do an O(1)
+  // lookup per row instead of scanning `feedItems.items` linearly.
+  // The Preview re-renders frequently while the operator drags
+  // sliders, and renders ~60 rows per page; without this the
+  // per-render cost is O(n²).
+  const items = feedItems.items;
+  const itemsById = useMemo(() => {
+    const map = new Map<number, NonNullable<(typeof items)[number]>>();
+    for (const it of items) {
+      if (it && typeof it.id === 'number') map.set(it.id, it);
+    }
+    return map;
+  }, [items]);
   // Per-row right-side override. Every row in the Preview gets a
   // no-op informational button so the operator can't accidentally
   // mutate reader state (pin / unpin / done) from the tuning view
@@ -1273,9 +1286,7 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
       const isPinned = pinnedIds.has(id);
       const isDone = doneIds.has(id);
       const isHidden = hiddenIds.has(id);
-      const item = feedItems.items.find(
-        (it): it is NonNullable<typeof it> => it?.id === id,
-      );
+      const item = itemsById.get(id);
       // Defensive: if the item hasn't loaded yet, fall through to
       // StoryListImpl's default. The combinedPredicate widens the
       // candidate pool to pin/done, so in practice every visible
@@ -1329,9 +1340,15 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         icon: <PushPinIcon filled={false} />,
         onToggle: () => {},
         testId: `preview-readonly-btn-${id}`,
+        // Plain "this story matches the rule but you haven't
+        // engaged with it yet" affordance — neither pinned, done,
+        // nor hidden. Render in the inactive (non-orange) color
+        // so the Preview's hollow pin actually reads as inactive
+        // instead of inheriting `pin-btn--active`'s orange tint.
+        active: false,
       };
     },
-    [pinnedIds, doneIds, hiddenIds, feedItems.items, itemPredicate],
+    [pinnedIds, doneIds, hiddenIds, itemsById, itemPredicate],
   );
   return (
     <details data-testid="threshold-preview" open>
@@ -1375,6 +1392,14 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         // but the current rule still wants to promote it. Paired
         // with the per-row red-exclam right action.
         includeHidden
+        // The Preview is a tuning experiment, not a reading-list
+        // editor: suppress every row-level mutation affordance
+        // (swipe pin/hide, long-press menu Pin/Hide/Share, the
+        // bulk Sweep button) so the operator can't accidentally
+        // pin / hide a story while dragging sliders. The
+        // right-side icon stays — it's already a no-op via
+        // `rightActionFor`'s `onToggle: () => {}`.
+        readOnly
       />
     </details>
   );
