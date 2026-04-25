@@ -794,7 +794,7 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 newshacker is installable as a Progressive Web App on desktop and mobile, and supports offline reading of previously-seen content.
 
 ### Install identity
-- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /top`.
+- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /` (matches the *Routes* table — `/` is the home and renders Top inline; an installed PWA cold launch lands there too instead of diverging onto `/top`).
 - Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-maskable.svg`, `favicon-32.png`. The mark is an orange rounded-square tile with a white "n" biased toward the top and a small white home-indicator pill near the bottom edge — the iOS / Android gesture bar people see every day, so the "mobile-first" signal is in the mark, not just the copy. At favicon scale the pill survives as a thin horizontal stroke; at 192/512 it reads plainly. Can never be mistaken for the HN `Y` logo. The maskable variant is rasterized from a separate `favicon-maskable.svg` that uses a full-bleed orange tile (no rounded corners, since the launcher applies its own shape mask) and pulls the glyph + pill into the 80% adaptive-icon safe zone so aggressive OEM crops can't clip them.
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
