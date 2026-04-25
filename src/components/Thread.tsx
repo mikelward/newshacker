@@ -246,6 +246,35 @@ function probeText(chars: number): string {
   return out.slice(0, chars).trimEnd();
 }
 
+// Lazy wrapper around <SummaryCard>. Renders a "Summarize article"
+// button up front and only mounts the real summary card (which
+// auto-fetches via useSummary) once the reader explicitly asks for
+// it. Used on the focused-comment view at /item/<commentId> so a
+// reader who landed on a deep comment doesn't trigger an article
+// summary auto-run for a story they may have no interest in.
+//
+// Server-side caching by storyId means a popular story's first lazy
+// reveal is essentially free, but the gate keeps the cold-compute
+// path off the default code path on the comment view.
+function LazyArticleSummaryCard({ storyId }: { storyId: number }) {
+  const [revealed, setRevealed] = useState(false);
+  if (revealed) {
+    return <SummaryCard storyId={storyId} />;
+  }
+  return (
+    <div className="thread__lazy-summary">
+      <button
+        type="button"
+        className="thread__lazy-summary-button"
+        onClick={() => setRevealed(true)}
+        data-testid="lazy-summarize-button"
+      >
+        Summarize article
+      </button>
+    </div>
+  );
+}
+
 function SummaryCard({ storyId }: { storyId: number }) {
   const { data, isFetching, isError, error, refetch } = useSummary(storyId, true);
   const online = useOnlineStatus();
@@ -857,6 +886,9 @@ export function Thread({ id }: Props) {
                 {rootStory.title ?? '[untitled]'}
               </Link>
             </h1>
+          ) : null}
+          {rootStory && (rootStory.url || hasSelfPostBody(rootStory.text)) ? (
+            <LazyArticleSummaryCard storyId={rootStory.id} />
           ) : null}
           <div className="thread__meta" data-testid="thread-meta">
             {item.by ? (

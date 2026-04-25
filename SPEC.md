@@ -214,17 +214,31 @@ server-side with most-recent-first eviction.
    - Deep-linkable: `/item/:id` — `:id` may be a story or a comment.
      Comments render a focused single-comment view: eyebrow ("Comment"),
      the **root story's title as a heading link** (resolved by walking
-     up the `parent` chain), author + age, the comment body, and the
-     comment's own replies underneath. While the parent walk is in
-     flight, or if it can't reach a story, a "View parent →" link is
-     shown instead so the reader is never stranded with no context.
-     Story-only chrome — title link, summary cards, story action bar —
-     is omitted in the comment view. *Deferred:* whether to also render
-     the article SummaryCard / CommentsSummaryCard on the comment view.
-     Useful context but doubles the surface where article summaries
-     auto-run; per AGENTS.md rule 11 the cost / "is it actually wanted
-     here?" tradeoff deserves its own decision once we see how the
-     title-only header feels in practice.
+     up the `parent` chain), an opt-in "Summarize article" button (see
+     below), author + age, the comment body, and the comment's own
+     replies underneath. While the parent walk is in flight, or if it
+     can't reach a story, a "View parent →" link is shown instead so
+     the reader is never stranded with no context. Story-only chrome —
+     title link, story action bar, comments-summary card — is omitted
+     in the comment view.
+   - **Article SummaryCard on the comment view is lazy.** Below the
+     story-title heading, the comment view renders a small
+     "Summarize article" button instead of the auto-running SummaryCard
+     used on story pages. Tapping the button mounts the same
+     `<SummaryCard>` (which auto-fetches via `useSummary`) and the
+     button is replaced by the result. Rationale: the reader on a
+     focused-comment view came for the comment, not the article — so
+     auto-firing a Jina + Gemini summary on every comment-page visit
+     would surface AI compute the reader didn't ask for and would warm
+     summaries for stories that may never get a story-page visit.
+     Server-side caching by `storyId` means popular-story summaries
+     stay free, but the gate keeps the cold-compute path off the
+     default path on the comment view. Suppressed entirely when the
+     root story has no `url` and no self-post body (nothing to
+     summarize), so the affordance only appears when it's actionable.
+     The CommentsSummaryCard is intentionally not surfaced on the
+     comment view — its content is "what the wider thread is saying",
+     which is a different question from the focused comment.
 
 3. **User view (minimal)**
    - `/user/:id` shows karma, created date, about text, and the user's
