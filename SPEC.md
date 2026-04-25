@@ -710,6 +710,29 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 - **Comment-card +/− expand icon (all devices).** Each comment row's meta line ends with a small +/− icon (Material Symbols `add` when collapsed, `remove` when expanded) right after the reply count. Visible on every device so the expand/collapse control is obvious regardless of whether the reader taps the card body or aims for the icon. Using +/− rather than a chevron keeps the affordance neutral on both orientations and leaves room to iterate on the exact shape later — see `TODO.md § Desktop layout` for the open question of whether a chevron or directional expand icon would read better once we have usage data.
 
+## Threshold tuning telemetry
+
+Operator-only telemetry pipeline behind `/admin`, used to tune the `isHotStory` thresholds in `src/lib/format.ts` (currently `score ≥ 100` any age, OR `score ≥ 40` with age `< 2 h` — see *Story feeds → /hot*). Captures `{action, id, score, time, isHot, sourceFeed, eventTime}` the first time a story is pinned or hidden on each device. Subsequent toggles on the same id don't re-fire — the first action is when the reader formed an opinion, and that's the only event that carries threshold signal.
+
+**Emission gate.** Every Pin or Hide on a feed view (Top, New, Best, Ask, Show, Jobs, Hot, plus the "off-feed pins" prepended to the home feed) and the thread page's Pin button funnels through `recordFirstAction` in `src/lib/telemetry.ts`. The hide also covers swipe-to-hide and the row's `⋮` menu Hide. Sweep is deliberately **not** instrumented — bulk-clearing the visible deck isn't a per-story rejection signal, and including it would skew the "what score did I reject at" distribution heavily toward whatever's currently on screen rather than what the reader actually decided about. Library views (`/pinned`, `/done`, `/hidden`) aren't instrumented either; the per-story decision happens upstream on the feed.
+
+The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirrored into the client bundle as `__DEPLOY_ENV__` via `vite.config.ts`):
+- **production:** emit only when `useAuth().isAuthenticated` is true (i.e. `/api/me` says the reader has a live `hn_session`).
+- **preview:** emit always — the Vercel preview URL is the operator's own staging surface, so collecting from any visitor (including anonymous reviewers) helps top up sparse datasets.
+- **development / test:** never emit. Local `npm run dev` shouldn't accumulate junk into a shared Redis; tests don't want a live POST in the way.
+
+**Storage.** `POST /api/admin-telemetry-action` `LPUSH`es a JSON-encoded event into a Redis list, then `LTRIM`s to keep the most recent 10 000 per bucket. Buckets follow the same per-user-anywhere pattern as `api/sync.ts`'s `newshacker:sync:<username>`:
+- `telemetry:user:<username>` — every logged-in event, regardless of which environment it came from. So a logged-in pin on a preview deploy contributes to the same bucket as a logged-in pin on production. (Eventually-separate preview Redis is tracked in `TODO.md`; the per-user bucket scheme means that even before that lands, your data isn't being polluted by anonymous preview visitors — only the `anon` bucket is.)
+- `telemetry:preview:anon` — anonymous events (only accepted on preview). Single shared bucket; no per-visitor identification because a per-browser id would be overkill at preview's audience size.
+
+**Auth model on the endpoints (deliberately asymmetric).** `POST /api/admin-telemetry-action` reads the username straight off the `hn_session` cookie's `username&hash` prefix and skips the HN round-trip, mirroring `/api/me`. The worst case of accepting a forged cookie on the *write* path is "noise in the operator's own dataset" — bad but not catastrophic, and not worth doubling HN traffic over. `GET /api/admin-telemetry-events` *does* round-trip to HN to confirm identity (per `AGENTS.md` rule 13) because the read path returns operator data and a forged cookie there would leak telemetry.
+
+**Local mirror.** Every emitted event is also appended to a per-device localStorage ring buffer (`newshacker:telemetry:events`, capped at the last 2 000 entries). The `/admin` view reads server *and* local, deduping on `eventTime|id|action`, so the page renders something even when the server endpoint is unreachable (e.g. a fresh device before the first round-trip lands, or a 503 from Redis). First-per-story dedup is per-device only — first-pinning the same story on two devices yields two events. Accepted noise.
+
+**`/admin` "Hot threshold tuning" section.** Renders a dot scatter (pin = green, hide = red) on a score (y) × age-hours (x) plane, with dashed reference lines at the current `score ≥ 100` (horizontal) and the `score ≥ 40` + `age < 2 h` corner (L-shape). Below the plot, P25 / median / P75 of score and of age-at-action time, computed separately for pin vs. hide events. Operator eyeballs the cluster and decides whether to tighten or loosen the thresholds in `src/lib/format.ts`. Buttons: Export local JSON (dumps the device's ring buffer for offline analysis), Clear local buffer (server data untouched).
+
+**Cost / reliability (rule 11).** One Redis `LPUSH` + `LTRIM` per pin or hide that the client decides to emit (post-dedup). At ~50 actions/day for a heavy user that's ~100 ops/day — well under the Upstash free tier's daily limit. No new infra (existing Redis), no new vendor. Failure modes: telemetry endpoint down → fail-open client side, local ring buffer still grows; `/admin` view down → it just doesn't render the section. Nothing user-facing breaks at any point in the pipeline.
+
 ## Routes
 
 | Path | View |
@@ -724,7 +747,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 | `/opened` | recently opened stories (7-day history) |
 | `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
-| `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
+| `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis; *Hot threshold tuning* — see *Threshold tuning telemetry*) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
 
 ## Accessibility
 

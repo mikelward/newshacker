@@ -21,15 +21,29 @@ describe('<StoryList> polish states', () => {
   });
 
   it('renders an error state with a working Retry button', async () => {
-    let attempt = 0;
+    // Count attempts against the feed endpoint specifically — other
+    // endpoints (notably /api/me, fired by the useAuth hook the
+    // telemetry wiring depends on) shouldn't displace the
+    // intentional 500 from the feed.
+    let feedAttempt = 0;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
-        attempt++;
-        if (attempt === 1) {
-          return new Response('boom', { status: 500 });
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('topstories.json')) {
+          feedAttempt++;
+          if (feedAttempt === 1) {
+            return new Response('boom', { status: 500 });
+          }
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
         }
-        return new Response(JSON.stringify([]), {
+        // Everything else (/api/me, etc.) — return an empty 200 so
+        // the rest of the page mounts without unrelated noise.
+        return new Response(JSON.stringify(null), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });

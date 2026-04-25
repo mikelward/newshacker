@@ -302,6 +302,64 @@ ends up on the front page on a given day.
 
 ## Backend / infrastructure
 
+- **Separate Redis instance for preview deploys.** Today the
+  Storage Marketplace integration auto-injects the same
+  `KV_REST_API_*` credentials into both production and preview
+  environments, so prod and preview share one Upstash database.
+  All current namespacing is per-key (`newshacker:summary:...`,
+  `newshacker:sync:<username>`, `telemetry:user:<username>` /
+  `telemetry:preview:anon` — the last is the only one that
+  *needs* the env distinction at the key level). It works, but
+  carries the operational rough edges of any shared store: one
+  set of quotas, one set of metrics, no clean blast-radius
+  separation if a buggy preview deploy hammers writes. The
+  upgrade path: provision a second Upstash project, wire its
+  `UPSTASH_REDIS_REST_*` as preview-only env vars in Vercel
+  (overriding the Marketplace pair the way other env-specific
+  overrides work), and let the per-handler `getRedis()` helpers
+  pick up the right pair automatically. Free tier covers two
+  projects; cost is mainly the second dashboard to keep an eye
+  on. Revisit when (a) preview write volume starts showing up in
+  the prod Upstash usage graph, or (b) a preview deploy
+  accidentally writes garbage to a prod-shared key (e.g. a
+  refactor mis-namespaces a key) — the second Redis would have
+  caught the bug at deploy time instead of in the operator
+  dashboard.
+
+- **Threshold tuning telemetry follow-ups** (see SPEC.md
+  *Threshold tuning telemetry*). The MVP that just landed is
+  enough to start eyeballing the score-vs-age cluster; the
+  follow-ups worth weighing once a few weeks of data are in:
+  (a) **Library-view hide events.** Hides on `/opened` (and
+      maybe `/done`) carry a "I read this and it wasn't worth
+      my time" signal that complements the feed-row "I rejected
+      this from a glance" signal — wire `recordFirstAction` into
+      the library hide path if the feed-only data turns out too
+      thin to suggest a confident threshold.
+  (b) **Cross-device first-per-story dedup.** Today the
+      "first" Set lives in localStorage per device, so first-
+      pinning the same story on phone *and* laptop logs two
+      events. A server-side `SADD telemetry:seen:<username>` +
+      conditional write would dedup — at the cost of a second
+      Redis op per emission. Worth doing only if the noise
+      shows up in the cluster.
+  (c) **Auto-recommended threshold values.** The current
+      `/admin` view prints P25 / median / P75 and lets the
+      operator decide. A natural next step is to print suggested
+      `HOT_MIN_SCORE_*` and `HOT_RECENT_WINDOW_HOURS` values
+      directly — e.g. "P25 of pin scores → suggested
+      `HOT_MIN_SCORE_ANY_AGE = X`". Hold off on auto-suggestion
+      until the human-readable stats have been useful enough
+      times to know what shape of suggestion is actually
+      wanted.
+  (d) **Per-event TTL on `telemetry:preview:anon`.** Right now
+      the only cap on the anon bucket is the 10 000-entry hard
+      ceiling — old anon events linger forever, which clutters
+      the scatter when you come back after a long gap. A simple
+      "drop events older than 30 days" pass on read (or a
+      one-shot Redis maintenance script) keeps the dataset
+      relevant.
+
 - **Consider asking Gemini to return markdown explicitly.** Today
   `api/summary.ts` doesn't mention markdown in the prompt and
   `api/comments-summary.ts` tells the model *not* to emit it — yet

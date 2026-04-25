@@ -51,6 +51,15 @@ function installFetchMock({
         headers: { 'content-type': 'application/json' },
       });
     }
+    // Match the base /api/admin endpoint without catching the
+    // telemetry sub-endpoints (which need their own response shape
+    // — see HotThresholdTuning.test.tsx).
+    if (url.includes('/api/admin-telemetry-events')) {
+      return new Response(JSON.stringify({ user: [], anon: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
     if (url.includes('/api/admin')) {
       const body = typeof admin === 'function' ? admin() : admin;
       const status =
@@ -370,11 +379,13 @@ describe('<AdminPage>', () => {
     await waitFor(() =>
       expect(screen.getByText(/9 ms/)).toBeInTheDocument(),
     );
-    // /api/me once + /api/admin twice.
+    // /api/me once + /api/admin twice. Exclude the telemetry
+    // sub-endpoint (`/api/admin-telemetry-events`), which is fired
+    // by the HotThresholdTuning section that AdminPage now embeds.
     const adminCalls = fetchMock.mock.calls.filter((c) => {
       const url =
         typeof c[0] === 'string' ? c[0] : (c[0] as URL).toString();
-      return url.includes('/api/admin');
+      return url.includes('/api/admin') && !url.includes('/api/admin-');
     });
     expect(adminCalls).toHaveLength(2);
   });

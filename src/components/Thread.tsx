@@ -29,6 +29,7 @@ import {
 } from '../lib/openedStories';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
+import { recordFirstAction } from '../lib/telemetry';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
 import { getItem, getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
@@ -659,6 +660,7 @@ export function Thread({ id }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
+  const { isAuthenticated } = useAuth();
   const { isPinned, pin, unpin } = usePinnedStories();
   const pinned = isPinned(id);
   const { articleOpenedIds } = useOpenedStories();
@@ -693,9 +695,12 @@ export function Thread({ id }: Props) {
       unpin(id);
     } else {
       pin(id);
-      if (item) prefetchPinnedStory(queryClient, item);
+      if (item) {
+        prefetchPinnedStory(queryClient, item);
+        recordFirstAction('pin', item, 'thread', { isAuthenticated });
+      }
     }
-  }, [pinned, id, pin, unpin, item, queryClient]);
+  }, [pinned, id, pin, unpin, item, queryClient, isAuthenticated]);
   const { isDone, markDone, unmarkDone } = useDoneStories();
   const done = isDone(id);
   const handleToggleDone = useCallback(() => {
@@ -721,7 +726,6 @@ export function Thread({ id }: Props) {
       if (item) prefetchFavoriteStory(queryClient, item);
     }
   }, [favorited, id, favorite, unfavorite, item, queryClient]);
-  const { isAuthenticated } = useAuth();
   const { isVoted, toggleVote } = useVote();
   const voted = isVoted(id);
   const handleToggleVote = useCallback(() => {

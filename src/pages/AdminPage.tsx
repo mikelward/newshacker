@@ -1,6 +1,7 @@
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
+import { HotThresholdTuning } from './HotThresholdTuning';
 import './AdminPage.css';
 
 // Mirrors api/admin.ts AdminResponse. Kept local so we don't reach
@@ -390,6 +391,8 @@ export function AdminPage() {
           </p>
         </>
       )}
+
+      <HotThresholdTuning />
 
       <p className="admin-page__back">
         <Link to="/top">← Back to Top</Link>
