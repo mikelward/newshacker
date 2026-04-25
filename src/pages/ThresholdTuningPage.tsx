@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
 import { useHotFeedItems } from '../hooks/useHotFeedItems';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { useDoneStories } from '../hooks/useDoneStories';
 import { StoryListImpl } from '../components/StoryList';
 import type { RowFlag } from '../components/StoryListItem';
 import {
@@ -1129,18 +1130,23 @@ function PriorityHighIcon() {
 // at filter time, not in the queryKey, so adjusting a slider
 // re-filters without re-fetching HN.
 //
-// The combined predicate `rule(item) || isPinned(item)` widens the
-// Preview to also include pinned articles still in `/top ∪ /new`
-// that the rule alone wouldn't surface. Those rows render with a
-// `priority_high` (exclamation) icon in place of the pin button so
-// the operator can see at a glance "this is in your reading list
-// but the current rule wouldn't promote it" — useful signal for
-// loosening the rule. Pinned articles that have *fully* dropped
-// off both source feeds (off-feed pinned) still don't appear:
-// `useHotFeedItems` only fetches from `/top ∪ /new`, and we keep
+// The combined predicate `rule(item) || isPinned(item) ||
+// isDone(item)` widens the Preview to also include pinned and
+// done articles still in `/top ∪ /new` that the rule alone
+// wouldn't surface. Those rows render with a `priority_high`
+// (exclamation) icon in place of the pin button so the operator
+// can see at a glance "the rule wouldn't promote this, but you
+// cared about it" — a useful signal for loosening the rule.
+// Pinned and done are weighted equally here: either is "you
+// engaged with this story", which means the rule missing it is
+// suboptimal tuning regardless of which list it ended up on.
+// Articles that have *fully* dropped off both source feeds
+// (off-feed pinned or done) still don't appear: `useHotFeedItems`
+// only fetches from `/top ∪ /new`, and we keep
 // `includeOffFeedPinned={false}` to skip the StoryListImpl overlay.
 function ThresholdPreview({ itemPredicate }: PreviewProps) {
   const { pinnedIds } = usePinnedStories();
+  const { doneIds } = useDoneStories();
   const combinedPredicate = useCallback(
     (item: {
       id?: number;
@@ -1149,10 +1155,13 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
       descendants?: number;
       type?: string;
     }) => {
-      if (typeof item.id === 'number' && pinnedIds.has(item.id)) return true;
+      if (typeof item.id === 'number') {
+        if (pinnedIds.has(item.id)) return true;
+        if (doneIds.has(item.id)) return true;
+      }
       return itemPredicate(item);
     },
-    [itemPredicate, pinnedIds],
+    [itemPredicate, pinnedIds, doneIds],
   );
   const feedItems = useHotFeedItems(combinedPredicate);
   const newSourceIds = feedItems.newSourceIds;
@@ -1160,27 +1169,39 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
     (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
     [newSourceIds],
   );
-  // Per-row right-side override: pinned rows that the rule itself
-  // wouldn't have matched get the exclam icon. The button is a
-  // no-op (not a toggle) — the Preview is read-only, the operator
-  // tunes the rule via the controls above instead of pinning /
-  // unpinning here.
+  // Per-row right-side override: pinned-or-done rows the rule
+  // itself wouldn't have matched get the exclam icon. That
+  // override button is a no-op (informational only, not a toggle)
+  // — the operator tunes the rule via the controls above instead
+  // of pinning / unpinning from here. Rows the rule already
+  // matches still use StoryListImpl's normal Pin/Unpin / Hide /
+  // Share actions (the Preview isn't fully read-only). Pinned
+  // takes precedence in the label when a row is somehow both,
+  // since pin is the stronger explicit signal.
   const rightActionFor = useCallback(
     (id: number) => {
-      if (!pinnedIds.has(id)) return undefined;
+      const isPinned = pinnedIds.has(id);
+      const isDone = doneIds.has(id);
+      if (!isPinned && !isDone) return undefined;
       const item = feedItems.items.find(
         (it): it is NonNullable<typeof it> => it?.id === id,
       );
       if (!item) return undefined;
       if (itemPredicate(item)) return undefined; // rule already matches; show pin
+      const label = isPinned
+        ? 'Pinned, but the rule above would not surface this story'
+        : 'Done, but the rule above would not surface this story';
       return {
-        label: 'Pinned, but the rule above would not surface this story',
+        label,
         icon: <PriorityHighIcon />,
         onToggle: () => {},
-        testId: 'preview-pinned-not-hot-btn',
+        // Per-row id so multiple rule-miss rows on the same Preview
+        // don't collide on `data-testid` and tests can target a
+        // specific story.
+        testId: `preview-cared-not-hot-btn-${id}`,
       };
     },
-    [pinnedIds, feedItems.items, itemPredicate],
+    [pinnedIds, doneIds, feedItems.items, itemPredicate],
   );
   return (
     <details data-testid="threshold-preview" open>
@@ -1192,8 +1213,8 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         threshold above. Source: live <code>/top ∪ /new</code>;
         re-filters as you adjust the expression or sliders without
         re-fetching. Rows with an exclamation icon are stories
-        you've pinned that the current rule wouldn't surface — a
-        cue to loosen the rule (or unpin the story).
+        you've pinned or marked done that the current rule wouldn't
+        surface — either is a cue to loosen the rule.
       </p>
       <StoryListImpl
         feedItems={feedItems}
