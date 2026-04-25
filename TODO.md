@@ -394,25 +394,25 @@ ends up on the front page on a given day.
       first — if 0-row pages are rare in practice, file under
       "won't fix".
 
-- **Tighten `AppUpdateWatcher`'s "first controllerchange is the
-  initial install" heuristic.** The current logic (`baselineController
-  === null` at mount → suppress the first controllerchange) is right
-  for the common case (fresh install, single tab), but has a narrow
-  race: a tab opened *during* a deploy can fetch the old `index.html`
-  + old bundle from the network, then have the new SW install + claim
-  it in a single controllerchange that we'd suppress as "the initial
-  install". The user runs the stale bundle until next reload with no
-  toast. Fix shape: emit the toast unconditionally when the
-  newly-claimed SW disagrees with a build-hash we embed in the HTML
-  (e.g. `<meta name="commit" content="<sha>">`) and have the SW claim
-  surface the same hash. Cheaper alternative: drop the suppression and
-  accept a once-per-install spurious toast on first visit.
-  vite-plugin-pwa doesn't expose a clean way to embed a single hash in
-  the SW today (precache-manifest revisions are per-asset), so the
-  fix needs either a custom SW shim or a postbuild rewrite.
-  Audit-flagged but not surfaced often enough to justify the
-  complexity yet — file in case anyone hits a "deploy, but my tab
-  shows the old bundle" report.
+- **Embed a build hash in HTML for a tighter `AppUpdateWatcher`
+  suppression.** The current heuristic (only suppress the toast when
+  the `newshacker:sw:installed` localStorage flag is unset) handles
+  the common stale-bundle paths — hard reload, Chrome session
+  restore, iOS PWA relaunch — but still has a narrow race: a tab
+  opened *during* a deploy on a brand-new device can fetch the old
+  `index.html` + old bundle from the network, then have the new SW
+  install + claim in a single controllerchange that we'd suppress
+  as "the initial install" (because the flag is also unset on a
+  truly fresh device). User runs the stale bundle until the next
+  reload with no toast. Fix shape: emit the toast unconditionally
+  when the newly-claimed SW disagrees with a build-hash embedded in
+  the HTML (e.g. `<meta name="commit" content="<sha>">`) and have
+  the SW broadcast the same hash. vite-plugin-pwa doesn't expose a
+  clean way to embed a single hash in the SW today (precache-manifest
+  revisions are per-asset), so the fix needs either a custom SW shim
+  via `injectManifest` or a postbuild rewrite. Surfaces rarely enough
+  on a single-deploy-window race that the localStorage flag covers
+  the realistic stranded-tab cases.
 
 - **Consider asking Gemini to return markdown explicitly.** Today
   `api/summary.ts` doesn't mention markdown in the prompt and

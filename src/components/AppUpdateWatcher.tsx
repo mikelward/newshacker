@@ -7,9 +7,49 @@ import { pingServiceWorkerForUpdate } from '../lib/swUpdate';
 // enough that rapid tab-switching doesn't spam SW update checks.
 const RETURN_FROM_HIDDEN_THRESHOLD_MS = 30_000;
 
+// Sticky flag: set the first time we observe a SW controller on this
+// device, never cleared. Used to distinguish "this is the very first
+// SW install ever" (suppress the spurious toast) from "controller is
+// transiently null at mount but we've installed before" (show the
+// toast — this is a real update). The latter is the symptom that
+// stranded users on stale bundles after a deploy: a hard-reload
+// bypasses the SW, an iOS PWA relaunch sometimes attaches the
+// controller a tick late, and Chrome session-restore can do the
+// same. In all of those, the next `controllerchange` is the new SW
+// claiming a tab that's already running stale code.
+//
+// Exported for tests so they can target the same key the component
+// reads/writes — keeps test fixtures from drifting on a rename.
+export const SW_INSTALLED_FLAG = 'newshacker:sw:installed';
+
 interface Props {
   reload?: () => void;
   returnFromHiddenThresholdMs?: number;
+}
+
+// Fail open: when storage isn't usable (Safari private mode, disabled
+// cookies, quota exceeded), pretend the flag is set so the watcher
+// shows the toast on every controllerchange. The alternative — fail
+// closed and suppress every controllerchange — would silently
+// reintroduce the very stale-bundle bug this flag exists to fix on
+// browsers where storage just happens to be off. One spurious toast
+// per session on those browsers is the much better failure mode.
+function readInstalledFlag(): boolean {
+  try {
+    return localStorage.getItem(SW_INSTALLED_FLAG) === '1';
+  } catch {
+    return true;
+  }
+}
+
+function writeInstalledFlag() {
+  try {
+    localStorage.setItem(SW_INSTALLED_FLAG, '1');
+  } catch {
+    // Storage disabled (private mode, quota); readInstalledFlag also
+    // returns true on a throw, so the next controllerchange will
+    // surface the toast — exactly what we want.
+  }
 }
 
 // Sits inside `ToastProvider` at the app root. Two passive surfaces
@@ -32,12 +72,16 @@ interface Props {
 //    toast. No reload, no disruption beyond what the user already
 //    expected from returning to the tab.
 //
-// First-ever-visit guard: if `navigator.serviceWorker.controller`
-// was null at mount, suppress *only* the first `controllerchange`
-// (the initial install → activate → claim, where the bundle is
-// already current). Adopt that new controller as our baseline so
-// any later swap — a subsequent deploy claiming the tab — still
-// surfaces the toast.
+// First-ever-install guard: only suppress the toast if we have *no*
+// record of ever having seen a controller on this device (the
+// `SW_INSTALLED_FLAG` localStorage entry). The previous in-memory
+// "controller was null at mount" heuristic also fired on hard
+// reloads, Chrome session-restore, and iOS PWA relaunches — all of
+// which can produce a transient null controller despite the SW
+// being installed long ago — so legitimate updates were getting
+// silently swallowed. The flag persists across tabs and sessions,
+// so once we've installed once, every subsequent claim is treated
+// as a real update.
 export function AppUpdateWatcher({
   reload,
   returnFromHiddenThresholdMs = RETURN_FROM_HIDDEN_THRESHOLD_MS,
@@ -50,14 +94,20 @@ export function AppUpdateWatcher({
     }
 
     let baselineController = navigator.serviceWorker.controller;
+    if (baselineController) writeInstalledFlag();
 
     const onControllerChange = () => {
       const current = navigator.serviceWorker.controller;
-      if (baselineController === null) {
+      if (current === baselineController) return;
+      if (!readInstalledFlag()) {
+        // Truly first-ever install on this device: the bundle we're
+        // running was just fetched fresh, the SW that's claiming us
+        // precaches the same hashes — no reason to nudge.
         baselineController = current;
+        writeInstalledFlag();
         return;
       }
-      if (current === baselineController) return;
+      baselineController = current;
       showToast({
         message: 'New version available',
         actionLabel: 'Reload',

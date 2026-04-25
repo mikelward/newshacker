@@ -22,14 +22,23 @@
 // new SW serving old rendered output. If nothing's changed,
 // `registration.update()` is a cheap conditional GET against
 // `/sw.js` — no reload, no spinner delay beyond the round-trip.
-const CONTROLLER_CHANGE_TIMEOUT_MS = 5000;
+//
+// 10 s, not 5 s: tablets on patchy mobile data routinely take 6-8 s
+// to install + activate a fresh SW (precache fetch + `clientsClaim`),
+// and a 5 s window was tripping a `finish(false)` early on the
+// "stale tablet, several refreshes" path before the new SW had a
+// chance to claim. PTR's spinner staying up an extra few seconds
+// is a much better failure mode than silently giving up on the
+// update and leaving the user on the old bundle.
+const CONTROLLER_CHANGE_TIMEOUT_MS = 10_000;
 
 interface Options {
   // Injected for tests — production uses window.location.reload().
   reload?: () => void;
   // Injected for tests — bounds how long we wait for the new SW to
-  // activate before giving up on the auto-reload. 5 s is long
-  // enough to cover ordinary mobile-data install latency but short
+  // activate before giving up on the auto-reload. The default 10 s
+  // is long enough to cover slow-tablet mobile-data install latency
+  // (precache fetch + `clientsClaim` can run 6-8 s) but short
   // enough that a wedged install doesn't pin the PTR spinner
   // indefinitely.
   timeoutMs?: number;
