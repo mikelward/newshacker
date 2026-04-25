@@ -759,9 +759,16 @@ ends up on the front page on a given day.
   `"top"` in `src/App.tsx` with a preference read from a small
   store (localStorage, e.g. `newshacker:homeFeed`, default `top`)
   and add a control in the drawer / settings so users can switch
-  which feed `/` serves (e.g. the future "Hot" feed). Deep links
-  like `/top`, `/hot`, `/new` remain explicit routes for
-  shareability; the setting only governs `/`'s content.
+  which feed `/` serves (e.g. the `/hot` feed once it ships — see
+  *Story feeds* in `SPEC.md`). Deep links like `/top`, `/hot`,
+  `/new` remain explicit routes for shareability; the setting only
+  governs `/`'s content. **No first-visit nudge.** A one-time
+  Top-vs-Hot interstitial and a passive "Try the Hot feed — set
+  as home?" banner were both considered and explicitly held off:
+  for now `/hot` is reachable only via the drawer entry, with no
+  prompt at first paint or above the feed. Revisit once the
+  thresholds settle and we have a real signal that users would
+  benefit from being asked rather than left to discover.
 
 ## Desktop layout
 

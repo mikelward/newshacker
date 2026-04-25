@@ -13,6 +13,8 @@ import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 import { TooltipButton } from './TooltipButton';
 import './StoryListItem.css';
 
+export type RowFlag = 'hot' | 'new' | null;
+
 interface Props {
   story: HNItem;
   rank?: number;
@@ -39,6 +41,22 @@ interface Props {
   onUnpin?: (id: number) => void;
   onShare?: (story: HNItem) => void;
   onOpenThread?: (id: number) => void;
+  /**
+   * Per-row override for the trailing flag segment in the meta line.
+   * Default behavior (prop omitted or `undefined`): the row auto-
+   * computes via `isHotStory(story)` and renders `hot` when true,
+   * nothing otherwise — every standard feed (Top, New, Best, Ask,
+   * Show, Jobs) leaves this prop unset so behavior is unchanged.
+   * `null` suppresses the auto-computed flag without substituting
+   * anything (used on `/hot` for `/top`-source rows, where every
+   * row is hot by construction so the literal `hot` text is noise).
+   * `'new'` forces the segment to render the literal `new` (used on
+   * `/hot` for rows that came from the `/new` source and were not
+   * also in the `/top` slice — the temporary debug affordance from
+   * SPEC.md *Hot flag*). `'hot'` is included in the type for
+   * symmetry but no caller currently forces it.
+   */
+  flag?: RowFlag;
   /**
    * Replaces the default Pin/Unpin button on the right side of the row
    * with a view-contextual action — used by library views (/done,
@@ -69,6 +87,7 @@ export function StoryListItem({
   onShare,
   onOpenThread,
   rightAction,
+  flag,
 }: Props) {
   const hasExternalUrl = !!story.url;
   const domain = formatDisplayDomain(story.url);
@@ -81,7 +100,13 @@ export function StoryListItem({
       ? Math.max(0, (story.descendants ?? 0) - seenCommentCount)
       : 0;
 
-  const hot = isHotStory(story);
+  // `flag` prop overrides the auto-computed Hot segment when set:
+  // `null` suppresses the segment, `'new'` substitutes the literal
+  // text. When the prop is omitted (every standard feed), behavior
+  // matches the pre-/hot world — render `hot` iff `isHotStory` is
+  // true, nothing otherwise.
+  const flagText: 'hot' | 'new' | null =
+    flag === undefined ? (isHotStory(story) ? 'hot' : null) : flag;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const articleRef = useRef<HTMLElement>(null);
@@ -266,11 +291,11 @@ export function StoryListItem({
         <span className="story-row__meta" data-testid="story-meta">
           {domainLabel ? `${domainLabel} · ` : ''}
           {formatStoryMetaTail({ ...story, newCommentCount })}
-          {hot ? (
+          {flagText ? (
             <>
               {' · '}
               <span className="story-row__hot" data-testid="story-hot">
-                hot
+                {flagText}
               </span>
             </>
           ) : null}
