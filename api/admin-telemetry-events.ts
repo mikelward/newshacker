@@ -161,6 +161,13 @@ interface RawEvent {
   isHot: boolean;
   sourceFeed: string;
   eventTime: number;
+  // Optional — older events stored before these were added still
+  // parse cleanly because every check below is "missing OR
+  // right type".
+  descendants?: number;
+  type?: string;
+  articleOpened?: boolean;
+  title?: string;
 }
 
 function tryParseEvent(raw: unknown): RawEvent | null {
@@ -176,6 +183,17 @@ function tryParseEvent(raw: unknown): RawEvent | null {
     if (typeof p.isHot !== 'boolean') return null;
     if (typeof p.sourceFeed !== 'string') return null;
     if (typeof p.eventTime !== 'number') return null;
+    if (p.descendants !== undefined && typeof p.descendants !== 'number') {
+      return null;
+    }
+    if (p.type !== undefined && typeof p.type !== 'string') return null;
+    if (
+      p.articleOpened !== undefined &&
+      typeof p.articleOpened !== 'boolean'
+    ) {
+      return null;
+    }
+    if (p.title !== undefined && typeof p.title !== 'string') return null;
     return parsed as RawEvent;
   } catch {
     return null;

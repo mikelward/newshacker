@@ -86,6 +86,13 @@ interface TelemetryEvent {
   isHot: boolean;
   sourceFeed: string;
   eventTime: number;
+  // Optional fields — accepted on input, persisted as-is. Older
+  // events recorded before these were added still parse cleanly
+  // because every check below is "missing OR right type".
+  descendants?: number;
+  type?: string;
+  articleOpened?: boolean;
+  title?: string;
 }
 
 function parseCookieHeader(
@@ -176,8 +183,10 @@ function parseEvent(body: unknown): TelemetryEvent | string {
   const b = body as Record<string, unknown>;
   if (!VALID_ACTIONS.has(b.action as Action)) return 'invalid_action';
   if (!isFiniteNumber(b.id) || b.id <= 0) return 'invalid_id';
-  if (!isFiniteNumber(b.score)) return 'invalid_score';
-  if (!isFiniteNumber(b.time)) return 'invalid_time';
+  // Range checks on top of finiteness so a malformed client can't
+  // pollute Redis with negative scores or epoch-zero stories.
+  if (!isFiniteNumber(b.score) || b.score < 0) return 'invalid_score';
+  if (!isFiniteNumber(b.time) || b.time <= 0) return 'invalid_time';
   if (typeof b.isHot !== 'boolean') return 'invalid_isHot';
   if (typeof b.sourceFeed !== 'string') return 'invalid_sourceFeed';
   if (b.sourceFeed.length === 0 || b.sourceFeed.length > MAX_SOURCE_FEED_LEN) {
@@ -185,6 +194,28 @@ function parseEvent(body: unknown): TelemetryEvent | string {
   }
   if (!isFiniteNumber(b.eventTime) || b.eventTime <= 0) {
     return 'invalid_eventTime';
+  }
+  // Optional fields: present + right-typed = accept; absent =
+  // accept; present + wrong type = reject (a buggy client should
+  // hear about it via 400 rather than have its field silently
+  // dropped).
+  if (b.descendants !== undefined) {
+    if (!isFiniteNumber(b.descendants) || b.descendants < 0) {
+      return 'invalid_descendants';
+    }
+  }
+  if (b.type !== undefined) {
+    if (typeof b.type !== 'string') return 'invalid_type';
+    if (b.type.length === 0 || b.type.length > 16) return 'invalid_type';
+  }
+  if (b.articleOpened !== undefined && typeof b.articleOpened !== 'boolean') {
+    return 'invalid_articleOpened';
+  }
+  if (b.title !== undefined) {
+    if (typeof b.title !== 'string') return 'invalid_title';
+    // Mirror the client cap so a buggy emitter can't push 1 MB
+    // titles into the bucket.
+    if (b.title.length > 256) return 'invalid_title';
   }
   return {
     action: b.action as Action,
@@ -194,6 +225,10 @@ function parseEvent(body: unknown): TelemetryEvent | string {
     isHot: b.isHot,
     sourceFeed: b.sourceFeed,
     eventTime: b.eventTime,
+    descendants: b.descendants as number | undefined,
+    type: b.type as string | undefined,
+    articleOpened: b.articleOpened as boolean | undefined,
+    title: b.title as string | undefined,
   };
 }
 

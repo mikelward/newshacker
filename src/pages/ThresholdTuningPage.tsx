@@ -1,0 +1,1157 @@
+import { useCallback, useMemo, useState } from 'react';
+import { Link, Navigate, useLocation } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
+import {
+  HOT_MIN_SCORE_ANY_AGE,
+  HOT_MIN_SCORE_RECENT,
+  HOT_RECENT_WINDOW_HOURS,
+} from '../lib/format';
+import {
+  clearLocalEvents,
+  exportLocalEvents,
+  getLocalEvents,
+  type TelemetryEvent,
+} from '../lib/telemetry';
+import './AdminPage.css';
+
+// Re-uses the AdminPage CSS module — same `admin-page__*` class
+// vocabulary so /tuning visually reads as a sibling of /admin
+// without dragging in a parallel set of styles.
+
+interface TelemetryEventsResponse {
+  user: TelemetryEvent[];
+  anon: TelemetryEvent[];
+}
+
+interface TaggedEvent extends TelemetryEvent {
+  source: 'user' | 'anon' | 'local';
+}
+
+// `/api/admin` is the auth gate. We piggyback on its existing
+// HN-round-trip + admin-username check rather than building a
+// second one. Same query key as AdminPage so the cache is shared
+// — visit /admin first and /tuning paints instantly with the
+// session already verified.
+interface AdminGateResponse {
+  username: string;
+}
+
+class GateError extends Error {
+  readonly status: number;
+  readonly payload: { reason?: string; signedInAs?: string };
+  constructor(message: string, status: number, payload: { reason?: string; signedInAs?: string } = {}) {
+    super(message);
+    this.name = 'GateError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+async function fetchAdminGate(signal?: AbortSignal): Promise<AdminGateResponse> {
+  const res = await fetch('/api/admin', { signal });
+  if (res.status === 401) throw new GateError('unauthenticated', 401);
+  if (res.status === 403 || res.status === 503) {
+    let payload = {};
+    try {
+      payload = await res.json();
+    } catch {
+      // ignore
+    }
+    throw new GateError(`http_${res.status}`, res.status, payload);
+  }
+  if (!res.ok) throw new GateError(`http_${res.status}`, res.status);
+  return (await res.json()) as AdminGateResponse;
+}
+
+async function fetchTelemetryEvents(
+  signal?: AbortSignal,
+): Promise<TelemetryEventsResponse> {
+  const res = await fetch('/api/admin-telemetry-events', { signal });
+  if (!res.ok) {
+    throw new Error(`telemetry fetch failed: HTTP ${res.status}`);
+  }
+  return (await res.json()) as TelemetryEventsResponse;
+}
+
+function ageHoursAtAction(e: TelemetryEvent): number {
+  return Math.max(0, e.eventTime / 1000 - e.time) / 3600;
+}
+
+export function ThresholdTuningPage() {
+  const auth = useAuth();
+  const client = useQueryClient();
+  const location = useLocation();
+
+  const enabled = auth.isAuthenticated;
+  const { data: gate, isLoading: gateLoading, error: gateError } = useQuery({
+    queryKey: ['admin-status'],
+    queryFn: ({ signal }) => fetchAdminGate(signal),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
+  if (auth.isLoading || (enabled && gateLoading)) {
+    return (
+      <article className="admin-page">
+        <h1 className="admin-page__title">Hot threshold tuning</h1>
+        <p aria-busy="true">Loading…</p>
+      </article>
+    );
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <Navigate to="/login" replace state={{ from: location.pathname }} />
+    );
+  }
+
+  if (gateError instanceof GateError && gateError.status === 401) {
+    client.setQueryData(ME_QUERY_KEY, null);
+    return (
+      <Navigate to="/login" replace state={{ from: location.pathname }} />
+    );
+  }
+
+  if (gateError instanceof GateError) {
+    return (
+      <article className="admin-page">
+        <h1 className="admin-page__title">Hot threshold tuning</h1>
+        <p role="alert">
+          This page is only available to the site operator
+          {gateError.payload.signedInAs
+            ? ` (you're signed in as ${gateError.payload.signedInAs})`
+            : ''}
+          .
+        </p>
+        <p className="admin-page__back">
+          <Link to="/top">← Back to Top</Link>
+        </p>
+      </article>
+    );
+  }
+
+  if (!gate) {
+    return (
+      <article className="admin-page">
+        <h1 className="admin-page__title">Hot threshold tuning</h1>
+        <p role="alert">Could not verify admin session.</p>
+      </article>
+    );
+  }
+
+  return <ThresholdTuningView />;
+}
+
+function ThresholdTuningView() {
+  const [localBumper, setLocalBumper] = useState(0);
+
+  const { data: server, isLoading: serverLoading, error: serverError } =
+    useQuery({
+      queryKey: ['admin-telemetry-events'],
+      queryFn: ({ signal }) => fetchTelemetryEvents(signal),
+      staleTime: 0,
+      gcTime: 0,
+      refetchOnWindowFocus: false,
+      retry: false,
+    });
+
+  const tagged: TaggedEvent[] = useMemo(() => {
+    const out: TaggedEvent[] = [];
+    if (server) {
+      const userArr = Array.isArray(server.user) ? server.user : [];
+      const anonArr = Array.isArray(server.anon) ? server.anon : [];
+      for (const e of userArr) out.push({ ...e, source: 'user' });
+      for (const e of anonArr) out.push({ ...e, source: 'anon' });
+    }
+    const seen = new Set(
+      out.map((e) => `${e.eventTime}|${e.id}|${e.action}`),
+    );
+    void localBumper;
+    for (const e of getLocalEvents()) {
+      const key = `${e.eventTime}|${e.id}|${e.action}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ...e, source: 'local' });
+    }
+    return out;
+  }, [server, localBumper]);
+
+  const handleClearLocal = useCallback(() => {
+    clearLocalEvents();
+    setLocalBumper((n) => n + 1);
+  }, []);
+
+  const [exportText, setExportText] = useState<string | null>(null);
+  const handleExport = useCallback(() => {
+    setExportText(exportLocalEvents());
+  }, []);
+
+  return (
+    <article className="admin-page">
+      <h1 className="admin-page__title">Hot threshold tuning</h1>
+      <p className="admin-page__intro">
+        Score, age, and comment count at action time for the first
+        time you pinned or hid each story. Tune the thresholds in{' '}
+        <code>src/lib/format.ts</code> against the data instead of
+        guessing. Sliders below feed into the threshold expression;
+        the live event list re-classifies on every change.{' '}
+        <Link to="/admin">← Admin dashboard</Link>
+      </p>
+
+      {serverLoading ? (
+        <p aria-busy="true">Loading telemetry…</p>
+      ) : serverError ? (
+        <p className="admin-page__note" role="alert">
+          Could not reach the telemetry endpoint
+          {serverError instanceof Error ? `: ${serverError.message}` : '.'}{' '}
+          Showing local-only data.
+        </p>
+      ) : null}
+
+      <ThresholdTuningBody events={tagged} />
+
+      <p className="admin-page__actions">
+        <button
+          type="button"
+          className="admin-page__refresh"
+          onClick={handleExport}
+        >
+          Export local JSON
+        </button>{' '}
+        <button
+          type="button"
+          className="admin-page__refresh"
+          onClick={handleClearLocal}
+        >
+          Clear local buffer
+        </button>
+      </p>
+      {exportText !== null ? (
+        <details className="admin-page__details" open>
+          <summary>Local telemetry export</summary>
+          <pre className="admin-page__raw" data-testid="threshold-export">
+            {exportText}
+          </pre>
+        </details>
+      ) : null}
+
+      <p className="admin-page__back">
+        <Link to="/top">← Back to Top</Link>
+      </p>
+    </article>
+  );
+}
+
+interface BodyProps {
+  events: TaggedEvent[];
+}
+
+// Default expression mirrors `isHotStory` exactly — same shape as
+// the rule the row Hot flag and the /hot feed already use, with
+// the constants exposed as slider-controlled variables so the
+// operator can shimmy them without retyping the expression.
+const DEFAULT_EXPRESSION =
+  'score >= normal_threshold || (age < young_age && score >= young_threshold)';
+
+interface ThresholdSliderState {
+  young_age: number;
+  young_threshold: number;
+  normal_threshold: number;
+}
+
+function defaultSliders(): ThresholdSliderState {
+  return {
+    young_age: HOT_RECENT_WINDOW_HOURS,
+    young_threshold: HOT_MIN_SCORE_RECENT,
+    normal_threshold: HOT_MIN_SCORE_ANY_AGE,
+  };
+}
+
+// Compile a user-typed expression into a predicate against an event
+// + the current slider values. Runs inside a `Function` constructor
+// because /tuning is operator-only and gated behind /api/admin's
+// HN round-trip — the audience is the verified admin, who already
+// has full control of their own session. Wrapped in try/catch so a
+// syntax error or runtime throw shows an inline message instead of
+// crashing the page.
+function compileExpression(
+  expr: string,
+): { ok: true; fn: (e: TelemetryEvent, s: ThresholdSliderState) => boolean }
+  | { ok: false; error: string } {
+  if (expr.trim().length === 0) {
+    return { ok: false, error: 'Expression is empty.' };
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let raw: any;
+  try {
+    raw = new Function(
+      'score',
+      'age',
+      'descendants',
+      'type',
+      'isHot',
+      'velocity',
+      'commentVelocity',
+      'young_age',
+      'young_threshold',
+      'normal_threshold',
+      `return (${expr});`,
+    );
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return {
+    ok: true,
+    fn: (e: TelemetryEvent, s: ThresholdSliderState): boolean => {
+      const age = ageHoursAtAction(e);
+      const safeAge = Math.max(age, 0.01);
+      try {
+        return Boolean(
+          raw(
+            e.score,
+            age,
+            e.descendants ?? 0,
+            e.type ?? '',
+            e.isHot,
+            e.score / safeAge,
+            (e.descendants ?? 0) / safeAge,
+            s.young_age,
+            s.young_threshold,
+            s.normal_threshold,
+          ),
+        );
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+function ThresholdTuningBody({ events }: BodyProps) {
+  const [expression, setExpression] = useState(DEFAULT_EXPRESSION);
+  const [sliders, setSliders] = useState<ThresholdSliderState>(() =>
+    defaultSliders(),
+  );
+
+  const compiled = useMemo(() => compileExpression(expression), [expression]);
+
+  // Per-event "would be hot under current expression" flag. Recomputed
+  // whenever the expression or slider values change. Cheap — even at
+  // 10k events the eval is sub-millisecond.
+  const flags = useMemo(() => {
+    if (!compiled.ok) return new Map<string, boolean>();
+    const out = new Map<string, boolean>();
+    for (const e of events) {
+      const key = `${e.eventTime}|${e.id}|${e.action}`;
+      out.set(key, compiled.fn(e, sliders));
+    }
+    return out;
+  }, [compiled, events, sliders]);
+
+  const flagFor = useCallback(
+    (e: TelemetryEvent) =>
+      flags.get(`${e.eventTime}|${e.id}|${e.action}`) ?? false,
+    [flags],
+  );
+
+  return (
+    <>
+      <ThresholdControls
+        expression={expression}
+        onExpressionChange={setExpression}
+        sliders={sliders}
+        onSlidersChange={setSliders}
+        compileError={compiled.ok ? null : compiled.error}
+      />
+      <ThresholdLiveCounts events={events} flagFor={flagFor} />
+      <ThresholdScatters events={events} flagFor={flagFor} sliders={sliders} />
+      <ThresholdActionStats events={events} />
+      <ThresholdTypeBreakdown events={events} />
+      <ThresholdOpenedRatio events={events} />
+      <ThresholdEventList events={events} flagFor={flagFor} />
+    </>
+  );
+}
+
+interface ControlsProps {
+  expression: string;
+  onExpressionChange: (s: string) => void;
+  sliders: ThresholdSliderState;
+  onSlidersChange: (s: ThresholdSliderState) => void;
+  compileError: string | null;
+}
+
+function ThresholdControls({
+  expression,
+  onExpressionChange,
+  sliders,
+  onSlidersChange,
+  compileError,
+}: ControlsProps) {
+  const reset = () => {
+    onExpressionChange(DEFAULT_EXPRESSION);
+    onSlidersChange(defaultSliders());
+  };
+  return (
+    <section data-testid="threshold-controls">
+      <h2 className="admin-page__heading">Threshold</h2>
+      <p className="admin-page__note">
+        Variables: <code>score</code>, <code>age</code> (hours),{' '}
+        <code>descendants</code>, <code>type</code>, <code>isHot</code>{' '}
+        (current rule), <code>velocity</code> (score/age),{' '}
+        <code>commentVelocity</code> (descendants/age),{' '}
+        <code>young_age</code>, <code>young_threshold</code>,{' '}
+        <code>normal_threshold</code> (sliders below).
+      </p>
+      <p>
+        <label>
+          <span style={{ display: 'block' }}>Expression</span>
+          <input
+            type="text"
+            value={expression}
+            onChange={(e) => onExpressionChange(e.target.value)}
+            data-testid="threshold-expression"
+            style={{
+              width: '100%',
+              fontFamily: 'monospace',
+              fontSize: '0.95em',
+              padding: '0.4em',
+            }}
+          />
+        </label>
+      </p>
+      {compileError ? (
+        <p className="admin-page__note" role="alert">
+          Expression error: <code>{compileError}</code>
+        </p>
+      ) : null}
+      <div data-testid="threshold-sliders">
+        <SliderRow
+          label="young_age (hours)"
+          value={sliders.young_age}
+          min={0.5}
+          max={12}
+          step={0.5}
+          onChange={(v) => onSlidersChange({ ...sliders, young_age: v })}
+          testId="slider-young-age"
+        />
+        <SliderRow
+          label="young_threshold (points)"
+          value={sliders.young_threshold}
+          min={5}
+          max={200}
+          step={5}
+          onChange={(v) =>
+            onSlidersChange({ ...sliders, young_threshold: v })
+          }
+          testId="slider-young-threshold"
+        />
+        <SliderRow
+          label="normal_threshold (points)"
+          value={sliders.normal_threshold}
+          min={20}
+          max={500}
+          step={10}
+          onChange={(v) =>
+            onSlidersChange({ ...sliders, normal_threshold: v })
+          }
+          testId="slider-normal-threshold"
+        />
+      </div>
+      <p className="admin-page__actions">
+        <button
+          type="button"
+          className="admin-page__refresh"
+          onClick={reset}
+          data-testid="threshold-reset"
+        >
+          Reset to defaults
+        </button>
+      </p>
+    </section>
+  );
+}
+
+interface SliderRowProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  testId?: string;
+}
+
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  testId,
+}: SliderRowProps) {
+  return (
+    <p style={{ display: 'flex', gap: '0.75em', alignItems: 'center' }}>
+      <label
+        style={{
+          minWidth: '14em',
+          display: 'inline-block',
+          fontFamily: 'monospace',
+          fontSize: '0.9em',
+        }}
+      >
+        {label}
+      </label>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        data-testid={testId}
+        style={{ flex: 1, minWidth: 120 }}
+      />
+      <span style={{ minWidth: '4em', textAlign: 'right' }}>
+        <code>{value}</code>
+      </span>
+    </p>
+  );
+}
+
+interface CountsProps {
+  events: TaggedEvent[];
+  flagFor: (e: TelemetryEvent) => boolean;
+}
+
+// Plain percentile (linear interpolation). Returns NaN for empty
+// input so callers can decide whether to render or hide a stat.
+function percentile(sortedAsc: number[], p: number): number {
+  if (sortedAsc.length === 0) return NaN;
+  if (sortedAsc.length === 1) return sortedAsc[0];
+  const rank = (p / 100) * (sortedAsc.length - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  if (lo === hi) return sortedAsc[lo];
+  const frac = rank - lo;
+  return sortedAsc[lo] * (1 - frac) + sortedAsc[hi] * frac;
+}
+
+function formatNumber(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(1);
+  return n.toFixed(2);
+}
+
+interface ScattersProps {
+  events: TaggedEvent[];
+  flagFor: (e: TelemetryEvent) => boolean;
+  sliders: ThresholdSliderState;
+}
+
+const SCATTER_W = 480;
+const SCATTER_H = 240;
+const SCATTER_PAD = 36;
+
+interface ScatterProps {
+  events: TaggedEvent[];
+  flagFor: (e: TelemetryEvent) => boolean;
+  getY: (e: TelemetryEvent) => number;
+  yLabel: string;
+  yMaxFloor: number;
+  referenceLines?: Array<
+    | { kind: 'horizontal'; y: number }
+    | { kind: 'vertical'; x: number }
+    | { kind: 'corner'; y: number; xMax: number }
+  >;
+  testId?: string;
+}
+
+// Reusable score- or comments-vs-age scatter. Pin events draw as
+// triangles, hide events as circles, so the legend stays color-
+// independent (color is reserved for the "would be hot under the
+// current rule" yes/no marker — green outline = matches, no
+// outline = doesn't).
+function Scatter({
+  events,
+  flagFor,
+  getY,
+  yLabel,
+  yMaxFloor,
+  referenceLines,
+  testId,
+}: ScatterProps) {
+  if (events.length === 0) {
+    return (
+      <p className="admin-page__note">
+        No events recorded yet.
+      </p>
+    );
+  }
+  const xMax = 48;
+  const ys = events.map(getY).sort((a, b) => a - b);
+  const yMax = Math.max(yMaxFloor, percentile(ys, 99));
+  const xScale = (h: number): number => {
+    const c = Math.min(h, xMax);
+    return SCATTER_PAD + (c / xMax) * (SCATTER_W - SCATTER_PAD * 2);
+  };
+  const yScale = (v: number): number => {
+    const c = Math.min(v, yMax);
+    return (
+      SCATTER_H -
+      SCATTER_PAD -
+      (c / yMax) * (SCATTER_H - SCATTER_PAD * 2)
+    );
+  };
+  return (
+    <svg
+      viewBox={`0 0 ${SCATTER_W} ${SCATTER_H}`}
+      width="100%"
+      role="img"
+      aria-label={`${yLabel} vs age scatter`}
+      data-testid={testId}
+    >
+      <line
+        x1={SCATTER_PAD}
+        y1={SCATTER_H - SCATTER_PAD}
+        x2={SCATTER_W - SCATTER_PAD}
+        y2={SCATTER_H - SCATTER_PAD}
+        stroke="currentColor"
+        strokeOpacity="0.4"
+      />
+      <line
+        x1={SCATTER_PAD}
+        y1={SCATTER_PAD}
+        x2={SCATTER_PAD}
+        y2={SCATTER_H - SCATTER_PAD}
+        stroke="currentColor"
+        strokeOpacity="0.4"
+      />
+      {(referenceLines ?? []).map((ref, i) => {
+        const stroke = 'var(--nh-orange, #ff6600)';
+        if (ref.kind === 'horizontal') {
+          return (
+            <line
+              key={i}
+              x1={SCATTER_PAD}
+              y1={yScale(ref.y)}
+              x2={SCATTER_W - SCATTER_PAD}
+              y2={yScale(ref.y)}
+              stroke={stroke}
+              strokeOpacity="0.5"
+              strokeDasharray="4 3"
+            />
+          );
+        }
+        if (ref.kind === 'vertical') {
+          return (
+            <line
+              key={i}
+              x1={xScale(ref.x)}
+              y1={SCATTER_PAD}
+              x2={xScale(ref.x)}
+              y2={SCATTER_H - SCATTER_PAD}
+              stroke={stroke}
+              strokeOpacity="0.5"
+              strokeDasharray="4 3"
+            />
+          );
+        }
+        return (
+          <g key={i}>
+            <line
+              x1={SCATTER_PAD}
+              y1={yScale(ref.y)}
+              x2={xScale(ref.xMax)}
+              y2={yScale(ref.y)}
+              stroke={stroke}
+              strokeOpacity="0.5"
+              strokeDasharray="4 3"
+            />
+            <line
+              x1={xScale(ref.xMax)}
+              y1={yScale(ref.y)}
+              x2={xScale(ref.xMax)}
+              y2={SCATTER_H - SCATTER_PAD}
+              stroke={stroke}
+              strokeOpacity="0.5"
+              strokeDasharray="4 3"
+            />
+          </g>
+        );
+      })}
+      <text
+        x={SCATTER_PAD}
+        y={SCATTER_H - 6}
+        fontSize="10"
+        fill="currentColor"
+      >
+        0 h
+      </text>
+      <text
+        x={SCATTER_W - SCATTER_PAD - 18}
+        y={SCATTER_H - 6}
+        fontSize="10"
+        fill="currentColor"
+      >
+        {xMax} h
+      </text>
+      <text
+        x={4}
+        y={SCATTER_H - SCATTER_PAD}
+        fontSize="10"
+        fill="currentColor"
+      >
+        0
+      </text>
+      <text x={4} y={SCATTER_PAD + 4} fontSize="10" fill="currentColor">
+        {Math.round(yMax)}
+      </text>
+      <text
+        x={SCATTER_W / 2}
+        y={12}
+        fontSize="10"
+        textAnchor="middle"
+        fill="currentColor"
+      >
+        {yLabel}
+      </text>
+      {events.map((e, i) => {
+        const cx = xScale(ageHoursAtAction(e));
+        const cy = yScale(getY(e));
+        const fill = e.action === 'pin' ? '#3a8a3a' : '#c14545';
+        const matches = flagFor(e);
+        const r = 4;
+        if (e.action === 'pin') {
+          // Up-triangle for pin
+          const points = `${cx},${cy - r} ${cx - r},${cy + r} ${cx + r},${cy + r}`;
+          return (
+            <polygon
+              key={`${e.source}-${e.eventTime}-${e.id}-${i}`}
+              points={points}
+              fill={fill}
+              fillOpacity="0.7"
+              stroke={matches ? '#0c5d0c' : 'none'}
+              strokeWidth={matches ? 1.5 : 0}
+            />
+          );
+        }
+        return (
+          <circle
+            key={`${e.source}-${e.eventTime}-${e.id}-${i}`}
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill={fill}
+            fillOpacity="0.7"
+            stroke={matches ? '#0c5d0c' : 'none'}
+            strokeWidth={matches ? 1.5 : 0}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function ThresholdScatters({ events, flagFor, sliders }: ScattersProps) {
+  const scoreRefs: NonNullable<ScatterProps['referenceLines']> = [
+    { kind: 'horizontal', y: sliders.normal_threshold },
+    {
+      kind: 'corner',
+      y: sliders.young_threshold,
+      xMax: sliders.young_age,
+    },
+  ];
+  return (
+    <details data-testid="threshold-scatters" open>
+      <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
+        Distribution
+      </summary>
+      <p className="admin-page__note">
+        Triangles = pin events, circles = hide events. A green
+        outline means the event matches the current threshold rule.
+        Dashed orange lines mark the slider values. Pin (▲ green
+        outline) = good — you'd see this story. Hide (● green outline)
+        = bad — you'd be surfaced a story you'd already dismissed.
+      </p>
+      <Scatter
+        events={events}
+        flagFor={flagFor}
+        getY={(e) => e.score}
+        yLabel="score"
+        yMaxFloor={50}
+        referenceLines={scoreRefs}
+        testId="threshold-scatter-score"
+      />
+      <Scatter
+        events={events}
+        flagFor={flagFor}
+        getY={(e) => e.descendants ?? 0}
+        yLabel="comments"
+        yMaxFloor={20}
+        testId="threshold-scatter-comments"
+      />
+    </details>
+  );
+}
+
+interface StatsProps {
+  events: TaggedEvent[];
+}
+
+interface ActionStats {
+  count: number;
+  scoreP25: number;
+  scoreMedian: number;
+  scoreP75: number;
+  ageP25: number;
+  ageMedian: number;
+  ageP75: number;
+  descendantsP25: number;
+  descendantsMedian: number;
+  descendantsP75: number;
+}
+
+function summarize(events: TelemetryEvent[]): ActionStats {
+  const scores = events.map((e) => e.score).sort((a, b) => a - b);
+  const ages = events.map(ageHoursAtAction).sort((a, b) => a - b);
+  const ds = events
+    .map((e) => e.descendants ?? 0)
+    .sort((a, b) => a - b);
+  return {
+    count: events.length,
+    scoreP25: percentile(scores, 25),
+    scoreMedian: percentile(scores, 50),
+    scoreP75: percentile(scores, 75),
+    ageP25: percentile(ages, 25),
+    ageMedian: percentile(ages, 50),
+    ageP75: percentile(ages, 75),
+    descendantsP25: percentile(ds, 25),
+    descendantsMedian: percentile(ds, 50),
+    descendantsP75: percentile(ds, 75),
+  };
+}
+
+function ThresholdActionStats({ events }: StatsProps) {
+  const pinEvents = events.filter((e) => e.action === 'pin');
+  const hideEvents = events.filter((e) => e.action === 'hide');
+  const pinStats = summarize(pinEvents);
+  const hideStats = summarize(hideEvents);
+  return (
+    <section data-testid="threshold-action-stats">
+      <h2 className="admin-page__heading">Pinned ({pinStats.count})</h2>
+      {pinStats.count > 0 ? (
+        <dl className="admin-page__list" data-testid="pin-stats">
+          <div>
+            <dt>Score (P25 / median / P75)</dt>
+            <dd>
+              {formatNumber(pinStats.scoreP25)} /{' '}
+              {formatNumber(pinStats.scoreMedian)} /{' '}
+              {formatNumber(pinStats.scoreP75)}
+            </dd>
+          </div>
+          <div>
+            <dt>Age in hours (P25 / median / P75)</dt>
+            <dd>
+              {formatNumber(pinStats.ageP25)} /{' '}
+              {formatNumber(pinStats.ageMedian)} /{' '}
+              {formatNumber(pinStats.ageP75)}
+            </dd>
+          </div>
+          <div>
+            <dt>Comments (P25 / median / P75)</dt>
+            <dd>
+              {formatNumber(pinStats.descendantsP25)} /{' '}
+              {formatNumber(pinStats.descendantsMedian)} /{' '}
+              {formatNumber(pinStats.descendantsP75)}
+            </dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="admin-page__note">No pin events recorded yet.</p>
+      )}
+      <h2 className="admin-page__heading">Hidden ({hideStats.count})</h2>
+      {hideStats.count > 0 ? (
+        <dl className="admin-page__list" data-testid="hide-stats">
+          <div>
+            <dt>Score (P25 / median / P75)</dt>
+            <dd>
+              {formatNumber(hideStats.scoreP25)} /{' '}
+              {formatNumber(hideStats.scoreMedian)} /{' '}
+              {formatNumber(hideStats.scoreP75)}
+            </dd>
+          </div>
+          <div>
+            <dt>Age in hours (P25 / median / P75)</dt>
+            <dd>
+              {formatNumber(hideStats.ageP25)} /{' '}
+              {formatNumber(hideStats.ageMedian)} /{' '}
+              {formatNumber(hideStats.ageP75)}
+            </dd>
+          </div>
+          <div>
+            <dt>Comments (P25 / median / P75)</dt>
+            <dd>
+              {formatNumber(hideStats.descendantsP25)} /{' '}
+              {formatNumber(hideStats.descendantsMedian)} /{' '}
+              {formatNumber(hideStats.descendantsP75)}
+            </dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="admin-page__note">No hide events recorded yet.</p>
+      )}
+    </section>
+  );
+}
+
+function ThresholdTypeBreakdown({ events }: StatsProps) {
+  // Matrix: rows = type, columns = pin / hide counts.
+  const buckets = new Map<string, { pin: number; hide: number }>();
+  for (const e of events) {
+    const t = e.type ?? '(unknown)';
+    const cur = buckets.get(t) ?? { pin: 0, hide: 0 };
+    if (e.action === 'pin') cur.pin += 1;
+    else cur.hide += 1;
+    buckets.set(t, cur);
+  }
+  const rows = [...buckets.entries()].sort(
+    (a, b) => b[1].pin + b[1].hide - (a[1].pin + a[1].hide),
+  );
+  if (rows.length === 0) return null;
+  return (
+    <section data-testid="threshold-type-breakdown">
+      <h2 className="admin-page__heading">By type</h2>
+      <table style={{ borderCollapse: 'collapse', fontSize: '0.95em' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '0.2em 1em 0.2em 0' }}>
+              type
+            </th>
+            <th style={{ textAlign: 'right', padding: '0.2em 1em 0.2em 0' }}>
+              pin
+            </th>
+            <th style={{ textAlign: 'right', padding: '0.2em 0' }}>
+              hide
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([t, c]) => (
+            <tr key={t}>
+              <td style={{ padding: '0.2em 1em 0.2em 0' }}>
+                <code>{t}</code>
+              </td>
+              <td
+                style={{
+                  textAlign: 'right',
+                  padding: '0.2em 1em 0.2em 0',
+                }}
+              >
+                {c.pin}
+              </td>
+              <td style={{ textAlign: 'right', padding: '0.2em 0' }}>
+                {c.hide}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function ThresholdOpenedRatio({ events }: StatsProps) {
+  // "Did the reader already open the article before pinning/hiding?"
+  // Stronger intent signal — distinguish "opinion formed from
+  // headline" from "opinion formed after reading."
+  const ratio = (action: 'pin' | 'hide') => {
+    const total = events.filter((e) => e.action === action);
+    const opened = total.filter((e) => e.articleOpened === true);
+    return { opened: opened.length, total: total.length };
+  };
+  const pin = ratio('pin');
+  const hide = ratio('hide');
+  if (pin.total === 0 && hide.total === 0) return null;
+  const pct = (n: number, total: number) =>
+    total === 0 ? '—' : `${Math.round((n / total) * 100)}%`;
+  return (
+    <section data-testid="threshold-opened-ratio">
+      <h2 className="admin-page__heading">Article opened first</h2>
+      <dl className="admin-page__list">
+        <div>
+          <dt>Pinned after opening</dt>
+          <dd>
+            {pin.opened} of {pin.total}{' '}
+            <span style={{ opacity: 0.6 }}>
+              ({pct(pin.opened, pin.total)})
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt>Hidden after opening</dt>
+          <dd>
+            {hide.opened} of {hide.total}{' '}
+            <span style={{ opacity: 0.6 }}>
+              ({pct(hide.opened, hide.total)})
+            </span>
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+interface EventListProps {
+  events: TaggedEvent[];
+  flagFor: (e: TelemetryEvent) => boolean;
+}
+
+function ThresholdEventList({ events, flagFor }: EventListProps) {
+  // Newest first — most relevant for tuning.
+  const sorted = [...events].sort((a, b) => b.eventTime - a.eventTime);
+  return (
+    <details data-testid="threshold-event-list">
+      <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
+        Events ({sorted.length})
+      </summary>
+      <p className="admin-page__note">
+        Each row shows whether the current threshold rule matches it
+        (✓ = "would surface as hot"). Click a story to inspect the
+        thread.
+      </p>
+      <table
+        style={{ borderCollapse: 'collapse', fontSize: '0.92em', width: '100%' }}
+      >
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '0.2em 0.5em 0.2em 0' }}>
+              hot?
+            </th>
+            <th style={{ textAlign: 'left', padding: '0.2em 0.5em 0.2em 0' }}>
+              action
+            </th>
+            <th style={{ textAlign: 'right', padding: '0.2em 0.5em 0.2em 0' }}>
+              score
+            </th>
+            <th style={{ textAlign: 'right', padding: '0.2em 0.5em 0.2em 0' }}>
+              age (h)
+            </th>
+            <th style={{ textAlign: 'right', padding: '0.2em 0.5em 0.2em 0' }}>
+              cmts
+            </th>
+            <th style={{ textAlign: 'left', padding: '0.2em 0.5em 0.2em 0' }}>
+              type
+            </th>
+            <th style={{ textAlign: 'left', padding: '0.2em 0' }}>title</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((e, i) => {
+            const matches = flagFor(e);
+            const age = ageHoursAtAction(e);
+            return (
+              <tr
+                key={`${e.source}-${e.eventTime}-${e.id}-${i}`}
+                data-testid="threshold-event-row"
+                data-matches={matches ? 'true' : 'false'}
+              >
+                <td style={{ padding: '0.2em 0.5em 0.2em 0' }}>
+                  {matches ? '✓' : '·'}
+                </td>
+                <td style={{ padding: '0.2em 0.5em 0.2em 0' }}>
+                  <code>{e.action}</code>
+                </td>
+                <td
+                  style={{
+                    textAlign: 'right',
+                    padding: '0.2em 0.5em 0.2em 0',
+                  }}
+                >
+                  {e.score}
+                </td>
+                <td
+                  style={{
+                    textAlign: 'right',
+                    padding: '0.2em 0.5em 0.2em 0',
+                  }}
+                >
+                  {formatNumber(age)}
+                </td>
+                <td
+                  style={{
+                    textAlign: 'right',
+                    padding: '0.2em 0.5em 0.2em 0',
+                  }}
+                >
+                  {e.descendants ?? 0}
+                </td>
+                <td style={{ padding: '0.2em 0.5em 0.2em 0' }}>
+                  <code>{e.type ?? '—'}</code>
+                </td>
+                <td style={{ padding: '0.2em 0' }}>
+                  <Link to={`/item/${e.id}`}>
+                    {e.title ?? `#${e.id}`}
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </details>
+  );
+}
+
+function ThresholdLiveCounts({ events, flagFor }: CountsProps) {
+  const pinTotal = events.filter((e) => e.action === 'pin').length;
+  const hideTotal = events.filter((e) => e.action === 'hide').length;
+  const pinMatch = events.filter(
+    (e) => e.action === 'pin' && flagFor(e),
+  ).length;
+  const hideMatch = events.filter(
+    (e) => e.action === 'hide' && flagFor(e),
+  ).length;
+  const pct = (n: number, total: number) =>
+    total === 0 ? '—' : `${Math.round((n / total) * 100)}%`;
+  return (
+    <section data-testid="threshold-live-counts">
+      <h2 className="admin-page__heading">Live counts under this rule</h2>
+      <dl className="admin-page__list">
+        <div>
+          <dt>Pinned events that would be hot</dt>
+          <dd data-testid="pin-match">
+            {pinMatch} of {pinTotal}{' '}
+            <span style={{ opacity: 0.6 }}>
+              ({pct(pinMatch, pinTotal)})
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt>Hidden events that would be hot</dt>
+          <dd data-testid="hide-match">
+            {hideMatch} of {hideTotal}{' '}
+            <span style={{ opacity: 0.6 }}>
+              ({pct(hideMatch, hideTotal)})
+            </span>
+          </dd>
+        </div>
+      </dl>
+      <p className="admin-page__note">
+        A good rule maximizes <em>pin matches</em> (you'd see the
+        stories you wanted to read) while minimizing{' '}
+        <em>hide matches</em> (you wouldn't be surfaced stories you'd
+        already chosen to dismiss).
+      </p>
+    </section>
+  );
+}

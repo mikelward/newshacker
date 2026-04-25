@@ -46,6 +46,33 @@ export interface TelemetryEvent {
   // form string; the renderer slices by it.
   sourceFeed: string;
   eventTime: number;
+  // ---- All fields below are optional so older events recorded
+  // before the field was added still parse cleanly. New emissions
+  // populate them all.
+
+  // Comment count at action time. Pairs with `score` on the
+  // scatter — a 50-point story with 200 comments looks very
+  // different from a 50-point story with 3.
+  descendants?: number;
+  // `'story' | 'job' | 'ask' | 'show' | 'poll'` (or whatever HN
+  // returns; field is free-form so the validator doesn't reject a
+  // future HN-side addition). Different categories have different
+  // baseline scores — without slicing by type the median across
+  // pins is a weighted average of "what was on screen the day you
+  // binged".
+  type?: string;
+  // Did the reader open the article (clicked through and we
+  // recorded it in `openedStories`) before firing this action?
+  // True = stronger intent signal: pin-after-reading is a stronger
+  // "yes" than pin-from-headline; same for hide.
+  articleOpened?: boolean;
+  // Story title at action time. Captured so the /tuning event
+  // list can display human-readable rows ("Show HN: my project"
+  // vs "Politics flame thread") instead of opaque ids — without
+  // a title the page is unscanable. HN titles are public data
+  // and bounded in length, so logging them carries no privacy
+  // or storage cost worth bookkeeping.
+  title?: string;
 }
 
 // Ring-buffer cap on the local mirror. 2000 entries × ~200 bytes
@@ -54,6 +81,14 @@ export interface TelemetryEvent {
 // view is happy with this many points; the server-side cap of
 // 10k is the canonical store.
 const LOCAL_RING_CAP = 2000;
+
+// Cap on the per-action seen-id list so the dedup metadata can't
+// grow without bound. At 50 actions/day this is years of history;
+// once it's full the oldest ids fall off and the user could re-emit
+// telemetry for an ancient pin if they unpin and re-pin it. That's
+// fine for "first action" semantics — the long-tail re-emission
+// rate is essentially zero.
+const MAX_SEEN_PER_ACTION = 5000;
 
 const EVENTS_KEY = 'newshacker:telemetry:events';
 const SEEN_IDS_KEY = 'newshacker:telemetry:firstSeenIds';
@@ -102,17 +137,26 @@ function readEvents(): TelemetryEvent[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
+    // `Number.isFinite` not `typeof === 'number'` — `NaN` and
+    // `±Infinity` both pass the typeof check but break the
+    // /admin view's sort/percentile math (`a - b === NaN`,
+    // `Math.max(...) === NaN`). A corrupted entry should be
+    // dropped, same as the server-side validator does.
     return parsed.filter(
       (e): e is TelemetryEvent =>
         !!e &&
         typeof e === 'object' &&
         (e.action === 'pin' || e.action === 'hide') &&
-        typeof e.id === 'number' &&
-        typeof e.score === 'number' &&
-        typeof e.time === 'number' &&
+        Number.isFinite(e.id) &&
+        Number.isFinite(e.score) &&
+        Number.isFinite(e.time) &&
         typeof e.isHot === 'boolean' &&
         typeof e.sourceFeed === 'string' &&
-        typeof e.eventTime === 'number',
+        Number.isFinite(e.eventTime) &&
+        (e.descendants === undefined || Number.isFinite(e.descendants)) &&
+        (e.type === undefined || typeof e.type === 'string') &&
+        (e.articleOpened === undefined || typeof e.articleOpened === 'boolean') &&
+        (e.title === undefined || typeof e.title === 'string'),
     );
   } catch {
     return [];
@@ -151,6 +195,11 @@ function postEvent(event: TelemetryEvent): void {
 
 export interface RecordOpts {
   isAuthenticated: boolean;
+  // Whether the reader had opened the article (recorded in the
+  // `openedStories` store) at the moment of action. Caller passes
+  // `articleOpenedIds.has(story.id)` so the lib doesn't have to
+  // import the opened-stories layer just for this read.
+  articleOpened?: boolean;
   // `now` and `env` are injection points so unit tests can pin both
   // without monkey-patching globals.
   now?: number;
@@ -159,27 +208,53 @@ export interface RecordOpts {
 
 export function recordFirstAction(
   action: TelemetryAction,
-  story: Pick<HNItem, 'id' | 'score' | 'time'>,
+  story: Pick<HNItem, 'id' | 'score' | 'time' | 'descendants' | 'type' | 'title'>,
   sourceFeed: string,
   opts: RecordOpts,
 ): void {
   const env = opts.env ?? getDeployEnv();
   if (!shouldEmit(env, opts.isAuthenticated)) return;
 
+  // Skip events where the underlying HN item didn't carry the
+  // fields we need to make sense of the data point. Recording
+  // `score: 0, time: 0` would put a phantom dot at age = 50+
+  // years on the /admin scatter and skew every percentile.
+  // Better to drop the event entirely than to dilute the dataset.
+  if (!Number.isFinite(story.score) || (story.score ?? 0) < 0) return;
+  if (!Number.isFinite(story.time) || (story.time ?? 0) <= 0) return;
+
   const seen = readSeen();
-  const list = seen[action];
-  if (list.includes(story.id)) return;
-  list.push(story.id);
+  // Set-based membership check — O(1) instead of `Array.includes`'s
+  // O(n) — and cap the surviving list at the most-recent N so the
+  // dedup metadata can't grow without bound.
+  const set = new Set(seen[action]);
+  if (set.has(story.id)) return;
+  let next = [...seen[action], story.id];
+  if (next.length > MAX_SEEN_PER_ACTION) {
+    next = next.slice(next.length - MAX_SEEN_PER_ACTION);
+  }
+  seen[action] = next;
   writeSeen(seen);
 
+  // Cap title at a generous length so a pathological HN title
+  // can't blow out the event payload. Real HN titles are <100
+  // chars by convention; 200 is a safe ceiling.
+  const title =
+    typeof story.title === 'string'
+      ? story.title.slice(0, 200)
+      : undefined;
   const event: TelemetryEvent = {
     action,
     id: story.id,
-    score: story.score ?? 0,
-    time: story.time ?? 0,
+    score: story.score!,
+    time: story.time!,
     isHot: isHotStory(story),
     sourceFeed,
     eventTime: opts.now ?? Date.now(),
+    descendants: story.descendants ?? 0,
+    type: story.type,
+    articleOpened: opts.articleOpened,
+    title,
   };
 
   const events = readEvents();

@@ -697,10 +697,26 @@ export function Thread({ id }: Props) {
       pin(id);
       if (item) {
         prefetchPinnedStory(queryClient, item);
-        recordFirstAction('pin', item, 'thread', { isAuthenticated });
+        // The user is *on* the thread page when they tap Pin, so
+        // they're well into "I read this" territory — almost
+        // always true. We still consult `articleOpenedIds` to
+        // honor the actual record.
+        recordFirstAction('pin', item, 'thread', {
+          isAuthenticated,
+          articleOpened: articleOpenedIds.has(id),
+        });
       }
     }
-  }, [pinned, id, pin, unpin, item, queryClient, isAuthenticated]);
+  }, [
+    pinned,
+    id,
+    pin,
+    unpin,
+    item,
+    queryClient,
+    isAuthenticated,
+    articleOpenedIds,
+  ]);
   const { isDone, markDone, unmarkDone } = useDoneStories();
   const done = isDone(id);
   const handleToggleDone = useCallback(() => {

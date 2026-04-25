@@ -189,9 +189,14 @@ export interface StoryMetaInput {
 // below are a first cut based on typical HN front-page rhythms;
 // revisit once we've watched how many rows actually light up in a
 // normal feed and whether the signal is too loud or too quiet.
-const HOT_MIN_SCORE_ANY_AGE = 100;
-const HOT_MIN_SCORE_RECENT = 40;
-const HOT_RECENT_WINDOW_HOURS = 2;
+//
+// Exported so the `/admin` "Hot threshold tuning" view can render
+// reference lines and the default expression against the same
+// numbers `isHotStory` actually uses — without that single source
+// of truth, the UI silently drifts when these are tuned.
+export const HOT_MIN_SCORE_ANY_AGE = 100;
+export const HOT_MIN_SCORE_RECENT = 40;
+export const HOT_RECENT_WINDOW_HOURS = 2;
 
 /**
  * Returns true when the story is "trending enough" to flag with the
