@@ -393,6 +393,30 @@
   letter-spacing: 0.05em;
 }
 
+/* Root-story title shown directly under the eyebrow on a focused
+   comment view. Smaller than the story-page .thread__title (the
+   comment body is the page subject) but heavy enough to read as
+   "this is what the discussion is about" at a glance. Linked to the
+   story so a reader who wants context taps through. */
+.thread__comment-story-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--nh-text);
+}
+
+.thread__comment-story-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .thread__comment-story-title a:hover {
+    text-decoration: underline;
+  }
+}
+
 /* "View full thread →" link below the focused comment body. Ties
    the comment back to its story so the reader can fall into the wider
    discussion if they want context. Sits inside .thread__header so the

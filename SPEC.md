@@ -212,11 +212,19 @@ server-side with most-recent-first eviction.
    - **Comment summary card** (AI, Gemini 2.5 Flash-Lite) between the meta line and the comment list, for any story with at least one top-level comment — including self-posts (Ask HN, Show HN). Renders 3–5 short insights. Auto-runs on load. Reuses the same card visual as the article summary.
    - Nested comments, each collapsed by default with a 3-line body preview. See *Comment row layout*.
    - Deep-linkable: `/item/:id` — `:id` may be a story or a comment.
-     Comments render a focused single-comment view (eyebrow, author +
-     age, comment body, replies) plus a "View full thread → <story
-     title>" link that walks up the `parent` chain to the root story.
+     Comments render a focused single-comment view: eyebrow ("Comment"),
+     the **root story's title as a heading link** (resolved by walking
+     up the `parent` chain), author + age, the comment body, and the
+     comment's own replies underneath. While the parent walk is in
+     flight, or if it can't reach a story, a "View parent →" link is
+     shown instead so the reader is never stranded with no context.
      Story-only chrome — title link, summary cards, story action bar —
-     is omitted in the comment view.
+     is omitted in the comment view. *Deferred:* whether to also render
+     the article SummaryCard / CommentsSummaryCard on the comment view.
+     Useful context but doubles the surface where article summaries
+     auto-run; per AGENTS.md rule 11 the cost / "is it actually wanted
+     here?" tradeoff deserves its own decision once we see how the
+     title-only header feels in practice.
 
 3. **User view (minimal)**
    - `/user/:id` shows karma, created date, about text, and the user's
