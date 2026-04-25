@@ -432,4 +432,37 @@ describe('useVote', () => {
     expect(result.current.vote.isVoted(71)).toBe(false);
     expect(result.current.vote.isDownvoted(71)).toBe(false);
   });
+
+  it('a 401 from /api/vote eagerly clears auth state', async () => {
+    // /api/me says authenticated, but /api/vote returns 401 — the
+    // server-side HN session has died mid-flight. Without an
+    // explicit clear the user keeps seeing logged-in UI for up to
+    // useAuth's staleTime (1h) and every retry fails identically.
+    // useVote must invalidate ME_QUERY_KEY on a VoteError.status
+    // === 401 so the next render flips isAuthenticated to false.
+    const toasts: ToastOptions[] = [];
+    stubFetch({
+      me: 'alice',
+      vote: () =>
+        new Response(JSON.stringify({ error: 'session expired' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+    });
+    const { result } = renderVoteAndAuth(newClient(), toasts);
+    await waitUntilLoggedIn(result, 'alice');
+    expect(result.current.auth.isAuthenticated).toBe(true);
+
+    act(() => {
+      result.current.vote.toggleVote(99);
+    });
+    await waitFor(() => {
+      expect(result.current.auth.isAuthenticated).toBe(false);
+    });
+    // Optimistic vote rolls back too.
+    expect(result.current.vote.isVoted(99)).toBe(false);
+    // And the user gets the server-supplied message rather than
+    // silently being kicked.
+    expect(toasts.some((t) => /session expired/i.test(t.message))).toBe(true);
+  });
 });
