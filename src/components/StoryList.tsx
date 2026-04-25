@@ -104,6 +104,15 @@ interface ImplProps {
   // rule matches against the hidden set are silently invisible
   // and the operator has no signal that the rule is too loose.
   includeHidden?: boolean;
+  // When true, the list renders without any row-level mutation
+  // affordances: Pin/Unpin, Hide, Share, swipe gestures, the
+  // long-press row menu, and the bulk Sweep button are all
+  // suppressed. The right-side icon (driven by `rightActionFor`)
+  // still renders but is informational only — the consumer's
+  // `onToggle` is responsible for being a no-op. Used by the
+  // /tuning Preview where the operator should never mutate
+  // reader state from inside a tuning experiment.
+  readOnly?: boolean;
 }
 
 interface StoryListItemRightAction {
@@ -111,6 +120,12 @@ interface StoryListItemRightAction {
   icon: ReactNode;
   onToggle: () => void;
   testId?: string;
+  // When explicitly false, the button renders without the
+  // `pin-btn--active` orange tint — so a "read-only / inactive"
+  // affordance (e.g. the Preview's hollow-pin variant) doesn't
+  // get painted in HN orange like the normal pin/exclam icons
+  // do. Default true preserves backwards compat.
+  active?: boolean;
 }
 
 function measureHeaderInset(): number {
@@ -184,6 +199,7 @@ export function StoryListImpl({
   showVelocity = false,
   includeDone = false,
   includeHidden = false,
+  readOnly = false,
 }: ImplProps) {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -411,15 +427,17 @@ export function StoryListImpl({
 
   const sweepableIds = useMemo(
     () =>
-      visibleStories
-        .map((s) => s.id)
-        .filter(
-          (id) =>
-            inViewIds.has(id) &&
-            !pinnedIds.has(id) &&
-            !hiddenIds.has(id),
-        ),
-    [visibleStories, inViewIds, pinnedIds, hiddenIds],
+      readOnly
+        ? []
+        : visibleStories
+            .map((s) => s.id)
+            .filter(
+              (id) =>
+                inViewIds.has(id) &&
+                !pinnedIds.has(id) &&
+                !hiddenIds.has(id),
+            ),
+    [readOnly, visibleStories, inViewIds, pinnedIds, hiddenIds],
   );
 
   // Visual "whoosh" when sweep fires: every unpinned, fully-visible row
@@ -627,10 +645,10 @@ export function StoryListImpl({
               flag={flagFor?.(story.id)}
               rightAction={rightActionFor?.(story.id)}
               showVelocity={showVelocity}
-              onHide={handleHideOne}
-              onPin={handlePin}
-              onUnpin={unpin}
-              onShare={shareStory}
+              onHide={readOnly ? undefined : handleHideOne}
+              onPin={readOnly ? undefined : handlePin}
+              onUnpin={readOnly ? undefined : unpin}
+              onShare={readOnly ? undefined : shareStory}
               onOpenThread={handleOpenThread}
             />
           </li>
@@ -655,10 +673,19 @@ export function StoryListImpl({
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned={pinnedIds.has(story.id)}
-              onHide={handleHideOne}
-              onPin={handlePin}
-              onUnpin={unpin}
-              onShare={shareStory}
+              // `hidden` activates StoryListItem's pin shield
+              // (suppresses swipe-left and the menu Pin item)
+              // for rows that surfaced via `includeHidden`. On
+              // shipping feeds visibleStories already filters
+              // out hiddenIds, so this is a no-op there; on the
+              // /tuning Preview it's load-bearing — without it
+              // a hidden-but-rule-matches row could be pinned
+              // via swipe, recreating the pin∩hidden collision.
+              hidden={hiddenIds.has(story.id)}
+              onHide={readOnly ? undefined : handleHideOne}
+              onPin={readOnly ? undefined : handlePin}
+              onUnpin={readOnly ? undefined : unpin}
+              onShare={readOnly ? undefined : shareStory}
               onOpenThread={handleOpenThread}
             />
           </li>
@@ -676,19 +703,23 @@ export function StoryListImpl({
             {isFetchingMore ? 'Loading…' : 'More'}
           </button>
         ) : null}
-        <TooltipButton
-          type="button"
-          className="list-footer__icon-btn"
-          data-testid="sweep-btn-bottom"
-          onClick={sweepableIds.length > 0 ? handleSweep : undefined}
-          disabled={sweepableIds.length === 0}
-          tooltip={sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'}
-          aria-label={
-            sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
-          }
-        >
-          <SweepIcon />
-        </TooltipButton>
+        {readOnly ? null : (
+          <TooltipButton
+            type="button"
+            className="list-footer__icon-btn"
+            data-testid="sweep-btn-bottom"
+            onClick={sweepableIds.length > 0 ? handleSweep : undefined}
+            disabled={sweepableIds.length === 0}
+            tooltip={
+              sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
+            }
+            aria-label={
+              sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
+            }
+          >
+            <SweepIcon />
+          </TooltipButton>
+        )}
       </div>
     </PullToRefresh>
   );

@@ -929,15 +929,27 @@ describe('<ThresholdTuningPage>', () => {
       expect(screen.getByText('unpinned-and-hot')).toBeInTheDocument(),
     );
     // Pinned row gets the read-only-pinned variant.
-    expect(
-      screen.getByTestId('preview-readonly-pinned-btn-100'),
-    ).toBeInTheDocument();
-    // Unpinned row gets the plain read-only variant.
-    expect(
-      screen.getByTestId('preview-readonly-btn-200'),
-    ).toBeInTheDocument();
+    const pinnedRowBtn = screen.getByTestId('preview-readonly-pinned-btn-100');
+    expect(pinnedRowBtn).toBeInTheDocument();
+    // Pinned variant inherits the orange `pin-btn--active` class
+    // (mirrors the live feed's pinned affordance, just non-interactive).
+    expect(pinnedRowBtn.className).toContain('pin-btn--active');
+    // Unpinned row gets the plain read-only variant *without*
+    // pin-btn--active so the icon doesn't render in HN orange —
+    // the operator's eye distinguishes "engaged" rows from
+    // "rule-matches-but-untouched" rows by color.
+    const unpinnedRowBtn = screen.getByTestId('preview-readonly-btn-200');
+    expect(unpinnedRowBtn).toBeInTheDocument();
+    expect(unpinnedRowBtn.className).not.toContain('pin-btn--active');
     // No live Pin/Unpin button should render anywhere in the Preview.
     expect(screen.queryAllByTestId('pin-btn')).toHaveLength(0);
+    // The Preview is fully read-only: no row-level mutation
+    // affordances (the long-press menu's Pin/Hide/Share items,
+    // the bottom Sweep button) should be reachable. The row
+    // menu trigger is opt-in via long-press and binds
+    // `data-testid="story-row-menu"` only when a mutation
+    // handler is wired up, so its absence is the test signal.
+    expect(screen.queryByTestId('sweep-btn-bottom')).toBeNull();
   });
 
   it('renders type breakdown counts', async () => {
