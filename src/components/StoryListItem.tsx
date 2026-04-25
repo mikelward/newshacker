@@ -88,8 +88,8 @@ interface Props {
   /**
    * When true, the meta line tucks points-per-hour into the
    * points segment as an inline parenthetical — "1h · 50 points
-   * (25/h) · 10 comments". Off by default; only /hot and the
-   * /tuning Preview enable it (where the operator is explicitly
+   * (25/h) · 10 comments". Off by default; only the /tuning
+   * Preview enables it (where the operator is explicitly
    * looking at velocity for threshold tuning). Inline rather
    * than a separate dot-segment so the row stays tight on
    * narrow phones.
