@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   addDownvotedId,
   addVotedId,
@@ -10,7 +11,7 @@ import {
 } from '../lib/votes';
 import { postVote, VoteError, type VoteHow } from '../lib/vote';
 import { useToast } from './useToast';
-import { useAuth } from './useAuth';
+import { ME_QUERY_KEY, useAuth } from './useAuth';
 
 export interface UseVoteResult {
   // Items the logged-in user has up- or down-voted (as far as this
@@ -39,6 +40,23 @@ export function useVote(): UseVoteResult {
   const { user } = useAuth();
   const username = user?.username ?? '';
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
+  // When a write (vote) returns 401 — meaning HN's session died
+  // server-side — the client should immediately reflect that
+  // instead of waiting up to `useAuth`'s `staleTime` (1 hour) for
+  // the next /api/me check. Without this the user keeps seeing
+  // logged-in UI (Upvote button, etc.) and every retry fails
+  // with the same toast. Eagerly clear `ME_QUERY_KEY` so
+  // `isAuthenticated` flips false on the next render.
+  const handleVoteError = useCallback(
+    (err: unknown, fallback: string): string => {
+      if (err instanceof VoteError && err.status === 401) {
+        queryClient.setQueryData(ME_QUERY_KEY, null);
+      }
+      return err instanceof VoteError && err.message ? err.message : fallback;
+    },
+    [queryClient],
+  );
 
   const [votedIds, setVotedIds] = useState<Set<number>>(() =>
     username ? getVotedIds(username) : new Set(),
@@ -74,12 +92,10 @@ export function useVote(): UseVoteResult {
     (id: number, how: VoteHow, undo: () => void, fallback: string) => {
       void postVote(id, how).catch((err: unknown) => {
         undo();
-        const message =
-          err instanceof VoteError && err.message ? err.message : fallback;
-        showToast({ message });
+        showToast({ message: handleVoteError(err, fallback) });
       });
     },
-    [showToast],
+    [showToast, handleVoteError],
   );
 
   // Direction-switch helper: viewer has a vote in the opposite
@@ -111,11 +127,7 @@ export function useVote(): UseVoteResult {
             removeVotedId(username, id);
             addDownvotedId(username, id);
           }
-          const message =
-            err instanceof VoteError && err.message
-              ? err.message
-              : 'Could not unvote.';
-          showToast({ message });
+          showToast({ message: handleVoteError(err, 'Could not unvote.') });
           return;
         }
         try {
@@ -125,13 +137,11 @@ export function useVote(): UseVoteResult {
           removeDownvotedId(username, id);
           const fallback =
             to === 'up' ? 'Could not upvote.' : 'Could not downvote.';
-          const message =
-            err instanceof VoteError && err.message ? err.message : fallback;
-          showToast({ message });
+          showToast({ message: handleVoteError(err, fallback) });
         }
       })();
     },
-    [username, showToast],
+    [username, showToast, handleVoteError],
   );
 
   const toggleVote = useCallback(
