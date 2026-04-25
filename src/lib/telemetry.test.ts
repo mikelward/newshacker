@@ -10,10 +10,11 @@ import {
 
 const STORY = {
   id: 12345,
-  // Score crosses the `isHotStory` big-story threshold so the
-  // emitted `isHot` field is `true` — keeps the cases tidy.
+  // Velocity 150 / 0.5 h = 300/h, well above the >15/h floor, with
+  // descendants > 10, so the emitted `isHot` field is `true` — keeps
+  // the cases tidy.
   score: 150,
-  // 30 minutes ago — still in the recent-window branch.
+  descendants: 25,
   time: Math.floor(Date.now() / 1000) - 30 * 60,
 };
 

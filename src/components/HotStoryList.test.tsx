@@ -5,34 +5,38 @@ import { HotStoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 
-// Build a "fast riser" story: score >= 40 inside the 2 h window so
-// `isHotStory` returns true via the recent-window branch. `time` is
-// computed off `Date.now()` rather than fixed seconds so the test
-// stays valid as the clock advances.
+// Build a "fast riser" story: 50 points in 30 min = 100/h velocity,
+// well above the >15/h floor, with 25 comments to clear the
+// descendants > 10 gate. `time` is computed off `Date.now()` rather
+// than fixed seconds so the test stays valid as the clock advances.
 function makeFastRiser(id: number, overrides = {}) {
   return makeStory(id, {
     score: 50,
+    descendants: 25,
     time: Math.floor(Date.now() / 1000) - 30 * 60,
     ...overrides,
   });
 }
 
-// Build a "big story" — score >= 100 at any age — that satisfies
-// `isHotStory` via the big-story-of-the-day branch.
+// Build a "big story" — score and comment thresholds for the
+// big-story branch (`score > 200 && descendants > 100`), at any age.
+// The velocity may have cooled but the total engagement still
+// qualifies.
 function makeBigStory(id: number, overrides = {}) {
   return makeStory(id, {
-    score: 200,
+    score: 250,
+    descendants: 150,
     time: Math.floor(Date.now() / 1000) - 12 * 60 * 60,
     ...overrides,
   });
 }
 
-// Build a story that should NOT pass `isHotStory` — too cold for
-// the big-story branch, too low for the fast-riser branch — so the
-// /hot view filters it out.
+// Build a story that should NOT pass `isHotStory` — velocity well
+// under 15/h, score below the big-story floor.
 function makeCold(id: number, overrides = {}) {
   return makeStory(id, {
     score: 5,
+    descendants: 1,
     time: Math.floor(Date.now() / 1000) - 6 * 60 * 60,
     ...overrides,
   });
@@ -209,6 +213,7 @@ describe('<HotStoryList>', () => {
         10: makeStory(10, {
           title: 'velocity-row',
           score: 200,
+          descendants: 30,
           time: nowS - 4 * 60 * 60,
         }),
       },

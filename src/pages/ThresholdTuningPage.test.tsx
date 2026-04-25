@@ -125,8 +125,8 @@ describe('<ThresholdTuningPage>', () => {
     ).toBeInTheDocument();
     // Default expression mirrors isHotStory.
     const expr = screen.getByTestId('threshold-expression') as HTMLInputElement;
-    expect(expr.value).toMatch(/normal_threshold/);
-    expect(expr.value).toMatch(/young_age/);
+    expect(expr.value).toMatch(/velocity_threshold/);
+    expect(expr.value).toMatch(/min_descendants/);
   });
 
   it('updates the live counts when the expression changes', async () => {
@@ -168,7 +168,7 @@ describe('<ThresholdTuningPage>', () => {
     await user.type(expr, 'false');
     expect(expr.value).toBe('false');
     await user.click(screen.getByTestId('threshold-reset'));
-    expect(expr.value).toMatch(/normal_threshold/);
+    expect(expr.value).toMatch(/velocity_threshold/);
   });
 
   it('renders the live Preview with /top ∪ /new candidates filtered by the rule', async () => {
