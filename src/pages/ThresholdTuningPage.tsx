@@ -1101,24 +1101,47 @@ interface PreviewProps {
   }) => boolean;
 }
 
-// Shared between the two Preview diff icons. Inlined as a
-// constant (not a CSS class) because these glyphs only ever
-// appear here; routing through CSS would mean a new selector for
-// two consumers. Tweaking the red is a one-line change.
-const DIFF_ICON_RED = '#d32f2f';
+// Polarity colors for the two Preview diff icons. Inlined as
+// constants (not CSS classes) because these glyphs only ever
+// appear here; routing through CSS would mean a new selector
+// for two consumers. Each color is a one-line change.
+//
+// Loosen cue (red `#d32f2f`): pinned-or-done but the rule
+// wouldn't surface it — felt as the more urgent signal because
+// the operator explicitly cared about that story. Tighten cue
+// (yellow-gold `#a16207`, Tailwind yellow-700): hidden but the
+// rule wants to surface it anyway — felt as a "double-check"
+// signal, less urgent than the loosen case. The two-color
+// palette means the operator can tell the polarity from color
+// alone, before the eye resolves the glyph shape; shape (exclam
+// vs. question) is the secondary cue. `#a16207` clears WCAG AA
+// non-text contrast on the white row background and sits clearly
+// outside HN's brand orange (`#ff6600`) in hue.
+const DIFF_ICON_LOOSEN_COLOR = '#d32f2f';
+const DIFF_ICON_TIGHTEN_COLOR = '#a16207';
 
 // Material Symbols `priority_high` — Apache 2.0, Google. A bold
 // exclamation glyph painted red; the right-side icon for pinned-
 // or-done-but-not-rule-matching rows in the Preview, signalling
 // "you cared about this but the rule wouldn't surface it"
 // (loosen cue).
+//
+// viewBox is tightened from Material's default `0 -960 960 960`
+// to a 770×770 square centered on the glyph (extent x=[400,560],
+// y=[-760,-200]). The default viewBox leaves so much whitespace
+// around the narrow exclam that, rendered at the same 22×22 as
+// `RuleMatchesHiddenIcon`, the glyph appeared ~80% the height of
+// the question mark and visibly mismatched its polarity twin.
+// The crop here makes the painted height match the question
+// mark's optical height while keeping the rendered slot at 22×22
+// (so row layout is unchanged).
 function PriorityHighIcon() {
   return (
     <svg
-      viewBox="0 -960 960 960"
+      viewBox="95 -865 770 770"
       width="22"
       height="22"
-      fill={DIFF_ICON_RED}
+      fill={DIFF_ICON_LOOSEN_COLOR}
       aria-hidden="true"
       focusable="false"
     >
@@ -1127,21 +1150,24 @@ function PriorityHighIcon() {
   );
 }
 
-// Material Symbols `question_mark` — Apache 2.0, Google. Red
-// question-mark glyph, used for the inverse-polarity signal: the
-// rule is *false-positively* surfacing a story the operator
-// already hid. Both diff icons are red; the operator picks out
-// the polarity from the *shape* — exclam ("look at this, you
-// cared but the rule missed", loosen cue) vs. question ("are you
-// sure? you said no but the rule wants to promote it", tighten
-// cue).
+// Material Symbols `question_mark` — Apache 2.0, Google.
+// Yellow-gold question-mark glyph, used for the inverse-polarity
+// signal: the rule is *false-positively* surfacing a story the
+// operator already hid. Color polarity (red exclam vs. yellow
+// question) is the primary "loosen vs. tighten" cue — the
+// operator picks the polarity out before the eye resolves the
+// glyph shape. Yellow over red here because the false-positive
+// case ("rule wants to promote a story you said no to,
+// double-check") is the less urgent of the two; red is reserved
+// for the rule missing something the operator explicitly cared
+// about.
 function RuleMatchesHiddenIcon() {
   return (
     <svg
       viewBox="0 -960 960 960"
       width="22"
       height="22"
-      fill={DIFF_ICON_RED}
+      fill={DIFF_ICON_TIGHTEN_COLOR}
       aria-hidden="true"
       focusable="false"
     >
@@ -1225,7 +1251,7 @@ function CheckCircleIcon() {
 // them, which is exactly the false-positive case the operator
 // wants to see. `includeHidden` on `<StoryListImpl>` flips off
 // the default !hiddenIds visibility filter so those rows render,
-// and `rightActionFor` lights them with a red question mark
+// and `rightActionFor` lights them with a yellow question mark
 // (inverse polarity to the red exclam — exclam = "loosen", you
 // cared but the rule missed; question = "tighten", you said no
 // but the rule wants to promote it). A hidden story the rule
@@ -1276,7 +1302,7 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
   // — the Preview is for asking "what does this rule surface?",
   // and the operator tunes via the controls above, not by tapping
   // rows here. Icon variants, in priority order:
-  //   - rule-matches + hidden            → red question mark
+  //   - rule-matches + hidden            → yellow question mark
   //     (tightening cue: rule promotes a story you said no to)
   //   - rule-misses + (pinned or done)   → red exclam
   //     (loosening cue: you cared, rule missed)
@@ -1367,9 +1393,9 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         threshold above. Source: live <code>/top ∪ /new</code>;
         re-filters as you adjust the expression or sliders without
         re-fetching. Red exclamation = pinned or marked done but
-        the rule wouldn't surface it (cue to loosen). Red question
-        mark = hidden but the rule <em>would</em> surface it (cue
-        to tighten).
+        the rule wouldn't surface it (cue to loosen). Yellow
+        question mark = hidden but the rule <em>would</em> surface
+        it (cue to tighten).
       </p>
       <StoryListImpl
         feedItems={feedItems}
@@ -1397,7 +1423,7 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         // for hidden — see the comment block above). This is the
         // false-positive signal: the operator said "never again",
         // but the current rule still wants to promote it. Paired
-        // with the per-row red question-mark right action.
+        // with the per-row yellow question-mark right action.
         includeHidden
         // The Preview is a tuning experiment, not a reading-list
         // editor: suppress every row-level mutation affordance

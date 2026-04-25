@@ -99,7 +99,7 @@ interface ImplProps {
   // Off by default — shipping feeds always honor Hide. The
   // /tuning Preview turns it on so a rule that surfaces a story
   // the operator already said no to becomes visible as a
-  // tightening cue (paired with the per-row red question-mark
+  // tightening cue (paired with the per-row yellow question-mark
   // right action; see ThresholdTuningPage). Without this, false-positive
   // rule matches against the hidden set are silently invisible
   // and the operator has no signal that the rule is too loose.
@@ -301,7 +301,7 @@ export function StoryListImpl({
   // the `/tuning` Preview, where the question is "what does the
   // rule surface" (so done rows stay in to show full rule output)
   // and "is the rule promoting something I rejected" (so hidden
-  // rows light up the red question mark as a false-positive cue).
+  // rows light up the yellow question mark as a false-positive cue).
   const visibleStories = useMemo(
     () =>
       items.filter(
