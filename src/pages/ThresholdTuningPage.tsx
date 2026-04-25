@@ -484,6 +484,17 @@ function ThresholdTuningBody({ events }: BodyProps) {
 
   return (
     <>
+      {/* Stats sections come first — informational, scrolled past
+          on most visits. The operator's working pair is the
+          controls + Preview list at the bottom: dragging a slider
+          updates the Preview list directly below the controls, no
+          scrolling back and forth between the knob and the rule's
+          output. */}
+      <ThresholdLiveCounts events={events} flagFor={flagFor} />
+      <ThresholdScatters events={events} flagFor={flagFor} sliders={sliders} />
+      <ThresholdActionStats events={events} />
+      <ThresholdTypeBreakdown events={events} />
+      <ThresholdOpenedRatio events={events} />
       <ThresholdControls
         expression={expression}
         onExpressionChange={setExpression}
@@ -491,18 +502,6 @@ function ThresholdTuningBody({ events }: BodyProps) {
         onSlidersChange={setSliders}
         compileError={compiled.ok ? null : compiled.error}
       />
-      <ThresholdLiveCounts events={events} flagFor={flagFor} />
-      <ThresholdScatters events={events} flagFor={flagFor} sliders={sliders} />
-      <ThresholdActionStats events={events} />
-      <ThresholdTypeBreakdown events={events} />
-      <ThresholdOpenedRatio events={events} />
-      {/* Preview lives at the bottom: it scrolls (a full feed list)
-          and uses /top ∪ /new fetched live, so anchoring it under
-          the static analytics keeps the controls + summary stats
-          above-the-fold. The operator who wants to see the rule's
-          live output can scroll to it; the operator who wants to
-          tune against the recorded events sees the controls and
-          summary right where they're working. */}
       <ThresholdPreview itemPredicate={itemPredicate} />
     </>
   );
@@ -1037,7 +1036,10 @@ function ThresholdActionStats({ events }: StatsProps) {
   const pinStats = summarize(pinEvents);
   const hideStats = summarize(hideEvents);
   return (
-    <section data-testid="threshold-action-stats">
+    <details data-testid="threshold-action-stats" open>
+      <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
+        Pin / hide percentiles
+      </summary>
       <h2 className="admin-page__heading">Pinned ({pinStats.count})</h2>
       {pinStats.count > 0 ? (
         <dl className="admin-page__list" data-testid="pin-stats">
@@ -1100,7 +1102,7 @@ function ThresholdActionStats({ events }: StatsProps) {
       ) : (
         <p className="admin-page__note">No hide events recorded yet.</p>
       )}
-    </section>
+    </details>
   );
 }
 
@@ -1119,8 +1121,10 @@ function ThresholdTypeBreakdown({ events }: StatsProps) {
   );
   if (rows.length === 0) return null;
   return (
-    <section data-testid="threshold-type-breakdown">
-      <h2 className="admin-page__heading">By type</h2>
+    <details data-testid="threshold-type-breakdown" open>
+      <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
+        By type
+      </summary>
       <table style={{ borderCollapse: 'collapse', fontSize: '0.95em' }}>
         <thead>
           <tr>
@@ -1156,7 +1160,7 @@ function ThresholdTypeBreakdown({ events }: StatsProps) {
           ))}
         </tbody>
       </table>
-    </section>
+    </details>
   );
 }
 
@@ -1175,8 +1179,10 @@ function ThresholdOpenedRatio({ events }: StatsProps) {
   const pct = (n: number, total: number) =>
     total === 0 ? '—' : `${Math.round((n / total) * 100)}%`;
   return (
-    <section data-testid="threshold-opened-ratio">
-      <h2 className="admin-page__heading">Article opened first</h2>
+    <details data-testid="threshold-opened-ratio" open>
+      <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
+        Article opened first
+      </summary>
       <dl className="admin-page__list">
         <div>
           <dt>Pinned after opening</dt>
@@ -1197,7 +1203,7 @@ function ThresholdOpenedRatio({ events }: StatsProps) {
           </dd>
         </div>
       </dl>
-    </section>
+    </details>
   );
 }
 
@@ -1493,10 +1499,12 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
     [pinnedIds, doneIds, hiddenIds, itemsById, itemPredicate],
   );
   return (
-    <details data-testid="threshold-preview" open>
-      <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
-        Preview
-      </summary>
+    // Preview and Controls are the operator's working pair: kept as
+    // always-visible plain sections, while every analytics section
+    // above is a `<details open>` so the operator can fold reference
+    // material out of the way without losing the tools.
+    <section data-testid="threshold-preview">
+      <h2 className="admin-page__heading">Preview</h2>
       <p className="admin-page__note">
         What <code>/hot</code> would render right now under the
         threshold above. Source: live <code>/top ∪ /new</code>;
@@ -1549,7 +1557,7 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         // `rightActionFor`'s `onToggle: () => {}`.
         readOnly
       />
-    </details>
+    </section>
   );
 }
 
@@ -1565,8 +1573,10 @@ function ThresholdLiveCounts({ events, flagFor }: CountsProps) {
   const pct = (n: number, total: number) =>
     total === 0 ? '—' : `${Math.round((n / total) * 100)}%`;
   return (
-    <section data-testid="threshold-live-counts">
-      <h2 className="admin-page__heading">Live counts under this rule</h2>
+    <details data-testid="threshold-live-counts" open>
+      <summary className="admin-page__heading" style={{ cursor: 'pointer' }}>
+        Live counts under this rule
+      </summary>
       <dl className="admin-page__list">
         <div>
           <dt>Pinned events that would be hot</dt>
@@ -1593,6 +1603,6 @@ function ThresholdLiveCounts({ events, flagFor }: CountsProps) {
         <em>hide matches</em> (you wouldn't be surfaced stories you'd
         already chosen to dismiss).
       </p>
-    </section>
+    </details>
   );
 }
