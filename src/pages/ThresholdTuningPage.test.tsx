@@ -669,7 +669,7 @@ describe('<ThresholdTuningPage>', () => {
     expect(screen.queryByTestId(/^preview-cared-not-hot-btn-/)).toBeNull();
   });
 
-  it('flags hidden-but-rule-matches stories with the red question mark', async () => {
+  it('flags hidden-but-rule-matches stories with the yellow question mark', async () => {
     // The operator hid story 100 but the rule (default
     // isHotStory) would happily surface it again — a false
     // positive that calls for tightening, not loosening. The
