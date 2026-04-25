@@ -1,11 +1,25 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getUser } from '../lib/hn';
+import { getUser, getItems, type HNItem } from '../lib/hn';
 import { formatTimeAgo } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { UserSkeleton } from '../components/Skeletons';
 import { ErrorState, EmptyState } from '../components/States';
 import './UserPage.css';
+
+const RECENT_COMMENT_COUNT = 5;
+// Over-fetch so a head full of stories or dead/deleted items still
+// yields RECENT_COMMENT_COUNT comments in a single batch. One batch
+// stays inside ITEMS_BATCH_SIZE = 30 and reuses the edge cache.
+const RECENT_FETCH_LIMIT = 15;
+
+function snippetText(html: string): string {
+  if (typeof DOMParser === 'undefined') {
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
 
 export function UserPage() {
   const { id } = useParams();
@@ -13,6 +27,14 @@ export function UserPage() {
     queryKey: ['user', id],
     queryFn: ({ signal }) => getUser(id ?? '', signal),
     enabled: !!id,
+  });
+
+  const submittedHead = data?.submitted?.slice(0, RECENT_FETCH_LIMIT) ?? [];
+
+  const { data: recentItems, isLoading: isRecentLoading } = useQuery({
+    queryKey: ['user', id, 'recent', submittedHead.join(',')],
+    queryFn: ({ signal }) => getItems(submittedHead, signal),
+    enabled: submittedHead.length > 0,
   });
 
   if (!id) {
@@ -32,6 +54,19 @@ export function UserPage() {
     return <EmptyState message="User not found." />;
   }
 
+  const recentComments: HNItem[] = (recentItems ?? [])
+    .filter(
+      (item): item is HNItem =>
+        !!item &&
+        item.type === 'comment' &&
+        !item.deleted &&
+        !item.dead &&
+        !!item.text,
+    )
+    .slice(0, RECENT_COMMENT_COUNT);
+
+  const hasSubmitted = submittedHead.length > 0;
+
   return (
     <article className="user-page">
       <h1 className="user-page__id">{data.id}</h1>
@@ -50,6 +85,43 @@ export function UserPage() {
           className="user-page__about"
           dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(data.about) }}
         />
+      ) : null}
+      {hasSubmitted ? (
+        <section className="user-page__recent" aria-label="Recent comments">
+          <h2 className="user-page__recent-heading">Recent comments</h2>
+          {isRecentLoading ? (
+            <p className="user-page__recent-status">Loading recent comments…</p>
+          ) : recentComments.length > 0 ? (
+            <ol className="user-page__recent-list">
+              {recentComments.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    to={`/item/${c.id}`}
+                    className="user-page__recent-item"
+                  >
+                    <div className="user-page__recent-body">
+                      {snippetText(c.text ?? '')}
+                    </div>
+                    <div className="user-page__recent-meta">
+                      {c.time ? `${formatTimeAgo(c.time)} ago` : ''}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="user-page__recent-status">No recent comments.</p>
+          )}
+          <p className="user-page__recent-more">
+            <a
+              href={`https://news.ycombinator.com/threads?id=${encodeURIComponent(data.id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View all comments on Hacker News →
+            </a>
+          </p>
+        </section>
       ) : null}
       <p className="user-page__back">
         <Link to="/top">← Back to Top</Link>
