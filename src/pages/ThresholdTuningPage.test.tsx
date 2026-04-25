@@ -668,6 +668,104 @@ describe('<ThresholdTuningPage>', () => {
     expect(screen.queryByTestId(/^preview-cared-not-hot-btn-/)).toBeNull();
   });
 
+  it('renders Preview rows as read-only — no live pin/unpin button', async () => {
+    // Two rows: one pinned, one neither pinned nor done. The
+    // default `StoryListImpl` would render a real Pin/Unpin
+    // button (testId `pin-btn`) for both, which would mutate
+    // reader state when tapped. The Preview overrides every row
+    // to return a no-op informational action instead.
+    addPinnedId(100);
+    const nowS = Math.floor(Date.now() / 1000);
+    const pinnedHotStory = {
+      id: 100,
+      type: 'story',
+      title: 'pinned-and-hot',
+      url: 'https://example.com/100',
+      by: 'alice',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    const unpinnedHotStory = {
+      id: 200,
+      type: 'story',
+      title: 'unpinned-and-hot',
+      url: 'https://example.com/200',
+      by: 'bob',
+      score: 300,
+      descendants: 80,
+      time: nowS - 90 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          return new Response(JSON.stringify([100, 200]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids =
+            new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) =>
+            id === 100 ? pinnedHotStory : id === 200 ? unpinnedHotStory : null,
+          );
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(screen.getByText('pinned-and-hot')).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByText('unpinned-and-hot')).toBeInTheDocument(),
+    );
+    // Pinned row gets the read-only-pinned variant.
+    expect(
+      screen.getByTestId('preview-readonly-pinned-btn-100'),
+    ).toBeInTheDocument();
+    // Unpinned row gets the plain read-only variant.
+    expect(
+      screen.getByTestId('preview-readonly-btn-200'),
+    ).toBeInTheDocument();
+    // No live Pin/Unpin button should render anywhere in the Preview.
+    expect(screen.queryAllByTestId('pin-btn')).toHaveLength(0);
+  });
+
   it('renders type breakdown counts', async () => {
     installMock({
       events: {

@@ -1101,10 +1101,10 @@ interface PreviewProps {
 }
 
 // Material Symbols `priority_high` — Apache 2.0, Google. A bold
-// exclamation glyph; the right-side icon for pinned-but-not-rule-
-// matching rows in the Preview, signalling "you cared about this
-// but the rule wouldn't surface it" without using the pin icon
-// (which already means "I pinned this").
+// exclamation glyph; the right-side icon for pinned-or-done-but-
+// not-rule-matching rows in the Preview, signalling "you cared
+// about this but the rule wouldn't surface it" without using the
+// pin icon (which already means "I pinned this").
 function PriorityHighIcon() {
   return (
     <svg
@@ -1116,6 +1116,51 @@ function PriorityHighIcon() {
       focusable="false"
     >
       <path d="M480-200q-33 0-56.5-23.5T400-280q0-33 23.5-56.5T480-360q33 0 56.5 23.5T560-280q0 33-23.5 56.5T480-200Zm-80-240v-320h160v320H400Z" />
+    </svg>
+  );
+}
+
+// Material Icons `push_pin` — Apache 2.0, Google. The Preview's
+// stand-in for `StoryListItem`'s default Pin/Unpin button: same
+// glyph, but wired to a no-op so the operator can't mutate reader
+// state from the tuning view. Filled when the story is pinned;
+// hollow when not (mirroring the live feed's pinned-state
+// affordance, just non-interactive).
+function PushPinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="22"
+      height="22"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {filled ? (
+        <path d="M16 9V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z" />
+      ) : (
+        <path d="M14 4v5c0 1.12.37 2.16 1 3H9c.65-.86 1-1.9 1-3V4h4m3-2H7c-.55 0-1 .45-1 1s.45 1 1 1l1 0v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3V4l1 0c.55 0 1-.45 1-1s-.45-1-1-1z" />
+      )}
+    </svg>
+  );
+}
+
+// Material Icons `check_circle` — Apache 2.0, Google. Done's
+// canonical glyph in this app (matches the thread action bar's
+// Done button + `/done`'s right-side icon). Used in the Preview
+// for rows the rule already surfaces *and* the operator has
+// marked done — informational, not interactive.
+function CheckCircleIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="22"
+      height="22"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
     </svg>
   );
 }
@@ -1169,36 +1214,68 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
     (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
     [newSourceIds],
   );
-  // Per-row right-side override: pinned-or-done rows the rule
-  // itself wouldn't have matched get the exclam icon. That
-  // override button is a no-op (informational only, not a toggle)
-  // — the operator tunes the rule via the controls above instead
-  // of pinning / unpinning from here. Rows the rule already
-  // matches still use StoryListImpl's normal Pin/Unpin / Hide /
-  // Share actions (the Preview isn't fully read-only). Pinned
-  // takes precedence in the label when a row is somehow both,
+  // Per-row right-side override. Every row in the Preview gets a
+  // no-op informational button so the operator can't accidentally
+  // mutate reader state (pin / unpin / done) from the tuning view
+  // — the Preview is for asking "what does this rule surface?",
+  // and the operator tunes via the controls above, not by tapping
+  // rows here. Three icon variants:
+  //   - rule-misses + (pinned or done) → exclam (tightening cue)
+  //   - rule-matches + (pinned or done) → state-mirroring filled
+  //     icon (push_pin or check_circle), informational only
+  //   - rule-matches + neither           → hollow push_pin
+  // Pinned takes precedence over done when a row is somehow both,
   // since pin is the stronger explicit signal.
   const rightActionFor = useCallback(
     (id: number) => {
       const isPinned = pinnedIds.has(id);
       const isDone = doneIds.has(id);
-      if (!isPinned && !isDone) return undefined;
       const item = feedItems.items.find(
         (it): it is NonNullable<typeof it> => it?.id === id,
       );
+      // Defensive: if the item hasn't loaded yet, fall through to
+      // StoryListImpl's default. The combinedPredicate widens the
+      // candidate pool to pin/done, so in practice every visible
+      // row resolves an item by the time we get here.
       if (!item) return undefined;
-      if (itemPredicate(item)) return undefined; // rule already matches; show pin
-      const label = isPinned
-        ? 'Pinned, but the rule above would not surface this story'
-        : 'Done, but the rule above would not surface this story';
+      const ruleMatches = itemPredicate(item);
+
+      if (!ruleMatches && (isPinned || isDone)) {
+        const label = isPinned
+          ? 'Pinned, but the rule above would not surface this story'
+          : 'Done, but the rule above would not surface this story';
+        return {
+          label,
+          icon: <PriorityHighIcon />,
+          onToggle: () => {},
+          // Per-row id so multiple rule-miss rows on the same
+          // Preview don't collide on `data-testid` and tests can
+          // target a specific story.
+          testId: `preview-cared-not-hot-btn-${id}`,
+        };
+      }
+
+      if (isPinned) {
+        return {
+          label: 'Pinned (read-only — adjust the rule to change membership)',
+          icon: <PushPinIcon filled />,
+          onToggle: () => {},
+          testId: `preview-readonly-pinned-btn-${id}`,
+        };
+      }
+      if (isDone) {
+        return {
+          label: 'Done (read-only — adjust the rule to change membership)',
+          icon: <CheckCircleIcon />,
+          onToggle: () => {},
+          testId: `preview-readonly-done-btn-${id}`,
+        };
+      }
       return {
-        label,
-        icon: <PriorityHighIcon />,
+        label: 'Read-only — adjust the rule to change membership',
+        icon: <PushPinIcon filled={false} />,
         onToggle: () => {},
-        // Per-row id so multiple rule-miss rows on the same Preview
-        // don't collide on `data-testid` and tests can target a
-        // specific story.
-        testId: `preview-cared-not-hot-btn-${id}`,
+        testId: `preview-readonly-btn-${id}`,
       };
     },
     [pinnedIds, doneIds, feedItems.items, itemPredicate],
