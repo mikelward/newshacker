@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, render, renderHook } from '@testing-library/react';
 import { usePinnedStories } from './usePinnedStories';
 import { addPinnedId } from '../lib/pinnedStories';
+import { addDoneId, getDoneIds } from '../lib/doneStories';
+import { addHiddenId, getHiddenIds } from '../lib/hiddenStories';
 
 describe('usePinnedStories', () => {
   beforeEach(() => {
@@ -61,6 +63,42 @@ describe('usePinnedStories', () => {
   it('cleans up event listeners on unmount', () => {
     const { unmount } = render(<Consumer />);
     expect(() => unmount()).not.toThrow();
+  });
+
+  // The mutual-exclusion shields between Pin and its siblings
+  // are now enforced at the store layer rather than relying on
+  // every UI guard. `markDone` already cleared Pin; these tests
+  // mirror the symmetry for `pin()` clearing Done and Hidden.
+  it('pin() removes the id from done if it was there', () => {
+    addDoneId(5);
+    const { result } = renderHook(() => usePinnedStories());
+    act(() => {
+      result.current.pin(5);
+    });
+    expect(result.current.isPinned(5)).toBe(true);
+    expect(getDoneIds().has(5)).toBe(false);
+  });
+
+  it('pin() removes the id from hidden if it was there', () => {
+    addHiddenId(6);
+    const { result } = renderHook(() => usePinnedStories());
+    act(() => {
+      result.current.pin(6);
+    });
+    expect(result.current.isPinned(6)).toBe(true);
+    expect(getHiddenIds().has(6)).toBe(false);
+  });
+
+  it('togglePinned() also clears siblings when transitioning to pinned', () => {
+    addDoneId(8);
+    addHiddenId(8);
+    const { result } = renderHook(() => usePinnedStories());
+    act(() => {
+      result.current.togglePinned(8);
+    });
+    expect(result.current.isPinned(8)).toBe(true);
+    expect(getDoneIds().has(8)).toBe(false);
+    expect(getHiddenIds().has(8)).toBe(false);
   });
 });
 

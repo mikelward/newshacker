@@ -827,7 +827,7 @@ describe('<Thread>', () => {
     });
   });
 
-  it('rolls back the optimistic vote when /api/vote rejects', async () => {
+  it('rolls back the optimistic vote and signs the user out on a 401 from /api/vote', async () => {
     installVoteFetchMock(
       'alice',
       () =>
@@ -841,16 +841,15 @@ describe('<Thread>', () => {
       expect(screen.getByTestId('thread-vote')).toBeInTheDocument();
     });
 
-    const vote = screen.getByTestId('thread-vote');
-    await userEvent.click(vote);
+    await userEvent.click(screen.getByTestId('thread-vote'));
 
-    // The optimistic flip happens synchronously inside the click, but
-    // in jsdom userEvent awaits through microtasks long enough for the
-    // /api/vote rejection to have rolled state back before we observe
-    // it. So we only assert the final, rolled-back state — that the
-    // button is un-pressed and nothing was persisted.
+    // useVote eagerly clears the auth state on a 401 (otherwise
+    // the user keeps seeing logged-in UI for up to 1h), so the
+    // upvote button is hidden by Thread's auth gate by the time
+    // the rejection finishes. The vote rollback is still
+    // observable via the persisted store: nothing was saved.
     await waitFor(() => {
-      expect(vote).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByTestId('thread-vote')).toBeNull();
     });
     expect(
       window.localStorage.getItem('newshacker:votedStoryIds:alice'),
