@@ -44,6 +44,87 @@
   text-decoration: underline;
 }
 
+.user-page__recent {
+  margin-top: 20px;
+}
+
+.user-page__recent-heading {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nh-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.user-page__recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Mirror Comment.css visuals (left stripe, gutter padding, body type
+   scale, meta line) so a comment on this page reads as the same kind
+   of object it does on the thread. The whole row is a Link to /item/:id
+   so every snippet is one tap target. */
+.user-page__recent-item {
+  display: block;
+  padding: 8px var(--comment-gutter) var(--comment-stack-gap);
+  border-top: 1px solid var(--nh-border);
+  background: var(--nh-bg-card);
+  color: var(--nh-text);
+  text-decoration: none;
+  box-shadow: inset 3px 0 0 0 var(--nh-border);
+}
+
+.user-page__recent-list > li:last-child .user-page__recent-item {
+  border-bottom: 1px solid var(--nh-border);
+}
+
+@media (hover: hover) {
+  .user-page__recent-item:hover {
+    background: var(--nh-pressed);
+    text-decoration: none;
+  }
+}
+
+.user-page__recent-item:active {
+  background: var(--nh-border);
+}
+
+.user-page__recent-body {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--nh-text);
+  word-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.user-page__recent-meta {
+  margin-top: 4px;
+  padding-left: 1px;
+  font-size: 13px;
+  color: var(--nh-meta);
+}
+
+.user-page__recent-status {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--nh-meta);
+}
+
+.user-page__recent-more {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.user-page__recent-more a {
+  color: var(--nh-orange);
+}
+
 .user-page__back {
   margin-top: 16px;
   font-size: 14px;

@@ -214,7 +214,15 @@ server-side with most-recent-first eviction.
    - Deep-linkable: `/item/:id`.
 
 3. **User view (minimal)**
-   - `/user/:id` shows karma, created date, about text. Submissions/comments lists are out of scope for MVP.
+   - `/user/:id` shows karma, created date, about text, and the user's
+     5 most recent comments (snippets, each linking to the comment in
+     its thread). Submitted stories are skipped from the inline list —
+     a "View all comments on Hacker News →" link below the list points
+     at `news.ycombinator.com/threads?id=<id>` for the full history.
+     Implementation: one `/api/items` batch fetch of the first 15 IDs
+     from the user's `submitted` list, filtered to non-dead, non-deleted
+     comments. The section is hidden entirely when the user has no
+     submissions.
 
 4. **Navigation & Chrome**
    - Sticky header with the orange "n" tile mark (home-indicator variant), wordmark, and current feed name.

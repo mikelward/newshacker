@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Route, Routes } from 'react-router-dom';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { UserPage } from './UserPage';
 import { renderWithProviders } from '../test/renderUtils';
@@ -45,6 +45,112 @@ describe('<UserPage>', () => {
     await waitFor(() => {
       expect(screen.getByTestId('empty-state')).toHaveTextContent(/not found/i);
     });
+  });
+
+  it('shows recent comments with a link to the thread and an HN profile link', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    installHNFetchMock({
+      users: {
+        alice: {
+          id: 'alice',
+          karma: 100,
+          created: now - 60 * 60 * 24 * 30,
+          submitted: [101, 102, 103, 104],
+        },
+      },
+      items: {
+        // Story should be skipped, only comments shown.
+        101: { id: 101, type: 'story', title: 'A story', by: 'alice', time: now - 60 },
+        102: {
+          id: 102,
+          type: 'comment',
+          by: 'alice',
+          time: now - 120,
+          text: 'First <i>comment</i> body with <a href="https://example.com">link</a>',
+          parent: 999,
+        },
+        // Dead/deleted comments should be skipped.
+        103: { id: 103, type: 'comment', by: 'alice', time: now - 180, text: 'gone', dead: true },
+        104: {
+          id: 104,
+          type: 'comment',
+          by: 'alice',
+          time: now - 240,
+          text: 'Second comment body',
+          parent: 999,
+        },
+      },
+    });
+    renderAt('/user/alice');
+
+    const section = await screen.findByRole('region', { name: /recent comments/i });
+    await within(section).findByText(/First comment body/);
+    const itemLinks = within(section)
+      .getAllByRole('link')
+      .filter((a) => a.getAttribute('href')?.startsWith('/item/'));
+    expect(itemLinks.map((a) => a.getAttribute('href'))).toEqual([
+      '/item/102',
+      '/item/104',
+    ]);
+    expect(within(section).getByText(/Second comment body/)).toBeInTheDocument();
+    expect(within(section).queryByText(/A story/)).not.toBeInTheDocument();
+    expect(within(section).queryByText(/^gone$/)).not.toBeInTheDocument();
+
+    const hnLink = within(section).getByRole('link', {
+      name: /view all comments on hacker news/i,
+    });
+    expect(hnLink).toHaveAttribute(
+      'href',
+      'https://news.ycombinator.com/threads?id=alice',
+    );
+    expect(hnLink).toHaveAttribute('target', '_blank');
+  });
+
+  it('omits the recent-comments section when the user has no submissions', async () => {
+    installHNFetchMock({
+      users: {
+        quiet: {
+          id: 'quiet',
+          karma: 1,
+          created: Math.floor(Date.now() / 1000),
+        },
+      },
+    });
+    renderAt('/user/quiet');
+    await waitFor(() => {
+      expect(screen.getByText('quiet')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('region', { name: /recent comments/i })).toBeNull();
+    expect(
+      screen.queryByRole('link', { name: /view all comments on hacker news/i }),
+    ).toBeNull();
+  });
+
+  it('shows the HN profile link even when no comments are returned', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    installHNFetchMock({
+      users: {
+        storyteller: {
+          id: 'storyteller',
+          karma: 5,
+          created: now - 60,
+          submitted: [201],
+        },
+      },
+      items: {
+        201: { id: 201, type: 'story', title: 'Only stories', by: 'storyteller', time: now },
+      },
+    });
+    renderAt('/user/storyteller');
+
+    const section = await screen.findByRole('region', { name: /recent comments/i });
+    await within(section).findByText(/no recent comments/i);
+    expect(
+      within(section).getByRole('link', { name: /view all comments on hacker news/i }),
+    ).toHaveAttribute(
+      'href',
+      'https://news.ycombinator.com/threads?id=storyteller',
+    );
   });
 
   it('shows error state with working retry', async () => {
