@@ -5,6 +5,7 @@ import { ThresholdTuningPage } from './ThresholdTuningPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { addPinnedId } from '../lib/pinnedStories';
 import { addDoneId } from '../lib/doneStories';
+import { addHiddenId } from '../lib/hiddenStories';
 
 interface ServerEvent {
   action: 'pin' | 'hide';
@@ -666,6 +667,179 @@ describe('<ThresholdTuningPage>', () => {
     // The done-but-fully-off-feed story must not appear at all,
     // and no exclam button (any per-row id) should render.
     expect(screen.queryByTestId(/^preview-cared-not-hot-btn-/)).toBeNull();
+  });
+
+  it('flags hidden-but-rule-matches stories with the red exclam', async () => {
+    // The operator hid story 100 but the rule (default
+    // isHotStory) would happily surface it again — a false
+    // positive that calls for tightening, not loosening. The
+    // Preview must (a) keep the row visible despite hiddenIds
+    // (StoryListImpl's default would strip it) and (b) light up
+    // the rule-matches-hidden right action so the operator can
+    // see at a glance "rule is too loose for this row".
+    addHiddenId(100);
+    const nowS = Math.floor(Date.now() / 1000);
+    const hiddenButHotStory = {
+      id: 100,
+      type: 'story',
+      title: 'hidden-but-the-rule-still-promotes',
+      url: 'https://example.com/100',
+      by: 'alice',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          return new Response(JSON.stringify([100]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids =
+            new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) =>
+            id === 100 ? hiddenButHotStory : null,
+          );
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(
+        screen.getByText('hidden-but-the-rule-still-promotes'),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('preview-rule-matches-hidden-btn-100'),
+    ).toBeInTheDocument();
+  });
+
+  it('does not surface a hidden story the rule does not match', async () => {
+    // Symmetric to the test above: the operator hid story 200
+    // and the rule wouldn't surface it either (score 5). Both
+    // signals agree — no signal needed, the row stays out of the
+    // Preview. Confirms `includeHidden` doesn't accidentally
+    // widen the candidate pool to "every hidden story".
+    addHiddenId(200);
+    const nowS = Math.floor(Date.now() / 1000);
+    const hotStory = {
+      id: 100,
+      type: 'story',
+      title: 'genuinely-hot',
+      url: 'https://example.com/100',
+      by: 'alice',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    const hiddenColdStory = {
+      id: 200,
+      type: 'story',
+      title: 'hidden-and-cold',
+      url: 'https://example.com/200',
+      by: 'bob',
+      score: 5,
+      descendants: 1,
+      time: nowS - 6 * 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          return new Response(JSON.stringify([100, 200]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids =
+            new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) =>
+            id === 100 ? hotStory : id === 200 ? hiddenColdStory : null,
+          );
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(screen.getByText('genuinely-hot')).toBeInTheDocument(),
+    );
+    // Hidden cold story shouldn't appear (rule misses, hidden
+    // not widened in).
+    expect(screen.queryByText('hidden-and-cold')).toBeNull();
+    expect(
+      screen.queryByTestId(/^preview-rule-matches-hidden-btn-/),
+    ).toBeNull();
   });
 
   it('renders Preview rows as read-only — no live pin/unpin button', async () => {

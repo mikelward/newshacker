@@ -94,6 +94,16 @@ interface ImplProps {
   // working their reading list sees a near-empty Preview even
   // when the rule is matching plenty of trending stories.
   includeDone?: boolean;
+  // When true, rows the reader has hidden are still rendered
+  // (instead of being filtered out alongside dead / score ≤ 1).
+  // Off by default — shipping feeds always honor Hide. The
+  // /tuning Preview turns it on so a rule that surfaces a story
+  // the operator already said no to becomes visible as a
+  // tightening cue (paired with the per-row red-exclam right
+  // action; see ThresholdTuningPage). Without this, false-positive
+  // rule matches against the hidden set are silently invisible
+  // and the operator has no signal that the rule is too loose.
+  includeHidden?: boolean;
 }
 
 interface StoryListItemRightAction {
@@ -173,6 +183,7 @@ export function StoryListImpl({
   rightActionFor,
   showVelocity = false,
   includeDone = false,
+  includeHidden = false,
 }: ImplProps) {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -267,11 +278,14 @@ export function StoryListImpl({
   // person has voted). This is a live, per-render check, not a
   // persistent filter — if a story's score climbs above 1 on a
   // subsequent feed refetch, it rejoins the list automatically.
-  // Done stories are hidden by default: Done is the completion log,
-  // and the feed should represent "what's still worth looking at".
-  // The `includeDone` opt-in flips that off for the `/tuning`
-  // Preview, where the question is "what does the rule surface",
-  // not "what's left of the operator's inbox".
+  // Done and hidden are filtered by default: Done is the
+  // completion log and Hide is "never show again", so the feed
+  // should represent "what's still worth looking at". The
+  // `includeDone` and `includeHidden` opt-ins flip those off for
+  // the `/tuning` Preview, where the question is "what does the
+  // rule surface" (so done rows stay in to show full rule output)
+  // and "is the rule promoting something I rejected" (so hidden
+  // rows light up the red exclam as a false-positive cue).
   const visibleStories = useMemo(
     () =>
       items.filter(
@@ -280,10 +294,10 @@ export function StoryListImpl({
           !it.deleted &&
           !it.dead &&
           (it.score ?? 0) > 1 &&
-          !hiddenIds.has(it.id) &&
+          (includeHidden || !hiddenIds.has(it.id)) &&
           (includeDone || !doneIds.has(it.id)),
       ),
-    [items, hiddenIds, doneIds, includeDone],
+    [items, hiddenIds, doneIds, includeDone, includeHidden],
   );
 
   // Opportunistically warm the thread/comment cache for currently-trending

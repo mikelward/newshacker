@@ -5,6 +5,7 @@ import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
 import { useHotFeedItems } from '../hooks/useHotFeedItems';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useDoneStories } from '../hooks/useDoneStories';
+import { useHiddenStories } from '../hooks/useHiddenStories';
 import { StoryListImpl } from '../components/StoryList';
 import type { RowFlag } from '../components/StoryListItem';
 import {
@@ -1120,6 +1121,29 @@ function PriorityHighIcon() {
   );
 }
 
+// Same `priority_high` glyph but painted red to signal the
+// inverse polarity: the rule is *false-positively* surfacing a
+// story the operator already hid. The orange exclam means
+// "loosen", this red one means "tighten" — the operator's eye
+// can pick out the polarity from the color without reading the
+// label. Color is inlined (not a CSS class) because this glyph
+// only ever appears here; routing it through CSS would mean a
+// new selector for one consumer.
+function RuleMatchesHiddenIcon() {
+  return (
+    <svg
+      viewBox="0 -960 960 960"
+      width="22"
+      height="22"
+      fill="#d32f2f"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M480-200q-33 0-56.5-23.5T400-280q0-33 23.5-56.5T480-360q33 0 56.5 23.5T560-280q0 33-23.5 56.5T480-200Zm-80-240v-320h160v320H400Z" />
+    </svg>
+  );
+}
+
 // Material Icons `push_pin` — Apache 2.0, Google. The Preview's
 // stand-in for `StoryListItem`'s default Pin/Unpin button: same
 // glyph, but wired to a no-op so the operator can't mutate reader
@@ -1189,9 +1213,21 @@ function CheckCircleIcon() {
 // (off-feed pinned or done) still don't appear: `useHotFeedItems`
 // only fetches from `/top ∪ /new`, and we keep
 // `includeOffFeedPinned={false}` to skip the StoryListImpl overlay.
+//
+// Hidden stories aren't widened into the candidate pool by this
+// predicate — they only surface when the rule itself promotes
+// them, which is exactly the false-positive case the operator
+// wants to see. `includeHidden` on `<StoryListImpl>` flips off
+// the default !hiddenIds visibility filter so those rows render,
+// and `rightActionFor` lights them with a red exclam (inverse
+// polarity to the orange one — red = "tighten", orange =
+// "loosen"). A hidden story the rule doesn't match is correctly
+// excluded by both rule and `includeHidden=false`-equivalent
+// gating, so no signal is needed.
 function ThresholdPreview({ itemPredicate }: PreviewProps) {
   const { pinnedIds } = usePinnedStories();
   const { doneIds } = useDoneStories();
+  const { hiddenIds } = useHiddenStories();
   const combinedPredicate = useCallback(
     (item: {
       id?: number;
@@ -1219,17 +1255,24 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
   // mutate reader state (pin / unpin / done) from the tuning view
   // — the Preview is for asking "what does this rule surface?",
   // and the operator tunes via the controls above, not by tapping
-  // rows here. Three icon variants:
-  //   - rule-misses + (pinned or done) → exclam (tightening cue)
-  //   - rule-matches + (pinned or done) → state-mirroring filled
-  //     icon (push_pin or check_circle), informational only
+  // rows here. Icon variants, in priority order:
+  //   - rule-matches + hidden            → red exclam (tightening
+  //     cue: rule promotes a story you said no to)
+  //   - rule-misses + (pinned or done)   → orange exclam
+  //     (loosening cue: you cared, rule missed)
+  //   - rule-matches + pinned            → filled push_pin
+  //     (informational; mirrors live-feed pinned affordance)
+  //   - rule-matches + done              → check_circle
+  //     (informational)
   //   - rule-matches + neither           → hollow push_pin
+  //     (informational)
   // Pinned takes precedence over done when a row is somehow both,
   // since pin is the stronger explicit signal.
   const rightActionFor = useCallback(
     (id: number) => {
       const isPinned = pinnedIds.has(id);
       const isDone = doneIds.has(id);
+      const isHidden = hiddenIds.has(id);
       const item = feedItems.items.find(
         (it): it is NonNullable<typeof it> => it?.id === id,
       );
@@ -1239,6 +1282,16 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
       // row resolves an item by the time we get here.
       if (!item) return undefined;
       const ruleMatches = itemPredicate(item);
+
+      if (ruleMatches && isHidden) {
+        return {
+          label:
+            'Hidden, but the rule above would surface this story — consider tightening',
+          icon: <RuleMatchesHiddenIcon />,
+          onToggle: () => {},
+          testId: `preview-rule-matches-hidden-btn-${id}`,
+        };
+      }
 
       if (!ruleMatches && (isPinned || isDone)) {
         const label = isPinned
@@ -1278,7 +1331,7 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         testId: `preview-readonly-btn-${id}`,
       };
     },
-    [pinnedIds, doneIds, feedItems.items, itemPredicate],
+    [pinnedIds, doneIds, hiddenIds, feedItems.items, itemPredicate],
   );
   return (
     <details data-testid="threshold-preview" open>
@@ -1289,9 +1342,10 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         What <code>/hot</code> would render right now under the
         threshold above. Source: live <code>/top ∪ /new</code>;
         re-filters as you adjust the expression or sliders without
-        re-fetching. Rows with an exclamation icon are stories
-        you've pinned or marked done that the current rule wouldn't
-        surface — either is a cue to loosen the rule.
+        re-fetching. Orange exclamation = pinned or marked done but
+        the rule wouldn't surface it (cue to loosen). Red
+        exclamation = hidden but the rule <em>would</em> surface it
+        (cue to tighten).
       </p>
       <StoryListImpl
         feedItems={feedItems}
@@ -1314,6 +1368,13 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         // see a near-empty Preview even when the rule is matching
         // plenty of trending stories.
         includeDone
+        // Keep hidden rows visible *only when the rule matches
+        // them* (the predicate doesn't widen the candidate pool
+        // for hidden — see the comment block above). This is the
+        // false-positive signal: the operator said "never again",
+        // but the current rule still wants to promote it. Paired
+        // with the per-row red-exclam right action.
+        includeHidden
       />
     </details>
   );
