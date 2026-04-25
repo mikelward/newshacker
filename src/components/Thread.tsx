@@ -21,7 +21,6 @@ import { useContentWidth } from '../hooks/useContentWidth';
 import {
   extractDomain,
   formatStoryMetaTail,
-  formatTimeAgo,
   isSafeHttpUrl,
 } from '../lib/format';
 import {
@@ -665,6 +664,20 @@ export function Thread({ id }: Props) {
   const { articleOpenedIds } = useOpenedStories();
   const articleOpened = articleOpenedIds.has(id);
   const item = data?.item;
+  // When the loaded item is a comment, the focused-comment view renders
+  // it via <Comment defaultExpanded> below. Comment.tsx fetches the
+  // body via useCommentItem (queryKey ['comment', id]) — a different
+  // cache key from useItemTree's ['itemRoot', id]. Without this prime,
+  // <Comment> would fire a redundant single-item Firebase fetch for the
+  // exact data we already have in `item`. setQueryData is best-effort
+  // hydration, so a future itemRoot refetch still serves the freshest
+  // copy via the comment cache via prefetchCommentBatch on the kid
+  // batch (loadRoot's prefetch).
+  useEffect(() => {
+    if (item && item.type === 'comment') {
+      queryClient.setQueryData(['comment', item.id], item);
+    }
+  }, [item, queryClient]);
   // Snapshot the thread's comment count whenever it loads (or the
   // background refetch brings in a fresher count). Row clicks in the
   // feed already record an initial snapshot — this keeps it current
@@ -861,21 +874,29 @@ export function Thread({ id }: Props) {
   }
 
   if (item.type === 'comment') {
-    // Focused single-comment view (mirrors HN's own /item?id=<commentId>
-    // behavior). Surfaces the root story's title up top, an opt-in
-    // "Summarize article" button (LazyArticleSummaryCard) so a reader
-    // can fetch the article summary on demand without paying its cost
-    // by default, the comment body, and the comment's replies via the
-    // existing <Comment> tree + infinite-scroll machinery. Skips the
-    // story-action bar (vote/pin/done targeting a comment as if it
-    // were a story would be incoherent).
+    // Focused single-comment view — effectively a filtered comments
+    // page rooted at this comment. Mirrors HN's /item?id=<commentId>:
+    // header carries the article context (eyebrow, story-title link,
+    // opt-in Summarize), and the comment subtree below renders via
+    // the same <Comment> the story view uses. We pass defaultExpanded
+    // so the focused comment opens unclamped with its toolbar visible
+    // (the reader specifically came to see this comment); its kids
+    // render in their normal collapsed-with-3-line-preview state, just
+    // as they would when an expanded comment is encountered in a
+    // story thread. The comment cache was pre-warmed above so
+    // <Comment>'s useCommentItem doesn't fire a redundant fetch.
     //
-    // TODO: decide whether the CommentsSummaryCard belongs here too.
-    // It summarizes "what the wider thread is saying", which is a
-    // different question from the focused comment — surfacing it
-    // would push the reader's attention toward the full thread
-    // rather than the specific comment they came for. Left out for
-    // now until we see whether readers miss it.
+    // TODO (parent-comment escape): a reader landing on a deeply-
+    // nested reply has no inline path back to the comment it
+    // replies to — only the root story link. Adding a "Reply to:
+    // <parent author>" link or breadcrumb that walks one level up
+    // would be useful, but is its own decision (extra single-item
+    // fetch per comment view, extra space in the header, format).
+    // Left out of this change to keep the scope focused.
+    //
+    // TODO (CommentsSummaryCard): decide whether the comments summary
+    // belongs here too. It summarizes "what the wider thread is
+    // saying", a different question from the focused comment.
     return (
       <article className="thread thread--comment">
         <header className="thread__header">
@@ -907,50 +928,12 @@ export function Thread({ id }: Props) {
               storyId={rootStory.id}
             />
           ) : null}
-          <div className="thread__meta" data-testid="thread-meta">
-            {item.by ? (
-              <Link to={`/user/${item.by}`} className="thread__author">
-                {item.by}
-              </Link>
-            ) : null}
-            {item.time ? (
-              <>
-                {item.by ? ' · ' : null}
-                {formatTimeAgo(item.time)}
-                {' ago'}
-              </>
-            ) : null}
-          </div>
-          {item.text ? (
-            <div
-              className="thread__text"
-              onClick={handleLinkClick}
-              dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
-            />
-          ) : null}
-          {!rootStory && item.parent !== undefined ? (
-            <p className="thread__comment-context">
-              <Link to={`/item/${item.parent}`}>View parent →</Link>
-            </p>
-          ) : null}
         </header>
-        {kidIds.length > 0 ? (
-          <ol className="thread__comments">
-            {shown.map((kidId) => (
-              <li key={kidId}>
-                <Comment id={kidId} />
-              </li>
-            ))}
-          </ol>
-        ) : null}
-        {hasMore ? (
-          <div
-            ref={sentinelRef}
-            className="thread__sentinel"
-            data-testid="comments-sentinel"
-            aria-hidden="true"
-          />
-        ) : null}
+        <ol className="thread__comments">
+          <li>
+            <Comment id={id} defaultExpanded />
+          </li>
+        </ol>
       </article>
     );
   }

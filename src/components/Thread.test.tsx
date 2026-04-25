@@ -1466,7 +1466,7 @@ describe('<Thread>', () => {
       };
     }
 
-    it('renders a focused comment view with the root story title as a heading link', async () => {
+    it('renders the focused comment expanded with article context above and replies via <Comment>', async () => {
       const now = Math.floor(Date.now() / 1000);
       installHNFetchMock({ items: makeCommentTree(now) });
 
@@ -1477,11 +1477,12 @@ describe('<Thread>', () => {
       await waitFor(() => {
         expect(screen.getByText('Comment on')).toBeInTheDocument();
       });
+      // Author renders as the standard <Comment> author link.
       expect(screen.getByRole('link', { name: 'alice' })).toHaveAttribute(
         'href',
         '/user/alice',
       );
-      // Comment body renders sanitized HTML (the <b> survives).
+      // Comment body renders sanitized HTML through <Comment>.
       expect(document.body.innerHTML).toContain('<b>body</b>');
 
       // No story-only chrome.
@@ -1495,11 +1496,24 @@ describe('<Thread>', () => {
       const titleLink = await screen.findByRole('link', { name: 'Root story' });
       expect(titleLink).toHaveAttribute('href', '/item/500');
 
-      // No "View parent" fallback once the walk has resolved a story.
-      expect(screen.queryByRole('link', { name: /view parent/i })).toBeNull();
+      // The focused comment is expanded by default — its body is NOT
+      // clamped, and its action toolbar is visible. Pull the body via
+      // the (b)old text we know is inside the comment payload.
+      const bold = await screen.findByText('body');
+      const focusedBody = bold.closest('.comment__body');
+      expect(focusedBody).not.toBeNull();
+      expect(focusedBody).not.toHaveClass('comment__body--clamped');
+      // "Reply on HN" is part of the expanded toolbar — proves the
+      // toolbar rendered, distinguishing expanded from collapsed.
+      expect(
+        screen.getByRole('link', { name: /reply on hn/i }),
+      ).toBeInTheDocument();
 
-      // Replies render via the existing <Comment> tree.
-      expect(await screen.findByText(/reply to alice/)).toBeInTheDocument();
+      // The focused comment's reply ("reply to alice") renders via the
+      // recursive <Comment> tree, in the default collapsed state.
+      const replyText = await screen.findByText(/reply to alice/);
+      const replyBody = replyText.closest('.comment__body');
+      expect(replyBody).toHaveClass('comment__body--clamped');
     });
 
     it('renders a "Summarize article" button (lazy) on the comment view, replaced by the SummaryCard once tapped', async () => {
@@ -1593,7 +1607,7 @@ describe('<Thread>', () => {
       expect(screen.queryByTestId('lazy-summarize-button')).toBeNull();
     });
 
-    it('falls back to a "View parent" link when the parent walk fails to find a story', async () => {
+    it('still renders the focused comment when the parent walk fails to find a story (no title, no Summarize button)', async () => {
       const now = Math.floor(Date.now() / 1000);
       installHNFetchMock({
         items: {
@@ -1612,16 +1626,20 @@ describe('<Thread>', () => {
 
       renderWithProviders(<Thread id={501} />, { route: '/item/501' });
 
+      // Eyebrow stays plain "Comment" while there's no resolved story
+      // to follow it.
       await waitFor(() => {
         expect(screen.getByText('Comment')).toBeInTheDocument();
       });
-      // No story title heading is rendered (walk failed to resolve one).
+      expect(screen.queryByText('Comment on')).toBeNull();
+      // Story chrome is suppressed — no title heading, no Summarize.
       expect(screen.queryByRole('link', { name: 'Root story' })).toBeNull();
-      // Fallback link points at the immediate parent id.
-      const link = await screen.findByRole('link', {
-        name: /^view parent →$/i,
-      });
-      expect(link).toHaveAttribute('href', '/item/500');
+      expect(screen.queryByTestId('lazy-summarize-button')).toBeNull();
+      // The focused comment itself still renders via <Comment>.
+      expect(
+        screen.getByRole('link', { name: 'alice' }),
+      ).toBeInTheDocument();
+      expect(await screen.findByText(/orphaned/)).toBeInTheDocument();
     });
   });
 });

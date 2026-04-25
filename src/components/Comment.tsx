@@ -60,10 +60,16 @@ function ToolbarReplyIcon() {
 
 interface Props {
   id: number;
+  // Start the comment in its expanded state instead of the default
+  // collapsed-with-3-line-preview. Set on the focused-comment view at
+  // /item/<commentId> where the reader specifically came to read this
+  // comment — the toggle still works in both directions afterward, so
+  // they can collapse it if they want.
+  defaultExpanded?: boolean;
 }
 
-export function Comment({ id }: Props) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export function Comment({ id, defaultExpanded = false }: Props) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const { data: item, isLoading } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
   const queryClient = useQueryClient();
