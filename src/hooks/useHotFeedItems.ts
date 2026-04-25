@@ -141,8 +141,12 @@ export function useHotFeedItems(
   // so /hot uses the production rule while /tuning's Preview can
   // re-evaluate against a tunable expression without re-fetching.
   // StoryListImpl still applies its visibility filter (`score > 1`,
-  // `!hidden`, `!done`, `!dead`, `!deleted`) on top of whichever
-  // predicate the consumer applies.
+  // `!hidden`, `!dead`, `!deleted`, and by default `!done`) on top
+  // of whichever predicate the consumer applies. The done check is
+  // an opt-out: `/hot` keeps the default ("I've handled this, get
+  // it off my list"), while the `/tuning` Preview passes
+  // `includeDone` so done rows stay visible — the question there is
+  // "what does the rule surface", not "what's left of my inbox".
   const { items, newSourceIds, allIds } = useMemo(() => {
     const seen = new Set<number>();
     const out: Array<HNItem | null> = [];

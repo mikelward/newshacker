@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ThresholdTuningPage } from './ThresholdTuningPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { addPinnedId } from '../lib/pinnedStories';
+import { addDoneId } from '../lib/doneStories';
 
 interface ServerEvent {
   action: 'pin' | 'hide';
@@ -257,6 +258,82 @@ describe('<ThresholdTuningPage>', () => {
     // Score-5 story doesn't pass the default isHotStory rule, so
     // the Preview filters it out.
     expect(screen.queryByText('cold-skip-story')).toBeNull();
+  });
+
+  it('keeps done stories visible in the Preview', async () => {
+    // /hot strips done stories from the rendered list as part of
+    // the reader's normal "I've already handled this" sweep. The
+    // Preview is asking what the *rule* surfaces, independent of
+    // how much of the list the operator has already worked
+    // through, so done stories must stay visible — otherwise an
+    // operator with an active reading habit sees a near-empty
+    // Preview even when the rule is matching plenty of trending
+    // stories.
+    addDoneId(100);
+    const nowS = Math.floor(Date.now() / 1000);
+    const doneHotStory = {
+      id: 100,
+      type: 'story',
+      title: 'done-but-still-hot',
+      url: 'https://example.com/100',
+      by: 'alice',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          return new Response(JSON.stringify([100]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids =
+            new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) => (id === 100 ? doneHotStory : null));
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(screen.getByText('done-but-still-hot')).toBeInTheDocument(),
+    );
   });
 
   it('does not prepend fully off-feed pinned stories', async () => {

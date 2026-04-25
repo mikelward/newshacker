@@ -443,11 +443,18 @@ function ThresholdTuningBody({ events }: BodyProps) {
         compileError={compiled.ok ? null : compiled.error}
       />
       <ThresholdLiveCounts events={events} flagFor={flagFor} />
-      <ThresholdPreview itemPredicate={itemPredicate} />
       <ThresholdScatters events={events} flagFor={flagFor} sliders={sliders} />
       <ThresholdActionStats events={events} />
       <ThresholdTypeBreakdown events={events} />
       <ThresholdOpenedRatio events={events} />
+      {/* Preview lives at the bottom: it scrolls (a full feed list)
+          and uses /top ∪ /new fetched live, so anchoring it under
+          the static analytics keeps the controls + summary stats
+          above-the-fold. The operator who wants to see the rule's
+          live output can scroll to it; the operator who wants to
+          tune against the recorded events sees the controls and
+          summary right where they're working. */}
+      <ThresholdPreview itemPredicate={itemPredicate} />
     </>
   );
 }
@@ -1201,6 +1208,14 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         // on top, conflating "rule output" with "things you've
         // saved". Pure rule output is what's being tuned.
         includeOffFeedPinned={false}
+        // Keep done rows visible. /hot strips them as part of the
+        // reader's normal "I've already handled this" sweep, but
+        // the Preview is asking "what does this rule surface,
+        // independent of how much I've already worked through" —
+        // an operator with an active reading habit would otherwise
+        // see a near-empty Preview even when the rule is matching
+        // plenty of trending stories.
+        includeDone
       />
     </details>
   );
