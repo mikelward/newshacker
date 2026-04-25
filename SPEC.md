@@ -212,15 +212,21 @@ server-side with most-recent-first eviction.
    - **Comment summary card** (AI, Gemini 2.5 Flash-Lite) between the meta line and the comment list, for any story with at least one top-level comment — including self-posts (Ask HN, Show HN). Renders 3–5 short insights. Auto-runs on load. Reuses the same card visual as the article summary.
    - Nested comments, each collapsed by default with a 3-line body preview. See *Comment row layout*.
    - Deep-linkable: `/item/:id` — `:id` may be a story or a comment.
-     Comments render a focused single-comment view: eyebrow ("Comment"),
-     the **root story's title as a heading link** (resolved by walking
-     up the `parent` chain), an opt-in "Summarize article" button (see
-     below), author + age, the comment body, and the comment's own
-     replies underneath. While the parent walk is in flight, or if it
-     can't reach a story, a "View parent →" link is shown instead so
-     the reader is never stranded with no context. Story-only chrome —
-     title link, story action bar, comments-summary card — is omitted
-     in the comment view.
+     Comments render a **filtered comments-page view** rooted at the
+     focused comment: a header carrying the article context (eyebrow
+     "Comment on", root-story title as a heading link resolved by
+     walking up the `parent` chain, opt-in "Summarize article" button —
+     see below), then the comment subtree itself, rendered via the
+     same `<Comment>` the story view uses. The focused comment opens
+     in its expanded state (body unclamped, action toolbar visible,
+     "Comment on" eyebrow text); its replies render in the normal
+     collapsed-with-3-line-preview state, just as they would when an
+     expanded comment is encountered in a story thread. The eyebrow
+     stays "Comment" while the parent walk is in flight or if it
+     can't reach a story. Story-only chrome — title link, story
+     action bar, comments-summary card — is omitted. Parent-comment
+     escape is a known TODO (see `Thread.tsx`); for now the only
+     upward link is to the root story.
    - **Article SummaryCard on the comment view is lazy.** Below the
      story-title heading, the comment view renders a small
      "Summarize article" button instead of the auto-running SummaryCard
