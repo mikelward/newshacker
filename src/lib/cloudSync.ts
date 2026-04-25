@@ -41,6 +41,12 @@ import {
   type AvatarPrefs,
   type AvatarSource,
 } from './avatarPrefs';
+import {
+  HOT_THRESHOLDS_CHANGE_EVENT,
+  getStoredHotThresholds,
+  replaceHotThresholds,
+  type HotThresholds,
+} from './hotThresholds';
 
 export const SYNC_DEBOUNCE_MS = 2000;
 // Visibility-triggered pulls are gated: tab-switching shouldn't hammer
@@ -61,12 +67,28 @@ export interface SyncAvatar {
   at: number;
 }
 
+// Wire shape for the per-user `/hot` rule. Mirrors `HotThresholds` in
+// `./hotThresholds.ts` but always carries an `at` (the localStorage
+// shape's `at` is optional for pristine devices). `toSyncHotThresholds`
+// below drops the record entirely when `at` is missing/zero, so the
+// server only ever sees stamped records.
+export interface SyncHotThresholds {
+  topEnabled: boolean;
+  topScoreMin: number;
+  topDescendantsMin: number;
+  newEnabled: boolean;
+  newVelocityMin: number;
+  newDescendantsMin: number;
+  at: number;
+}
+
 export interface SyncState {
   pinned: SyncEntry[];
   favorite: SyncEntry[];
   hidden: SyncEntry[];
   done: SyncEntry[];
   avatar?: SyncAvatar;
+  hotThresholds?: SyncHotThresholds;
 }
 
 type ListName = 'pinned' | 'favorite' | 'hidden' | 'done';
@@ -100,6 +122,9 @@ interface SyncRuntime {
   // successfully POST or observe a server value at that `at` — same
   // idea as lastPushed for the lists, but for a single record.
   lastPushedAvatar: number;
+  // Same idea for the per-user Hot-threshold overrides configured by
+  // `<HotRuleCard>` on `/hot`.
+  lastPushedHotThresholds: number;
   pushTimer: ReturnType<typeof setTimeout> | null;
   pushInFlight: boolean;
   pushQueued: boolean;
@@ -123,8 +148,10 @@ export interface CloudSyncDebugSnapshot {
   username: string | null;
   lastPushed: Record<ListName, number>;
   lastPushedAvatar: number;
+  lastPushedHotThresholds: number;
   pendingCount: Record<ListName, number>;
   pendingAvatar: boolean;
+  pendingHotThresholds: boolean;
   push: { inFlight: boolean; queued: boolean; timerPending: boolean };
   lastPull: LastRequest | null;
   lastPush: LastRequest | null;
@@ -136,9 +163,11 @@ export interface LastRequest {
   status?: number;
   // For GET: counts of entries returned by the server. For POST: counts
   // in the delta we sent. The avatar flag is true when an avatar record
-  // was present in the response (GET) or the delta (POST).
+  // was present in the response (GET) or the delta (POST). Same shape
+  // for the hotThresholds flag.
   counts?: Record<ListName, number>;
   avatar?: boolean;
+  hotThresholds?: boolean;
   error?: string;
 }
 
@@ -222,6 +251,30 @@ function localAvatarAt(): number {
   return typeof prefs.at === 'number' ? prefs.at : 0;
 }
 
+// Same shape conversion as `toSyncAvatar`: drop pristine records
+// (`at` missing/zero) so we don't ship a record that hasn't been
+// user-edited. The server's mergeHotThresholds would happily accept
+// it, but pushing a `at: 0` record means every newer device would
+// then "win" a comparison against it, which is correct but pointless
+// — better to not send anything and let other devices' edits land.
+function toSyncHotThresholds(prefs: HotThresholds): SyncHotThresholds | null {
+  if (!prefs.at || prefs.at <= 0) return null;
+  return {
+    topEnabled: prefs.topEnabled,
+    topScoreMin: prefs.topScoreMin,
+    topDescendantsMin: prefs.topDescendantsMin,
+    newEnabled: prefs.newEnabled,
+    newVelocityMin: prefs.newVelocityMin,
+    newDescendantsMin: prefs.newDescendantsMin,
+    at: prefs.at,
+  };
+}
+
+function localHotThresholdsAt(): number {
+  const prefs = getStoredHotThresholds();
+  return typeof prefs.at === 'number' ? prefs.at : 0;
+}
+
 function applyServerState(state: SyncState): void {
   if (!runtime) return;
   const lists: ListName[] = ['pinned', 'favorite', 'hidden', 'done'];
@@ -263,6 +316,26 @@ function applyServerState(state: SyncState): void {
       state.avatar.at,
     );
   }
+  if (state.hotThresholds) {
+    // Same single-record LWW for the per-user Hot rule.
+    const localAt = localHotThresholdsAt();
+    if (state.hotThresholds.at > localAt) {
+      const next: HotThresholds = {
+        topEnabled: state.hotThresholds.topEnabled,
+        topScoreMin: state.hotThresholds.topScoreMin,
+        topDescendantsMin: state.hotThresholds.topDescendantsMin,
+        newEnabled: state.hotThresholds.newEnabled,
+        newVelocityMin: state.hotThresholds.newVelocityMin,
+        newDescendantsMin: state.hotThresholds.newDescendantsMin,
+        at: state.hotThresholds.at,
+      };
+      replaceHotThresholds(next);
+    }
+    runtime.lastPushedHotThresholds = Math.max(
+      runtime.lastPushedHotThresholds,
+      state.hotThresholds.at,
+    );
+  }
 }
 
 function collectDelta(): SyncState {
@@ -285,6 +358,11 @@ function collectDelta(): SyncState {
   const candidate = toSyncAvatar(localPrefs);
   if (candidate && candidate.at > runtime.lastPushedAvatar) {
     delta.avatar = candidate;
+  }
+  const localHot = getStoredHotThresholds();
+  const hotCandidate = toSyncHotThresholds(localHot);
+  if (hotCandidate && hotCandidate.at > runtime.lastPushedHotThresholds) {
+    delta.hotThresholds = hotCandidate;
   }
   return delta;
 }
@@ -341,6 +419,7 @@ async function pull(): Promise<void> {
       done: server.done?.length ?? 0,
     },
     avatar: !!server.avatar,
+    hotThresholds: !!server.hotThresholds,
   };
   applyServerState(server);
   notifyDebug();
@@ -355,7 +434,8 @@ async function push(): Promise<void> {
     delta.hidden.length +
     delta.done.length;
   const hasAvatarDelta = !!delta.avatar;
-  if (total === 0 && !hasAvatarDelta) return;
+  const hasHotDelta = !!delta.hotThresholds;
+  if (total === 0 && !hasAvatarDelta && !hasHotDelta) return;
 
   const deltaCounts: Record<ListName, number> = {
     pinned: delta.pinned.length,
@@ -370,6 +450,7 @@ async function push(): Promise<void> {
     done: maxAt(delta.done),
   };
   const deltaAvatarAt = delta.avatar ? delta.avatar.at : 0;
+  const deltaHotAt = delta.hotThresholds ? delta.hotThresholds.at : 0;
   const startedAt = Date.now();
 
   let res: Response;
@@ -385,6 +466,7 @@ async function push(): Promise<void> {
       ok: false,
       counts: deltaCounts,
       avatar: hasAvatarDelta,
+      hotThresholds: hasHotDelta,
       error: errorMessage(e),
     };
     notifyDebug();
@@ -397,6 +479,7 @@ async function push(): Promise<void> {
       status: res.status,
       counts: deltaCounts,
       avatar: hasAvatarDelta,
+      hotThresholds: hasHotDelta,
     };
     notifyDebug();
     return;
@@ -412,6 +495,7 @@ async function push(): Promise<void> {
       status: res.status,
       counts: deltaCounts,
       avatar: hasAvatarDelta,
+      hotThresholds: hasHotDelta,
       error: 'invalid-json',
     };
     notifyDebug();
@@ -424,6 +508,7 @@ async function push(): Promise<void> {
       status: res.status,
       counts: deltaCounts,
       avatar: hasAvatarDelta,
+      hotThresholds: hasHotDelta,
       error: 'invalid-shape',
     };
     notifyDebug();
@@ -458,6 +543,12 @@ async function push(): Promise<void> {
       deltaAvatarAt,
     );
   }
+  if (hasHotDelta) {
+    runtime.lastPushedHotThresholds = Math.max(
+      runtime.lastPushedHotThresholds,
+      deltaHotAt,
+    );
+  }
 
   applyServerState(server);
   lastPush = {
@@ -466,6 +557,7 @@ async function push(): Promise<void> {
     status: res.status,
     counts: deltaCounts,
     avatar: hasAvatarDelta,
+    hotThresholds: hasHotDelta,
   };
   notifyDebug();
 }
@@ -480,6 +572,24 @@ function isSyncAvatar(x: unknown): x is SyncAvatar {
   if (!isAvatarSource(obj.source)) return false;
   if (typeof obj.at !== 'number' || !Number.isFinite(obj.at) || obj.at < 0) {
     return false;
+  }
+  return true;
+}
+
+function isSyncHotThresholds(x: unknown): x is SyncHotThresholds {
+  if (typeof x !== 'object' || x === null) return false;
+  const obj = x as Record<string, unknown>;
+  if (typeof obj.topEnabled !== 'boolean') return false;
+  if (typeof obj.newEnabled !== 'boolean') return false;
+  for (const k of [
+    'topScoreMin',
+    'topDescendantsMin',
+    'newVelocityMin',
+    'newDescendantsMin',
+    'at',
+  ] as const) {
+    const n = obj[k];
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return false;
   }
   return true;
 }
@@ -504,6 +614,11 @@ function isSyncState(x: unknown): x is SyncState {
   // `at` would otherwise poison `lastPushedAvatar` via NaN.
   if (obj.avatar !== undefined && !isSyncAvatar(obj.avatar)) {
     delete obj.avatar;
+  }
+  // Same drop-in-place treatment for hotThresholds — a malformed record
+  // shouldn't reject the whole pull.
+  if (obj.hotThresholds !== undefined && !isSyncHotThresholds(obj.hotThresholds)) {
+    delete obj.hotThresholds;
   }
   return true;
 }
@@ -584,6 +699,7 @@ export async function startCloudSync(
     username,
     lastPushed: { pinned: 0, favorite: 0, hidden: 0, done: 0 },
     lastPushedAvatar: 0,
+    lastPushedHotThresholds: 0,
     pushTimer: null,
     pushInFlight: false,
     pushQueued: false,
@@ -600,6 +716,7 @@ export async function startCloudSync(
   window.addEventListener(HIDDEN_STORIES_CHANGE_EVENT, onChange);
   window.addEventListener(DONE_STORIES_CHANGE_EVENT, onChange);
   window.addEventListener(AVATAR_PREFS_CHANGE_EVENT, onChange);
+  window.addEventListener(HOT_THRESHOLDS_CHANGE_EVENT, onChange);
 
   runtime.unsubscribeOnline = subscribeOnline((online) => {
     if (!online) return;
@@ -625,6 +742,7 @@ export function stopCloudSync(): void {
   window.removeEventListener(HIDDEN_STORIES_CHANGE_EVENT, r.onChange);
   window.removeEventListener(DONE_STORIES_CHANGE_EVENT, r.onChange);
   window.removeEventListener(AVATAR_PREFS_CHANGE_EVENT, r.onChange);
+  window.removeEventListener(HOT_THRESHOLDS_CHANGE_EVENT, r.onChange);
   if (r.pushTimer) clearTimeout(r.pushTimer);
   r.unsubscribeOnline?.();
   r.unsubscribeVisibility?.();
@@ -659,8 +777,10 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
       username: null,
       lastPushed: { pinned: 0, favorite: 0, hidden: 0, done: 0 },
       lastPushedAvatar: 0,
+      lastPushedHotThresholds: 0,
       pendingCount: { pinned: 0, favorite: 0, hidden: 0, done: 0 },
       pendingAvatar: false,
+      pendingHotThresholds: false,
       push: { inFlight: false, queued: false, timerPending: false },
       lastPull,
       lastPush,
@@ -672,6 +792,7 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
     username: runtime.username,
     lastPushed: { ...runtime.lastPushed },
     lastPushedAvatar: runtime.lastPushedAvatar,
+    lastPushedHotThresholds: runtime.lastPushedHotThresholds,
     pendingCount: {
       pinned: delta.pinned.length,
       favorite: delta.favorite.length,
@@ -679,6 +800,7 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
       done: delta.done.length,
     },
     pendingAvatar: !!delta.avatar,
+    pendingHotThresholds: !!delta.hotThresholds,
     push: {
       inFlight: runtime.pushInFlight,
       queued: runtime.pushQueued,

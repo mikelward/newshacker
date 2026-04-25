@@ -5,13 +5,19 @@ import { QueryClient } from '@tanstack/react-query';
 import { StoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+import {
+  DEFAULT_HOT_THRESHOLDS,
+  setStoredHotThresholds,
+} from '../lib/hotThresholds';
 
 describe('<StoryList>', () => {
   beforeEach(() => {
     vi.useRealTimers();
+    window.localStorage.clear();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    window.localStorage.clear();
   });
 
   it('renders 30 items by default and reveals another 30 per More click', async () => {
@@ -201,5 +207,31 @@ describe('<StoryList>', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(1);
     });
     expect(screen.getByText('Good')).toBeInTheDocument();
+  });
+
+  it('the row Hot pill honors the user\'s <HotRuleCard> overrides via StoryListImpl\'s hoisted useHotThresholds', async () => {
+    // Big-story-only row: score 250, descendants 150, 30h old so the
+    // velocity branch (250 / 30h ≈ 8.3/h) misses the 15/h default.
+    // Under default thresholds the Top branch flags it, under
+    // `topEnabled: false` it shouldn't.
+    const story = makeStory(1, {
+      title: 'big-story-from-top',
+      score: 250,
+      descendants: 150,
+      time: Math.floor(Date.now() / 1000) - 30 * 60 * 60,
+    });
+    installHNFetchMock({ feeds: { topstories: [1] }, items: { 1: story } });
+
+    setStoredHotThresholds(
+      { ...DEFAULT_HOT_THRESHOLDS, topEnabled: false },
+      Date.now(),
+    );
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('big-story-from-top')).toBeInTheDocument();
+    });
+    // Pill is suppressed because the user disabled the Top branch.
+    expect(screen.queryByTestId('story-hot')).toBeNull();
   });
 });

@@ -1,8 +1,10 @@
 import { useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getItems } from '../lib/hn';
+import { getItems, type HNItem } from '../lib/hn';
+import { isHotStory } from '../lib/format';
 import { useHiddenStories } from '../hooks/useHiddenStories';
+import { useHotThresholds } from '../hooks/useHotThresholds';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { BackToTopButton } from './BackToTopButton';
@@ -45,6 +47,15 @@ export function LibraryStoryList({
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
+  // Hoist `useHotThresholds()` here so the user's `<HotRuleCard>`
+  // overrides reach the row pill without per-row hook subscriptions
+  // (Copilot review on PR #240). `now` is captured once per render
+  // so all rows evaluate against the same wall-clock instant — saves
+  // per-row `new Date()` allocations.
+  const { prefs: hotThresholds } = useHotThresholds();
+  const now = new Date();
+  const flagFromHot = (story: HNItem) =>
+    isHotStory(story, now, hotThresholds) ? ('hot' as const) : null;
 
   const items = useQuery({
     queryKey: [
@@ -135,6 +146,7 @@ export function LibraryStoryList({
               <StoryListItem
                 story={story}
                 rank={idx + 1}
+                flag={flagFromHot(story)}
                 articleOpened={articleOpenedIds.has(story.id)}
                 commentsOpened={commentsOpenedIds.has(story.id)}
                 seenCommentCount={seenCommentCounts.get(story.id)}

@@ -4,12 +4,24 @@ import {
   handleSyncRequest,
   mergeAvatar,
   mergeEntries,
+  mergeHotThresholds,
   type SyncAvatar,
   type SyncEntry,
+  type SyncHotThresholds,
   type SyncState,
   type SyncStore,
   _internals,
 } from './sync';
+
+const DEFAULT_HOT: SyncHotThresholds = {
+  topEnabled: true,
+  topScoreMin: 200,
+  topDescendantsMin: 100,
+  newEnabled: true,
+  newVelocityMin: 15,
+  newDescendantsMin: 10,
+  at: 1000,
+};
 
 const COOKIE = 'hn_session=alice%26hash';
 const UNAUTH_COOKIE = 'hn_session=a'; // too short → rejected
@@ -221,6 +233,88 @@ describe('normalizeAvatar', () => {
     });
     expect(result).toBeDefined();
     expect(result).not.toHaveProperty('gravatarEmail');
+  });
+});
+
+describe('mergeHotThresholds', () => {
+  it('returns incoming when current is absent', () => {
+    expect(mergeHotThresholds(undefined, DEFAULT_HOT)).toEqual(DEFAULT_HOT);
+  });
+
+  it('returns current when incoming is absent', () => {
+    expect(mergeHotThresholds(DEFAULT_HOT, undefined)).toEqual(DEFAULT_HOT);
+  });
+
+  it('newer `at` wins', () => {
+    const next: SyncHotThresholds = {
+      ...DEFAULT_HOT,
+      topEnabled: false,
+      at: 2000,
+    };
+    expect(mergeHotThresholds(DEFAULT_HOT, next)).toEqual(next);
+  });
+
+  it('older `at` loses', () => {
+    const next: SyncHotThresholds = {
+      ...DEFAULT_HOT,
+      topEnabled: false,
+      at: 500,
+    };
+    expect(mergeHotThresholds(DEFAULT_HOT, next)).toEqual(DEFAULT_HOT);
+  });
+
+  it('ties keep the incumbent (idempotent push)', () => {
+    const next: SyncHotThresholds = {
+      ...DEFAULT_HOT,
+      topEnabled: false,
+      at: 1000,
+    };
+    expect(mergeHotThresholds(DEFAULT_HOT, next)).toEqual(DEFAULT_HOT);
+  });
+});
+
+describe('normalizeHotThresholds', () => {
+  it('accepts a complete record', () => {
+    expect(_internals.normalizeHotThresholds(DEFAULT_HOT)).toEqual(DEFAULT_HOT);
+  });
+
+  it('rounds non-integer numbers', () => {
+    const result = _internals.normalizeHotThresholds({
+      ...DEFAULT_HOT,
+      topScoreMin: 200.7,
+      newVelocityMin: 14.2,
+    });
+    expect(result?.topScoreMin).toBe(201);
+    expect(result?.newVelocityMin).toBe(14);
+  });
+
+  it('rejects a non-boolean enabled flag', () => {
+    expect(
+      _internals.normalizeHotThresholds({ ...DEFAULT_HOT, topEnabled: 'yes' }),
+    ).toBeUndefined();
+  });
+
+  it('rejects a negative threshold value', () => {
+    expect(
+      _internals.normalizeHotThresholds({ ...DEFAULT_HOT, topScoreMin: -5 }),
+    ).toBeUndefined();
+  });
+
+  it('rejects a missing `at`', () => {
+    const { at: _at, ...rest } = DEFAULT_HOT;
+    void _at;
+    expect(_internals.normalizeHotThresholds(rest)).toBeUndefined();
+  });
+
+  it('rejects a non-numeric `at`', () => {
+    expect(
+      _internals.normalizeHotThresholds({ ...DEFAULT_HOT, at: 'soon' }),
+    ).toBeUndefined();
+  });
+
+  it('rejects null / non-object input', () => {
+    expect(_internals.normalizeHotThresholds(null)).toBeUndefined();
+    expect(_internals.normalizeHotThresholds('hello')).toBeUndefined();
   });
 });
 
@@ -609,5 +703,62 @@ describe('handleSyncRequest POST', () => {
     const body = (await res.json()) as SyncState;
     expect(body.pinned).toEqual([{ id: 1, at: 100 }]);
     expect(body.avatar).toBeUndefined();
+  });
+
+  it('round-trips a hotThresholds record and preserves it across pushes', async () => {
+    const res = await handleSyncRequest(
+      request('POST', { hotThresholds: DEFAULT_HOT }),
+      { store },
+    );
+    const body = (await res.json()) as SyncState;
+    expect(body.hotThresholds).toEqual(DEFAULT_HOT);
+
+    // A later push with no hotThresholds keeps the stored record.
+    const res2 = await handleSyncRequest(
+      request('POST', { pinned: [{ id: 1, at: 200 }] }),
+      { store },
+    );
+    expect(((await res2.json()) as SyncState).hotThresholds).toEqual(DEFAULT_HOT);
+  });
+
+  it('applies LWW on hotThresholds across pushes', async () => {
+    await handleSyncRequest(
+      request('POST', { hotThresholds: { ...DEFAULT_HOT, at: 500 } }),
+      { store },
+    );
+    // Older push loses (server keeps the original).
+    const losing = await handleSyncRequest(
+      request('POST', {
+        hotThresholds: { ...DEFAULT_HOT, topEnabled: false, at: 100 },
+      }),
+      { store },
+    );
+    expect(
+      ((await losing.json()) as SyncState).hotThresholds?.topEnabled,
+    ).toBe(true);
+    // Newer push wins.
+    const winning = await handleSyncRequest(
+      request('POST', {
+        hotThresholds: { ...DEFAULT_HOT, topEnabled: false, at: 900 },
+      }),
+      { store },
+    );
+    expect(
+      ((await winning.json()) as SyncState).hotThresholds?.topEnabled,
+    ).toBe(false);
+  });
+
+  it('silently ignores a malformed hotThresholds (keeps the rest of the delta)', async () => {
+    const res = await handleSyncRequest(
+      request('POST', {
+        pinned: [{ id: 1, at: 100 }],
+        // Missing `at` → strict validator rejects the record outright.
+        hotThresholds: { ...DEFAULT_HOT, at: undefined },
+      }),
+      { store },
+    );
+    const body = (await res.json()) as SyncState;
+    expect(body.pinned).toEqual([{ id: 1, at: 100 }]);
+    expect(body.hotThresholds).toBeUndefined();
   });
 });

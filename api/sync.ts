@@ -56,12 +56,28 @@ export interface SyncAvatar {
   at: number;
 }
 
+// Per-user `/hot` rule. Mirrors `HotThresholds` in src/lib/hotThresholds.ts
+// (intentionally duplicated — api/*.ts can't import from src/ on Vercel,
+// see file header comment). Four bounded numbers + two on/off flags +
+// one `at` for last-write-wins. Off (`*Enabled = false`) means that
+// branch's disjunct evaluates to `false`, removing it from the OR.
+export interface SyncHotThresholds {
+  topEnabled: boolean;
+  topScoreMin: number;
+  topDescendantsMin: number;
+  newEnabled: boolean;
+  newVelocityMin: number;
+  newDescendantsMin: number;
+  at: number;
+}
+
 export interface SyncState {
   pinned: SyncEntry[];
   favorite: SyncEntry[];
   hidden: SyncEntry[];
   done: SyncEntry[];
   avatar?: SyncAvatar;
+  hotThresholds?: SyncHotThresholds;
 }
 
 function emptyState(): SyncState {
@@ -167,6 +183,47 @@ function normalizeAvatar(value: unknown): SyncAvatar | undefined {
   return out;
 }
 
+// Strict validator for the singleton `hotThresholds` record. Returns
+// `undefined` on any malformed input — the client always sends a
+// complete record (its own client-side `sanitize` fills missing fields
+// with defaults), so a partial payload from the wire is treated as
+// "no record" rather than silently filled out with server-side defaults
+// that might disagree with the client's defaults during a deploy skew.
+//
+// We don't enforce upper bounds here on purpose: the worst a misbehaving
+// client can do by writing a wildly large value is empty its own `/hot`,
+// and the client-side `sanitize` clamps to the slider range on read.
+// Lower-bound is non-negative — `>= 0` with the new `>=` semantics is
+// the "remove this gate" sentinel and there's no meaningful negative.
+function normalizeHotThresholds(value: unknown): SyncHotThresholds | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v.topEnabled !== 'boolean') return undefined;
+  if (typeof v.newEnabled !== 'boolean') return undefined;
+  const numFields: Array<keyof SyncHotThresholds> = [
+    'topScoreMin',
+    'topDescendantsMin',
+    'newVelocityMin',
+    'newDescendantsMin',
+  ];
+  for (const k of numFields) {
+    const n = v[k];
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return undefined;
+  }
+  if (typeof v.at !== 'number' || !Number.isFinite(v.at) || v.at < 0) {
+    return undefined;
+  }
+  return {
+    topEnabled: v.topEnabled,
+    topScoreMin: Math.round(v.topScoreMin as number),
+    topDescendantsMin: Math.round(v.topDescendantsMin as number),
+    newEnabled: v.newEnabled,
+    newVelocityMin: Math.round(v.newVelocityMin as number),
+    newDescendantsMin: Math.round(v.newDescendantsMin as number),
+    at: v.at,
+  };
+}
+
 function normalizeState(raw: unknown): SyncState {
   if (typeof raw !== 'object' || raw === null) return emptyState();
   const obj = raw as Record<string, unknown>;
@@ -178,6 +235,8 @@ function normalizeState(raw: unknown): SyncState {
   };
   const avatar = normalizeAvatar(obj.avatar);
   if (avatar) state.avatar = avatar;
+  const hot = normalizeHotThresholds(obj.hotThresholds);
+  if (hot) state.hotThresholds = hot;
   return state;
 }
 
@@ -203,6 +262,17 @@ export function mergeAvatar(
   current: SyncAvatar | undefined,
   incoming: SyncAvatar | undefined,
 ): SyncAvatar | undefined {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  return incoming.at > current.at ? incoming : current;
+}
+
+// Same single-record LWW for `hotThresholds`. Ties keep the incumbent
+// so a repeated identical push is idempotent.
+export function mergeHotThresholds(
+  current: SyncHotThresholds | undefined,
+  incoming: SyncHotThresholds | undefined,
+): SyncHotThresholds | undefined {
   if (!incoming) return current;
   if (!current) return incoming;
   return incoming.at > current.at ? incoming : current;
@@ -347,6 +417,12 @@ export async function handleSyncRequest(
   );
   if (mergedAvatar) merged.avatar = mergedAvatar;
 
+  const mergedHot = mergeHotThresholds(
+    current.hotThresholds,
+    normalizeHotThresholds(delta.hotThresholds),
+  );
+  if (mergedHot) merged.hotThresholds = mergedHot;
+
   try {
     await store.set(username, merged);
   } catch {
@@ -380,5 +456,6 @@ export const _internals = {
   normalizeList,
   normalizeState,
   normalizeAvatar,
+  normalizeHotThresholds,
   capList,
 };

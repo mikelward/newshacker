@@ -179,49 +179,51 @@ export interface StoryMetaInput {
 }
 
 // A story is "hot" if it's either climbing fast with real discussion
-// (velocity > 15 points/h AND descendants > 10) OR a clearly
-// established big story with a heavy comment thread (score > 200 AND
-// descendants > 100). The fast-riser branch catches stories that
+// (velocity ≥ 15 points/h AND descendants ≥ 10) OR a clearly
+// established big story with a heavy comment thread (score ≥ 200 AND
+// descendants ≥ 100). The fast-riser branch catches stories that
 // haven't accumulated huge totals yet but are climbing the front
 // page; the big-story branch keeps the Hot flag on stories whose
 // velocity has cooled but whose total engagement still stands out.
+// Comparisons are `≥` (not `>`), so dragging a `<HotRuleCard>` slider
+// to 0 effectively removes that gate from its branch.
 //
-// Velocity is computed against `safeAge = max(ageHours, 0.01)` (a
-// ~36-second floor) so a brand-new story doesn't blow up to Infinity
-// while its age is still rounding to zero — the same floor the
-// `/tuning` page uses on its own `safeAge`, so the rule's *shape*
-// matches what the operator previewed there. The age inputs differ
-// in a tiny way (`isHotStory` floors `now` to whole seconds via
-// `Math.floor(now.getTime() / 1000)` while `/tuning`'s `evalForItem`
-// uses `nowMs / 1000`); within the 36-second `safeAge` floor the
-// difference is washed out.
-//
-// Exported so the `/admin` "Hot threshold tuning" view can render
-// reference lines and the default expression against the same
-// numbers `isHotStory` actually uses — without that single source
-// of truth, the UI silently drifts when these are tuned.
-export const HOT_MIN_VELOCITY = 15;
-export const HOT_MIN_DESCENDANTS = 10;
-export const HOT_BIG_SCORE = 200;
-export const HOT_BIG_DESCENDANTS = 100;
+// The two branches and the four numbers are user-tunable in the
+// `<HotRuleCard>` inline editor on `/hot`, which writes a
+// `HotThresholds` record to localStorage (and syncs it via
+// `/api/sync` for signed-in users). Each branch can be disabled
+// individually; off means that disjunct evaluates to false. The
+// constants below are the production defaults, re-exported from
+// `hotThresholds.ts` so changing them in one place updates both the
+// fallback path and the `/hot` editor's "default" baseline.
+export {
+  HOT_MIN_VELOCITY,
+  HOT_MIN_DESCENDANTS,
+  HOT_BIG_SCORE,
+  HOT_BIG_DESCENDANTS,
+} from './hotThresholds';
+import {
+  DEFAULT_HOT_THRESHOLDS,
+  evalHot,
+  type HotThresholds,
+} from './hotThresholds';
 
 /**
  * Returns true when the story is "trending enough" to flag with the
  * orange Hot pill in the story row. Display-only — no state, no
  * storage, no side effects.
+ *
+ * `thresholds` is the user's per-branch on/off + four numbers; defaults
+ * to `DEFAULT_HOT_THRESHOLDS` (the production rule) so legacy callers
+ * that don't know about user customization still get the production
+ * behavior unchanged.
  */
-export function isHotStory(item: StoryMetaInput, now: Date = new Date()): boolean {
-  const score = item.score ?? 0;
-  const descendants = item.descendants ?? 0;
-  if (score > HOT_BIG_SCORE && descendants > HOT_BIG_DESCENDANTS) return true;
-  if (!item.time) return false;
-  const nowS = Math.floor(now.getTime() / 1000);
-  const ageHours = (nowS - item.time) / 3600;
-  if (ageHours < 0) return false;
-  const safeAge = Math.max(ageHours, 0.01);
-  return (
-    score / safeAge > HOT_MIN_VELOCITY && descendants > HOT_MIN_DESCENDANTS
-  );
+export function isHotStory(
+  item: StoryMetaInput,
+  now: Date = new Date(),
+  thresholds: HotThresholds = DEFAULT_HOT_THRESHOLDS,
+): boolean {
+  return evalHot(item, now, thresholds);
 }
 
 // Shared core for the `(N/h)` velocity readouts. Returns `null`

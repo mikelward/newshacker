@@ -8,6 +8,7 @@ import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { StoryListImpl } from '../components/StoryList';
 import type { RowFlag } from '../components/StoryListItem';
+import { DEFAULT_HOT_THRESHOLDS } from '../lib/hotThresholds';
 import {
   HOT_BIG_DESCENDANTS,
   HOT_BIG_SCORE,
@@ -273,7 +274,7 @@ interface BodyProps {
 // the input and tune against the same telemetry without re-typing
 // constants.
 const DEFAULT_EXPRESSION =
-  '(velocity > velocity_threshold && descendants > min_descendants) || (score > big_score && descendants > big_descendants)';
+  '(velocity >= velocity_threshold && descendants >= min_descendants) || (score >= big_score && descendants >= big_descendants)';
 
 interface ThresholdSliderState {
   velocity_threshold: number;
@@ -1512,6 +1513,12 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         emptyMessage="Nothing matches the current rule."
         sourceFeed="tuning"
         showVelocity
+        // `flagFor` always returns a concrete `RowFlag` here, so
+        // `StoryListImpl`'s auto-pill path never fires and these
+        // thresholds are unused — pass `DEFAULT_HOT_THRESHOLDS` so
+        // we don't need a `useHotThresholds` subscription on the
+        // operator-only Preview.
+        hotThresholds={DEFAULT_HOT_THRESHOLDS}
         // No off-feed-pinned overlay on the Preview — the page is
         // asking "what would /hot render under this rule?", and
         // the pin overlay would inject the reader's curated list
