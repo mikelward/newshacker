@@ -5,7 +5,7 @@ import { AppUpdateWatcher } from './components/AppUpdateWatcher';
 import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
-import { StoryList } from './components/StoryList';
+import { HotStoryList, StoryList } from './components/StoryList';
 import { ToastProvider } from './components/Toast';
 import { useCloudSync } from './hooks/useCloudSync';
 import { useHnFavoritesSync } from './hooks/useHnFavoritesSync';
@@ -53,6 +53,12 @@ export default function App() {
                 identically. A future change will read a user setting
                 here to pick which feed `/` serves; see TODO.md. */}
             <Route path="/" element={<StoryList feed="top" />} />
+            {/* `/hot` is the heavily-filtered Top ∪ New view — see
+                SPEC.md *Story feeds → /hot*. Declared explicitly
+                ahead of the dynamic `/:feed` route so the latter
+                doesn't catch it and redirect to /top via FeedPage's
+                isFeed() guard. */}
+            <Route path="/hot" element={<HotStoryList />} />
             <Route path="/opened" element={<OpenedPage />} />
             <Route path="/hidden" element={<HiddenPage />} />
             <Route

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { FEEDS, feedLabel } from '../lib/feeds';
@@ -179,11 +179,28 @@ export function AppDrawer({ open, onClose }: Props) {
         <div className="app-drawer__section-title">Feeds</div>
         <ul className="app-drawer__list">
           {FEEDS.map((f) => (
-            <li key={f}>
-              <Link to={`/${f}`} className="app-drawer__link">
-                {feedLabel(f)}
-              </Link>
-            </li>
+            <Fragment key={f}>
+              <li>
+                <Link to={`/${f}`} className="app-drawer__link">
+                  {feedLabel(f)}
+                </Link>
+              </li>
+              {/* `/hot` slots in right after Top so it sits next
+                  to the closest-related feed — see SPEC.md *Story
+                  feeds → /hot*. Rendered as an explicit entry
+                  rather than a member of the FEEDS array because
+                  it isn't backed by a single Firebase id-list
+                  endpoint (it merges /top and /new) and the
+                  `feedEndpoint`, `isFeed`, and `<Route path="/:feed">`
+                  callers all key off FEEDS. */}
+              {f === 'top' ? (
+                <li>
+                  <Link to="/hot" className="app-drawer__link">
+                    Hot
+                  </Link>
+                </li>
+              ) : null}
+            </Fragment>
           ))}
         </ul>
         <div className="app-drawer__section-title">Library</div>

@@ -3,6 +3,7 @@ import type { AnimationEvent as ReactAnimationEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
+import { useHotFeedItems } from '../hooks/useHotFeedItems';
 import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
@@ -10,7 +11,7 @@ import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { BackToTopButton } from './BackToTopButton';
 import { PullToRefresh } from './PullToRefresh';
-import { StoryListItem } from './StoryListItem';
+import { StoryListItem, type RowFlag } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { TooltipButton } from './TooltipButton';
@@ -37,6 +38,20 @@ const SWEEP_ANIMATION_MS = 200;
 
 interface Props {
   feed: Feed;
+}
+
+// /hot rows that came from the `/new` source (and were not also in
+// the `/top` source) render a `new` segment in place of the
+// otherwise-suppressed `hot` flag — see SPEC.md *Hot flag*. The
+// underlying `RowFlag` enum is declared on `StoryListItem` (where
+// it's consumed); we just thread a `flagFor` callback through the
+// list so each row can opt into an override.
+type FlagFor = (id: number) => RowFlag | undefined;
+
+interface ImplProps {
+  feedItems: ReturnType<typeof useFeedItems>;
+  flagFor?: FlagFor;
+  emptyMessage?: string;
 }
 
 function measureHeaderInset(): number {
@@ -68,6 +83,41 @@ function SweepIcon() {
 
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
+  return <StoryListImpl feedItems={feedItems} />;
+}
+
+// `/hot` shim: same render path, different data source + a per-row
+// `flag` override so rows that came from the `/new` source carry a
+// `new` debug segment (the suppressed `hot` segment is what every
+// other row would otherwise render — see SPEC.md *Hot flag*). The
+// empty state copy matches SPEC.md *Story feeds → /hot*.
+export function HotStoryList() {
+  const feedItems = useHotFeedItems();
+  const newSourceIds = feedItems.newSourceIds;
+  const flagFor = useCallback(
+    (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
+    [newSourceIds],
+  );
+  return (
+    <StoryListImpl
+      feedItems={feedItems}
+      flagFor={flagFor}
+      emptyMessage="Nothing hot right now."
+    />
+  );
+}
+
+// Inner renderer shared by `<StoryList>` (the standard feed shim
+// above) and `<HotStoryList>` (the /hot route, which uses a
+// different data hook to merge `/top` and `/new`). All sweep / IO
+// observer / prefetch / "load more" wiring lives here so the two
+// entry points behave identically except for the data source and
+// the per-row flag override.
+export function StoryListImpl({
+  feedItems,
+  flagFor,
+  emptyMessage = 'No stories yet.',
+}: ImplProps) {
   const queryClient = useQueryClient();
   const { hiddenIds, hide } = useHiddenStories();
   const { doneIds } = useDoneStories();
@@ -429,7 +479,7 @@ export function StoryList({ feed }: Props) {
     offFeedPinnedStories.length === 0 &&
     !hasMore
   ) {
-    return <EmptyState message="No stories yet." />;
+    return <EmptyState message={emptyMessage} />;
   }
 
   return (
@@ -456,6 +506,7 @@ export function StoryList({ feed }: Props) {
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned
+              flag={flagFor?.(story.id)}
               onHide={handleHideOne}
               onPin={handlePin}
               onUnpin={unpin}
@@ -477,6 +528,7 @@ export function StoryList({ feed }: Props) {
             <StoryListItem
               story={story}
               rank={idx + 1}
+              flag={flagFor?.(story.id)}
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}

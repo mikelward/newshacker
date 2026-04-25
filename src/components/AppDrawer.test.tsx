@@ -30,6 +30,10 @@ describe('<AppDrawer>', () => {
       'href',
       '/top',
     );
+    expect(screen.getByRole('link', { name: 'Hot' })).toHaveAttribute(
+      'href',
+      '/hot',
+    );
     expect(screen.getByRole('link', { name: 'New' })).toHaveAttribute(
       'href',
       '/new',
@@ -62,6 +66,23 @@ describe('<AppDrawer>', () => {
       'href',
       '/debug',
     );
+  });
+
+  it('lists Hot between Top and New in the Feeds section', () => {
+    // SPEC.md *Story feeds → /hot* slots /hot in right after Top
+    // so it sits next to the closest-related feed. Pin the
+    // ordering: drawer-side, the user should see Top → Hot → New.
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const feedLabels = ['Top', 'Hot', 'New', 'Best', 'Ask', 'Show', 'Jobs'];
+    const links = feedLabels.map((label) =>
+      screen.getByRole('link', { name: label }),
+    );
+    for (let i = 1; i < links.length; i++) {
+      expect(
+        links[i - 1].compareDocumentPosition(links[i]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
   it('calls onClose when the scrim is clicked', () => {
