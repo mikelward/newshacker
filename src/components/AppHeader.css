@@ -48,27 +48,24 @@
   text-decoration: none;
 }
 
-/* Bottom-pill "n" mark — matches public/favicon.svg. Rounded-square
-   tile (the "phone body"), a white "n" biased toward the top so the
-   home-indicator pill has room below without the letter landing on
-   it, and a small white pill at the bottom edge. Pill is
-   proportionally thicker than the favicon's 512-viewBox version
-   (10×2 at 28 px vs. 160×12 at 512 px = ~9×0.7 pro-rata) so it
-   survives anti-aliasing. */
+/* Keycap "ñ" mark — matches public/favicon.svg. Rounded-square
+   tile with a white "ñ" centered on it. The tile paints the logo
+   orange (#e65c00) rather than the brand --nh-orange so the logo
+   can drift without dragging every accent with it. */
 .app-header__brand {
   position: relative;
   display: inline-block;
   width: 28px;
   height: 28px;
-  background: var(--nh-orange);
+  background: #e65c00;
   border-radius: 6px;
   vertical-align: middle;
 }
 
 .app-header__brand::before {
-  content: "n";
+  content: "ñ";
   position: absolute;
-  inset: 0 0 4px 0;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -76,18 +73,6 @@
   font-weight: 700;
   font-size: 17px;
   line-height: 1;
-}
-
-.app-header__brand::after {
-  content: "";
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 2px;
-  background: #fff;
-  border-radius: 1px;
 }
 
 .app-header__title {

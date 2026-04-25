@@ -5,20 +5,18 @@
         applies its own shape mask (circle, squircle, rounded square)
         and any transparent pixels it exposes would read as a chipped
         corner, so we keep the orange solid across the whole canvas.
-      - Glyph and home-indicator pill are pulled inside the 80% safe
-        zone (a circle of radius 205 px centered on 256, 256): the "n"
-        is sized down to 256 and the pill to 128×10 at y=380, so the
-        most aggressive launcher crops can't nibble them.
+      - Glyph is pulled inside the 80% safe zone (a circle of radius
+        205 px centered on 256, 256): the "ñ" is sized down to 256 so
+        the most aggressive launcher crops can't nibble the tilde.
      Rasterized into public/icon-512-maskable.png by
      scripts/generate-icons.mjs. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#ff6600"/>
-  <text x="256" y="240"
+  <rect width="512" height="512" fill="#e65c00"/>
+  <text x="256" y="256"
         text-anchor="middle"
         dominant-baseline="central"
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
         font-weight="700"
         font-size="256"
-        fill="#ffffff">n</text>
-  <rect x="192" y="380" width="128" height="10" rx="5" fill="#ffffff"/>
+        fill="#ffffff">ñ</text>
 </svg>
