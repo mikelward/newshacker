@@ -184,33 +184,35 @@ export function AppDrawer({ open, onClose }: Props) {
         >
           <span aria-hidden="true">×</span>
         </TooltipButton>
-        <div className="app-drawer__section-title">Feeds</div>
-        <ul className="app-drawer__list">
-          {FEEDS.map((f) => (
-            <Fragment key={f}>
-              <li>
-                <Link to={`/${f}`} className="app-drawer__link">
-                  {feedLabel(f)}
-                </Link>
-              </li>
-              {/* `/hot` slots in right after Top so it sits next
-                  to the closest-related feed — see SPEC.md *Story
-                  feeds → /hot*. Rendered as an explicit entry
-                  rather than a member of the FEEDS array because
-                  it isn't backed by a single Firebase id-list
-                  endpoint (it merges /top and /new) and the
-                  `feedEndpoint`, `isFeed`, and `<Route path="/:feed">`
-                  callers all key off FEEDS. */}
-              {f === 'top' ? (
-                <li>
-                  <Link to="/hot" className="app-drawer__link">
-                    Hot
-                  </Link>
-                </li>
-              ) : null}
-            </Fragment>
+        {/* Home picker sits at the top because it's the highest-
+            frequency setting (governs what `/` renders on every
+            cold load) and it's a one-tap toggle, so the drawer
+            opens onto the most-likely tap target. The full feed
+            list lives near the bottom — those links are still
+            reachable but they're the secondary navigation path
+            (most readers stay on `/`). */}
+        <div className="app-drawer__section-title">Home</div>
+        <div
+          className="app-drawer__segmented"
+          role="radiogroup"
+          aria-label="Home feed"
+        >
+          {HOME_FEED_OPTIONS.map((opt) => (
+            <TooltipButton
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={homeFeed === opt.value}
+              tooltip={`Home shows ${opt.label}`}
+              aria-label={`Home shows ${opt.label}`}
+              className="app-drawer__segmented-btn app-drawer__segmented-btn--text"
+              data-active={homeFeed === opt.value || undefined}
+              onClick={() => setHomeFeed(opt.value)}
+            >
+              {opt.label}
+            </TooltipButton>
           ))}
-        </ul>
+        </div>
         <div className="app-drawer__section-title">Library</div>
         <ul className="app-drawer__list">
           <li>
@@ -239,28 +241,6 @@ export function AppDrawer({ open, onClose }: Props) {
             </Link>
           </li>
         </ul>
-        <div className="app-drawer__section-title">Home</div>
-        <div
-          className="app-drawer__segmented"
-          role="radiogroup"
-          aria-label="Home feed"
-        >
-          {HOME_FEED_OPTIONS.map((opt) => (
-            <TooltipButton
-              key={opt.value}
-              type="button"
-              role="radio"
-              aria-checked={homeFeed === opt.value}
-              tooltip={`Home shows ${opt.label}`}
-              aria-label={`Home shows ${opt.label}`}
-              className="app-drawer__segmented-btn app-drawer__segmented-btn--text"
-              data-active={homeFeed === opt.value || undefined}
-              onClick={() => setHomeFeed(opt.value)}
-            >
-              {opt.label}
-            </TooltipButton>
-          ))}
-        </div>
         <div className="app-drawer__section-title">Theme</div>
         <div
           className="app-drawer__segmented"
@@ -304,6 +284,33 @@ export function AppDrawer({ open, onClose }: Props) {
             </TooltipButton>
           ))}
         </div>
+        <div className="app-drawer__section-title">Feeds</div>
+        <ul className="app-drawer__list">
+          {FEEDS.map((f) => (
+            <Fragment key={f}>
+              <li>
+                <Link to={`/${f}`} className="app-drawer__link">
+                  {feedLabel(f)}
+                </Link>
+              </li>
+              {/* `/hot` slots in right after Top so it sits next
+                  to the closest-related feed — see SPEC.md *Story
+                  feeds → /hot*. Rendered as an explicit entry
+                  rather than a member of the FEEDS array because
+                  it isn't backed by a single Firebase id-list
+                  endpoint (it merges /top and /new) and the
+                  `feedEndpoint`, `isFeed`, and `<Route path="/:feed">`
+                  callers all key off FEEDS. */}
+              {f === 'top' ? (
+                <li>
+                  <Link to="/hot" className="app-drawer__link">
+                    Hot
+                  </Link>
+                </li>
+              ) : null}
+            </Fragment>
+          ))}
+        </ul>
         <div className="app-drawer__section-title">App</div>
         <ul className="app-drawer__list">
           <li>
