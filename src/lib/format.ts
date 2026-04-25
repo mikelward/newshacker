@@ -178,25 +178,32 @@ export interface StoryMetaInput {
   newCommentCount?: number;
 }
 
-// A story is "hot" if it's either a big-story-of-the-day (a lot of
-// total points at any age) OR a fast-riser (enough points in the
-// first couple of hours that it's clearly climbing the front page).
-// The recent-window threshold is deliberately lower so a story that
-// just crossed 40 points in under 2h lights up as an early mover,
-// while the separate 100+ rule flags larger stories regardless of age.
+// A story is "hot" if it's either climbing fast with real discussion
+// (velocity > 15 points/h AND descendants > 10) OR a clearly
+// established big story with a heavy comment thread (score > 200 AND
+// descendants > 100). The fast-riser branch catches stories that
+// haven't accumulated huge totals yet but are climbing the front
+// page; the big-story branch keeps the Hot flag on stories whose
+// velocity has cooled but whose total engagement still stands out.
 //
-// TODO: tune these thresholds against real feed traffic. The numbers
-// below are a first cut based on typical HN front-page rhythms;
-// revisit once we've watched how many rows actually light up in a
-// normal feed and whether the signal is too loud or too quiet.
+// Velocity is computed against `safeAge = max(ageHours, 0.01)` (a
+// ~36-second floor) so a brand-new story doesn't blow up to Infinity
+// while its age is still rounding to zero — the same floor the
+// `/tuning` page uses on its own `safeAge`, so the rule's *shape*
+// matches what the operator previewed there. The age inputs differ
+// in a tiny way (`isHotStory` floors `now` to whole seconds via
+// `Math.floor(now.getTime() / 1000)` while `/tuning`'s `evalForItem`
+// uses `nowMs / 1000`); within the 36-second `safeAge` floor the
+// difference is washed out.
 //
 // Exported so the `/admin` "Hot threshold tuning" view can render
 // reference lines and the default expression against the same
 // numbers `isHotStory` actually uses — without that single source
 // of truth, the UI silently drifts when these are tuned.
-export const HOT_MIN_SCORE_ANY_AGE = 100;
-export const HOT_MIN_SCORE_RECENT = 40;
-export const HOT_RECENT_WINDOW_HOURS = 2;
+export const HOT_MIN_VELOCITY = 15;
+export const HOT_MIN_DESCENDANTS = 10;
+export const HOT_BIG_SCORE = 200;
+export const HOT_BIG_DESCENDANTS = 100;
 
 /**
  * Returns true when the story is "trending enough" to flag with the
@@ -205,12 +212,16 @@ export const HOT_RECENT_WINDOW_HOURS = 2;
  */
 export function isHotStory(item: StoryMetaInput, now: Date = new Date()): boolean {
   const score = item.score ?? 0;
-  if (score >= HOT_MIN_SCORE_ANY_AGE) return true;
-  if (score < HOT_MIN_SCORE_RECENT) return false;
+  const descendants = item.descendants ?? 0;
+  if (score > HOT_BIG_SCORE && descendants > HOT_BIG_DESCENDANTS) return true;
   if (!item.time) return false;
   const nowS = Math.floor(now.getTime() / 1000);
   const ageHours = (nowS - item.time) / 3600;
-  return ageHours >= 0 && ageHours < HOT_RECENT_WINDOW_HOURS;
+  if (ageHours < 0) return false;
+  const safeAge = Math.max(ageHours, 0.01);
+  return (
+    score / safeAge > HOT_MIN_VELOCITY && descendants > HOT_MIN_DESCENDANTS
+  );
 }
 
 // Shared core for the `(N/h)` velocity readouts. Returns `null`

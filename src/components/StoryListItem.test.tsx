@@ -405,47 +405,68 @@ describe('StoryListItem', () => {
   });
 
   describe('Hot flag', () => {
-    it('appends orange "hot" text to the meta line for fast risers (>= 40 points within 2h)', () => {
+    it('appends orange "hot" text to the meta line for fast risers (velocity > 15/h with descendants > 10)', () => {
       const fastRiser: HNItem = {
         ...baseStory,
         score: 60,
-        // 30 minutes ago
+        descendants: 25,
+        // 30 minutes ago → 60 / 0.5 = 120/h velocity, well above 15/h.
         time: Math.floor(Date.now() / 1000) - 30 * 60,
       };
       renderWithProviders(<StoryListItem story={fastRiser} />);
       const hot = screen.getByTestId('story-hot');
       expect(hot).toHaveTextContent('hot');
       expect(screen.getByTestId('story-meta')).toHaveTextContent(
-        /7 comments · hot$/,
+        /25 comments · hot$/,
       );
     });
 
-    it('shows "hot" for >= 100 points regardless of age', () => {
+    it('shows "hot" for big stories: score > 200 and descendants > 100, regardless of age', () => {
       const bigStory: HNItem = {
         ...baseStory,
         score: 250,
-        // 12 hours ago
+        descendants: 150,
+        // 12 hours ago — velocity has cooled, but the big-story
+        // branch keeps the flag on.
         time: Math.floor(Date.now() / 1000) - 12 * 60 * 60,
       };
       renderWithProviders(<StoryListItem story={bigStory} />);
       expect(screen.getByTestId('story-hot')).toBeInTheDocument();
     });
 
+    it('does not show "hot" for a story without discussion, even at high velocity', () => {
+      const noComments: HNItem = {
+        ...baseStory,
+        score: 250,
+        descendants: 5,
+        // 1 h old → 250/h velocity, but descendants ≤ 10 fails both
+        // branches (velocity branch needs descendants > 10; big-story
+        // branch needs descendants > 100).
+        time: Math.floor(Date.now() / 1000) - 60 * 60,
+      };
+      renderWithProviders(<StoryListItem story={noComments} />);
+      expect(screen.queryByTestId('story-hot')).toBeNull();
+    });
+
     it('does not show "hot" for a quiet story', () => {
       const quiet: HNItem = {
         ...baseStory,
         score: 12,
+        descendants: 3,
+        // 1h old → 12/h velocity, under the 15/h floor.
         time: Math.floor(Date.now() / 1000) - 60 * 60,
       };
       renderWithProviders(<StoryListItem story={quiet} />);
       expect(screen.queryByTestId('story-hot')).toBeNull();
     });
 
-    it('does not show "hot" for a mid-score story past the 2h window', () => {
+    it('does not show "hot" once the velocity drops below the floor and the big-story branch misses', () => {
       const settled: HNItem = {
         ...baseStory,
         score: 55,
-        // 5 hours ago — past the recent-riser window
+        descendants: 20,
+        // 5 h old → 11/h velocity, under the 15/h floor; score 55
+        // and descendants 20 both miss the big-story branch too.
         time: Math.floor(Date.now() / 1000) - 5 * 60 * 60,
       };
       renderWithProviders(<StoryListItem story={settled} />);

@@ -9,9 +9,11 @@ import { useHiddenStories } from '../hooks/useHiddenStories';
 import { StoryListImpl } from '../components/StoryList';
 import type { RowFlag } from '../components/StoryListItem';
 import {
-  HOT_MIN_SCORE_ANY_AGE,
-  HOT_MIN_SCORE_RECENT,
-  HOT_RECENT_WINDOW_HOURS,
+  HOT_BIG_DESCENDANTS,
+  HOT_BIG_SCORE,
+  HOT_MIN_DESCENDANTS,
+  HOT_MIN_VELOCITY,
+  isHotStory,
 } from '../lib/format';
 import {
   clearLocalEvents,
@@ -263,10 +265,21 @@ interface BodyProps {
 // the rule the row Hot flag and the /hot feed already use, with
 // the constants exposed as slider-controlled variables so the
 // operator can shimmy them without retyping the expression.
+//
+// `young_age`, `young_threshold`, and `normal_threshold` aren't used
+// in the default expression any more (the rule moved off raw score
+// thresholds), but the sliders stay exposed so the operator can
+// type the previous score-based expression — or any hybrid — into
+// the input and tune against the same telemetry without re-typing
+// constants.
 const DEFAULT_EXPRESSION =
-  'score >= normal_threshold || (age < young_age && score >= young_threshold)';
+  '(velocity > velocity_threshold && descendants > min_descendants) || (score > big_score && descendants > big_descendants)';
 
 interface ThresholdSliderState {
+  velocity_threshold: number;
+  min_descendants: number;
+  big_score: number;
+  big_descendants: number;
   young_age: number;
   young_threshold: number;
   normal_threshold: number;
@@ -274,9 +287,17 @@ interface ThresholdSliderState {
 
 function defaultSliders(): ThresholdSliderState {
   return {
-    young_age: HOT_RECENT_WINDOW_HOURS,
-    young_threshold: HOT_MIN_SCORE_RECENT,
-    normal_threshold: HOT_MIN_SCORE_ANY_AGE,
+    velocity_threshold: HOT_MIN_VELOCITY,
+    min_descendants: HOT_MIN_DESCENDANTS,
+    big_score: HOT_BIG_SCORE,
+    big_descendants: HOT_BIG_DESCENDANTS,
+    // Legacy score-based rule defaults — preserved so the operator
+    // can recreate `score >= normal_threshold || (age < young_age &&
+    // score >= young_threshold)` in the expression input without
+    // re-typing the constants.
+    young_age: 2,
+    young_threshold: 40,
+    normal_threshold: 100,
   };
 }
 
@@ -311,6 +332,10 @@ function compileExpression(
       'isHot',
       'velocity',
       'commentVelocity',
+      'velocity_threshold',
+      'min_descendants',
+      'big_score',
+      'big_descendants',
       'young_age',
       'young_threshold',
       'normal_threshold',
@@ -346,6 +371,10 @@ function evalForEvent(
         e.isHot,
         e.score / safeAge,
         (e.descendants ?? 0) / safeAge,
+        s.velocity_threshold,
+        s.min_descendants,
+        s.big_score,
+        s.big_descendants,
         s.young_age,
         s.young_threshold,
         s.normal_threshold,
@@ -369,12 +398,25 @@ function evalForItem(
 ): boolean {
   const score = item.score ?? 0;
   const time = item.time ?? 0;
-  const age = time > 0 ? Math.max(0, (nowMs / 1000 - time) / 3600) : 0;
-  const safeAge = Math.max(age, 0.01);
   const descendants = item.descendants ?? 0;
-  const isHot =
-    score >= HOT_MIN_SCORE_ANY_AGE ||
-    (score >= HOT_MIN_SCORE_RECENT && age < HOT_RECENT_WINDOW_HOURS);
+  // Suppress the velocity-derived inputs when the story is timestamped
+  // ahead of the wall clock — the negative age would otherwise clamp
+  // to the `safeAge` floor and inflate `velocity` / `commentVelocity`
+  // to extreme values. We deliberately do *not* short-circuit the
+  // whole expression: `isHotStory`'s big-story branch (`score >
+  // HOT_BIG_SCORE && descendants > HOT_BIG_DESCENDANTS`) can still
+  // fire for a future-dated big story, so the Preview must evaluate
+  // the rule and only zero out the inputs that depend on `age`.
+  const future = time > 0 && nowMs / 1000 < time;
+  const age = future
+    ? 0
+    : time > 0
+      ? Math.max(0, (nowMs / 1000 - time) / 3600)
+      : 0;
+  const safeAge = Math.max(age, 0.01);
+  const velocity = future ? 0 : score / safeAge;
+  const commentVelocity = future ? 0 : descendants / safeAge;
+  const isHot = isHotStory(item, new Date(nowMs));
   try {
     return Boolean(
       raw(
@@ -383,8 +425,12 @@ function evalForItem(
         descendants,
         item.type ?? '',
         isHot,
-        score / safeAge,
-        descendants / safeAge,
+        velocity,
+        commentVelocity,
+        s.velocity_threshold,
+        s.min_descendants,
+        s.big_score,
+        s.big_descendants,
         s.young_age,
         s.young_threshold,
         s.normal_threshold,
@@ -486,8 +532,13 @@ function ThresholdControls({
       <p className="admin-page__note">
         Variables: <code>score</code>, <code>age</code> (hours),{' '}
         <code>descendants</code>, <code>type</code>, <code>isHot</code>{' '}
-        (current rule), <code>velocity</code> (score/age),{' '}
-        <code>commentVelocity</code> (descendants/age),{' '}
+        (current rule), <code>velocity</code>{' '}
+        (<code>score / max(age, 0.01)</code> — the ~36s{' '}
+        <code>safeAge</code> floor keeps a brand-new story from
+        evaluating to Infinity), <code>commentVelocity</code>{' '}
+        (<code>descendants / max(age, 0.01)</code>),{' '}
+        <code>velocity_threshold</code>, <code>min_descendants</code>,{' '}
+        <code>big_score</code>, <code>big_descendants</code>,{' '}
         <code>young_age</code>, <code>young_threshold</code>,{' '}
         <code>normal_threshold</code> (sliders below).
       </p>
@@ -514,6 +565,48 @@ function ThresholdControls({
         </p>
       ) : null}
       <div data-testid="threshold-sliders">
+        <SliderRow
+          label="velocity_threshold (points/h)"
+          value={sliders.velocity_threshold}
+          min={1}
+          max={100}
+          step={1}
+          onChange={(v) =>
+            onSlidersChange({ ...sliders, velocity_threshold: v })
+          }
+          testId="slider-velocity-threshold"
+        />
+        <SliderRow
+          label="min_descendants (comments)"
+          value={sliders.min_descendants}
+          min={0}
+          max={50}
+          step={1}
+          onChange={(v) =>
+            onSlidersChange({ ...sliders, min_descendants: v })
+          }
+          testId="slider-min-descendants"
+        />
+        <SliderRow
+          label="big_score (points)"
+          value={sliders.big_score}
+          min={50}
+          max={1000}
+          step={10}
+          onChange={(v) => onSlidersChange({ ...sliders, big_score: v })}
+          testId="slider-big-score"
+        />
+        <SliderRow
+          label="big_descendants (comments)"
+          value={sliders.big_descendants}
+          min={10}
+          max={500}
+          step={10}
+          onChange={(v) =>
+            onSlidersChange({ ...sliders, big_descendants: v })
+          }
+          testId="slider-big-descendants"
+        />
         <SliderRow
           label="young_age (hours)"
           value={sliders.young_age}
@@ -844,13 +937,27 @@ function Scatter({
 }
 
 function ThresholdScatters({ events, flagFor, sliders }: ScattersProps) {
+  // The velocity branch is `velocity > velocity_threshold`, i.e.
+  // `score > age * velocity_threshold` — a line through the origin
+  // with slope `velocity_threshold`. The scatter doesn't currently
+  // render slanted reference lines, so we draw the cleanly-renderable
+  // score-axis refs: `big_score` (current rule's big-story floor) plus
+  // the legacy `normal_threshold` horizontal and `young_threshold` ×
+  // `young_age` corner. The legacy sliders are intentionally still
+  // exposed for re-typing the previous score-based expression, so
+  // their reference lines stay rendered alongside the new ones.
   const scoreRefs: NonNullable<ScatterProps['referenceLines']> = [
+    { kind: 'horizontal', y: sliders.big_score },
     { kind: 'horizontal', y: sliders.normal_threshold },
     {
       kind: 'corner',
       y: sliders.young_threshold,
       xMax: sliders.young_age,
     },
+  ];
+  const commentRefs: NonNullable<ScatterProps['referenceLines']> = [
+    { kind: 'horizontal', y: sliders.min_descendants },
+    { kind: 'horizontal', y: sliders.big_descendants },
   ];
   return (
     <details data-testid="threshold-scatters" open>
@@ -879,6 +986,7 @@ function ThresholdScatters({ events, flagFor, sliders }: ScattersProps) {
         getY={(e) => e.descendants ?? 0}
         yLabel="comments"
         yMaxFloor={20}
+        referenceLines={commentRefs}
         testId="threshold-scatter-comments"
       />
     </details>
