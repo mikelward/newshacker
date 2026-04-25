@@ -119,6 +119,8 @@ hidden story back on their reading list unhides it first (via the
 row's recover action on `/hidden`, or the feed-header Undo button)
 and then pins it.
 
+**The shields are also enforced at the store layer, not just in the row UI.** `usePinnedStories.pin` removes the id from Done and Hidden first; `useHiddenStories.hide` removes it from Pinned first; `useDoneStories.markDone` removes it from Pinned first (and has done so since the Done lifecycle landed). Hide ↔ Done coexistence is *allowed* — Done's "completion log" filter supersedes Hide's "never show again" filter anyway, and a story you read and then hid is a real state. Putting the enforcement in the hooks (rather than the lib-level `add*Id` helpers) means cloud sync's apply path can still write server state as-is without recursive cleanup; server-side merge enforcement is a separate (still-pending) follow-up. The row-level UI guards stay in place as the first line of defense, and these store-layer clears are the second — closing the gap a future caller (sync race, scripted mutation, new UI surface) could otherwise drift through.
+
 **Suppressed gestures rubber-band; they don't silently absorb.** A
 blocked swipe (swipe-right on a pinned row, swipe-left on a hidden
 row) still tracks the finger — the row translates as the gesture
