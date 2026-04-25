@@ -9,6 +9,7 @@ import { HotStoryList, StoryList } from './components/StoryList';
 import { ToastProvider } from './components/Toast';
 import { useCloudSync } from './hooks/useCloudSync';
 import { useHnFavoritesSync } from './hooks/useHnFavoritesSync';
+import { useHomeFeed } from './hooks/useHomeFeed';
 import { FeedPage } from './pages/FeedPage';
 import { ItemPage } from './pages/ItemPage';
 import { UserPage } from './pages/UserPage';
@@ -35,6 +36,11 @@ function HnFavoritesSyncBridge() {
   return null;
 }
 
+function HomeRoute() {
+  const { homeFeed } = useHomeFeed();
+  return homeFeed === 'hot' ? <HotStoryList /> : <StoryList feed="top" />;
+}
+
 export default function App() {
   return (
     <ToastProvider>
@@ -48,12 +54,12 @@ export default function App() {
         <AppHeader />
         <main className="app-main">
           <Routes>
-            {/* `/` renders the top feed inline — same chrome as /top, no
-                redirect, URL stays `/`. Both routes share the same
-                underlying StoryList so the two entry points behave
-                identically. A future change will read a user setting
-                here to pick which feed `/` serves; see TODO.md. */}
-            <Route path="/" element={<StoryList feed="top" />} />
+            {/* `/` renders the user's chosen home feed inline (top or
+                hot, default top) — same chrome as the deep-link route
+                for that feed, no redirect, URL stays `/`. The
+                preference is read via `useHomeFeed`; see SPEC.md
+                *Story feeds → /hot* and the drawer's Home picker. */}
+            <Route path="/" element={<HomeRoute />} />
             {/* `/hot` is the heavily-filtered Top ∪ New view — see
                 SPEC.md *Story feeds → /hot*. Declared explicitly
                 ahead of the dynamic `/:feed` route so the latter

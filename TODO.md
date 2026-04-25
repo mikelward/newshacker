@@ -863,24 +863,17 @@ ends up on the front page on a given day.
   would stretch the meta line; `big` is short but ambiguous ("big
   what?"). Revisit before shipping the "Hot" feed above, rename
   `isHotStory` / the CSS class / the SPEC bullets consistently.
-- **User-selectable home feed (URL stays `/`).** The URL `/` is
-  not configurable — it is and stays `/`. *What it renders* is
-  (eventually) a per-user setting. Groundwork is in: `/` now
-  renders the top feed inline via `<StoryList feed="top" />`, no
-  redirect, no URL change. Remaining work: replace the hard-coded
-  `"top"` in `src/App.tsx` with a preference read from a small
-  store (localStorage, e.g. `newshacker:homeFeed`, default `top`)
-  and add a control in the drawer / settings so users can switch
-  which feed `/` serves (e.g. the `/hot` feed once it ships — see
-  *Story feeds* in `SPEC.md`). Deep links like `/top`, `/hot`,
-  `/new` remain explicit routes for shareability; the setting only
-  governs `/`'s content. **No first-visit nudge.** A one-time
-  Top-vs-Hot interstitial and a passive "Try the Hot feed — set
-  as home?" banner were both considered and explicitly held off:
-  for now `/hot` is reachable only via the drawer entry, with no
-  prompt at first paint or above the feed. Revisit once the
-  thresholds settle and we have a real signal that users would
-  benefit from being asked rather than left to discover.
+- **User-selectable home feed (URL stays `/`) — shipped.** `/` now
+  reads `newshacker:homeFeed` (default `top`, `hot` opts in to the
+  filtered Top ∪ New view) via the `useHomeFeed` hook, with a Home
+  picker in the drawer (`AppDrawer.tsx`). Deep links like `/top`,
+  `/hot`, `/new` stay explicit for shareability; the setting only
+  governs `/`'s content. Future home options (e.g. `/best`, a
+  combined "everything I haven't seen") can extend the
+  `HomeFeed` union in `src/lib/homeFeed.ts` without touching the
+  router. **No first-visit nudge** — explicitly held off; readers
+  discover the picker via the drawer. Revisit once thresholds
+  settle and we have a real signal that prompting would help.
 
 ## Onboarding / education
 
