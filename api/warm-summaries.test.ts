@@ -2,9 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ageBandFromMinutes,
+  ARCHIVE_HOSTS as ARCHIVE_HOSTS_WARM,
   decideCommentsInterval,
   decideInterval,
   detectPaywall as detectPaywallWarm,
+  extractArchiveUrlFromComment as extractArchiveUrlFromCommentWarm,
   handleWarmRequest,
   hashArticle,
   hashTranscript,
@@ -21,11 +23,16 @@ import {
   type WarmFeed,
   type WarmKnobs,
 } from './warm-summaries';
-import { detectPaywall as detectPaywallSummary } from './summary';
+import {
+  ARCHIVE_HOSTS as ARCHIVE_HOSTS_SUMMARY,
+  detectPaywall as detectPaywallSummary,
+  extractArchiveUrlFromComment as extractArchiveUrlFromCommentSummary,
+} from './summary';
 
 interface HNItemFixture {
   id?: number;
   type?: string;
+  by?: string;
   title?: string;
   url?: string;
   text?: string;
@@ -1722,5 +1729,329 @@ describe('warm-summaries — paywalled field propagation', () => {
     const article = stories.find((s) => s.track === 'article')!;
     expect(article.outcome).toBe('skipped_unreachable');
     expect(article).not.toHaveProperty('paywalled');
+  });
+});
+
+describe('archive host allowlist parity between summary.ts and warm-summaries.ts', () => {
+  // Mirrors the detectPaywall parity test above. The two implementations
+  // are duplicated per AGENTS.md § "Vercel api/ gotchas"; if either
+  // drifts, the user-facing handler and the cron will pick different
+  // archive URLs for the same thread snapshot. Lock the list and the
+  // extractor here so any accidental divergence fails CI loudly.
+  it('exports the same ARCHIVE_HOSTS list (same elements, same order)', () => {
+    expect(ARCHIVE_HOSTS_WARM).toEqual(ARCHIVE_HOSTS_SUMMARY);
+  });
+
+  const fixtures: Array<{
+    name: string;
+    text: string;
+    expected: { archiveUrl: string; archiveHost: string } | null;
+  }> = [
+    { name: 'empty', text: '', expected: null },
+    {
+      name: 'a-tag href to archive.is',
+      text: '<a href="https://archive.is/abc">mirror</a>',
+      expected: { archiveUrl: 'https://archive.is/abc', archiveHost: 'archive.is' },
+    },
+    {
+      name: 'plaintext archive.org',
+      text: 'see https://archive.org/details/foo',
+      expected: {
+        archiveUrl: 'https://archive.org/details/foo',
+        archiveHost: 'archive.org',
+      },
+    },
+    {
+      name: 'web.archive.org wayback URL',
+      text: '<p>https://web.archive.org/web/2024/https://nyt.com/x</p>',
+      expected: {
+        archiveUrl: 'https://web.archive.org/web/2024/https://nyt.com/x',
+        archiveHost: 'web.archive.org',
+      },
+    },
+    {
+      name: 'sentence-end ).',
+      text: 'Mirror (https://archive.ph/xyz).',
+      expected: { archiveUrl: 'https://archive.ph/xyz', archiveHost: 'archive.ph' },
+    },
+    {
+      name: 'no archive URL',
+      text: '<a href="https://imgur.com/foo">imgur</a>',
+      expected: null,
+    },
+    {
+      name: 'subdomain attempt',
+      text: '<a href="https://evil.archive.ph/x">evil</a>',
+      expected: null,
+    },
+  ];
+
+  for (const { name, text, expected } of fixtures) {
+    it(`${name}`, () => {
+      const fromSummary = extractArchiveUrlFromCommentSummary(text);
+      const fromWarm = extractArchiveUrlFromCommentWarm(text);
+      expect(fromSummary).toEqual(expected);
+      expect(fromWarm).toEqual(expected);
+      expect(fromSummary).toEqual(fromWarm);
+    });
+  }
+});
+
+describe('warm-summaries — archive-link comment hoist', () => {
+  // Trips JSON-LD detectPaywall — short and unambiguous.
+  const PAYWALL_BODY =
+    '{"@type":"NewsArticle","isAccessibleForFree":false}\nSubscribe to read.';
+
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  it('first_seen: re-summarizes the archive copy when paywalled and a top-level comment links to one', async () => {
+    const articleUrl = 'https://paywalled.example.com/cron-hoist';
+    const archiveUrl = 'https://archive.ph/cron-abc';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+      [`https://r.jina.ai/${archiveUrl}`]: {
+        body: jinaBody('Free archive mirror of the article.', 250),
+      },
+    });
+    const fetchItem = fetchItemFor({
+      9001: {
+        id: 9001,
+        type: 'story',
+        url: articleUrl,
+        score: 50,
+        kids: [9101, 9102],
+      },
+      9101: { id: 9101, by: 'alice', text: 'no link' },
+      9102: {
+        id: 9102,
+        by: 'bob',
+        text: `<p>mirror: <a href="${archiveUrl}">archive</a></p>`,
+      },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([
+      { text: 'Cron summary derived from the archive copy.' },
+    ]);
+    const { logger, stories } = captureLogger();
+    const res = await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9001],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    expect(res.status).toBe(200);
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(article.archiveHost).toBe('archive.ph');
+    // The cached record persists archive provenance so subsequent
+    // user-facing requests serve the attribution string straight from KV.
+    expect(store.map.get(9001)?.archiveSource).toEqual({
+      archiveUrl,
+      archiveHost: 'archive.ph',
+      username: 'bob',
+    });
+    // …and the `articleHash` is over the archive bytes, so the next
+    // unchanged tick won't fight this record.
+    expect(store.map.get(9001)?.articleHash).toBe(
+      hashArticle('Free archive mirror of the article.'),
+    );
+    // The summary handler-side test (api/summary.test.ts) covers the
+    // prompt-content assertion; the local createFakeClient in this
+    // file doesn't capture args so we can't inspect prompts here.
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls through to the paywalled body when no archive link is in the top-level comments', async () => {
+    const articleUrl = 'https://paywalled.example.com/cron-no-archive';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+    });
+    const fetchItem = fetchItemFor({
+      9010: {
+        id: 9010,
+        type: 'story',
+        url: articleUrl,
+        score: 50,
+        kids: [9111],
+      },
+      9111: { id: 9111, by: 'alice', text: 'just commentary' },
+    });
+    const store = createTestStore();
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9010],
+      createClient: () => createFakeClient([{ text: 'paywall-derived' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(article.paywalled).toBe(true);
+    expect(article.archiveHost).toBeUndefined();
+    expect(store.map.get(9010)?.archiveSource).toBeUndefined();
+  });
+
+  it('falls through when the archive Jina fetch fails (Cloudflare 502 etc.)', async () => {
+    const articleUrl = 'https://paywalled.example.com/cron-cf';
+    const archiveUrl = 'https://archive.ph/cron-blocked';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+      [`https://r.jina.ai/${archiveUrl}`]: { status: 502 },
+    });
+    const fetchItem = fetchItemFor({
+      9020: {
+        id: 9020,
+        type: 'story',
+        url: articleUrl,
+        score: 50,
+        kids: [9121],
+      },
+      9121: {
+        id: 9121,
+        by: 'carol',
+        text: `mirror: ${archiveUrl}`,
+      },
+    });
+    const store = createTestStore();
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9020],
+      createClient: () => createFakeClient([{ text: 'fallback' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(article.archiveHost).toBeUndefined();
+    expect(store.map.get(9020)?.archiveSource).toBeUndefined();
+  });
+
+  it('does not scan the kids on a non-paywalled fetch', async () => {
+    const articleUrl = 'https://example.com/cron-clean';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: {
+        body: jinaBody('Real article body.'.repeat(50)),
+      },
+    });
+    const fetchItem = vi.fn(async (id: number) => {
+      if (id === 9030) {
+        return {
+          id: 9030,
+          type: 'story',
+          url: articleUrl,
+          score: 50,
+          kids: [9131, 9132],
+        };
+      }
+      throw new Error(`unexpected fetchItem call for ${id}`);
+    });
+    const store = createTestStore();
+    const { logger } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9030],
+      createClient: () => createFakeClient([{ text: 'ok' }]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+    });
+    // Kids never queried — only the story itself plus the comments
+    // track's own kid fetches (which here are gated by the
+    // skipped_no_content branch since we returned no kids on the
+    // initial fetchItem fixture? Actually the initial fixture *does*
+    // include kids, so the comments track will fetch them. But for
+    // the article track's archive scan we expect zero extra calls.)
+    //
+    // Easier assertion: the first call was for the story, and any
+    // calls for the kids must be from the comments track only.
+    // We verify that by counting: initial story (1) + comments track
+    // fetches the kids exactly once each (2). So total = 3.
+    expect(fetchItem).toHaveBeenCalledTimes(3);
+  });
+
+  it('unchanged: preserves a stored archiveSource on a hash-stable archive copy', async () => {
+    // The cron re-fetched the archive copy this tick, hashed it to the
+    // same bytes as the stored record, and bumped lastCheckedAt — the
+    // archive provenance must be preserved on the rewritten record so
+    // the user-facing handler keeps showing the attribution.
+    const articleUrl = 'https://paywalled.example.com/stable-archive';
+    const archiveUrl = 'https://archive.ph/stable-mirror';
+    const archiveBody = 'Stable archive bytes.'.repeat(40);
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+      [`https://r.jina.ai/${archiveUrl}`]: { body: jinaBody(archiveBody) },
+    });
+    const fetchItem = fetchItemFor({
+      9040: {
+        id: 9040,
+        type: 'story',
+        url: articleUrl,
+        score: 50,
+        kids: [9141],
+      },
+      9141: {
+        id: 9141,
+        by: 'erin',
+        text: `<p>mirror: <a href="${archiveUrl}">archive</a></p>`,
+      },
+    });
+    const priorNow = 1_700_000_000_000 - 60 * 60 * 1000;
+    const store = createTestStore();
+    store.map.set(9040, {
+      summary: 'old archive summary',
+      // The stored hash already matches the (stable) archive bytes.
+      articleHash: hashArticle(archiveBody),
+      firstSeenAt: priorNow,
+      summaryGeneratedAt: priorNow,
+      lastCheckedAt: priorNow,
+      lastChangedAt: priorNow,
+      paywalled: true,
+      archiveSource: {
+        archiveUrl,
+        archiveHost: 'archive.ph',
+        username: 'erin',
+      },
+    });
+    const { logger, stories } = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9040],
+      createClient: () => createFakeClient([]),
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('unchanged');
+    expect(article.archiveHost).toBe('archive.ph');
+    expect(store.map.get(9040)?.archiveSource).toEqual({
+      archiveUrl,
+      archiveHost: 'archive.ph',
+      username: 'erin',
+    });
   });
 });

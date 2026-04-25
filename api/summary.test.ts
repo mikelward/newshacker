@@ -1,15 +1,19 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
+  ARCHIVE_HOSTS,
   checkRateLimit,
   detectPaywall,
+  extractArchiveUrlFromComment,
   extractClientIp,
+  findArchiveCandidate,
   handleSummaryRequest,
   hashArticle,
   isAllowedReferer,
   isCaptchaRefusal,
   normalizeIpForRateLimit,
   parseRecord,
+  type ArchiveSource,
   type RateLimitStore,
   type RateLimitTier,
   type SummaryRecord,
@@ -21,12 +25,14 @@ const ALLOWED_REFERER = 'https://newshacker.app/item/1';
 interface HNItemFixture {
   id?: number;
   type?: string;
+  by?: string;
   title?: string;
   url?: string;
   text?: string;
   score?: number;
   dead?: boolean;
   deleted?: boolean;
+  kids?: number[];
 }
 
 function makeRequest(
@@ -1908,5 +1914,459 @@ describe('parseRecord — paywalled field round-trip', () => {
     });
     expect(parsed).not.toBeNull();
     expect(parsed!.paywalled).toBeUndefined();
+  });
+});
+
+describe('extractArchiveUrlFromComment', () => {
+  it('returns the first allowlisted archive URL from a constrained-HTML comment', () => {
+    const html =
+      '<p>Paywalled, mirror here: <a href="https://archive.ph/abc123" rel="nofollow">archive.ph/abc123</a></p>';
+    expect(extractArchiveUrlFromComment(html)).toEqual({
+      archiveUrl: 'https://archive.ph/abc123',
+      archiveHost: 'archive.ph',
+    });
+  });
+
+  it('matches archive.is, archive.today, archive.org, web.archive.org, ghostarchive.org', () => {
+    for (const host of ARCHIVE_HOSTS) {
+      const url = `https://${host}/some-path`;
+      expect(extractArchiveUrlFromComment(`see ${url}`)).toEqual({
+        archiveUrl: url,
+        archiveHost: host,
+      });
+    }
+  });
+
+  it('strips trailing punctuation that comes from sentence-end ")."', () => {
+    const html =
+      '<p>This (here: https://archive.is/xyz).</p>';
+    expect(extractArchiveUrlFromComment(html)).toEqual({
+      archiveUrl: 'https://archive.is/xyz',
+      archiveHost: 'archive.is',
+    });
+  });
+
+  it('does NOT follow non-allowlisted hosts (e.g. random imgur / news links)', () => {
+    const html =
+      '<p>Useful link: <a href="https://imgur.com/a/abcd">imgur.com/a/abcd</a></p>' +
+      '<p>And the article itself: https://www.theverge.com/foo</p>';
+    expect(extractArchiveUrlFromComment(html)).toBeNull();
+  });
+
+  it('rejects subdomains of archive.ph (only exact host matches)', () => {
+    // Defense in depth: an attacker who controls `evil.archive.ph` could
+    // otherwise pin our Jina spend on a URL of their choosing. The
+    // allowlist is intentionally exact-match.
+    const html = '<p>https://evil.archive.ph/abc</p>';
+    expect(extractArchiveUrlFromComment(html)).toBeNull();
+  });
+
+  it('rejects look-alike hosts (archive-is.com, archive.com)', () => {
+    expect(
+      extractArchiveUrlFromComment('https://archive-is.com/abc'),
+    ).toBeNull();
+    expect(extractArchiveUrlFromComment('https://archive.com/abc')).toBeNull();
+  });
+
+  it('returns null on empty or undefined input', () => {
+    expect(extractArchiveUrlFromComment(undefined)).toBeNull();
+    expect(extractArchiveUrlFromComment('')).toBeNull();
+    expect(extractArchiveUrlFromComment('no urls in here')).toBeNull();
+  });
+
+  it('rejects javascript: / data: URLs that happen to embed archive.is', () => {
+    // The regex anchors on http(s):// — schemes other than that should
+    // never even tokenize as a candidate. Belt-and-braces test.
+    expect(
+      extractArchiveUrlFromComment('javascript:alert("archive.is/x")'),
+    ).toBeNull();
+  });
+});
+
+describe('findArchiveCandidate', () => {
+  it('returns the first archive URL from the top-level kids in HN order', async () => {
+    const story = {
+      id: 1,
+      type: 'story' as const,
+      url: 'https://paywalled.example.com/x',
+      score: 50,
+      kids: [101, 102, 103],
+    };
+    const fetchItem = vi.fn(async (id: number) => {
+      if (id === 101) {
+        return { id: 101, by: 'alice', text: 'just a comment, no link' };
+      }
+      if (id === 102) {
+        return {
+          id: 102,
+          by: 'bob',
+          text: '<p>here: <a href="https://archive.is/abc">mirror</a></p>',
+        };
+      }
+      return { id: 103, by: 'carol', text: 'another comment' };
+    });
+    const candidate = await findArchiveCandidate(story, fetchItem);
+    expect(candidate).toEqual({
+      archiveUrl: 'https://archive.is/abc',
+      archiveHost: 'archive.is',
+      username: 'bob',
+    });
+    expect(fetchItem).toHaveBeenCalledTimes(3);
+  });
+
+  it('caps the kid scan at 20', async () => {
+    const story = {
+      id: 1,
+      type: 'story' as const,
+      url: 'https://paywalled.example.com/x',
+      score: 50,
+      kids: Array.from({ length: 50 }, (_, i) => 1000 + i),
+    };
+    const fetchItem = vi.fn(async (id: number) => ({
+      id,
+      by: 'u',
+      text: 'just text',
+    }));
+    await findArchiveCandidate(story, fetchItem);
+    expect(fetchItem).toHaveBeenCalledTimes(20);
+  });
+
+  it('skips deleted/dead/anonymous comments', async () => {
+    const story = {
+      id: 1,
+      type: 'story' as const,
+      url: 'https://paywalled.example.com/x',
+      score: 50,
+      kids: [101, 102, 103, 104],
+    };
+    const fetchItem = vi.fn(async (id: number) => {
+      if (id === 101) {
+        // deleted: even with a link in text, ignore.
+        return {
+          id: 101,
+          deleted: true,
+          by: 'alice',
+          text: 'https://archive.org/x',
+        };
+      }
+      if (id === 102) {
+        // dead: ignore.
+        return {
+          id: 102,
+          dead: true,
+          by: 'bob',
+          text: 'https://archive.org/y',
+        };
+      }
+      if (id === 103) {
+        // no `by`: refuse to attribute.
+        return { id: 103, text: 'https://archive.org/z' };
+      }
+      return {
+        id: 104,
+        by: 'eve',
+        text: 'https://archive.ph/keep',
+      };
+    });
+    const candidate = await findArchiveCandidate(story, fetchItem);
+    expect(candidate).toEqual({
+      archiveUrl: 'https://archive.ph/keep',
+      archiveHost: 'archive.ph',
+      username: 'eve',
+    });
+  });
+
+  it('returns null when the story has no kids', async () => {
+    const story = {
+      id: 1,
+      type: 'story' as const,
+      url: 'https://paywalled.example.com/x',
+      score: 50,
+    };
+    const fetchItem = vi.fn(async () => null);
+    expect(await findArchiveCandidate(story, fetchItem)).toBeNull();
+    expect(fetchItem).not.toHaveBeenCalled();
+  });
+
+  it('survives a fetchItem that throws on individual kids', async () => {
+    const story = {
+      id: 1,
+      type: 'story' as const,
+      url: 'https://paywalled.example.com/x',
+      score: 50,
+      kids: [201, 202],
+    };
+    const fetchItem = vi.fn(async (id: number) => {
+      if (id === 201) throw new Error('firebase blip');
+      return {
+        id: 202,
+        by: 'frank',
+        text: 'mirror: https://archive.today/foo',
+      };
+    });
+    const candidate = await findArchiveCandidate(story, fetchItem);
+    expect(candidate?.archiveHost).toBe('archive.today');
+    expect(candidate?.username).toBe('frank');
+  });
+});
+
+describe('handleSummaryRequest — archive-link comment hoist', () => {
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  // Trips detectPaywall via JSON-LD — short and unambiguous so the
+  // detection itself isn't what's under test in these archive cases.
+  const PAYWALL_BODY =
+    '{"@type":"NewsArticle","isAccessibleForFree":false}\nSubscribe to read.';
+
+  it('re-summarizes the archive copy when the article is paywalled and a top-level comment links to one', async () => {
+    const articleUrl = 'https://paywalled.example.com/story';
+    const archiveUrl = 'https://archive.ph/xyz';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+      [`https://r.jina.ai/${archiveUrl}`]: {
+        body: jinaBody('Free archive mirror of the article.'),
+      },
+    });
+    const fetchItem = fetchItemFor({
+      500: {
+        id: 500,
+        type: 'story',
+        url: articleUrl,
+        score: 50,
+        kids: [501, 502],
+      },
+      501: { id: 501, by: 'alice', text: 'no link here' },
+      502: {
+        id: 502,
+        by: 'bob',
+        text: `<p>mirror: <a href="${archiveUrl}">archive</a></p>`,
+      },
+    });
+    const client = createFakeClient([
+      { text: 'Summary derived from the archive copy.' },
+    ]);
+    const store = createTestStore();
+    const res = await handleSummaryRequest(makeRequest(500), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      summary: 'Summary derived from the archive copy.',
+      archiveSource: {
+        archiveUrl,
+        archiveHost: 'archive.ph',
+        username: 'bob',
+      },
+    });
+    // Both Jina calls happen: original (paywalled) + archive (mirror).
+    const calls = fetchImpl.mock.calls.map((c) => String(c[0]));
+    expect(calls).toContain(`https://r.jina.ai/${articleUrl}`);
+    expect(calls).toContain(`https://r.jina.ai/${archiveUrl}`);
+    // Gemini sees archive content, not the paywall body.
+    const prompt = client.models.generateContent.mock.calls[0]![0].contents;
+    expect(prompt).toContain('Free archive mirror');
+    expect(prompt).not.toContain('isAccessibleForFree');
+    // …and still references the *original* article URL — the prompt
+    // describes the article being summarized, not the conduit.
+    expect(prompt).toContain(articleUrl);
+    // The cached record carries the archive provenance so a second
+    // hit on the user-facing handler produces the same attribution.
+    const cached = store.map.get(500);
+    expect(cached?.record.archiveSource).toEqual({
+      archiveUrl,
+      archiveHost: 'archive.ph',
+      username: 'bob',
+    });
+    // And the record's articleHash is over the archive bytes — so the
+    // cron's next tick can reuse the cached record without churning.
+    expect(cached?.record.articleHash).toBe(
+      hashArticle('Free archive mirror of the article.'),
+    );
+  });
+
+  it('falls back to the paywalled body when no top-level comment links to an allowlisted archive', async () => {
+    const articleUrl = 'https://paywalled.example.com/no-archive';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+    });
+    const fetchItem = fetchItemFor({
+      510: {
+        id: 510,
+        type: 'story',
+        url: articleUrl,
+        score: 10,
+        kids: [511],
+      },
+      511: { id: 511, by: 'alice', text: 'just commentary, no link' },
+    });
+    const client = createFakeClient([{ text: 'Teaser-derived summary.' }]);
+    const res = await handleSummaryRequest(makeRequest(510), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ summary: 'Teaser-derived summary.' });
+    expect(body.archiveSource).toBeUndefined();
+  });
+
+  it('falls through to the paywalled body when the archive Jina fetch fails (Cloudflare etc.)', async () => {
+    const articleUrl = 'https://paywalled.example.com/cf';
+    const archiveUrl = 'https://archive.ph/blocked';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(PAYWALL_BODY) },
+      [`https://r.jina.ai/${archiveUrl}`]: { status: 502 },
+    });
+    const fetchItem = fetchItemFor({
+      520: {
+        id: 520,
+        type: 'story',
+        url: articleUrl,
+        score: 10,
+        kids: [521],
+      },
+      521: {
+        id: 521,
+        by: 'carol',
+        text: `mirror: ${archiveUrl}`,
+      },
+    });
+    const client = createFakeClient([{ text: 'Fallback summary.' }]);
+    const store = createTestStore();
+    const res = await handleSummaryRequest(makeRequest(520), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ summary: 'Fallback summary.' });
+    // No archiveSource recorded — we summarized the paywall body.
+    expect(store.map.get(520)?.record.archiveSource).toBeUndefined();
+  });
+
+  it('does NOT scan comments at all when the article fetch is not paywalled', async () => {
+    // Regression guard: the per-paywall comment scan is the cost gate
+    // for this feature. A non-paywalled cache miss must not pay the
+    // extra ~20 Firebase fetches.
+    const articleUrl = 'https://example.com/clean';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: {
+        body: jinaBody('Clean article body.'),
+      },
+    });
+    const fetchItem = vi.fn(async (id: number) => {
+      if (id === 530) {
+        return {
+          id: 530,
+          type: 'story',
+          url: articleUrl,
+          score: 10,
+          kids: [531, 532],
+        };
+      }
+      throw new Error(`unexpected fetchItem call for kid ${id}`);
+    });
+    const client = createFakeClient([{ text: 'ok' }]);
+    const res = await handleSummaryRequest(makeRequest(530), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(200);
+    // Only the story itself was fetched — kids were never touched.
+    expect(fetchItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns archiveSource on a cache hit so the UI keeps the attribution after refresh', async () => {
+    const store = createTestStore();
+    const archiveSource: ArchiveSource = {
+      archiveUrl: 'https://archive.ph/cached-xyz',
+      archiveHost: 'archive.ph',
+      username: 'dan',
+    };
+    await store.set(
+      540,
+      {
+        summary: 'Cached archive-sourced summary.',
+        articleHash: 'h',
+        firstSeenAt: 1,
+        summaryGeneratedAt: 1,
+        lastCheckedAt: 1,
+        lastChangedAt: 1,
+        paywalled: true,
+        archiveSource,
+      },
+      60,
+    );
+    const res = await handleSummaryRequest(makeRequest(540), { store });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      summary: 'Cached archive-sourced summary.',
+      cached: true,
+      archiveSource,
+    });
+  });
+});
+
+describe('parseRecord — archiveSource round-trip', () => {
+  const base: SummaryRecord = {
+    summary: 's',
+    articleHash: 'h',
+    firstSeenAt: 1,
+    summaryGeneratedAt: 1,
+    lastCheckedAt: 1,
+    lastChangedAt: 1,
+  };
+
+  it('preserves a well-formed archiveSource', () => {
+    const archiveSource: ArchiveSource = {
+      archiveUrl: 'https://archive.ph/abc',
+      archiveHost: 'archive.ph',
+      username: 'alice',
+    };
+    const r: SummaryRecord = { ...base, archiveSource };
+    expect(parseRecord(r)).toEqual(r);
+    expect(parseRecord(JSON.stringify(r))).toEqual(r);
+  });
+
+  it('drops a malformed archiveSource (missing field) without rejecting the record', () => {
+    const parsed = parseRecord({
+      ...base,
+      archiveSource: { archiveUrl: 'https://archive.ph/abc' },
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.archiveSource).toBeUndefined();
+    expect(parsed!.summary).toBe('s');
+  });
+
+  it('drops a non-object archiveSource without rejecting the record', () => {
+    const parsed = parseRecord({
+      ...base,
+      archiveSource: 'archive.ph/abc' as unknown as ArchiveSource,
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.archiveSource).toBeUndefined();
   });
 });

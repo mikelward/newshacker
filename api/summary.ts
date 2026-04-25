@@ -274,12 +274,14 @@ export function isAllowedReferer(referer: string | null): boolean {
 interface HNItem {
   id?: number;
   type?: string;
+  by?: string;
   title?: string;
   url?: string;
   text?: string;
   score?: number;
   dead?: boolean;
   deleted?: boolean;
+  kids?: number[];
 }
 
 const HN_ITEM_URL = (id: number) =>
@@ -342,12 +344,33 @@ export interface SummaryRecord {
   // Best-effort paywall detection on the Jina-clean body. `undefined`
   // on records written before the detector landed; `true` when Jina's
   // response looked like a paywall overlay / teaser, `false` when it
-  // looked like real article content. The bit is advisory today —
-  // wired only for telemetry — so the handler must not alter behavior
-  // based on it. Kept on the record so cache hits preserve the same
-  // decision the generation-time detector made, and so warm-summaries
-  // `unchanged` logs can carry the field without recomputing.
+  // looked like real article content. Kept on the record so cache hits
+  // preserve the same decision the generation-time detector made, and
+  // so warm-summaries `unchanged` logs can carry the field without
+  // recomputing. When `paywalled` is true and a usable archive link is
+  // found in the top-level comments, the summary is regenerated against
+  // the archive copy and `archiveSource` is populated below; the
+  // `paywalled` bit on the record then reflects the *original* article
+  // (still paywalled) so prevalence telemetry stays accurate.
   paywalled?: boolean;
+  // When the original article was paywalled and a top-level comment
+  // contained an allowlisted archive URL (archive.org, web.archive.org,
+  // archive.ph, archive.today, archive.is, ghostarchive.org), the
+  // summary was generated from the archive copy. `archiveSource`
+  // captures the provenance so the UI can label the result, e.g.
+  // "Summary based on archive copy linked by HN user `<username>`".
+  // Absent when the summary is from the original page.
+  archiveSource?: ArchiveSource;
+}
+
+export interface ArchiveSource {
+  // The archive URL we re-fetched via Jina to produce the summary.
+  archiveUrl: string;
+  // Hostname of `archiveUrl`, lowercased — convenient for analytics
+  // and for "linked via archive.is" style copy.
+  archiveHost: string;
+  // HN username of the comment that posted the archive URL.
+  username: string;
 }
 
 export interface SummaryStore {
@@ -437,6 +460,26 @@ export function parseRecord(raw: unknown): SummaryRecord | null {
       ? { contentBytes: r.contentBytes }
       : {}),
     ...(typeof r.paywalled === 'boolean' ? { paywalled: r.paywalled } : {}),
+    ...(parseArchiveSource(r.archiveSource)
+      ? { archiveSource: parseArchiveSource(r.archiveSource)! }
+      : {}),
+  };
+}
+
+function parseArchiveSource(raw: unknown): ArchiveSource | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Partial<ArchiveSource>;
+  if (
+    typeof r.archiveUrl !== 'string' ||
+    typeof r.archiveHost !== 'string' ||
+    typeof r.username !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    archiveUrl: r.archiveUrl,
+    archiveHost: r.archiveHost,
+    username: r.username,
   };
 }
 
@@ -508,6 +551,105 @@ export function htmlToPlainText(input: string | undefined): string {
     .trim();
 }
 
+// === Archive-link comment hoist (inlined — mirrored in api/warm-summaries.ts) ===
+// When the article fetch comes back paywalled, scan the top-level
+// comments for an allowlisted archive URL and re-summarize the archive
+// copy instead. HN readers routinely paste these by hand on paywalled
+// submissions; we automate what they already do.
+//
+// The host allowlist is intentionally small and explicit. We don't
+// follow arbitrary URLs from comments — that would let any commenter
+// pin our Jina spend to a URL of their choosing.
+//
+// Kept duplicated with api/warm-summaries.ts per AGENTS.md § "Vercel
+// api/ gotchas". Any edit here must be mirrored there — the parity
+// test in api/warm-summaries.test.ts § "archive host allowlist parity"
+// fails loudly if they drift.
+export const ARCHIVE_HOSTS: readonly string[] = [
+  'archive.org',
+  'web.archive.org',
+  'archive.ph',
+  'archive.today',
+  'archive.is',
+  'ghostarchive.org',
+];
+
+// Cap the comment scan at the top-N kids that are visually "above the
+// fold" — matches TOP_LEVEL_SAMPLE_SIZE in api/comments-summary.ts so
+// the archive picker draws from the same comment slice the comments
+// summary already considers. Going wider raises the kid-fetch cost on
+// paywalled cache misses without much practical gain (top-level archive
+// links float to the top quickly when posted).
+const ARCHIVE_TOP_LEVEL_SAMPLE_SIZE = 20;
+
+// Match http(s):// URLs in comment HTML (href attributes and inline
+// text alike). The character class deliberately excludes whitespace,
+// quotes, and angle brackets so we don't wander into adjacent HTML.
+// Trailing punctuation (".", ",", ")", etc.) is stripped before parsing.
+const URL_RE = /https?:\/\/[^\s<>"']+/gi;
+
+// Scan a single HN comment's HTML body for the first allowlisted archive
+// URL. Exported for tests; kept stateless so the cron can call it on the
+// same inputs and arrive at the same result.
+export function extractArchiveUrlFromComment(
+  text: string | undefined,
+): { archiveUrl: string; archiveHost: string } | null {
+  if (!text) return null;
+  const matches = text.match(URL_RE);
+  if (!matches) return null;
+  for (const raw of matches) {
+    const trimmed = raw.replace(/[.,;:!?)\]>]+$/, '');
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+    const host = parsed.hostname.toLowerCase();
+    if (ARCHIVE_HOSTS.some((allowed) => host === allowed)) {
+      return { archiveUrl: parsed.toString(), archiveHost: host };
+    }
+  }
+  return null;
+}
+
+// Walk the top-level comments (in HN's natural `kids` order — already
+// score-ranked) and return the first archive URL we find. Used by both
+// the user-facing handler and the cron, so the two paths agree on which
+// comment "wins" given the same thread snapshot. Returns null when no
+// allowlisted archive URL appears in the top-N.
+export async function findArchiveCandidate(
+  story: HNItem,
+  fetchItem: (id: number, signal?: AbortSignal) => Promise<HNItem | null>,
+  signal?: AbortSignal,
+): Promise<ArchiveSource | null> {
+  const kidIds = (story.kids ?? []).slice(0, ARCHIVE_TOP_LEVEL_SAMPLE_SIZE);
+  if (kidIds.length === 0) return null;
+  const comments = await Promise.all(
+    kidIds.map(async (id) => {
+      try {
+        return await fetchItem(id, signal);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  for (const comment of comments) {
+    if (!comment || comment.deleted || comment.dead) continue;
+    if (typeof comment.by !== 'string' || !comment.by) continue;
+    const hit = extractArchiveUrlFromComment(comment.text);
+    if (hit) {
+      return {
+        archiveUrl: hit.archiveUrl,
+        archiveHost: hit.archiveHost,
+        username: comment.by,
+      };
+    }
+  }
+  return null;
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -572,6 +714,13 @@ export interface SummaryOutcomeExtras {
   // scoped to "summaries we actually served". Absent on self-post
   // summaries (no Jina round-trip, no paywall to detect).
   paywalled?: boolean;
+  // Lowercased hostname of the archive copy we re-summarized (e.g.
+  // `archive.ph`, `web.archive.org`). Present on `cached` and
+  // `generated` outcomes when the archive-link comment hoist fired
+  // and produced the served summary; absent otherwise. Lets operators
+  // measure how often the hoist actually rescues a paywalled fetch,
+  // and which archive hosts succeed vs. fail under Jina round-trip.
+  archiveHost?: string;
 }
 
 export function emitSummaryOutcome(
@@ -599,6 +748,7 @@ export function emitSummaryOutcome(
   }
   if (extras.jinaTokens !== undefined) line.jinaTokens = extras.jinaTokens;
   if (extras.paywalled !== undefined) line.paywalled = extras.paywalled;
+  if (extras.archiveHost !== undefined) line.archiveHost = extras.archiveHost;
   console.log(JSON.stringify(line));
 }
 
@@ -876,8 +1026,15 @@ export async function handleSummaryRequest(
           ...(cached.paywalled !== undefined
             ? { paywalled: cached.paywalled }
             : {}),
+          ...(cached.archiveSource ? { archiveHost: cached.archiveSource.archiveHost } : {}),
         });
-        return json({ summary: cached.summary, cached: true });
+        return json({
+          summary: cached.summary,
+          cached: true,
+          ...(cached.archiveSource
+            ? { archiveSource: cached.archiveSource }
+            : {}),
+        });
       }
     } catch {
       // fall through to live generation
@@ -952,6 +1109,11 @@ export async function handleSummaryRequest(
   // URL-post summaries: populated from Jina's detector verdict. Left
   // undefined on self-posts (no Jina round-trip, no overlay to detect).
   let paywalled: boolean | undefined;
+  // Populated only when the original fetch came back paywalled AND a
+  // top-level comment included an allowlisted archive URL we
+  // successfully re-fetched. Persisted on the cache record and surfaced
+  // on the API response so the UI can attribute the archive copy.
+  let archiveSource: ArchiveSource | undefined;
   if (hasArticleUrl) {
     const articleUrl = story.url!;
     const jinaApiKey = deps.jinaApiKey ?? process.env.JINA_API_KEY;
@@ -1007,6 +1169,45 @@ export async function handleSummaryRequest(
     content = jinaResult.content;
     jinaTokens = jinaResult.tokens;
     paywalled = jinaResult.paywalled;
+
+    // Archive-link comment hoist. Only fires when the first Jina pass
+    // looked like a paywall overlay; on a clean fetch we keep today's
+    // behavior unchanged. Failures here are non-fatal — if the kid
+    // fetch errors, no archive link exists, or the archive Jina pass
+    // fails, we fall through and summarize the original (paywalled)
+    // body, exactly as the endpoint did before this feature.
+    if (paywalled) {
+      let candidate: ArchiveSource | null = null;
+      try {
+        candidate = await findArchiveCandidate(
+          story,
+          fetchItem,
+          request.signal,
+        );
+      } catch {
+        // best-effort scan; no archive used
+      }
+      if (candidate) {
+        const archiveResult = await fetchViaJina(
+          candidate.archiveUrl,
+          jinaApiKey,
+          deps,
+        );
+        if (archiveResult.ok) {
+          content = archiveResult.content;
+          if (archiveResult.tokens !== undefined) {
+            jinaTokens = (jinaTokens ?? 0) + archiveResult.tokens;
+          }
+          archiveSource = candidate;
+        }
+        // If the archive fetch failed (Cloudflare challenge on
+        // archive.ph, archive timeout, etc.), keep the original
+        // paywalled content and let the existing summarization
+        // pathway proceed. Better a teaser-derived summary than
+        // a hard error.
+      }
+    }
+
     prompt = buildPrompt(articleUrl, content);
   } else {
     // Self-post path: Ask HN / Show HN / text-only. The body is already
@@ -1086,6 +1287,7 @@ export async function handleSummaryRequest(
       // first observation after a user-facing write.
       contentBytes: Buffer.byteLength(content, 'utf8'),
       ...(paywalled !== undefined ? { paywalled } : {}),
+      ...(archiveSource ? { archiveSource } : {}),
     };
     try {
       await store.set(storyId, record, RECORD_TTL_SECONDS);
@@ -1100,8 +1302,12 @@ export async function handleSummaryRequest(
     geminiTotalTokens,
     jinaTokens,
     ...(paywalled !== undefined ? { paywalled } : {}),
+    ...(archiveSource ? { archiveHost: archiveSource.archiveHost } : {}),
   });
-  return json({ summary });
+  return json({
+    summary,
+    ...(archiveSource ? { archiveSource } : {}),
+  });
 }
 
 export async function GET(request: Request): Promise<Response> {
