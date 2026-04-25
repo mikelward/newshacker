@@ -359,6 +359,23 @@ ends up on the front page on a given day.
       "drop events older than 30 days" pass on read (or a
       one-shot Redis maintenance script) keeps the dataset
       relevant.
+  (e) **Render the `/tuning` event list with the same feed-row
+      style as `/hot`.** Today the list is a tabular drill-down
+      (collapsed by default). Switching to `<StoryListItem>`-shaped
+      rows — same title typography, same metadata line, same
+      visited-link coloring — would make "if I tighten this slider,
+      here's what `/hot` would look like" much more visually
+      concrete. The "would be hot under current rule" cue could
+      attach as a small leading badge or row outline. If it's
+      cheap (~200 events × richer-than-tabular DOM is still a
+      handful of ms), default the details panel to expanded — the
+      whole point of the page is the list. Open question: capture
+      `url` and `by` at event time so the row renders fully (small
+      payload bump, schema migration the same shape as
+      `descendants` / `type`), vs. render a stripped-down feed-row
+      that uses only the fields already in the event. Probably the
+      former — the visual goal is "this *is* what /hot would
+      render".
 
 - **Consider asking Gemini to return markdown explicitly.** Today
   `api/summary.ts` doesn't mention markdown in the prompt and

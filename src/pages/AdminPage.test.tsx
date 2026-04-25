@@ -53,7 +53,7 @@ function installFetchMock({
     }
     // Match the base /api/admin endpoint without catching the
     // telemetry sub-endpoints (which need their own response shape
-    // — see HotThresholdTuning.test.tsx).
+    // — see ThresholdTuningPage.test.tsx).
     if (url.includes('/api/admin-telemetry-events')) {
       return new Response(JSON.stringify({ user: [], anon: [] }), {
         status: 200,
@@ -379,9 +379,10 @@ describe('<AdminPage>', () => {
     await waitFor(() =>
       expect(screen.getByText(/9 ms/)).toBeInTheDocument(),
     );
-    // /api/me once + /api/admin twice. Exclude the telemetry
-    // sub-endpoint (`/api/admin-telemetry-events`), which is fired
-    // by the HotThresholdTuning section that AdminPage now embeds.
+    // /api/me once + /api/admin twice. Filter to the base
+    // /api/admin endpoint only — exclude similarly-prefixed
+    // sub-endpoints like /api/admin-telemetry-events that other
+    // pages (e.g. /tuning) drive.
     const adminCalls = fetchMock.mock.calls.filter((c) => {
       const url =
         typeof c[0] === 'string' ? c[0] : (c[0] as URL).toString();
