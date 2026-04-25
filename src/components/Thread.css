@@ -379,3 +379,30 @@
   padding: 16px 16px 4px;
   border-top: 1px solid var(--nh-border);
 }
+
+/* Eyebrow above a focused comment-thread view. Replaces the story
+   title's role as a "what kind of page is this?" header — readable at
+   a glance but smaller than a story title since the comment body is
+   the thing the reader came for. */
+.thread__comment-eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nh-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* "View full thread →" link below the focused comment body. Ties
+   the comment back to its story so the reader can fall into the wider
+   discussion if they want context. Sits inside .thread__header so the
+   header's padding-bottom and last-child margin rule absorb its
+   spacing naturally. */
+.thread__comment-context {
+  margin: 12px 0 0;
+  font-size: 14px;
+}
+
+.thread__comment-context a {
+  color: var(--nh-orange);
+}

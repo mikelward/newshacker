@@ -211,7 +211,12 @@ server-side with most-recent-first eviction.
    - **Article summary card** (AI, Gemini 2.5 Flash-Lite) above the action row, for any story with something to summarize — link posts (summarized from the fetched article via Jina) and self-posts (Ask HN / Show HN / text-only, summarized directly from `text`). Auto-runs on load. Stories with neither a `url` nor a `text` body (rare) don't render the card.
    - **Comment summary card** (AI, Gemini 2.5 Flash-Lite) between the meta line and the comment list, for any story with at least one top-level comment — including self-posts (Ask HN, Show HN). Renders 3–5 short insights. Auto-runs on load. Reuses the same card visual as the article summary.
    - Nested comments, each collapsed by default with a 3-line body preview. See *Comment row layout*.
-   - Deep-linkable: `/item/:id`.
+   - Deep-linkable: `/item/:id` — `:id` may be a story or a comment.
+     Comments render a focused single-comment view (eyebrow, author +
+     age, comment body, replies) plus a "View full thread → <story
+     title>" link that walks up the `parent` chain to the root story.
+     Story-only chrome — title link, summary cards, story action bar —
+     is omitted in the comment view.
 
 3. **User view (minimal)**
    - `/user/:id` shows karma, created date, about text, and the user's
@@ -223,6 +228,12 @@ server-side with most-recent-first eviction.
      from the user's `submitted` list, filtered to non-dead, non-deleted
      comments. The section is hidden entirely when the user has no
      submissions.
+   - Deferred enhancements (TODO): grouping comments by their root
+     story with the article title as a heading; surfacing the parent
+     comment a reply was made to; rendering the cards with the same
+     expand-in-place affordance the thread view uses. Each requires
+     additional parent-walk fetches and is intentionally deferred until
+     the focused-comment view at `/item/:id` lands first.
 
 4. **Navigation & Chrome**
    - Sticky header with the orange "n" tile mark (home-indicator variant), wordmark, and current feed name.

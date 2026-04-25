@@ -1441,4 +1441,93 @@ describe('<Thread>', () => {
     // Sentinel exists so IntersectionObserver can trigger next page
     expect(screen.getByTestId('comments-sentinel')).toBeInTheDocument();
   });
+
+  describe('when the item is a comment', () => {
+    function makeCommentTree(now: number): Record<number, HNItem> {
+      return {
+        500: makeStory(500, { title: 'Root story', kids: [501] }),
+        501: {
+          id: 501,
+          type: 'comment',
+          by: 'alice',
+          time: now - 60,
+          text: 'top comment <b>body</b>',
+          parent: 500,
+          kids: [502],
+        },
+        502: {
+          id: 502,
+          type: 'comment',
+          by: 'bob',
+          time: now - 30,
+          text: 'reply to alice',
+          parent: 501,
+        },
+      };
+    }
+
+    it('renders a focused comment view with author, body, replies, and a walked-up "View full thread" link', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      installHNFetchMock({ items: makeCommentTree(now) });
+
+      renderWithProviders(<Thread id={501} />, { route: '/item/501' });
+
+      // Eyebrow and author/age, not a story title
+      await waitFor(() => {
+        expect(screen.getByText('Comment')).toBeInTheDocument();
+      });
+      expect(screen.getByRole('link', { name: 'alice' })).toHaveAttribute(
+        'href',
+        '/user/alice',
+      );
+      // Comment body renders sanitized HTML (the <b> survives)
+      expect(document.body.innerHTML).toContain('<b>body</b>');
+
+      // No story-only chrome
+      expect(
+        screen.queryByRole('link', { name: /read article/i }),
+      ).toBeNull();
+      expect(screen.queryByText(/\[untitled\]/)).toBeNull();
+      expect(screen.queryByText(/not eligible for summary/i)).toBeNull();
+
+      // Walked-up parent link points at the root story with its title
+      const threadLink = await screen.findByRole('link', {
+        name: /view full thread.*Root story/i,
+      });
+      expect(threadLink).toHaveAttribute('href', '/item/500');
+
+      // Replies render via the existing <Comment> tree (collapsed body
+      // preview shows up in the row even before the reader expands it).
+      expect(await screen.findByText(/reply to alice/)).toBeInTheDocument();
+    });
+
+    it('falls back to the immediate parent link when the parent walk fails to find a story', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      installHNFetchMock({
+        items: {
+          // 501's parent is 500, but 500 is missing — walk hits a dead
+          // end and returns null.
+          501: {
+            id: 501,
+            type: 'comment',
+            by: 'alice',
+            time: now - 60,
+            text: 'orphaned',
+            parent: 500,
+          },
+        },
+      });
+
+      renderWithProviders(<Thread id={501} />, { route: '/item/501' });
+
+      await waitFor(() => {
+        expect(screen.getByText('Comment')).toBeInTheDocument();
+      });
+      // Falls back to the immediate parent id, no story title.
+      const link = await screen.findByRole('link', {
+        name: /^view full thread →$/i,
+      });
+      expect(link).toHaveAttribute('href', '/item/500');
+    });
+  });
 });

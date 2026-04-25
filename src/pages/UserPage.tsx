@@ -86,6 +86,20 @@ export function UserPage() {
           dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(data.about) }}
         />
       ) : null}
+      {/*
+        TODO: future enhancements once the focused-comment view feels
+        right in production. Considered and deferred as a follow-up:
+          - Group recent comments by the article they were posted on,
+            with the story title (linking to /item/<storyId>) as a
+            heading above each group. Requires a per-comment parent
+            walk to find the root story, batched per level.
+          - Show the parent comment a reply was made to (one level up)
+            inline above the snippet, so the reader can see what the
+            user was responding to without leaving the page.
+          - Render the comment cards with the same expand-in-place
+            affordance the thread view uses (toggleable +/- icon),
+            instead of always navigating to the focused view.
+      */}
       {hasSubmitted ? (
         <section className="user-page__recent" aria-label="Recent comments">
           <h2 className="user-page__recent-heading">Recent comments</h2>

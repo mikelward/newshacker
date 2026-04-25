@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
@@ -21,6 +21,7 @@ import { useContentWidth } from '../hooks/useContentWidth';
 import {
   extractDomain,
   formatStoryMetaTail,
+  formatTimeAgo,
   isSafeHttpUrl,
 } from '../lib/format';
 import {
@@ -30,7 +31,7 @@ import {
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
-import { getItems } from '../lib/hn';
+import { getItem, getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { hasSelfPostBody } from '../lib/selfPostBody';
 import { trackSummaryLayout } from '../lib/analytics';
@@ -739,6 +740,27 @@ export function Thread({ id }: Props) {
     return items;
   }, [id, item, favorited, handleToggleFavorite, shareStory]);
 
+  // When /item/:id resolves to a comment (HN's API treats every node
+   // uniformly, so it can — links from /threads, /user, and /from
+   // routinely land on comment ids), walk up the `parent` chain to find
+   // the root story so the comment-thread view can offer a "View full
+   // thread →" link with the article's title. Disabled for stories;
+   // returns null if the walk hits a missing item or the depth cap.
+  const { data: rootStory } = useQuery({
+    queryKey: ['comment-root', id],
+    queryFn: async ({ signal }) => {
+      let cursor: number | undefined = item?.parent;
+      for (let i = 0; i < 10 && cursor !== undefined; i++) {
+        const next = await getItem(cursor, signal);
+        if (!next) return null;
+        if (next.type === 'story') return next;
+        cursor = next.parent;
+      }
+      return null;
+    },
+    enabled: item?.type === 'comment' && item?.parent !== undefined,
+  });
+
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
   const hasMore = visibleCount < kidIds.length;
@@ -803,6 +825,70 @@ export function Thread({ id }: Props) {
           </h1>
         </header>
       </div>
+    );
+  }
+
+  if (item.type === 'comment') {
+    // Focused single-comment view (mirrors HN's own /item?id=<commentId>
+    // behavior). Skips the story header, summary cards, and story-action
+    // bar — none of which make sense for a comment — and offers a
+    // "View full thread" link to the root story so the reader can pick
+    // up the surrounding context. Replies still render via the existing
+    // <Comment> tree + infinite-scroll machinery.
+    const fallbackTarget = rootStory?.id ?? item.parent;
+    return (
+      <article className="thread thread--comment">
+        <header className="thread__header">
+          <p className="thread__comment-eyebrow">Comment</p>
+          <div className="thread__meta" data-testid="thread-meta">
+            {item.by ? (
+              <Link to={`/user/${item.by}`} className="thread__author">
+                {item.by}
+              </Link>
+            ) : null}
+            {item.time ? (
+              <>
+                {item.by ? ' · ' : null}
+                {formatTimeAgo(item.time)}
+                {' ago'}
+              </>
+            ) : null}
+          </div>
+          {item.text ? (
+            <div
+              className="thread__text"
+              onClick={handleLinkClick}
+              dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
+            />
+          ) : null}
+          {fallbackTarget !== undefined ? (
+            <p className="thread__comment-context">
+              <Link to={`/item/${fallbackTarget}`}>
+                {rootStory
+                  ? `View full thread: ${rootStory.title ?? '[untitled]'} →`
+                  : 'View full thread →'}
+              </Link>
+            </p>
+          ) : null}
+        </header>
+        {kidIds.length > 0 ? (
+          <ol className="thread__comments">
+            {shown.map((kidId) => (
+              <li key={kidId}>
+                <Comment id={kidId} />
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {hasMore ? (
+          <div
+            ref={sentinelRef}
+            className="thread__sentinel"
+            data-testid="comments-sentinel"
+            aria-hidden="true"
+          />
+        ) : null}
+      </article>
     );
   }
 
