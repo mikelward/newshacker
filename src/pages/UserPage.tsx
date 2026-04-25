@@ -173,11 +173,28 @@ export function UserPage() {
 
   const recentCommentKey = recentComments.map((c) => c.id).join(',');
 
-  const { data: rootByCommentId, isLoading: isWalkLoading } = useQuery({
+  const {
+    data: walkData,
+    isLoading: isWalkLoading,
+    isError: isWalkError,
+  } = useQuery({
     queryKey: ['user', id, 'recent-roots', recentCommentKey],
     queryFn: ({ signal }) => findRootStories(recentComments, signal),
     enabled: recentComments.length > 0,
   });
+
+  // If the walk fails (network/proxy error, hit rate limit, etc.) we
+  // still have the comments themselves in hand — the walk is only
+  // about resolving article context. Degrade gracefully: synthesize a
+  // map where every comment resolves to a null root, so groupByStory
+  // produces one unheaded fallback group containing the whole list.
+  // The reader sees the snippets without article headings, which is
+  // strictly better than the previous behavior (the section flashed
+  // "No recent comments." even though the comment fetch had succeeded).
+  const rootByCommentId: Record<number, HNItem | null> | undefined = walkData
+    ?? (isWalkError
+      ? Object.fromEntries(recentComments.map((c) => [c.id, null]))
+      : undefined);
 
   if (!id) {
     return <EmptyState message="Missing user id." />;
