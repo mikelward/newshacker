@@ -741,11 +741,14 @@ export function Thread({ id }: Props) {
   }, [id, item, favorited, handleToggleFavorite, shareStory]);
 
   // When /item/:id resolves to a comment (HN's API treats every node
-   // uniformly, so it can — links from /threads, /user, and /from
-   // routinely land on comment ids), walk up the `parent` chain to find
-   // the root story so the comment-thread view can offer a "View full
-   // thread →" link with the article's title. Disabled for stories;
-   // returns null if the walk hits a missing item or the depth cap.
+  // uniformly, so it can — links from /threads, /user, and /from
+  // routinely land on comment ids), walk up the `parent` chain to find
+  // the root story so the comment-thread view can surface the story
+  // title as the heading link above the comment. If the walk can't
+  // reach a story, the UI falls back to a "View parent →" link to the
+  // immediate parent so the reader is never stranded. Disabled for
+  // stories; returns null if the walk hits a missing item or the depth
+  // cap.
   const { data: rootStory } = useQuery({
     queryKey: ['comment-root', id],
     queryFn: async ({ signal }) => {

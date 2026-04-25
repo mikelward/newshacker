@@ -47,7 +47,7 @@ describe('<UserPage>', () => {
     });
   });
 
-  it('shows recent comments with a link to the thread and an HN profile link', async () => {
+  it('shows recent comments with a link to the thread and an HN threads link', async () => {
     const now = Math.floor(Date.now() / 1000);
     installHNFetchMock({
       users: {
@@ -126,7 +126,7 @@ describe('<UserPage>', () => {
     ).toBeNull();
   });
 
-  it('shows the HN profile link even when no comments are returned', async () => {
+  it('shows the HN threads link even when no comments are returned', async () => {
     const now = Math.floor(Date.now() / 1000);
     installHNFetchMock({
       users: {
@@ -151,6 +151,66 @@ describe('<UserPage>', () => {
       'href',
       'https://news.ycombinator.com/threads?id=storyteller',
     );
+  });
+
+  it('shows an error + retry inside the section when the recent-items fetch fails, and keeps the HN threads link reachable', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    let attempt = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/items')) {
+          attempt++;
+          if (attempt === 1) {
+            return new Response('boom', { status: 500 });
+          }
+          return new Response(
+            JSON.stringify([
+              {
+                id: 301,
+                type: 'comment',
+                by: 'erin',
+                time: now - 60,
+                text: 'recovered comment',
+                parent: 1,
+              },
+            ]),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (url.endsWith('/v0/user/erin.json')) {
+          return new Response(
+            JSON.stringify({
+              id: 'erin',
+              karma: 9,
+              created: now - 60 * 60,
+              submitted: [301],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    renderAt('/user/erin');
+
+    const section = await screen.findByRole('region', { name: /recent comments/i });
+    await within(section).findByTestId('error-state');
+    expect(
+      within(section).getByText(/could not load recent comments/i),
+    ).toBeInTheDocument();
+    // The HN threads link is still reachable while the inline list errors.
+    expect(
+      within(section).getByRole('link', {
+        name: /view all comments on hacker news/i,
+      }),
+    ).toHaveAttribute('href', 'https://news.ycombinator.com/threads?id=erin');
+
+    await userEvent.click(
+      within(section).getByRole('button', { name: /retry/i }),
+    );
+    await within(section).findByText(/recovered comment/i);
   });
 
   it('shows error state with working retry', async () => {
