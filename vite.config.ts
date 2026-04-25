@@ -72,7 +72,13 @@ export default defineConfig({
         theme_color: '#ff6600',
         background_color: '#f6f6ef',
         display: 'standalone',
-        start_url: '/top',
+        // SPEC.md *Routes* designates `/` as the home (it renders
+        // Top inline; the brand/header link points there too).
+        // Launching the installed PWA on `/top` paints the same
+        // feed but parks the URL bar on the secondary path,
+        // diverging from every other entry into the app. Keep
+        // them aligned by starting on `/`.
+        start_url: '/',
         scope: '/',
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
