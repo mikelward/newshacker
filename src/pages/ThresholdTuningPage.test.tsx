@@ -498,10 +498,174 @@ describe('<ThresholdTuningPage>', () => {
         screen.getByText('pinned-cold-still-on-top'),
       ).toBeInTheDocument(),
     );
-    // The exclam button identifies the pinned-not-hot row.
+    // The exclam button identifies the cared-but-not-hot row.
     expect(
-      screen.getByTestId('preview-pinned-not-hot-btn'),
+      screen.getByTestId('preview-cared-not-hot-btn-777'),
     ).toBeInTheDocument();
+  });
+
+  it('renders done-still-on-source-feed stories with the exclam right-action', async () => {
+    // Same shape as the pinned-cold test above, except the
+    // operator marked the cold story done (not pinned). Done is
+    // weighted equally with pinned for tuning: either is "you
+    // engaged with this story", so the rule missing it is
+    // suboptimal regardless of which list it ended up on.
+    addDoneId(777);
+    const nowS = Math.floor(Date.now() / 1000);
+    const doneColdInTop = {
+      id: 777,
+      type: 'story',
+      title: 'done-cold-still-on-top',
+      url: 'https://example.com/777',
+      by: 'alice',
+      score: 5,
+      descendants: 1,
+      time: nowS - 6 * 60 * 60,
+    };
+    const hotStory = {
+      id: 100,
+      type: 'story',
+      title: 'genuinely-hot',
+      url: 'https://example.com/100',
+      by: 'bob',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          return new Response(JSON.stringify([100, 777]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids =
+            new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) =>
+            id === 100 ? hotStory : id === 777 ? doneColdInTop : null,
+          );
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(screen.getByText('done-cold-still-on-top')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('preview-cared-not-hot-btn-777'),
+    ).toBeInTheDocument();
+  });
+
+  it('does not surface a done story that has dropped off both source feeds', async () => {
+    // Off-feed done stories must not appear: `useHotFeedItems`
+    // only fetches from /top ∪ /new, and the Preview never
+    // overlays anything outside that fetched set. Same constraint
+    // we have for off-feed pinned.
+    addDoneId(999);
+    const nowS = Math.floor(Date.now() / 1000);
+    const hotStory = {
+      id: 100,
+      type: 'story',
+      title: 'genuinely-hot',
+      url: 'https://example.com/100',
+      by: 'bob',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          // 999 (done) is *not* in /top *or* /new — fully off-feed.
+          return new Response(JSON.stringify([100]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids =
+            new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) => (id === 100 ? hotStory : null));
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(screen.getByText('genuinely-hot')).toBeInTheDocument(),
+    );
+    // The done-but-fully-off-feed story must not appear at all,
+    // and no exclam button (any per-row id) should render.
+    expect(screen.queryByTestId(/^preview-cared-not-hot-btn-/)).toBeNull();
   });
 
   it('renders type breakdown counts', async () => {
