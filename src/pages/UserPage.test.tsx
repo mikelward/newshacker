@@ -218,6 +218,69 @@ describe('<UserPage>', () => {
     expect(heading).toHaveAttribute('href', '/item/701');
   });
 
+  it('still renders the comments (unheaded) when the parent walk fetch errors out', async () => {
+    // Regression: previously a 500 from /api/items on the walk left
+    // `rootByCommentId` undefined, `groups` empty, and the section
+    // flashed "No recent comments." even though the comments
+    // themselves had loaded. Degrade gracefully — the comments
+    // render in a single unheaded fallback group.
+    const now = Math.floor(Date.now() / 1000);
+    let itemsCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/items')) {
+          itemsCalls++;
+          // First call (the recent-items batch) succeeds; subsequent
+          // calls (the walk's per-level parent fetches) all 500 so the
+          // walk's useQuery resolves to error.
+          if (itemsCalls === 1) {
+            return new Response(
+              JSON.stringify([
+                {
+                  id: 802,
+                  type: 'comment',
+                  by: 'gina',
+                  time: now - 1,
+                  text: 'walk-broken comment',
+                  parent: 801,
+                },
+              ]),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
+          return new Response('boom', { status: 500 });
+        }
+        if (url.endsWith('/v0/user/gina.json')) {
+          return new Response(
+            JSON.stringify({
+              id: 'gina',
+              karma: 1,
+              created: now - 60,
+              submitted: [802],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+    renderAt('/user/gina');
+
+    const section = await screen.findByRole('region', { name: /recent comments/i });
+    await within(section).findByText(/walk-broken comment/);
+    // The "No recent comments." status must NOT show up — that was the
+    // misleading state on the previous behavior.
+    expect(within(section).queryByText(/no recent comments/i)).toBeNull();
+    // No story heading (the walk errored), only the snippet's own link.
+    const itemLinks = within(section)
+      .getAllByRole('link')
+      .filter((a) => a.getAttribute('href')?.startsWith('/item/'))
+      .map((a) => a.getAttribute('href'));
+    expect(itemLinks).toEqual(['/item/802']);
+  });
+
   it('renders comments without a heading when the parent walk cannot reach a root story', async () => {
     const now = Math.floor(Date.now() / 1000);
     installHNFetchMock({
