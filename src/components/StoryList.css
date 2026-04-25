@@ -47,6 +47,21 @@
   }
 }
 
+/* Depth caption sitting just above the feed's bottom action bar:
+   "Showing N stories", muted meta-text, centered. Lets the reader see
+   how far into the list they've gone before deciding whether to tap
+   More — the alternative was overloading More itself with the count
+   ("More (60)"), which implied the count was a property of the next
+   page rather than what's already visible. Feed-only; library pages
+   don't render this (no More button to caption). Padded inline so it
+   doesn't fight the footer's own 16px padding below. */
+.story-list__count {
+  padding: 16px 16px 0;
+  color: var(--nh-meta);
+  font-size: 14px;
+  text-align: center;
+}
+
 /* End-of-list action bar, mirrors `.thread__actions` in Thread.css so the
    bottom of the feed visually matches the bottom of a thread page (same
    row height, padding, gap, wrap behavior). Only the container has the

@@ -490,6 +490,12 @@ export function StoryList({ feed }: Props) {
           </li>
         ))}
       </ol>
+      {hasMore ? (
+        <div className="story-list__count" data-testid="story-list-count">
+          Showing {visibleStories.length}{' '}
+          {visibleStories.length === 1 ? 'story' : 'stories'}
+        </div>
+      ) : null}
       <div className="story-list__footer story-list__footer--feed">
         <BackToTopButton />
         {hasMore ? (
