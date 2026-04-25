@@ -376,6 +376,23 @@ ends up on the front page on a given day.
       that uses only the fields already in the event. Probably the
       former — the visual goal is "this *is* what /hot would
       render".
+  (f) **Auto-expand the `/tuning` Preview when the visible set is
+      sparse.** The Preview shows the first `useHotFeedItems`
+      page (up to 60 candidates from `/top ∪ /new`) and then
+      relies on a "More" button at the bottom to load further
+      pages. With a tight rule (e.g. `score >= 500`) and few
+      pinned/done widening rows, page 0 can produce zero or one
+      visible row, leaving the operator scrolling through the
+      static analytics to find a button before the rule output
+      starts being meaningful. Cheapest fix: auto-fetch the next
+      page in an effect when `visibleStories.length < N` and
+      `hasMore`, capped at some page count (e.g. 4) so a sparse
+      rule can't accidentally walk the whole feed. Alternative:
+      surface a sticky "expand candidates" button inline with the
+      Preview heading, so the operator can opt in without leaving
+      the section. Worth measuring the typical Preview density
+      first — if 0-row pages are rare in practice, file under
+      "won't fix".
 
 - **Consider asking Gemini to return markdown explicitly.** Today
   `api/summary.ts` doesn't mention markdown in the prompt and
