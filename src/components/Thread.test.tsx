@@ -1472,9 +1472,10 @@ describe('<Thread>', () => {
 
       renderWithProviders(<Thread id={501} />, { route: '/item/501' });
 
-      // Eyebrow and author/age, not a story-title H1.
+      // Eyebrow upgrades to "Comment on" once the parent walk resolves
+      // a story, so the title heading below completes the phrase.
       await waitFor(() => {
-        expect(screen.getByText('Comment')).toBeInTheDocument();
+        expect(screen.getByText('Comment on')).toBeInTheDocument();
       });
       expect(screen.getByRole('link', { name: 'alice' })).toHaveAttribute(
         'href',

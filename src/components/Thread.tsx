@@ -879,7 +879,15 @@ export function Thread({ id }: Props) {
     return (
       <article className="thread thread--comment">
         <header className="thread__header">
-          <p className="thread__comment-eyebrow">Comment</p>
+          {/* Eyebrow flips to "Comment on" once the parent walk has
+              resolved a root story, so the eyebrow + title heading
+              read together as "Comment on <story title>". Until then
+              (walk still in flight, or walk failed to find a story)
+              we render plain "Comment" so the header doesn't dangle a
+              preposition with no object underneath. */}
+          <p className="thread__comment-eyebrow">
+            {rootStory ? 'Comment on' : 'Comment'}
+          </p>
           {rootStory ? (
             <h1 className="thread__comment-story-title">
               <Link to={`/item/${rootStory.id}`}>
