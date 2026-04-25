@@ -862,20 +862,20 @@ export function Thread({ id }: Props) {
 
   if (item.type === 'comment') {
     // Focused single-comment view (mirrors HN's own /item?id=<commentId>
-    // behavior). Skips the story summary cards and story-action bar —
-    // none of which make sense for a comment — but surfaces the root
-    // story's title up top so the reader has context for what's being
-    // discussed. Replies still render via the existing <Comment> tree
-    // + infinite-scroll machinery.
+    // behavior). Surfaces the root story's title up top, an opt-in
+    // "Summarize article" button (LazyArticleSummaryCard) so a reader
+    // can fetch the article summary on demand without paying its cost
+    // by default, the comment body, and the comment's replies via the
+    // existing <Comment> tree + infinite-scroll machinery. Skips the
+    // story-action bar (vote/pin/done targeting a comment as if it
+    // were a story would be incoherent).
     //
-    // TODO: consider adding the article SummaryCard (and possibly the
-    // CommentsSummaryCard) above the comment body once we see how the
-    // title-only header reads in production. Deferred because the
-    // SummaryCard auto-runs on load — surfacing it on every comment-
-    // page visit doubles the surface where article summaries fire
-    // (every cold visit kicks off a Jina + Gemini call), so the cost
-    // / "is it actually wanted here?" tradeoff deserves its own
-    // decision rather than a bundled one. AGENTS.md rule 11 applies.
+    // TODO: decide whether the CommentsSummaryCard belongs here too.
+    // It summarizes "what the wider thread is saying", which is a
+    // different question from the focused comment — surfacing it
+    // would push the reader's attention toward the full thread
+    // rather than the specific comment they came for. Left out for
+    // now until we see whether readers miss it.
     return (
       <article className="thread thread--comment">
         <header className="thread__header">
@@ -896,7 +896,16 @@ export function Thread({ id }: Props) {
             </h1>
           ) : null}
           {rootStory && (rootStory.url || hasSelfPostBody(rootStory.text)) ? (
-            <LazyArticleSummaryCard storyId={rootStory.id} />
+            // key by storyId so navigating from one /item/<commentId>
+            // to another (different root story) remounts the wrapper
+            // and resets `revealed` to false. Without the key, a reader
+            // who tapped Summarize on the first comment would land on
+            // the second comment's article summary auto-fetched on
+            // arrival, defeating the lazy gate's whole point.
+            <LazyArticleSummaryCard
+              key={rootStory.id}
+              storyId={rootStory.id}
+            />
           ) : null}
           <div className="thread__meta" data-testid="thread-meta">
             {item.by ? (
