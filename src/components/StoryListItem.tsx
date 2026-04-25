@@ -63,8 +63,12 @@ interface Props {
    * /favorites, /hidden) where every visible row already has the state
    * the button represents, so the "primary" row action is the inverse
    * (Unmark done, Unfavorite, Unhide) rather than Pin. The button
-   * always paints in the --active orange state; see SPEC.md §
-   * "Library views" for the rationale.
+   * paints in the `--active` orange state by default (matching every
+   * library view's filled-icon affordance); callers that want a
+   * non-orange "informational / inactive" variant — e.g. the /tuning
+   * Preview's hollow-pin button on a row the rule matches but the
+   * operator hasn't engaged with — pass `active: false` to opt out.
+   * See SPEC.md § "Library views" for the default-case rationale.
    */
   rightAction?: {
     label: string;
@@ -91,6 +95,20 @@ interface Props {
    * narrow phones.
    */
   showVelocity?: boolean;
+  /**
+   * When true, the row binds no pointer-driven mutation
+   * handlers: the long-press / right-click menu doesn't open
+   * (so the Pin / Hide / Share items are unreachable), and
+   * `useSwipeToDismiss` stays inert because all three of its
+   * handlers are undefined (`onSwipeRight`/`Left` already are
+   * when their commit handlers are absent; this flag also
+   * suppresses `onLongPress`). Used by the /tuning Preview, in
+   * conjunction with `StoryListImpl`'s own `readOnly` (which
+   * withholds the commit handlers themselves), so an operator
+   * tuning thresholds can't accidentally pin / hide a story by
+   * swiping or long-pressing a row.
+   */
+  readOnly?: boolean;
 }
 
 export function StoryListItem({
@@ -100,6 +118,7 @@ export function StoryListItem({
   seenCommentCount,
   pinned = false,
   hidden = false,
+  readOnly = false,
   onHide,
   onPin,
   onUnpin,
@@ -184,7 +203,14 @@ export function StoryListItem({
   const { dragging, isDismissing, style, handlers } = useSwipeToDismiss({
     onSwipeRight: onHide && !pinned ? handleHide : undefined,
     onSwipeLeft: onPin && !pinned ? handlePin : undefined,
-    onLongPress: openMenu,
+    // `readOnly` suppresses long-press too. Combined with
+    // already-undefined swipe handlers (when StoryListImpl
+    // withholds onPin/onHide), `useSwipeToDismiss` sees no
+    // handlers wired and binds no pointer events at all
+    // (line ~71 in the hook gates everything on
+    // `hasAnyHandler`). The row no longer rubber-bands or
+    // intercepts contextmenu — fully inert under tuning.
+    onLongPress: readOnly ? undefined : openMenu,
   });
 
   // Right-click opens the same menu on pointer devices — the desktop
