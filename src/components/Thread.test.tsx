@@ -1466,13 +1466,13 @@ describe('<Thread>', () => {
       };
     }
 
-    it('renders a focused comment view with author, body, replies, and a walked-up "View full thread" link', async () => {
+    it('renders a focused comment view with the root story title as a heading link', async () => {
       const now = Math.floor(Date.now() / 1000);
       installHNFetchMock({ items: makeCommentTree(now) });
 
       renderWithProviders(<Thread id={501} />, { route: '/item/501' });
 
-      // Eyebrow and author/age, not a story title
+      // Eyebrow and author/age, not a story-title H1.
       await waitFor(() => {
         expect(screen.getByText('Comment')).toBeInTheDocument();
       });
@@ -1480,28 +1480,28 @@ describe('<Thread>', () => {
         'href',
         '/user/alice',
       );
-      // Comment body renders sanitized HTML (the <b> survives)
+      // Comment body renders sanitized HTML (the <b> survives).
       expect(document.body.innerHTML).toContain('<b>body</b>');
 
-      // No story-only chrome
+      // No story-only chrome.
       expect(
         screen.queryByRole('link', { name: /read article/i }),
       ).toBeNull();
       expect(screen.queryByText(/\[untitled\]/)).toBeNull();
       expect(screen.queryByText(/not eligible for summary/i)).toBeNull();
 
-      // Walked-up parent link points at the root story with its title
-      const threadLink = await screen.findByRole('link', {
-        name: /view full thread.*Root story/i,
-      });
-      expect(threadLink).toHaveAttribute('href', '/item/500');
+      // Root story title is surfaced as a heading link to /item/500.
+      const titleLink = await screen.findByRole('link', { name: 'Root story' });
+      expect(titleLink).toHaveAttribute('href', '/item/500');
 
-      // Replies render via the existing <Comment> tree (collapsed body
-      // preview shows up in the row even before the reader expands it).
+      // No "View parent" fallback once the walk has resolved a story.
+      expect(screen.queryByRole('link', { name: /view parent/i })).toBeNull();
+
+      // Replies render via the existing <Comment> tree.
       expect(await screen.findByText(/reply to alice/)).toBeInTheDocument();
     });
 
-    it('falls back to the immediate parent link when the parent walk fails to find a story', async () => {
+    it('falls back to a "View parent" link when the parent walk fails to find a story', async () => {
       const now = Math.floor(Date.now() / 1000);
       installHNFetchMock({
         items: {
@@ -1523,9 +1523,11 @@ describe('<Thread>', () => {
       await waitFor(() => {
         expect(screen.getByText('Comment')).toBeInTheDocument();
       });
-      // Falls back to the immediate parent id, no story title.
+      // No story title heading is rendered (walk failed to resolve one).
+      expect(screen.queryByRole('link', { name: 'Root story' })).toBeNull();
+      // Fallback link points at the immediate parent id.
       const link = await screen.findByRole('link', {
-        name: /^view full thread →$/i,
+        name: /^view parent →$/i,
       });
       expect(link).toHaveAttribute('href', '/item/500');
     });

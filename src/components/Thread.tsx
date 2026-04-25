@@ -830,16 +830,31 @@ export function Thread({ id }: Props) {
 
   if (item.type === 'comment') {
     // Focused single-comment view (mirrors HN's own /item?id=<commentId>
-    // behavior). Skips the story header, summary cards, and story-action
-    // bar — none of which make sense for a comment — and offers a
-    // "View full thread" link to the root story so the reader can pick
-    // up the surrounding context. Replies still render via the existing
-    // <Comment> tree + infinite-scroll machinery.
-    const fallbackTarget = rootStory?.id ?? item.parent;
+    // behavior). Skips the story summary cards and story-action bar —
+    // none of which make sense for a comment — but surfaces the root
+    // story's title up top so the reader has context for what's being
+    // discussed. Replies still render via the existing <Comment> tree
+    // + infinite-scroll machinery.
+    //
+    // TODO: consider adding the article SummaryCard (and possibly the
+    // CommentsSummaryCard) above the comment body once we see how the
+    // title-only header reads in production. Deferred because the
+    // SummaryCard auto-runs on load — surfacing it on every comment-
+    // page visit doubles the surface where article summaries fire
+    // (every cold visit kicks off a Jina + Gemini call), so the cost
+    // / "is it actually wanted here?" tradeoff deserves its own
+    // decision rather than a bundled one. AGENTS.md rule 11 applies.
     return (
       <article className="thread thread--comment">
         <header className="thread__header">
           <p className="thread__comment-eyebrow">Comment</p>
+          {rootStory ? (
+            <h1 className="thread__comment-story-title">
+              <Link to={`/item/${rootStory.id}`}>
+                {rootStory.title ?? '[untitled]'}
+              </Link>
+            </h1>
+          ) : null}
           <div className="thread__meta" data-testid="thread-meta">
             {item.by ? (
               <Link to={`/user/${item.by}`} className="thread__author">
@@ -861,13 +876,9 @@ export function Thread({ id }: Props) {
               dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
             />
           ) : null}
-          {fallbackTarget !== undefined ? (
+          {!rootStory && item.parent !== undefined ? (
             <p className="thread__comment-context">
-              <Link to={`/item/${fallbackTarget}`}>
-                {rootStory
-                  ? `View full thread: ${rootStory.title ?? '[untitled]'} →`
-                  : 'View full thread →'}
-              </Link>
+              <Link to={`/item/${item.parent}`}>View parent →</Link>
             </p>
           ) : null}
         </header>
