@@ -1,7 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { getItems, type HNItem } from '../lib/hn';
-import { isHotStory } from '../lib/format';
 import {
   PAGE_SIZE,
   useStoryIds,
@@ -45,16 +44,18 @@ export interface HotFeedItemsState extends FeedItemsState {
 // Combined view over `/top ∪ /new` story-id lists, paginated 30 ids
 // from *each* source per page (so up to 60 candidates), deduped
 // across pages, with `predicate` applied on top to filter the
-// rendered set. Defaults to `isHotStory` so /hot's `<HotStoryList>`
-// gets the production rule unchanged. The /tuning Preview passes
-// a compiled expression instead, so adjusting a slider re-filters
-// without re-fetching HN (the React Query cache key is
-// `['feedItems', 'hot']`, predicate-independent — both consumers
-// share the same fetched candidates). Rows that came from `/new`
-// and were not also in the `/top` slice for the page where they
-// first appeared are tagged `'new'` so the renderer can swap the
-// suppressed `hot` segment for a `new` debug segment (see SPEC.md
-// *Hot flag*).
+// rendered set. `predicate` is required: `/hot`'s `<HotStoryList>`
+// supplies a closure over `isHotStory(item, hotNow, hotThresholds)`
+// (where `hotNow` is captured per render) so the user's
+// `<HotRuleCard>` overrides drive which fetched candidates render,
+// while `/tuning`'s Preview supplies a compiled expression directly.
+// Adjusting a slider re-filters without re-fetching HN (the React
+// Query cache key is `['feedItems', 'hot']`, predicate-independent —
+// both consumers share the same fetched candidates). Rows that came
+// from `/new` and were not also in the `/top` slice for the page
+// where they first appeared are tagged `'new'` so the renderer can
+// swap the suppressed `hot` segment for a `new` debug segment (see
+// SPEC.md *Hot flag*).
 //
 // Pagination: each "More" tap advances both source feeds one page
 // (30 ids) in lockstep. The button disappears when both source
@@ -68,8 +69,14 @@ export interface HotFeedItemsState extends FeedItemsState {
 // traffic per `/hot` load), all on the existing items proxy with
 // no new infra. Reliability: if either source feed errors, the
 // page degrades to whichever survived rather than blanking.
+// `predicate` is required — every caller has its own source of truth
+// for what "hot" means. `<HotStoryList>` binds it to `useHotThresholds()`
+// at the call site so the user's `<HotRuleCard>` overrides drive `/hot`;
+// `/tuning`'s Preview supplies a compiled expression directly. Keeping
+// the subscription out of this hook means `/tuning` doesn't pay for a
+// hot-threshold listener it would never use (Copilot review on PR #240).
 export function useHotFeedItems(
-  predicate: (item: HNItem) => boolean = isHotStory,
+  predicate: (item: HNItem) => boolean,
 ): HotFeedItemsState {
   const topQuery = useStoryIds('top');
   const newQuery = useStoryIds('new');
@@ -136,10 +143,11 @@ export function useHotFeedItems(
 
   // Cross-page dedup. The queryFn already dedupes within a page;
   // this layer drops anything that re-surfaces in a later page
-  // after climbing between feeds. The `isHotStory` filter is
-  // *not* applied here — consumers each pick their own predicate
-  // so /hot uses the production rule while /tuning's Preview can
-  // re-evaluate against a tunable expression without re-fetching.
+  // after climbing between feeds. The dedup is predicate-agnostic:
+  // `/hot` keeps whichever ids first qualified under the
+  // caller-provided, user-tuned predicate from `<HotRuleCard>`,
+  // while `/tuning` applies the Preview's compiled expression to
+  // the same fetched candidates without re-fetching.
   // StoryListImpl still applies its visibility filter (`score > 1`,
   // `!dead`, `!deleted`, and by default `!hidden` and `!done`) on
   // top of whichever predicate the consumer applies. The hidden

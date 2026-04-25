@@ -141,9 +141,15 @@ export function StoryListItem({
 
   // `flag` prop overrides the auto-computed Hot segment when set:
   // `null` suppresses the segment, `'new'` substitutes the literal
-  // text. When the prop is omitted (every standard feed), behavior
-  // matches the pre-/hot world — render `hot` iff `isHotStory` is
-  // true, nothing otherwise.
+  // text. When the prop is omitted, fall back to `isHotStory(story)`
+  // with the production defaults — but every list-rendering parent
+  // (`StoryListImpl`, `LibraryStoryList`) computes the flag once
+  // against the user's `<HotRuleCard>` overrides and passes it in,
+  // so the auto-compute path is only a defensive fallback for direct
+  // / test usage. Reading the per-user thresholds *here* would mean
+  // every rendered row registers its own `useHotThresholds` window
+  // listeners (custom event + storage), so the subscription is
+  // hoisted to the parent — see Copilot review on PR #240.
   const flagText: 'hot' | 'new' | null =
     flag === undefined ? (isHotStory(story) ? 'hot' : null) : flag;
 

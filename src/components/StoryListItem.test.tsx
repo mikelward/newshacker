@@ -472,6 +472,13 @@ describe('StoryListItem', () => {
       renderWithProviders(<StoryListItem story={settled} />);
       expect(screen.queryByTestId('story-hot')).toBeNull();
     });
+
+    // The "user `<HotRuleCard>` overrides flow into the row pill"
+    // regression lives in `StoryList.test.tsx` — `useHotThresholds`
+    // is hoisted to `StoryListImpl` (per Copilot review on PR #240),
+    // so a direct `<StoryListItem>` render bypasses the user-thresholds
+    // pipeline. The hotThresholds.ts unit tests cover the evaluator
+    // semantics independently.
   });
 });
 

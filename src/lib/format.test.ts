@@ -330,7 +330,7 @@ describe('isHotStory', () => {
   const now = new Date('2026-04-18T12:00:00Z');
   const nowS = Math.floor(now.getTime() / 1000);
 
-  it('is hot for fast risers: velocity > 15/h and descendants > 10', () => {
+  it('is hot for fast risers: velocity >= 15/h and descendants >= 10', () => {
     // 50 points in 1h = 50/h velocity, with 25 comments.
     expect(
       isHotStory(
@@ -346,9 +346,17 @@ describe('isHotStory', () => {
         now,
       ),
     ).toBe(true);
+    // Boundary: 30 points in 2h = exactly 15/h, descendants exactly
+    // 10 — `>=` matches this row.
+    expect(
+      isHotStory(
+        { score: 30, descendants: 10, time: nowS - 60 * 60 * 2 },
+        now,
+      ),
+    ).toBe(true);
   });
 
-  it('is hot for big stories: score > 200 and descendants > 100, regardless of age', () => {
+  it('is hot for big stories: score >= 200 and descendants >= 100, regardless of age', () => {
     // Score and comment thresholds met — the velocity may have cooled
     // but the total engagement still stands out.
     expect(
@@ -359,33 +367,41 @@ describe('isHotStory', () => {
     ).toBe(true);
     // No `time` at all — the big-story branch doesn't need it.
     expect(isHotStory({ score: 500, descendants: 300 }, now)).toBe(true);
-  });
-
-  it('is not hot when velocity is at or below 15/h and the big-story branch misses', () => {
-    // 30 points in 2h = 15/h — at the threshold, not above it.
+    // Boundary: score exactly 200, descendants exactly 100 — `>=`
+    // matches this row even with cooled velocity (200 / 20 h = 10/h).
     expect(
       isHotStory(
-        { score: 30, descendants: 20, time: nowS - 60 * 60 * 2 },
+        { score: 200, descendants: 100, time: nowS - 60 * 60 * 20 },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it('is not hot when velocity is below 15/h and the big-story branch misses', () => {
+    // 28 points in 2h = 14/h — under the velocity floor.
+    expect(
+      isHotStory(
+        { score: 28, descendants: 20, time: nowS - 60 * 60 * 2 },
         now,
       ),
     ).toBe(false);
-    // 200 points in 20h = 10/h, descendants 80: velocity below the
-    // floor and the big-story branch wants score > 200 *and*
-    // descendants > 100, neither met.
+    // 199 points in 20h = ~10/h, descendants 80: velocity below the
+    // floor and the big-story branch wants score >= 200 AND
+    // descendants >= 100, neither met.
     expect(
       isHotStory(
-        { score: 200, descendants: 80, time: nowS - 60 * 60 * 20 },
+        { score: 199, descendants: 80, time: nowS - 60 * 60 * 20 },
         now,
       ),
     ).toBe(false);
   });
 
-  it('is not hot when descendants <= 10, even at very high velocity', () => {
+  it('is not hot when descendants is below 10, even at very high velocity', () => {
     // The descendants gate keeps score-spike submits with little
     // discussion from lighting up as hot.
     expect(
       isHotStory(
-        { score: 100, descendants: 10, time: nowS - 60 * 60 },
+        { score: 100, descendants: 9, time: nowS - 60 * 60 },
         now,
       ),
     ).toBe(false);
@@ -394,23 +410,22 @@ describe('isHotStory', () => {
     ).toBe(false);
   });
 
-  it('big-story branch is strict on both score and descendants', () => {
-    // Score > 200 but descendants == 100: fails the big-story branch
-    // (which requires descendants strictly > 100). The velocity
-    // branch's descendants > 10 gate is satisfied, but the velocity
-    // itself (250 / 20 h = 12.5/h) is under the 15/h floor.
+  it('big-story branch needs both gates met', () => {
+    // Score == 250 but descendants == 99: fails the big-story branch
+    // (descendants gate). The velocity branch's descendants gate is
+    // satisfied (99 >= 10), but the velocity (250 / 20 h = 12.5/h) is
+    // under the 15/h floor.
     expect(
       isHotStory(
-        { score: 250, descendants: 100, time: nowS - 60 * 60 * 20 },
+        { score: 250, descendants: 99, time: nowS - 60 * 60 * 20 },
         now,
       ),
     ).toBe(false);
-    // Descendants > 100 but score == 200: fails the big-story branch
-    // (which requires score strictly > 200). The velocity branch
-    // fails too — 200 / 20 h = 10/h, under the 15/h floor.
+    // Descendants == 150 but score == 199: fails the big-story branch
+    // (score gate). Velocity 199 / 20 h ≈ 10/h, under the 15/h floor.
     expect(
       isHotStory(
-        { score: 200, descendants: 150, time: nowS - 60 * 60 * 20 },
+        { score: 199, descendants: 150, time: nowS - 60 * 60 * 20 },
         now,
       ),
     ).toBe(false);

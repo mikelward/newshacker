@@ -1,0 +1,245 @@
+/* Toolbar sits inside the same logical column as the story list:
+   no horizontal margin (list rows go edge-to-edge), only an inner
+   padding that matches `.story-row`'s 12px so the customize button
+   aligns to the same content gutter as every story row's title. */
+.hot-toolbar {
+  margin: 0;
+  border-bottom: 1px solid var(--nh-border);
+  background: var(--nh-bg-card);
+}
+
+.hot-toolbar__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  /* Customize button (and any other rule-related controls) stay
+     left-aligned. Right-aligned controls — Sweep, Undo, per-source
+     visibility toggles for /top, /new, pinned overlay, etc. — should
+     wrap in their own container with `margin-left: auto` so they
+     hug the right edge regardless of how many left-aligned items
+     are present. */
+}
+
+/* Compact transparent icon button — relies on hover background,
+   focus outline, and a pressed-state color shift to communicate
+   interactivity, so the icon reads as a single glyph rather than
+   a bounded UI chip. 40×40 trades the 48px row-tap-target minimum
+   (which is a story-row rule, not a general one) for a denser
+   toolbar that scales when more buttons land here (Sweep, Undo,
+   etc.). The 24×24 icon centered in 40×40 still leaves 8px around
+   each side for finger reach. */
+.hot-toolbar__button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--nh-text);
+  cursor: pointer;
+}
+
+.hot-toolbar__button:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) {
+  .hot-toolbar__button:hover {
+    background: var(--nh-bg);
+  }
+}
+
+.hot-toolbar__button:active {
+  background: var(--nh-bg);
+}
+
+/* Pressed/expanded state: the icon picks up HN orange while the
+   panel is open, so the user has a clear visual cue for "this is
+   what's showing the panel" without re-introducing a border. */
+.hot-toolbar__button[data-pressed] {
+  color: var(--nh-orange-dark);
+}
+
+.hot-rule-card__icon {
+  flex-shrink: 0;
+}
+
+/* Small orange dot in the top-right corner of the customize button
+   when both rule branches are off — gives the user a non-disruptive
+   "your rule is off" cue without forcing them to open the panel.
+   Tightened for the 40×40 button. */
+.hot-toolbar__warning-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nh-orange);
+  box-shadow: 0 0 0 2px var(--nh-bg-card);
+}
+
+/* Panel body sits in the same logical column as the toolbar above
+   and the list below — edge-to-edge, hairline separator on the
+   bottom, same card background. No floating-card border / radius. */
+.hot-rule-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--nh-border);
+  background: var(--nh-bg-card);
+}
+
+.hot-rule-card__branch {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hot-rule-card__legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  margin-bottom: 2px;
+  /* Float legends out of fieldset's reserved space so they sit
+     inline with the controls. */
+  float: none;
+  width: 100%;
+}
+
+.hot-rule-card__toggle {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--nh-orange);
+  cursor: pointer;
+}
+
+.hot-rule-card__legend-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nh-text);
+  cursor: pointer;
+}
+
+.hot-rule-card__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 26px;
+}
+
+.hot-rule-card__rows[data-disabled] {
+  opacity: 0.5;
+}
+
+.hot-rule-card__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hot-rule-card__row-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--nh-meta);
+}
+
+.hot-rule-card__row-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--nh-text);
+  font-weight: 600;
+}
+
+.hot-rule-card__slider {
+  width: 100%;
+  accent-color: var(--nh-orange);
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.hot-rule-card__slider:disabled {
+  cursor: not-allowed;
+}
+
+.hot-rule-card__or {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--nh-meta);
+  text-align: center;
+  position: relative;
+}
+
+.hot-rule-card__or::before,
+.hot-rule-card__or::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 22px);
+  height: 1px;
+  background: var(--nh-border);
+}
+
+.hot-rule-card__or::before {
+  left: 0;
+}
+
+.hot-rule-card__or::after {
+  right: 0;
+}
+
+.hot-rule-card__hint {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--nh-orange-dark);
+  background: var(--nh-bg);
+  border-radius: 4px;
+}
+
+.hot-rule-card__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hot-rule-card__reset {
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  min-height: 32px;
+  background: transparent;
+  border: 1px solid var(--nh-border);
+  border-radius: 4px;
+  color: var(--nh-text);
+  cursor: pointer;
+}
+
+.hot-rule-card__reset:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) {
+  .hot-rule-card__reset:hover {
+    background: var(--nh-bg);
+  }
+}
+
+.hot-rule-card__reset:active {
+  background: var(--nh-bg);
+}
+

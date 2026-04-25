@@ -9,10 +9,15 @@ import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useHotFeedItems } from '../hooks/useHotFeedItems';
 import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
+import { useHotThresholds } from '../hooks/useHotThresholds';
 import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { isHotStory } from '../lib/format';
+import type { HNItem } from '../lib/hn';
+import type { HotThresholds } from '../lib/hotThresholds';
 import { BackToTopButton } from './BackToTopButton';
+import { HotRuleCard } from './HotRuleCard';
 import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem, type RowFlag } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
@@ -113,6 +118,19 @@ interface ImplProps {
   // /tuning Preview where the operator should never mutate
   // reader state from inside a tuning experiment.
   readOnly?: boolean;
+  // The user's `<HotRuleCard>` overrides, threaded in by the parent
+  // so this component doesn't open its own `useHotThresholds`
+  // subscription. On `/hot` and the `/tuning` Preview, `flagFor`
+  // already returns a concrete value for every row (so the auto-
+  // computed pill never fires) and these thresholds are unused; on
+  // shipping feeds (`/top`, `/new`, etc.) the `<StoryList>` wrapper
+  // calls `useHotThresholds` once and passes the value down so all
+  // rows in this list paint against the same captured snapshot.
+  // Required to make the hook-call site explicit at every parent
+  // (Copilot review on PR #240) — never silently default to the
+  // production constants here, since a forgotten prop would mean
+  // every shipping feed quietly stops honoring user customization.
+  hotThresholds: HotThresholds;
 }
 
 interface StoryListItemRightAction {
@@ -157,7 +175,17 @@ function SweepIcon() {
 
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
-  return <StoryListImpl feedItems={feedItems} sourceFeed={feed} />;
+  // Subscribe to the user's `<HotRuleCard>` overrides once per route
+  // mount and pass them down so `<StoryListImpl>` doesn't open its
+  // own subscription (Copilot review on PR #240).
+  const { prefs: hotThresholds } = useHotThresholds();
+  return (
+    <StoryListImpl
+      feedItems={feedItems}
+      sourceFeed={feed}
+      hotThresholds={hotThresholds}
+    />
+  );
 }
 
 // `/hot` shim: same render path, different data source + a per-row
@@ -165,20 +193,52 @@ export function StoryList({ feed }: Props) {
 // `new` debug segment (the suppressed `hot` segment is what every
 // other row would otherwise render — see SPEC.md *Hot flag*). The
 // empty state copy matches SPEC.md *Story feeds → /hot*.
+//
+// The `<HotRuleCard>` sits above the list as the inline editor for
+// the user's `/hot` rule (per-branch on/off + four slider numbers).
+// It's a sibling rather than a wrapper so the empty state, error
+// state, and load skeletons render below it and the editor stays
+// visible — important when the user has both branches off and the
+// list is empty as a result.
 export function HotStoryList() {
-  const feedItems = useHotFeedItems();
+  // `useHotFeedItems` requires an explicit predicate; bind it to the
+  // user's `<HotRuleCard>` overrides here so the threshold subscription
+  // only lives on `/hot` (and not on `/tuning`, which passes its own
+  // compiled expression instead).
+  //
+  // `hotNow` is captured once per render and closed over by a plain
+  // (non-memoized) `hotPredicate`. All items in any single filter
+  // pass evaluate against the same wall clock — saves per-row
+  // `new Date()` allocations — and `hotNow` refreshes every render so
+  // a More-button advance or refetch sees the current time. We
+  // deliberately don't `useRef`-mutate during render (Copilot review
+  // on PR #240) since concurrent React may discard/replay renders;
+  // plain-function predicate keeps everything inside the committed
+  // render. The trade-off is that `useHotFeedItems`'s inner filter
+  // `useMemo` recomputes whenever this predicate's identity changes
+  // (i.e. every render of `<HotStoryList>`); the work is ~60 items
+  // of primitive math — sub-microsecond, well below render budget.
+  const { prefs: hotThresholds } = useHotThresholds();
+  const hotNow = new Date();
+  const hotPredicate = (item: HNItem) =>
+    isHotStory(item, hotNow, hotThresholds);
+  const feedItems = useHotFeedItems(hotPredicate);
   const newSourceIds = feedItems.newSourceIds;
   const flagFor = useCallback(
     (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
     [newSourceIds],
   );
   return (
-    <StoryListImpl
-      feedItems={feedItems}
-      flagFor={flagFor}
-      emptyMessage="Nothing hot right now."
-      sourceFeed="hot"
-    />
+    <>
+      <HotRuleCard />
+      <StoryListImpl
+        feedItems={feedItems}
+        flagFor={flagFor}
+        emptyMessage="Nothing hot right now."
+        sourceFeed="hot"
+        hotThresholds={hotThresholds}
+      />
+    </>
   );
 }
 
@@ -199,6 +259,7 @@ export function StoryListImpl({
   includeDone = false,
   includeHidden = false,
   readOnly = false,
+  hotThresholds,
 }: ImplProps) {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -209,6 +270,24 @@ export function StoryListImpl({
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
   const { setSweep, setRefresh, recordHide } = useFeedBar();
+  // `hotThresholds` is supplied by the parent (`<StoryList>` for
+  // shipping feeds, `<HotStoryList>` for /hot, `ThresholdTuningPage`
+  // for the Preview), so this component opens no `useHotThresholds`
+  // subscription of its own. `flagFor` (when supplied) still wins
+  // per row; when it returns undefined we fall through to the
+  // auto-computed user-tuned `isHotStory`. `now` is captured once
+  // per render so all rows in this paint evaluate against the same
+  // wall-clock instant — saves per-row `new Date()` allocations and
+  // keeps the velocity branch consistent across rows in a single
+  // commit. `computeFlag` is a plain function (not `useCallback`)
+  // because it's only invoked inline inside the `.map` below — no
+  // memoized child cares about its identity.
+  const now = new Date();
+  const computeFlag = (story: HNItem): RowFlag => {
+    const explicit = flagFor?.(story.id);
+    if (explicit !== undefined) return explicit;
+    return isHotStory(story, now, hotThresholds) ? 'hot' : null;
+  };
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
@@ -641,7 +720,7 @@ export function StoryListImpl({
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned
-              flag={flagFor?.(story.id)}
+              flag={computeFlag(story)}
               rightAction={rightActionFor?.(story.id)}
               showVelocity={showVelocity}
               onHide={readOnly ? undefined : handleHideOne}
@@ -666,7 +745,7 @@ export function StoryListImpl({
             <StoryListItem
               story={story}
               rank={idx + 1}
-              flag={flagFor?.(story.id)}
+              flag={computeFlag(story)}
               rightAction={rightActionFor?.(story.id)}
               showVelocity={showVelocity}
               articleOpened={articleOpenedIds.has(story.id)}

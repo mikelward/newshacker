@@ -34,6 +34,11 @@ import {
   getStoredAvatarPrefs,
   setStoredAvatarPrefs,
 } from './avatarPrefs';
+import {
+  DEFAULT_HOT_THRESHOLDS,
+  getStoredHotThresholds,
+  setStoredHotThresholds,
+} from './hotThresholds';
 
 const NOW = Date.now();
 const T = {
@@ -647,6 +652,139 @@ describe('cloudSync lifecycle', () => {
       (fetchMock.mock.calls[2][1] as RequestInit).body as string,
     ) as SyncState;
     expect(body.done).toEqual([{ id: 1, at: T.T5, deleted: true }]);
+  });
+
+  it('adopts a newer hotThresholds record from the server on pull', async () => {
+    const server: SyncState = {
+      pinned: [],
+      favorite: [],
+      hidden: [],
+      done: [],
+      hotThresholds: {
+        topEnabled: false,
+        topScoreMin: 250,
+        topDescendantsMin: 120,
+        newEnabled: true,
+        newVelocityMin: 20,
+        newDescendantsMin: 5,
+        at: T.T3,
+      },
+    };
+    const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    const prefs = getStoredHotThresholds();
+    expect(prefs.topEnabled).toBe(false);
+    expect(prefs.topScoreMin).toBe(250);
+    expect(prefs.newVelocityMin).toBe(20);
+    expect(prefs.at).toBe(T.T3);
+  });
+
+  it('keeps newer local hotThresholds and pushes them when the server is older', async () => {
+    setStoredHotThresholds(
+      { ...DEFAULT_HOT_THRESHOLDS, topEnabled: false, topScoreMin: 150 },
+      T.T5,
+    );
+    const server: SyncState = {
+      pinned: [],
+      favorite: [],
+      hidden: [],
+      done: [],
+      hotThresholds: {
+        topEnabled: true,
+        topScoreMin: 200,
+        topDescendantsMin: 100,
+        newEnabled: true,
+        newVelocityMin: 15,
+        newDescendantsMin: 10,
+        at: T.T1,
+      },
+    };
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(server) },
+      {
+        matcher: (input, init) =>
+          String(input) === '/api/sync' && init?.method === 'POST',
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    expect(getStoredHotThresholds().topScoreMin).toBe(150);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.hotThresholds).toEqual({
+      topEnabled: false,
+      topScoreMin: 150,
+      topDescendantsMin: DEFAULT_HOT_THRESHOLDS.topDescendantsMin,
+      newEnabled: true,
+      newVelocityMin: DEFAULT_HOT_THRESHOLDS.newVelocityMin,
+      newDescendantsMin: DEFAULT_HOT_THRESHOLDS.newDescendantsMin,
+      at: T.T5,
+    });
+  });
+
+  it('a local hotThresholds save after login triggers a push', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(emptyState()) },
+      {
+        matcher: (input, init) =>
+          String(input) === '/api/sync' && init?.method === 'POST',
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // GET only
+
+    setStoredHotThresholds(
+      { ...DEFAULT_HOT_THRESHOLDS, newEnabled: false },
+      T.T5,
+    );
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.hotThresholds?.newEnabled).toBe(false);
+    expect(body.hotThresholds?.at).toBe(T.T5);
+  });
+
+  it('ignores a malformed hotThresholds in the pull response', async () => {
+    setStoredHotThresholds(
+      { ...DEFAULT_HOT_THRESHOLDS, topScoreMin: 170 },
+      T.T1,
+    );
+    const fetchMock = queuedFetch([
+      {
+        response: jsonResponse({
+          pinned: [],
+          favorite: [],
+          hidden: [],
+          done: [],
+          // Missing required `topEnabled` → strict validator drops it.
+          hotThresholds: { topScoreMin: 999, at: T.T5 },
+        }),
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    expect(getStoredHotThresholds().topScoreMin).toBe(170);
   });
 });
 
