@@ -1101,18 +1101,24 @@ interface PreviewProps {
   }) => boolean;
 }
 
+// Shared between the two Preview diff icons. Inlined as a
+// constant (not a CSS class) because these glyphs only ever
+// appear here; routing through CSS would mean a new selector for
+// two consumers. Tweaking the red is a one-line change.
+const DIFF_ICON_RED = '#d32f2f';
+
 // Material Symbols `priority_high` — Apache 2.0, Google. A bold
-// exclamation glyph; the right-side icon for pinned-or-done-but-
-// not-rule-matching rows in the Preview, signalling "you cared
-// about this but the rule wouldn't surface it" without using the
-// pin icon (which already means "I pinned this").
+// exclamation glyph painted red; the right-side icon for pinned-
+// or-done-but-not-rule-matching rows in the Preview, signalling
+// "you cared about this but the rule wouldn't surface it"
+// (loosen cue).
 function PriorityHighIcon() {
   return (
     <svg
       viewBox="0 -960 960 960"
       width="22"
       height="22"
-      fill="currentColor"
+      fill={DIFF_ICON_RED}
       aria-hidden="true"
       focusable="false"
     >
@@ -1121,25 +1127,25 @@ function PriorityHighIcon() {
   );
 }
 
-// Same `priority_high` glyph but painted red to signal the
-// inverse polarity: the rule is *false-positively* surfacing a
-// story the operator already hid. The orange exclam means
-// "loosen", this red one means "tighten" — the operator's eye
-// can pick out the polarity from the color without reading the
-// label. Color is inlined (not a CSS class) because this glyph
-// only ever appears here; routing it through CSS would mean a
-// new selector for one consumer.
+// Material Symbols `question_mark` — Apache 2.0, Google. Red
+// question-mark glyph, used for the inverse-polarity signal: the
+// rule is *false-positively* surfacing a story the operator
+// already hid. Both diff icons are red; the operator picks out
+// the polarity from the *shape* — exclam ("look at this, you
+// cared but the rule missed", loosen cue) vs. question ("are you
+// sure? you said no but the rule wants to promote it", tighten
+// cue).
 function RuleMatchesHiddenIcon() {
   return (
     <svg
       viewBox="0 -960 960 960"
       width="22"
       height="22"
-      fill="#d32f2f"
+      fill={DIFF_ICON_RED}
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M480-200q-33 0-56.5-23.5T400-280q0-33 23.5-56.5T480-360q33 0 56.5 23.5T560-280q0 33-23.5 56.5T480-200Zm-80-240v-320h160v320H400Z" />
+      <path d="M424-320q0-81 14.5-116.5T500-514q41-36 62.5-62.5T584-637q0-41-27.5-68T480-732q-51 0-77.5 31T365-638l-103-44q21-64 77-111t141-47q105 0 161.5 58.5T698-641q0 50-21.5 85.5T609-475q-49 47-59.5 71.5T539-320H424Zm56 240q-33 0-56.5-23.5T400-160q0-33 23.5-56.5T480-240q33 0 56.5 23.5T560-160q0 33-23.5 56.5T480-80Z" />
     </svg>
   );
 }
@@ -1202,7 +1208,7 @@ function CheckCircleIcon() {
 // The combined predicate `rule(item) || isPinned(item) ||
 // isDone(item)` widens the Preview to also include pinned and
 // done articles still in `/top ∪ /new` that the rule alone
-// wouldn't surface. Those rows render with a `priority_high`
+// wouldn't surface. Those rows render with a red `priority_high`
 // (exclamation) icon in place of the pin button so the operator
 // can see at a glance "the rule wouldn't promote this, but you
 // cared about it" — a useful signal for loosening the rule.
@@ -1219,11 +1225,12 @@ function CheckCircleIcon() {
 // them, which is exactly the false-positive case the operator
 // wants to see. `includeHidden` on `<StoryListImpl>` flips off
 // the default !hiddenIds visibility filter so those rows render,
-// and `rightActionFor` lights them with a red exclam (inverse
-// polarity to the orange one — red = "tighten", orange =
-// "loosen"). A hidden story the rule doesn't match is correctly
-// excluded by both rule and `includeHidden=false`-equivalent
-// gating, so no signal is needed.
+// and `rightActionFor` lights them with a red question mark
+// (inverse polarity to the red exclam — exclam = "loosen", you
+// cared but the rule missed; question = "tighten", you said no
+// but the rule wants to promote it). A hidden story the rule
+// doesn't match is correctly excluded by both rule and
+// `includeHidden=false`-equivalent gating, so no signal is needed.
 function ThresholdPreview({ itemPredicate }: PreviewProps) {
   const { pinnedIds } = usePinnedStories();
   const { doneIds } = useDoneStories();
@@ -1269,9 +1276,9 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
   // — the Preview is for asking "what does this rule surface?",
   // and the operator tunes via the controls above, not by tapping
   // rows here. Icon variants, in priority order:
-  //   - rule-matches + hidden            → red exclam (tightening
-  //     cue: rule promotes a story you said no to)
-  //   - rule-misses + (pinned or done)   → orange exclam
+  //   - rule-matches + hidden            → red question mark
+  //     (tightening cue: rule promotes a story you said no to)
+  //   - rule-misses + (pinned or done)   → red exclam
   //     (loosening cue: you cared, rule missed)
   //   - rule-matches + pinned            → filled push_pin
   //     (informational; mirrors live-feed pinned affordance)
@@ -1359,10 +1366,10 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         What <code>/hot</code> would render right now under the
         threshold above. Source: live <code>/top ∪ /new</code>;
         re-filters as you adjust the expression or sliders without
-        re-fetching. Orange exclamation = pinned or marked done but
-        the rule wouldn't surface it (cue to loosen). Red
-        exclamation = hidden but the rule <em>would</em> surface it
-        (cue to tighten).
+        re-fetching. Red exclamation = pinned or marked done but
+        the rule wouldn't surface it (cue to loosen). Red question
+        mark = hidden but the rule <em>would</em> surface it (cue
+        to tighten).
       </p>
       <StoryListImpl
         feedItems={feedItems}
@@ -1390,7 +1397,7 @@ function ThresholdPreview({ itemPredicate }: PreviewProps) {
         // for hidden — see the comment block above). This is the
         // false-positive signal: the operator said "never again",
         // but the current rule still wants to promote it. Paired
-        // with the per-row red-exclam right action.
+        // with the per-row red question-mark right action.
         includeHidden
         // The Preview is a tuning experiment, not a reading-list
         // editor: suppress every row-level mutation affordance
