@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThresholdTuningPage } from './ThresholdTuningPage';
 import { renderWithProviders } from '../test/renderUtils';
@@ -943,13 +943,108 @@ describe('<ThresholdTuningPage>', () => {
     expect(unpinnedRowBtn.className).not.toContain('pin-btn--active');
     // No live Pin/Unpin button should render anywhere in the Preview.
     expect(screen.queryAllByTestId('pin-btn')).toHaveLength(0);
-    // The Preview is fully read-only: no row-level mutation
-    // affordances (the long-press menu's Pin/Hide/Share items,
-    // the bottom Sweep button) should be reachable. The row
-    // menu trigger is opt-in via long-press and binds
-    // `data-testid="story-row-menu"` only when a mutation
-    // handler is wired up, so its absence is the test signal.
+    // The bulk Sweep button — the only other "mutate every row"
+    // affordance — also shouldn't render under readOnly.
     expect(screen.queryByTestId('sweep-btn-bottom')).toBeNull();
+  });
+
+  it('Preview rows do not open the long-press / right-click menu', async () => {
+    // The long-press menu is the third mutation surface (after
+    // the right-side button and the bulk Sweep button). When
+    // `readOnly` is set, `useSwipeToDismiss` sees no handlers
+    // and binds no pointer events, so a long-press should
+    // produce no menu — `story-row-menu` never appears.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    addPinnedId(100);
+    const nowS = Math.floor(Date.now() / 1000);
+    const story = {
+      id: 100,
+      type: 'story',
+      title: 'long-press-target',
+      url: 'https://example.com/100',
+      by: 'alice',
+      score: 200,
+      descendants: 50,
+      time: nowS - 60 * 60,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : (input as URL).toString();
+        if (url.includes('/api/me')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin-telemetry-events')) {
+          return new Response(JSON.stringify({ user: [], anon: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/admin')) {
+          return new Response(JSON.stringify({ username: 'mikelward' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('topstories.json')) {
+          return new Response(JSON.stringify([100]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('newstories.json')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/items')) {
+          const ids =
+            new URL(url, 'http://localhost').searchParams.get('ids') ?? '';
+          const wanted = ids.split(',').map(Number);
+          const body = wanted.map((id) => (id === 100 ? story : null));
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+
+    renderWithProviders(<ThresholdTuningPage />, { route: '/tuning' });
+    await waitFor(() =>
+      expect(screen.getByText('long-press-target')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('story-row-menu')).toBeNull();
+
+    // Synthesize a long-press in the same shape `HiddenPage`'s
+    // shield test uses: pointerdown then advance past the
+    // long-press timeout. `useSwipeToDismiss` should never have
+    // bound the pointerdown listener under readOnly, so the
+    // menu must stay closed.
+    const row = screen.getByTestId('story-row');
+    const down = new Event('pointerdown', { bubbles: true, cancelable: true });
+    Object.assign(down, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+      isPrimary: true,
+    });
+    act(() => {
+      row.dispatchEvent(down);
+    });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(screen.queryByTestId('story-row-menu')).toBeNull();
+    vi.useRealTimers();
   });
 
   it('renders type breakdown counts', async () => {

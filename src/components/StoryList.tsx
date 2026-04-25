@@ -650,6 +650,7 @@ export function StoryListImpl({
               onUnpin={readOnly ? undefined : unpin}
               onShare={readOnly ? undefined : shareStory}
               onOpenThread={handleOpenThread}
+              readOnly={readOnly}
             />
           </li>
         ))}
@@ -673,20 +674,30 @@ export function StoryListImpl({
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned={pinnedIds.has(story.id)}
-              // `hidden` activates StoryListItem's pin shield
-              // (suppresses swipe-left and the menu Pin item)
-              // for rows that surfaced via `includeHidden`. On
-              // shipping feeds visibleStories already filters
-              // out hiddenIds, so this is a no-op there; on the
-              // /tuning Preview it's load-bearing — without it
-              // a hidden-but-rule-matches row could be pinned
-              // via swipe, recreating the pin∩hidden collision.
+              // The `hidden` prop only drives the swipe-hint
+              // label and the right-edge "Hidden" rubber-band —
+              // the actual pin shield is enforced by the caller
+              // withholding `onPin`/`onUnpin` (this is the same
+              // pattern `LibraryStoryList` uses on `/hidden`).
+              // On shipping feeds `visibleStories` already
+              // filters out `hiddenIds`, so neither line below
+              // does anything. On the /tuning Preview, where
+              // `includeHidden` keeps hidden rows visible, the
+              // pin shield here is load-bearing: without it a
+              // swipe-left could pin a hidden story and recreate
+              // the pin∩hidden collision the shield rule exists
+              // to prevent.
               hidden={hiddenIds.has(story.id)}
               onHide={readOnly ? undefined : handleHideOne}
-              onPin={readOnly ? undefined : handlePin}
-              onUnpin={readOnly ? undefined : unpin}
+              onPin={
+                readOnly || hiddenIds.has(story.id) ? undefined : handlePin
+              }
+              onUnpin={
+                readOnly || hiddenIds.has(story.id) ? undefined : unpin
+              }
               onShare={readOnly ? undefined : shareStory}
               onOpenThread={handleOpenThread}
+              readOnly={readOnly}
             />
           </li>
         ))}
