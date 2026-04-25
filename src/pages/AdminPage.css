@@ -149,7 +149,13 @@
   font-size: 13px;
 }
 
-.admin-page a {
+/* `:where()` lowers the selector specificity to 0,0,1 so this rule
+   styles plain prose links inside the admin shell (intro, notes,
+   back link) without overriding higher-specificity link styles
+   inside embedded components — notably `.story-row__body` on the
+   /tuning Preview, which intentionally renders as black title +
+   gray meta with no underline. */
+:where(.admin-page) a {
   color: var(--nh-orange);
   text-decoration: underline;
 }
