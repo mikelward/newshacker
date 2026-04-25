@@ -1,20 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Bottom-pill "n" mark — orange tile with a white "n" centered
-     slightly above the midline, and a white home-indicator pill
-     near the bottom edge. The pill reads as the iOS home indicator
-     / Android gesture bar — a modern-phone affordance readers see
-     daily, so a stronger "mobile-first" cue than a top speaker
-     slot. At favicon scale the pill is small but survives as a
-     horizontal stroke; at 192/512 it's plainly visible. Rasterized
+<!-- Rounded-square "keycap" tile with a white "ñ" centered on it.
+     The tilde on the ñ nods at the language-quirk side of "hacker"
+     while staying impossible to mistake for HN's Y logo. Rasterized
      into public/icon-*.png via scripts/generate-icons.mjs. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="96" fill="#ff6600"/>
-  <text x="256" y="240"
+  <rect width="512" height="512" rx="96" fill="#e65c00"/>
+  <text x="256" y="256"
         text-anchor="middle"
         dominant-baseline="central"
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
         font-weight="700"
         font-size="320"
-        fill="#ffffff">n</text>
-  <rect x="176" y="400" width="160" height="12" rx="6" fill="#ffffff"/>
+        fill="#ffffff">ñ</text>
 </svg>
