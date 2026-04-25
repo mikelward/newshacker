@@ -86,6 +86,14 @@ interface ImplProps {
   // velocity segment between points and comments. Off by default;
   // /hot and the /tuning Preview turn it on.
   showVelocity?: boolean;
+  // When true, rows the reader has marked done are still rendered
+  // (instead of being filtered out alongside hidden / dead / score
+  // ≤ 1). Off by default. The /tuning Preview turns it on so the
+  // operator sees the rule's full output, not just the slice they
+  // haven't read yet — otherwise an operator who's been actively
+  // working their reading list sees a near-empty Preview even
+  // when the rule is matching plenty of trending stories.
+  includeDone?: boolean;
 }
 
 interface StoryListItemRightAction {
@@ -164,6 +172,7 @@ export function StoryListImpl({
   includeOffFeedPinned = true,
   rightActionFor,
   showVelocity = false,
+  includeDone = false,
 }: ImplProps) {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -258,8 +267,11 @@ export function StoryListImpl({
   // person has voted). This is a live, per-render check, not a
   // persistent filter — if a story's score climbs above 1 on a
   // subsequent feed refetch, it rejoins the list automatically.
-  // Done stories are also hidden: Done is the completion log, and
-  // the feed should represent "what's still worth looking at".
+  // Done stories are hidden by default: Done is the completion log,
+  // and the feed should represent "what's still worth looking at".
+  // The `includeDone` opt-in flips that off for the `/tuning`
+  // Preview, where the question is "what does the rule surface",
+  // not "what's left of the operator's inbox".
   const visibleStories = useMemo(
     () =>
       items.filter(
@@ -269,9 +281,9 @@ export function StoryListImpl({
           !it.dead &&
           (it.score ?? 0) > 1 &&
           !hiddenIds.has(it.id) &&
-          !doneIds.has(it.id),
+          (includeDone || !doneIds.has(it.id)),
       ),
-    [items, hiddenIds, doneIds],
+    [items, hiddenIds, doneIds, includeDone],
   );
 
   // Opportunistically warm the thread/comment cache for currently-trending
