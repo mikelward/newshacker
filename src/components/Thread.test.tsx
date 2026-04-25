@@ -1501,6 +1501,97 @@ describe('<Thread>', () => {
       expect(await screen.findByText(/reply to alice/)).toBeInTheDocument();
     });
 
+    it('renders a "Summarize article" button (lazy) on the comment view, replaced by the SummaryCard once tapped', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      let summaryCalls = 0;
+      const items = makeCommentTree(now);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes('/api/summary')) {
+            summaryCalls++;
+            return new Response(
+              JSON.stringify({ summary: 'Concise article summary.' }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
+          if (url.includes('/api/items')) {
+            const parsed = new URL(url, 'http://localhost');
+            const ids = (parsed.searchParams.get('ids') ?? '')
+              .split(',')
+              .map(Number)
+              .filter(Number.isFinite);
+            return new Response(
+              JSON.stringify(ids.map((i) => items[i] ?? null)),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
+          const m = url.match(/\/v0\/item\/(\d+)\.json$/);
+          if (m) {
+            const id = Number(m[1]);
+            return new Response(JSON.stringify(items[id] ?? null), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          }
+          return new Response('not found', { status: 404 });
+        }),
+      );
+
+      renderWithProviders(<Thread id={501} />, { route: '/item/501' });
+
+      // Button shows up once the parent walk has resolved the root story.
+      const button = await screen.findByTestId('lazy-summarize-button');
+      expect(button).toHaveTextContent(/summarize article/i);
+      // Crucially, no /api/summary call has fired yet — it's gated behind
+      // the user's explicit tap.
+      expect(summaryCalls).toBe(0);
+      expect(screen.queryByTestId('thread-summary-card')).toBeNull();
+
+      await userEvent.click(button);
+
+      // After tap: the SummaryCard mounts, fetches, and the button is gone.
+      expect(await screen.findByTestId('thread-summary-card')).toBeInTheDocument();
+      expect(screen.queryByTestId('lazy-summarize-button')).toBeNull();
+      await waitFor(() => {
+        expect(summaryCalls).toBeGreaterThanOrEqual(1);
+      });
+      expect(screen.getByText(/concise article summary/i)).toBeInTheDocument();
+    });
+
+    it('does not render the lazy Summarize button when the root story has no url and no self-post body', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      installHNFetchMock({
+        items: {
+          // Self-post-less story (no url, no text) — nothing to summarize,
+          // so the button should be suppressed.
+          600: {
+            id: 600,
+            type: 'story',
+            title: 'Linkless and bodyless',
+            by: 'alice',
+            time: now - 60,
+          },
+          601: {
+            id: 601,
+            type: 'comment',
+            by: 'alice',
+            time: now - 30,
+            text: 'comment under bodyless story',
+            parent: 600,
+          },
+        },
+      });
+
+      renderWithProviders(<Thread id={601} />, { route: '/item/601' });
+
+      // Wait for the parent walk to resolve so we know the suppression is
+      // intentional, not just "still loading".
+      await screen.findByRole('link', { name: 'Linkless and bodyless' });
+      expect(screen.queryByTestId('lazy-summarize-button')).toBeNull();
+    });
+
     it('falls back to a "View parent" link when the parent walk fails to find a story', async () => {
       const now = Math.floor(Date.now() / 1000);
       installHNFetchMock({

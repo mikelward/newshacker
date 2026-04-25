@@ -380,6 +380,47 @@
   border-top: 1px solid var(--nh-border);
 }
 
+/* "Summarize article" button on the focused comment view. Sits between
+   the story-title heading and the comment meta — visually a low-weight
+   secondary action so it reads as "context available if you want it"
+   rather than a primary affordance. The reader is here for the comment;
+   the article is one tap away. Once tapped, this block is replaced by
+   the real <SummaryCard>, so the styling only matters for the pre-
+   reveal state. */
+.thread__lazy-summary {
+  margin: 0 0 12px;
+}
+
+.thread__lazy-summary-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 14px;
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
+  border-radius: 8px;
+  color: var(--nh-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .thread__lazy-summary-button:hover {
+    background: var(--nh-pressed);
+  }
+}
+
+.thread__lazy-summary-button:active {
+  background: var(--nh-border);
+}
+
+.thread__lazy-summary-button:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: 2px;
+}
+
 /* Eyebrow above a focused comment-thread view. Replaces the story
    title's role as a "what kind of page is this?" header — readable at
    a glance but smaller than a story title since the comment body is
