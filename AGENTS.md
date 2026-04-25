@@ -160,7 +160,11 @@ If any of the above fails, fix it — don't disable the check.
   to open one (and for subsequent follow-up PRs in the same thread —
   don't keep re-asking), `git push --force-with-lease` to your own
   live feature branch after a rebase (this is normal hygiene, not a
-  risky action).
+  risky action), and the Copilot-review round-trip on your own PRs:
+  `mcp__github__request_copilot_review`,
+  `mcp__github__add_reply_to_pull_request_comment`, and
+  `mcp__github__resolve_review_thread` (currently broken via MCP — see
+  *Copilot reviews* below).
 - Ask first before: force-pushing to `main`/`master` or to a merged
   branch, rewriting history on shared branches, deleting branches
   you didn't create, changing Vercel project settings, changing CI
@@ -177,6 +181,16 @@ If any of the above fails, fix it — don't disable the check.
 - Creating new `claude/<short-topic>` branches and creating PRs via `mcp__github__create_pull_request` (once the user has asked for one in the thread) are safe — don't re-ask.
 - Sandbox git proxy can't delete branches (HTTP 403). Flag it and move on; auto-delete-on-merge handles GitHub's side.
 - End every reply with the open-PR link (or `.../compare/main...<branch>` until a PR exists). Never link to a closed or merged PR.
+
+## Copilot reviews
+
+- **Always request a GitHub Copilot review automatically.** Immediately after `mcp__github__create_pull_request` succeeds, call `mcp__github__request_copilot_review` on the new PR. Don't ask first — this is a safe action.
+- **Re-request a Copilot review after your last push.** Whenever a `git push` updates an open PR's head (rebase, fix-up commit, `--force-with-lease` after an amend — any push that lands new sha on a branch that already has a PR), call `mcp__github__request_copilot_review` so the new commits get reviewed. The very first push that creates the branch is handled by the previous bullet, since the PR doesn't exist yet. If you do several back-to-back pushes (e.g. rebase + `--force-with-lease`, then a follow-up amend), only request the review after the final push — don't fire one off after each push and stack multiple in-flight reviews on top of each other.
+- **Address Copilot comments automatically — don't wait to be asked.** When a Copilot review lands, treat each comment like a real review note: read it, decide whether it's a real issue or a false positive, and if it's real, fix it in the same PR. Fold the fix into the commit it belongs to (rebase / `--fixup`) rather than tacking on an "address review" commit, per the *one commit per logical surviving change* rule in *Branching*. Group several small fixes into one commit when they share a topic.
+- **Reply to (and, when possible, resolve) every addressed Copilot comment.** When you land a commit that addresses a Copilot review comment, post a short reply on that comment via `mcp__github__add_reply_to_pull_request_comment` (one or two sentences — what you did, e.g. ``Fixed in `abc1234` — switched to `useSyncExternalStore` as suggested.``) and then resolve the thread with `mcp__github__resolve_review_thread` if it's working (see the known-limitation bullet below). Do this for each addressed comment, not in bulk.
+- **Don't resolve threads you haven't addressed.** If you disagree with a Copilot suggestion or are deferring it, leave the thread open and reply explaining why — don't silently resolve. If a comment is a false positive, say so in the reply before resolving.
+- **Order of operations on a push that addresses review comments:** (1) push the fix commit, (2) reply on each addressed thread referencing the new sha (and resolve when possible — see the known-limitation bullet below), (3) re-request the Copilot review. Doing (3) before (2) means the next review pass races with your replies; doing (2) before (1) means the sha you cite doesn't exist yet.
+- **Known limitation: `resolve_review_thread` is currently broken via MCP.** The `mcp__github__pull_request_read` / `get_review_comments` response intentionally strips the thread node ID (`PRRT_*`), so there is no way to obtain the `threadId` that `mcp__github__resolve_review_thread` requires — passing the comment's node ID (`PRRC_*`) fails with `Could not resolve to PullRequestReviewThread node`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (open fix). Until that fix ships, post the reply via `mcp__github__add_reply_to_pull_request_comment` as usual and skip the resolve step — flag in the end-of-turn summary that the threads are replied-but-unresolved so the user can resolve them in the GitHub UI. Recheck whether the upstream fix has shipped before assuming the resolve still fails.
 
 ## When in doubt
 
