@@ -228,20 +228,35 @@ server-side with most-recent-first eviction.
 
 3. **User view (minimal)**
    - `/user/:id` shows karma, created date, about text, and the user's
-     5 most recent comments (snippets, each linking to the comment in
-     its thread). Submitted stories are skipped from the inline list —
-     a "View all comments on Hacker News →" link below the list points
-     at `news.ycombinator.com/threads?id=<id>` for the full history.
-     Implementation: one `/api/items` batch fetch of the first 15 IDs
-     from the user's `submitted` list, filtered to non-dead, non-deleted
-     comments. The section is hidden entirely when the user has no
-     submissions.
-   - Deferred enhancements (TODO): grouping comments by their root
-     story with the article title as a heading; surfacing the parent
-     comment a reply was made to; rendering the cards with the same
-     expand-in-place affordance the thread view uses. Each requires
-     additional parent-walk fetches and is intentionally deferred until
-     the focused-comment view at `/item/:id` lands first.
+     5 most recent comments **grouped by the article they were posted
+     on**. Each group has the root story's title as a heading link to
+     `/item/<storyId>`; under the heading, the comment snippets render
+     as plain-text cards linking to `/item/<commentId>`. Comments
+     whose root story can't be resolved render in an unheaded fallback
+     group rather than getting dropped. Submitted stories are skipped
+     from the inline list (they may still appear as the parent story
+     for other comments). A "View all comments on Hacker News →" link
+     below the list points at `news.ycombinator.com/threads?id=<id>`
+     for the full history.
+   - Implementation: one `/api/items` batch fetch of the first 15 IDs
+     from the user's `submitted` list, filtered to non-dead,
+     non-deleted comments. Then a parent-chain walk fetches one
+     additional `/api/items` batch per level (deduped, capped at 10
+     levels) to resolve each comment's root story; comments under the
+     same story share a group. The section is hidden entirely when
+     the user has no submissions; an inline error state with Retry
+     covers a fetch failure on the recent-items batch.
+   - Cost note (per AGENTS.md rule 11): one extra `/api/items` call
+     per parent-chain level on top of the recent-items batch — in
+     practice 1–3 extra batches per user-page load, since most HN
+     comments are 1–3 levels deep and the walk dedupes parent IDs
+     across the 5 visible comments. Same edge cache, same proxy, no
+     new infra. Free-tier safe at any traffic the app is realistically
+     going to see.
+   - Deferred enhancements (TODO): surfacing the parent comment a
+     reply was made to inline above each snippet; rendering the cards
+     with an expand-in-place affordance instead of always navigating
+     to the focused comment view at `/item/<commentId>`.
 
 4. **Navigation & Chrome**
    - Sticky header with the orange "n" tile mark (home-indicator variant), wordmark, and current feed name.

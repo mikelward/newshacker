@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getUser, getItems, type HNItem } from '../lib/hn';
@@ -12,6 +13,12 @@ const RECENT_COMMENT_COUNT = 5;
 // yields RECENT_COMMENT_COUNT comments in a single batch. One batch
 // stays inside ITEMS_BATCH_SIZE = 30 and reuses the edge cache.
 const RECENT_FETCH_LIMIT = 15;
+// Hard cap on parent-walk levels. HN nesting rarely exceeds ~5 in
+// practice; the cap guards against a malformed parent chain looping
+// forever. Each level is one /api/items batch, dedup'd across
+// comments and skipped when the next-ancestor id is already in the
+// local cache.
+const MAX_PARENT_WALK_LEVELS = 10;
 
 function snippetText(html: string): string {
   if (typeof DOMParser === 'undefined') {
@@ -19,6 +26,101 @@ function snippetText(html: string): string {
   }
   const doc = new DOMParser().parseFromString(html, 'text/html');
   return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+// Walk each comment up its parent chain to find the root story it
+// lives under. Fetches one /api/items batch per level so all comments
+// at the same depth share a single round trip; items already resolved
+// (the comments themselves, or a cousin's parent) are skipped. A
+// comment whose walk hits a missing item or the depth cap resolves to
+// null; the caller groups those separately rather than dropping them.
+async function findRootStories(
+  comments: HNItem[],
+  signal?: AbortSignal,
+): Promise<Record<number, HNItem | null>> {
+  const itemCache = new Map<number, HNItem>();
+  for (const c of comments) itemCache.set(c.id, c);
+
+  type Frontier = { commentId: number; nextId: number | undefined };
+  let frontier: Frontier[] = comments.map((c) => ({
+    commentId: c.id,
+    nextId: c.parent,
+  }));
+
+  const rootByCommentId: Record<number, HNItem | null> = {};
+
+  for (
+    let level = 0;
+    level < MAX_PARENT_WALK_LEVELS && frontier.length > 0;
+    level++
+  ) {
+    const idsToFetch = Array.from(
+      new Set(
+        frontier
+          .filter((f) => f.nextId !== undefined && !itemCache.has(f.nextId))
+          .map((f) => f.nextId as number),
+      ),
+    );
+    if (idsToFetch.length > 0) {
+      const fetched = await getItems(idsToFetch, signal);
+      idsToFetch.forEach((fetchedId, i) => {
+        const it = fetched[i];
+        if (it) itemCache.set(fetchedId, it);
+      });
+    }
+    const next: Frontier[] = [];
+    for (const f of frontier) {
+      if (f.nextId === undefined) {
+        rootByCommentId[f.commentId] = null;
+        continue;
+      }
+      const it = itemCache.get(f.nextId);
+      if (!it) {
+        rootByCommentId[f.commentId] = null;
+        continue;
+      }
+      if (it.type === 'story') {
+        rootByCommentId[f.commentId] = it;
+        continue;
+      }
+      next.push({ commentId: f.commentId, nextId: it.parent });
+    }
+    frontier = next;
+  }
+  for (const f of frontier) {
+    if (!(f.commentId in rootByCommentId)) {
+      rootByCommentId[f.commentId] = null;
+    }
+  }
+  return rootByCommentId;
+}
+
+interface CommentGroup {
+  story: HNItem | null;
+  comments: HNItem[];
+}
+
+// Groups the comments by their resolved root story, preserving the
+// input order both for the groups (first comment for each story sets
+// that story's position) and for the comments within a group.
+// Comments whose root couldn't be resolved share a single null-story
+// group rendered without a heading.
+function groupByStory(
+  comments: HNItem[],
+  rootByCommentId: Record<number, HNItem | null>,
+): CommentGroup[] {
+  const groups = new Map<string, CommentGroup>();
+  for (const c of comments) {
+    const story = rootByCommentId[c.id] ?? null;
+    const key = story ? `s:${story.id}` : 'unknown';
+    let group = groups.get(key);
+    if (!group) {
+      group = { story, comments: [] };
+      groups.set(key, group);
+    }
+    group.comments.push(c);
+  }
+  return Array.from(groups.values());
 }
 
 export function UserPage() {
@@ -29,7 +131,10 @@ export function UserPage() {
     enabled: !!id,
   });
 
-  const submittedHead = data?.submitted?.slice(0, RECENT_FETCH_LIMIT) ?? [];
+  const submittedHead = useMemo(
+    () => data?.submitted?.slice(0, RECENT_FETCH_LIMIT) ?? [],
+    [data?.submitted],
+  );
 
   const {
     data: recentItems,
@@ -40,6 +145,29 @@ export function UserPage() {
     queryKey: ['user', id, 'recent', submittedHead.join(',')],
     queryFn: ({ signal }) => getItems(submittedHead, signal),
     enabled: submittedHead.length > 0,
+  });
+
+  const recentComments: HNItem[] = useMemo(
+    () =>
+      (recentItems ?? [])
+        .filter(
+          (item): item is HNItem =>
+            !!item &&
+            item.type === 'comment' &&
+            !item.deleted &&
+            !item.dead &&
+            !!item.text,
+        )
+        .slice(0, RECENT_COMMENT_COUNT),
+    [recentItems],
+  );
+
+  const recentCommentKey = recentComments.map((c) => c.id).join(',');
+
+  const { data: rootByCommentId, isLoading: isWalkLoading } = useQuery({
+    queryKey: ['user', id, 'recent-roots', recentCommentKey],
+    queryFn: ({ signal }) => findRootStories(recentComments, signal),
+    enabled: recentComments.length > 0,
   });
 
   if (!id) {
@@ -59,18 +187,12 @@ export function UserPage() {
     return <EmptyState message="User not found." />;
   }
 
-  const recentComments: HNItem[] = (recentItems ?? [])
-    .filter(
-      (item): item is HNItem =>
-        !!item &&
-        item.type === 'comment' &&
-        !item.deleted &&
-        !item.dead &&
-        !!item.text,
-    )
-    .slice(0, RECENT_COMMENT_COUNT);
-
   const hasSubmitted = submittedHead.length > 0;
+  const sectionLoading =
+    isRecentLoading || (recentComments.length > 0 && isWalkLoading);
+  const groups = rootByCommentId
+    ? groupByStory(recentComments, rootByCommentId)
+    : [];
 
   return (
     <article className="user-page">
@@ -91,45 +213,47 @@ export function UserPage() {
           dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(data.about) }}
         />
       ) : null}
-      {/*
-        TODO: future enhancements once the focused-comment view feels
-        right in production. Considered and deferred as a follow-up:
-          - Group recent comments by the article they were posted on,
-            with the story title (linking to /item/<storyId>) as a
-            heading above each group. Requires a per-comment parent
-            walk to find the root story, batched per level.
-          - Show the parent comment a reply was made to (one level up)
-            inline above the snippet, so the reader can see what the
-            user was responding to without leaving the page.
-          - Render the comment cards with the same expand-in-place
-            affordance the thread view uses (toggleable +/- icon),
-            instead of always navigating to the focused view.
-      */}
       {hasSubmitted ? (
         <section className="user-page__recent" aria-label="Recent comments">
           <h2 className="user-page__recent-heading">Recent comments</h2>
-          {isRecentLoading ? (
+          {sectionLoading ? (
             <p className="user-page__recent-status">Loading recent comments…</p>
           ) : isRecentError ? (
             <ErrorState
               message="Could not load recent comments."
               onRetry={() => refetchRecent()}
             />
-          ) : recentComments.length > 0 ? (
-            <ol className="user-page__recent-list">
-              {recentComments.map((c) => (
-                <li key={c.id}>
-                  <Link
-                    to={`/item/${c.id}`}
-                    className="user-page__recent-item"
-                  >
-                    <div className="user-page__recent-body">
-                      {snippetText(c.text ?? '')}
-                    </div>
-                    <div className="user-page__recent-meta">
-                      {c.time ? `${formatTimeAgo(c.time)} ago` : ''}
-                    </div>
-                  </Link>
+          ) : groups.length > 0 ? (
+            <ol className="user-page__recent-groups">
+              {groups.map((g) => (
+                <li
+                  key={g.story?.id ?? 'unknown'}
+                  className="user-page__recent-group"
+                >
+                  {g.story ? (
+                    <h3 className="user-page__recent-group-title">
+                      <Link to={`/item/${g.story.id}`}>
+                        {g.story.title ?? '[untitled]'}
+                      </Link>
+                    </h3>
+                  ) : null}
+                  <ol className="user-page__recent-list">
+                    {g.comments.map((c) => (
+                      <li key={c.id}>
+                        <Link
+                          to={`/item/${c.id}`}
+                          className="user-page__recent-item"
+                        >
+                          <div className="user-page__recent-body">
+                            {snippetText(c.text ?? '')}
+                          </div>
+                          <div className="user-page__recent-meta">
+                            {c.time ? `${formatTimeAgo(c.time)} ago` : ''}
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ol>
                 </li>
               ))}
             </ol>
