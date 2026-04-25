@@ -497,7 +497,7 @@ export function StoryList({ feed }: Props) {
         </div>
       ) : null}
       <div className="story-list__footer story-list__footer--feed">
-        <BackToTopButton />
+        <BackToTopButton iconOnly />
         {hasMore ? (
           <button
             type="button"

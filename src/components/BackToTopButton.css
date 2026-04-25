@@ -5,3 +5,15 @@
 .back-to-top-btn__icon {
   display: block;
 }
+
+/* Icon-only variant for the feed footer. Strips the label and shrinks the
+   button to a 56×56 square so it visually mirrors the right-side Hide
+   unpinned button and lets More — which stretches to fill the middle —
+   sit centered between the two squares. The base background, border, and
+   pressed/hover styling come from `.back-to-top-btn` in StoryList.css. */
+.back-to-top-btn--icon {
+  flex: 0 0 auto;
+  width: 56px;
+  padding: 12px;
+  gap: 0;
+}
