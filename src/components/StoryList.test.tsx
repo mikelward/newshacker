@@ -86,6 +86,62 @@ describe('<StoryList>', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(12);
     });
     expect(screen.queryByRole('button', { name: /^more$/i })).not.toBeInTheDocument();
+    // No More button → no depth caption either; the caption only earns
+    // its space when the reader has a "tap More for the next chunk"
+    // decision to make.
+    expect(screen.queryByTestId('story-list-count')).not.toBeInTheDocument();
+  });
+
+  it('keeps the caption pegged to the More button even when every loaded story is filtered out', async () => {
+    // Edge case: a feed page can have hasMore=true with zero visible
+    // rows when the score>1 / hidden / done filters drop every loaded
+    // story. The caption mirrors the More button (same hasMore gate),
+    // so in that state it reads "Showing 0 stories" — telling the
+    // reader the next chunk is the only way out — instead of vanishing
+    // and leaving More on its own.
+    const ids = Array.from({ length: 60 }, (_, i) => i + 1);
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { score: 1 })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    const caption = await screen.findByTestId('story-list-count');
+    expect(caption).toHaveTextContent('Showing 0 stories');
+    expect(screen.getByRole('button', { name: /^more$/i })).toBeInTheDocument();
+  });
+
+  it('shows a "Showing N stories" caption above More that updates as the reader pages further in', async () => {
+    // The caption is the depth signal that lets a reader notice
+    // they're at story 120 before they tap More again. It sits in its
+    // own row immediately above the More button; the count tracks the
+    // visible (rendered) story rows, matching the rank shown on the
+    // last row.
+    const ids = Array.from({ length: 120 }, (_, i) => i + 1);
+    const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    const caption = await screen.findByTestId('story-list-count');
+    expect(caption).toHaveTextContent('Showing 30 stories');
+
+    const more = screen.getByRole('button', { name: /^more$/i });
+    // Caption is in its own row immediately above More — same parent,
+    // and the caption precedes the footer that holds More.
+    expect(
+      caption.compareDocumentPosition(more) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await userEvent.click(more);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('story-list-count')).toHaveTextContent(
+        'Showing 60 stories',
+      );
+    });
   });
 
   it('refetches the feed on mount when a populated cache would otherwise be considered fresh', async () => {
