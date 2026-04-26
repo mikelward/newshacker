@@ -428,12 +428,33 @@ function parseCacheHits(rows: Record<string, unknown>[]): CacheHitsValue {
 }
 
 const TOKENS_WINDOW_SECONDS = 60 * 60 * 24;
+// Token spend has two emission paths:
+//   - User path: `summary-outcome` / `comments-summary-outcome` lines
+//     carry `geminiPromptTokens` / `geminiOutputTokens` (both
+//     endpoints) and `jinaTokens` (URL-post summaries only).
+//   - Warm cron: `warm-story` lines carry the same Gemini fields on
+//     `first_seen` / `changed` outcomes, and the Jina-billed count
+//     under the field name `tokens` (article track only — comments
+//     track doesn't hit Jina).
+// The query unions all three line types and sums the token fields by
+// name. `jinaTokens` (user) and `tokens` (cron) are *different* field
+// names, so summing each independently then adding them avoids the
+// fragility of a coalesce.
 function tokensApl(dataset: string): string {
   return [
     quoteDataset(dataset),
     '| where _time > ago(24h)',
-    summaryLineFilter(),
-    '| summarize geminiPromptTokens = sum(toint(e.geminiPromptTokens)), geminiOutputTokens = sum(toint(e.geminiOutputTokens)), jinaTokens = sum(toint(e.jinaTokens))',
+    projectFilter(),
+    "| where ['vercel.source'] == \"lambda\"",
+    '| where message contains "summary-outcome" or message contains "comments-summary-outcome" or message contains "warm-story"',
+    '| extend e = parse_json(message)',
+    '| summarize',
+    'geminiPromptTokens = sum(toint(e.geminiPromptTokens)),',
+    'geminiOutputTokens = sum(toint(e.geminiOutputTokens)),',
+    'jinaUserTokens = sum(toint(e.jinaTokens)),',
+    'jinaWarmTokens = sum(toint(e.tokens))',
+    '| extend jinaTokens = jinaUserTokens + jinaWarmTokens',
+    '| project geminiPromptTokens, geminiOutputTokens, jinaTokens',
   ].join(' ');
 }
 function parseTokens(rows: Record<string, unknown>[]): TokensValue {
