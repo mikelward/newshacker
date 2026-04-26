@@ -1,6 +1,8 @@
 # AGENTS.md
 
 Instructions for AI coding agents (Claude Code, etc.) working in this repo.
+Keep this file short and concrete — add a new rule the first time something
+bites, not the third.
 
 ## Project at a glance
 
@@ -192,6 +194,22 @@ If any of the above fails, fix it — don't disable the check.
 - **Don't resolve threads you haven't addressed.** If you disagree with a Copilot suggestion or are deferring it, leave the thread open and reply explaining why — don't silently resolve. If a comment is a false positive, say so in the reply before resolving.
 - **Order of operations on a push that addresses review comments:** (1) push the fix commit, (2) reply on each addressed thread referencing the new sha (and resolve when possible — see the known-limitation bullet below), (3) re-request the Copilot review. Doing (3) before (2) means the next review pass races with your replies; doing (2) before (1) means the sha you cite doesn't exist yet.
 - **Known limitation: `resolve_review_thread` is currently broken via MCP.** The `mcp__github__pull_request_read` / `get_review_comments` response intentionally strips the thread node ID (`PRRT_*`), so there is no way to obtain the `threadId` that `mcp__github__resolve_review_thread` requires — passing the comment's node ID (`PRRC_*`) fails with `Could not resolve to PullRequestReviewThread node`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (open fix). Until that fix ships, post the reply via `mcp__github__add_reply_to_pull_request_comment` as usual and skip the resolve step — flag in the end-of-turn summary that the threads are replied-but-unresolved so the user can resolve them in the GitHub UI. Recheck whether the upstream fix has shipped before assuming the resolve still fails.
+
+## Pull requests and reviews
+
+- Open PRs ready for review (not draft) unless asked otherwise.
+- When a feature has multiple open PRs, list **every** open PR by URL,
+  one per line — the "View PR" chip sticks to the first link and hides
+  the rest (anthropics/claude-code#46625).
+
+## CI
+
+- After pushing, **wait for CI** before claiming a change works in any
+  environment you can't test locally (Vercel deploy-only failures, etc.).
+  Webhooks deliver — don't poll.
+- Report significant CI timing regressions (rule of thumb: >25% or >30s
+  on a job under ~5min). Don't narrate routine wobble. Name the likely
+  cause: heavy new dependency, slow new test, cache invalidation.
 
 ## When in doubt
 
