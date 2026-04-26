@@ -180,6 +180,7 @@ If any of the above fails, fix it — don't disable the check.
 - **Merge cue (`merged` / `I merged` / `landed` / merge webhook) runs hygiene *before* engaging with the rest of the message.**
 - Creating new `claude/<short-topic>` branches and creating PRs via `mcp__github__create_pull_request` (once the user has asked for one in the thread) are safe — don't re-ask.
 - Sandbox git proxy can't delete branches (HTTP 403). Flag it and move on; auto-delete-on-merge handles GitHub's side.
+- **After every push and after every merge, report the resulting HEAD SHA in the end-of-turn summary** so the operator can compare it against `/debug`'s `build` field to know when Vercel has caught up — `/debug` only shows the deployed build, so the operator can't otherwise tell whether the URL they're testing is the commit you just pushed or a stale preview from earlier in the conversation. Format: `pushed <short-sha>` after a push (branch head on `origin/<branch>`); `merged at <short-sha>` after a merge webhook (the resulting commit on `origin/main`). 7-char prefix is fine — that's what `/debug` displays. Mention it once per push; if you push, then immediately push again to amend, only the last SHA matters.
 - End every reply with the open-PR link (or `.../compare/main...<branch>` until a PR exists). Never link to a closed or merged PR.
 
 ## Copilot reviews
