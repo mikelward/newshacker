@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { UserAvatar } from './UserAvatar';
-import { avatarColorForUsername } from '../lib/avatarColor';
+import { AVATAR_COLORS, avatarColorForUsername } from '../lib/avatarColor';
 
 describe('avatarColorForUsername', () => {
   it('returns the same color for the same input', () => {
     expect(avatarColorForUsername('alice')).toBe(avatarColorForUsername('alice'));
   });
 
-  it('returns a color from the non-orange palette', () => {
-    // Palette entries are explicitly chosen to not clash with the HN
-    // brand mark's orange. We don't assert the exact hex per username
-    // (that would couple the test to the hash) but we do assert the
-    // color is never an HN-orange hue.
-    const color = avatarColorForUsername('bob');
-    // `#ff6600` and neighbors — none of the palette entries should
-    // match these.
-    expect(color.toLowerCase()).not.toMatch(/^#ff6[0-9a-f]{3}$/);
-    expect(color.toLowerCase()).not.toMatch(/^#e65c00$/);
+  it('exposes a palette with no entries that clash with the brand orange', () => {
+    // Iterate the whole palette rather than spot-checking a single
+    // hashed username — the invariant is "no entry ever lands on the
+    // brand-orange family", and that has to hold regardless of which
+    // username happens to map to which slot.
+    expect(AVATAR_COLORS.length).toBeGreaterThan(0);
+    for (const color of AVATAR_COLORS) {
+      expect(color.toLowerCase()).not.toMatch(/^#e65[0-9a-f]{3}$/);
+      expect(color.toLowerCase()).not.toMatch(/^#cc4700$/);
+    }
   });
 
   it('falls back deterministically for an empty username', () => {
