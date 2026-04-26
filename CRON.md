@@ -381,11 +381,36 @@ Paste any of these into the Axiom query console:
 | summarize count() by bucket
 ```
 
+```apl
+// Cron-only Gemini spend, last 24 h. The cron logs Gemini token
+// counts on `warm-story` lines for `first_seen` and `changed`
+// outcomes (both tracks) — `geminiPromptTokens`,
+// `geminiOutputTokens`, `geminiTotalTokens`. Same field names as on
+// the user-path `summary-outcome` / `comments-summary-outcome`
+// lines, so a single APL query unioning all three line types
+// answers "total Gemini spend" cross-path; this query is the
+// cron-only slice of that.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.outcome) in ("first_seen", "changed")
+| summarize
+    promptTokens = sum(toint(e.geminiPromptTokens)),
+    outputTokens = sum(toint(e.geminiOutputTokens))
+  by track = tostring(e.track)
+| order by track asc
+```
+
 Save any of these as **Starred queries** in Axiom (star icon on a
 run) so you can re-run them with one click instead of re-pasting.
-The `warm-summaries` analytics dashboard sketched in TODO.md §
-"Warm-summaries analytics surface" would wrap these into one chart
-view; the queries above are the building blocks.
+The in-app dashboard at `/admin` (see `SPEC.md` § *Operator
+analytics dashboard*) already wraps the cache-hit / token-spend /
+top-failures / rate-limit / warm-cron-last-run queries into a
+five-card view; the per-host paywall and churn queries above remain
+console-only for now.
 
 ## Tomorrow-morning evaluation checklist
 

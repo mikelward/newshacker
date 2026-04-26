@@ -122,7 +122,21 @@ function jinaBody(content: string, tokens = 123): string {
   });
 }
 
-function createFakeClient(responses: Array<{ text: string | null } | Error>) {
+interface FakeGenerateResponse {
+  text: string | null;
+  // Optional Gemini usage metadata, mirroring the real SDK shape that
+  // `processArticleTrack` / `processCommentsTrack` now read for
+  // per-call token telemetry. Tests that don't care about token
+  // counts can omit this and the cron simply omits the fields on
+  // the resulting `warm-story` log line.
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
+}
+
+function createFakeClient(responses: Array<FakeGenerateResponse | Error>) {
   const queue = [...responses];
   const generateContent = vi.fn(async () => {
     const next = queue.shift();
@@ -564,6 +578,227 @@ describe('handleWarmRequest', () => {
     expect(skipped.urlHost).toBe('stable.example.org');
     expect(runs).toHaveLength(1);
     expect(runs[0]!.articleTokensTotal).toBe(250);
+  });
+
+  it('logs Gemini token counts on first_seen for both tracks and rolls them up on the run log', async () => {
+    // Closes the parity gap between the user-path summary endpoints
+    // (which already log Gemini token counts on every
+    // `summary-outcome` / `comments-summary-outcome` line) and the
+    // warm cron, which used to silently spend Gemini tokens with no
+    // visibility. The /admin Token-spend card and the OBSERVABILITY
+    // alerts both depend on these fields being present.
+    const articleUrl = 'https://example.com/with-gemini-usage';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('article body') },
+    });
+    const fetchItem = fetchItemFor({
+      9001: {
+        id: 9001,
+        type: 'story',
+        url: articleUrl,
+        score: 50,
+        kids: [9101, 9102, 9103, 9104, 9105],
+      },
+      // Five top-level comments — past WARM_COMMENTS_MIN_KIDS so the
+      // comments track regenerates rather than skipping_low_volume.
+      ...Object.fromEntries(
+        [9101, 9102, 9103, 9104, 9105].map((id) => [
+          id,
+          { id, type: 'comment', text: `comment-${id}` },
+        ]),
+      ),
+    });
+    const store = createTestStore();
+    const commentsStore = createCommentsTestStore();
+    // The two tracks run in parallel via Promise.all in
+    // processStory, so a queue-ordered stub races against the
+    // dispatch order. Dispatch by prompt-content marker instead —
+    // article prompts carry "BEGIN ARTICLE", comments prompts
+    // carry "BEGIN COMMENTS".
+    const generateContent = vi.fn(
+      async (req: { contents: string }) => {
+        if (req.contents.includes('BEGIN ARTICLE')) {
+          return {
+            text: 'article summary',
+            usageMetadata: {
+              promptTokenCount: 4_000,
+              candidatesTokenCount: 60,
+              totalTokenCount: 4_060,
+            },
+          };
+        }
+        if (req.contents.includes('BEGIN COMMENTS')) {
+          return {
+            text: '- insight one\n- insight two',
+            usageMetadata: {
+              promptTokenCount: 2_500,
+              candidatesTokenCount: 80,
+              totalTokenCount: 2_580,
+            },
+          };
+        }
+        throw new Error(`unexpected prompt: ${req.contents.slice(0, 40)}`);
+      },
+    );
+    const client = { models: { generateContent } };
+    const { logger, stories, runs } = captureLogger();
+
+    const res = await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9001],
+      createClient: () => client,
+      store,
+      commentsStore,
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(res.status).toBe(200);
+    const article = stories.find((s) => s.track === 'article')!;
+    const comments = stories.find((s) => s.track === 'comments')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(comments.outcome).toBe('first_seen');
+    expect(article.geminiPromptTokens).toBe(4_000);
+    expect(article.geminiOutputTokens).toBe(60);
+    expect(article.geminiTotalTokens).toBe(4_060);
+    expect(comments.geminiPromptTokens).toBe(2_500);
+    expect(comments.geminiOutputTokens).toBe(80);
+    expect(comments.geminiTotalTokens).toBe(2_580);
+    // Run-level rollup combines both tracks so a single warm-run
+    // line tells the operator the per-tick Gemini spend without
+    // joining the per-story rows.
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.geminiPromptTokensTotal).toBe(4_000 + 2_500);
+    expect(runs[0]!.geminiOutputTokensTotal).toBe(60 + 80);
+  });
+
+  it('omits Gemini token fields when the SDK response lacks usageMetadata', async () => {
+    // Defensive: older SDK shapes (or future regressions) might emit
+    // a response without `usageMetadata`. The cron must continue
+    // working — and the missing tokens must be *omitted*, not
+    // emitted as 0, so an analyst can't confuse "Gemini was called
+    // but the SDK didn't tell us" with "Gemini was called and
+    // billed nothing".
+    const articleUrl = 'https://example.com/no-usage';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
+    });
+    const fetchItem = fetchItemFor({
+      9201: { id: 9201, type: 'story', url: articleUrl, score: 50 },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([{ text: 'summary, no usage metadata' }]);
+    const { logger, stories, runs } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9201],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    expect(article.geminiPromptTokens).toBeUndefined();
+    expect(article.geminiOutputTokens).toBeUndefined();
+    expect(article.geminiTotalTokens).toBeUndefined();
+    // Run-level rollup stays at 0 when no per-story log contributes.
+    expect(runs[0]!.geminiPromptTokensTotal).toBe(0);
+    expect(runs[0]!.geminiOutputTokensTotal).toBe(0);
+  });
+
+  it('logs Gemini token counts on error outcomes that follow a billed Gemini call (article + comments tracks)', async () => {
+    // The SDK can respond with usage metadata (= we were billed)
+    // but a response we can't use — empty / whitespace `text` on
+    // the article track, an unparsable bullet list on the comments
+    // track. The error log line must still carry the gemini token
+    // fields so spend telemetry is complete. Mirrors api/summary.ts
+    // which logs gemini fields on its own error paths for the same
+    // reason.
+    const articleUrl = 'https://example.com/billed-but-empty';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('article body') },
+    });
+    const fetchItem = fetchItemFor({
+      9301: {
+        id: 9301,
+        type: 'story',
+        url: articleUrl,
+        score: 50,
+        kids: [9311, 9312, 9313, 9314, 9315],
+      },
+      ...Object.fromEntries(
+        [9311, 9312, 9313, 9314, 9315].map((id) => [
+          id,
+          { id, type: 'comment', text: `comment-${id}` },
+        ]),
+      ),
+    });
+    const store = createTestStore();
+    const commentsStore = createCommentsTestStore();
+    // Article track: text empty (' ' trims to ''), but tokens billed.
+    // Comments track: text doesn't parse to any insights (no bullets),
+    // and tokens billed. Both should emit `outcome: 'error'` carrying
+    // the gemini fields.
+    const generateContent = vi.fn(async (req: { contents: string }) => {
+      if (req.contents.includes('BEGIN ARTICLE')) {
+        return {
+          text: '   ',
+          usageMetadata: {
+            promptTokenCount: 4_000,
+            candidatesTokenCount: 5,
+            totalTokenCount: 4_005,
+          },
+        };
+      }
+      if (req.contents.includes('BEGIN COMMENTS')) {
+        // parseInsights is permissive — any non-empty line counts.
+        // Empty string is the only response that always parses to
+        // zero insights, mirroring "Gemini billed but produced
+        // nothing usable".
+        return {
+          text: '',
+          usageMetadata: {
+            promptTokenCount: 2_500,
+            candidatesTokenCount: 30,
+            totalTokenCount: 2_530,
+          },
+        };
+      }
+      throw new Error(`unexpected prompt: ${req.contents.slice(0, 40)}`);
+    });
+    const client = { models: { generateContent } };
+    const { logger, stories, runs } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [9301],
+      createClient: () => client,
+      store,
+      commentsStore,
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    const comments = stories.find((s) => s.track === 'comments')!;
+    expect(article.outcome).toBe('error');
+    expect(article.geminiPromptTokens).toBe(4_000);
+    expect(article.geminiOutputTokens).toBe(5);
+    expect(article.geminiTotalTokens).toBe(4_005);
+    expect(comments.outcome).toBe('error');
+    expect(comments.geminiPromptTokens).toBe(2_500);
+    expect(comments.geminiOutputTokens).toBe(30);
+    expect(comments.geminiTotalTokens).toBe(2_530);
+    // Run-level rollup includes the billed-but-erroring spend.
+    expect(runs[0]!.geminiPromptTokensTotal).toBe(4_000 + 2_500);
+    expect(runs[0]!.geminiOutputTokensTotal).toBe(5 + 30);
   });
 
   it('logs skipped_unreachable (and no tokens) when Jina returns a malformed JSON envelope', async () => {

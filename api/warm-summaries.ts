@@ -663,6 +663,16 @@ interface GenerateRequest {
 
 interface GenerateResponse {
   text?: string | null;
+  // Mirrors the shape api/summary.ts already pulls from. Lets the
+  // cron emit per-call Gemini-token telemetry on `first_seen` and
+  // `changed` outcomes, closing the spend-visibility gap that used
+  // to make the warm cron's Gemini usage invisible to the /admin
+  // analytics dashboard.
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
 }
 
 export interface SummaryClient {
@@ -806,6 +816,23 @@ export interface StoryLog {
   // commentCount stays at 20 when the thread is healthy).
   commentCount?: number;
   transcriptBytes?: number;
+  // Gemini billed token counts for the regenerated summary on this
+  // tick. Field names + units mirror what api/summary.ts and
+  // api/comments-summary.ts emit on user-path `summary-outcome` /
+  // `comments-summary-outcome` lines, so the /admin analytics
+  // dashboard's Token-spend rollup can sum across user + cron
+  // paths under one field name. Present on both tracks for
+  // `first_seen` and `changed` outcomes — and on `error`
+  // outcomes that follow a Gemini call where the SDK reported
+  // usage but the response was unusable (empty `res.text` on the
+  // article track, `parseInsights` returned nothing on the
+  // comments track), since those tokens were still billed.
+  // Absent on every other outcome, including `error` paths that
+  // fail before reaching Gemini and on outcomes where the Gemini
+  // call itself threw (no usage to report).
+  geminiPromptTokens?: number;
+  geminiOutputTokens?: number;
+  geminiTotalTokens?: number;
 }
 
 // Per-track outcome tallies on the run log so we can separate article
@@ -830,6 +857,21 @@ export interface RunLog {
   // authoritative Jina-billed token count. Roll across runs to spot
   // budget drift before the 402 / 429 cliff hits.
   articleTokensTotal: number;
+  // Sum of per-story `geminiPromptTokens` / `geminiOutputTokens`
+  // across both tracks for this run. Lets the operator track the
+  // cron's Gemini spend at tick granularity without joining the
+  // per-story `warm-story` lines back together. The `Total` suffix
+  // is deliberate: per-event lines (`summary-outcome` /
+  // `comments-summary-outcome` / `warm-story`) carry the same
+  // values under the un-suffixed names, so an APL query summing
+  // `e.geminiPromptTokens` over those three line types gives the
+  // same answer cross-path. The run-level rollup uses a distinct
+  // name so a query that *also* includes `warm-run` lines doesn't
+  // double-count by adding the per-tick total to the per-event
+  // sums. Combined-not-per-track because the per-track split is
+  // already in the per-story lines if needed.
+  geminiPromptTokensTotal: number;
+  geminiOutputTokensTotal: number;
 }
 
 type Logger = (entry: StoryLog | RunLog) => void;
@@ -1256,6 +1298,9 @@ async function processArticleTrack(
     ? deps.createClient(apiKey)
     : (new GoogleGenAI({ apiKey }) as unknown as SummaryClient);
   let summary = '';
+  let geminiPromptTokens: number | undefined;
+  let geminiOutputTokens: number | undefined;
+  let geminiTotalTokens: number | undefined;
   try {
     const res = await client.models.generateContent({
       model: MODEL,
@@ -1263,10 +1308,27 @@ async function processArticleTrack(
       config: { thinkingConfig: { thinkingBudget: 0 } },
     });
     summary = (res.text ?? '').trim();
+    geminiPromptTokens = res.usageMetadata?.promptTokenCount;
+    geminiOutputTokens = res.usageMetadata?.candidatesTokenCount;
+    geminiTotalTokens = res.usageMetadata?.totalTokenCount;
   } catch {
     // falls through
   }
-  if (!summary) return log({ outcome: 'error', tokens: jinaTokens });
+  // Field-only-when-set spread: makes the log line carry the field
+  // when Gemini reported the number, omit it when the SDK omitted it
+  // (older response shapes, throw before usage was attached, etc.).
+  // Same pattern as `paywalled` / `deltaBytes` elsewhere in this
+  // file. Built before the `!summary` check so an error outcome
+  // following a Gemini call that *did* bill tokens (empty res.text)
+  // still carries the spend telemetry — matches api/summary.ts which
+  // logs gemini fields on its own error paths for the same reason.
+  const geminiFields: Partial<StoryLog> = {
+    ...(geminiPromptTokens !== undefined ? { geminiPromptTokens } : {}),
+    ...(geminiOutputTokens !== undefined ? { geminiOutputTokens } : {}),
+    ...(geminiTotalTokens !== undefined ? { geminiTotalTokens } : {}),
+  };
+  if (!summary)
+    return log({ outcome: 'error', tokens: jinaTokens, ...geminiFields });
 
   const summaryChanged = !!existing && existing.summary !== summary;
   const record: SummaryRecord = {
@@ -1290,6 +1352,7 @@ async function processArticleTrack(
       contentBytes,
       tokens: jinaTokens,
       ...(paywalled !== undefined ? { paywalled } : {}),
+      ...geminiFields,
     });
   }
   const deltaBytes =
@@ -1306,6 +1369,7 @@ async function processArticleTrack(
     ...(deltaBytes !== undefined ? { deltaBytes } : {}),
     tokens: jinaTokens,
     ...(paywalled !== undefined ? { paywalled } : {}),
+    ...geminiFields,
   });
 }
 
@@ -1427,6 +1491,9 @@ async function processCommentsTrack(
     ? deps.createClient(apiKey)
     : (new GoogleGenAI({ apiKey }) as unknown as SummaryClient);
   let rawResponse = '';
+  let geminiPromptTokens: number | undefined;
+  let geminiOutputTokens: number | undefined;
+  let geminiTotalTokens: number | undefined;
   try {
     const res = await client.models.generateContent({
       model: MODEL,
@@ -1434,11 +1501,23 @@ async function processCommentsTrack(
       config: { thinkingConfig: { thinkingBudget: 0 } },
     });
     rawResponse = (res.text ?? '').trim();
+    geminiPromptTokens = res.usageMetadata?.promptTokenCount;
+    geminiOutputTokens = res.usageMetadata?.candidatesTokenCount;
+    geminiTotalTokens = res.usageMetadata?.totalTokenCount;
   } catch {
     // falls through
   }
+  // Built before the `parseInsights` empty-check so an error after
+  // Gemini billed tokens (the SDK responded but the bullets didn't
+  // parse) still carries the spend telemetry. See the matching
+  // comment on the article track.
+  const geminiFields: Partial<StoryLog> = {
+    ...(geminiPromptTokens !== undefined ? { geminiPromptTokens } : {}),
+    ...(geminiOutputTokens !== undefined ? { geminiOutputTokens } : {}),
+    ...(geminiTotalTokens !== undefined ? { geminiTotalTokens } : {}),
+  };
   const insights = parseInsights(rawResponse);
-  if (insights.length === 0) return log({ outcome: 'error' });
+  if (insights.length === 0) return log({ outcome: 'error', ...geminiFields });
 
   const prior = existing?.insights.join('\n') ?? '';
   const insightsChanged = !!existing && prior !== insights.join('\n');
@@ -1461,6 +1540,7 @@ async function processCommentsTrack(
       outcome: 'first_seen',
       commentCount,
       transcriptBytes,
+      ...geminiFields,
     });
   }
   const deltaBytes =
@@ -1476,6 +1556,7 @@ async function processCommentsTrack(
     commentCount,
     transcriptBytes,
     ...(deltaBytes !== undefined ? { deltaBytes } : {}),
+    ...geminiFields,
   });
 }
 
@@ -1558,6 +1639,8 @@ export async function handleWarmRequest(
       feed,
       knobs,
       articleTokensTotal: 0,
+      geminiPromptTokensTotal: 0,
+      geminiOutputTokensTotal: 0,
     };
     logger(entry);
     return json({ error: 'Store not configured', reason: 'no_store' }, 503);
@@ -1592,6 +1675,8 @@ export async function handleWarmRequest(
   let processed = 0;
   let storyCount = 0;
   let articleTokensTotal = 0;
+  let geminiPromptTokensTotal = 0;
+  let geminiOutputTokensTotal = 0;
 
   const logGroups = await runPool(
     selected,
@@ -1621,6 +1706,12 @@ export async function handleWarmRequest(
       if (entry.track === 'article' && typeof entry.tokens === 'number') {
         articleTokensTotal += entry.tokens;
       }
+      if (typeof entry.geminiPromptTokens === 'number') {
+        geminiPromptTokensTotal += entry.geminiPromptTokens;
+      }
+      if (typeof entry.geminiOutputTokens === 'number') {
+        geminiOutputTokensTotal += entry.geminiOutputTokens;
+      }
     }
   }
 
@@ -1634,6 +1725,8 @@ export async function handleWarmRequest(
     feed,
     knobs,
     articleTokensTotal,
+    geminiPromptTokensTotal,
+    geminiOutputTokensTotal,
   };
   logger(runEntry);
 

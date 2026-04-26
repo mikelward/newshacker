@@ -368,9 +368,20 @@ describe('handleAdminStatsRequest — card queries + parsing', () => {
         '[\'vercel.projectName\'] == "newshacker"',
       );
     }
-    // The first three + fourth cards filter on summary log lines;
-    // the fifth filters on warm-run lines.
+    // Card-specific log-line filters. Cache-hits / failures /
+    // rate-limit are summary-only. Tokens unions summary + cron
+    // because Gemini is called from both code paths and Jina is
+    // billed under a different field name on each. Warm-cron card
+    // pulls from warm-run (per-tick rollup) lines.
     expect((calls[0].body as { apl: string }).apl).toContain('summary-outcome');
+    expect((calls[1].body as { apl: string }).apl).toContain('summary-outcome');
+    expect((calls[1].body as { apl: string }).apl).toContain('warm-story');
+    // Tokens query needs to reach both `e.jinaTokens` (user-path
+    // field name) and `e.tokens` (warm-cron's Jina-billed count
+    // field name). Pinning both keeps a refactor from silently
+    // dropping the warm-cron half.
+    expect((calls[1].body as { apl: string }).apl).toContain('e.jinaTokens');
+    expect((calls[1].body as { apl: string }).apl).toContain('e.tokens');
     expect((calls[3].body as { apl: string }).apl).toContain('rate_limited');
     expect((calls[4].body as { apl: string }).apl).toContain('warm-run');
   });

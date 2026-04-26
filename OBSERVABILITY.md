@@ -150,8 +150,19 @@ types get documented here in the same commit they ship in.
   by the cron. See `CRON.md` § "Useful APL queries (Axiom)" for the
   full schema; the outcome field (`unchanged` / `changed` /
   `skipped_*` / `error`) is the primary cron-health signal.
+  Article-track lines carry the Jina-billed `tokens` count from the
+  Reader response on outcomes that fetched the article. Both tracks
+  carry `geminiPromptTokens` / `geminiOutputTokens` /
+  `geminiTotalTokens` on `first_seen` and `changed` outcomes —
+  same field names as on `summary-outcome` / `comments-summary-outcome`,
+  so a single APL query can sum Gemini spend across user + cron
+  paths. Closes the gap that used to make warm-cron Gemini spend
+  invisible to the `/admin` Token-spend card.
 - **`warm-run`** — `api/warm-summaries.ts`, one line per cron tick
-  with the roll-up counts. Schema in `CRON.md`.
+  with the roll-up counts. Schema in `CRON.md`. Carries
+  `articleTokensTotal` (Jina), plus `geminiPromptTokensTotal` /
+  `geminiOutputTokensTotal` summed across both tracks for tick-level
+  Gemini spend visibility.
 
 ### Deliberately not logged
 
