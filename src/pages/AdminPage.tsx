@@ -44,7 +44,8 @@ interface CacheHitsValue {
 }
 interface TokensValue {
   windowSeconds: number;
-  geminiTotalTokens: number;
+  geminiPromptTokens: number;
+  geminiOutputTokens: number;
   jinaTokens: number;
 }
 interface FailuresValue {
@@ -251,6 +252,44 @@ function formatPercent(ratio: number): string {
   return `${(ratio * 100).toFixed(1)}%`;
 }
 
+// Hard-coded vendor pricing as of April 2026. Update when the
+// providers move pricing — the constants are deliberately co-located
+// with the (only) place they're used so a future operator can find
+// them by grepping for the model name. Source-of-truth links:
+//   Gemini 2.5 Flash-Lite — https://ai.google.dev/pricing
+//   Jina Reader paid tier — https://jina.ai/reader
+// Both numbers are USD per 1,000,000 tokens.
+const GEMINI_INPUT_USD_PER_M = 0.10;
+const GEMINI_OUTPUT_USD_PER_M = 0.40;
+const JINA_USD_PER_M = 0.02;
+
+function costUsd(tokens: number, ratePerMillion: number): number {
+  return (tokens * ratePerMillion) / 1_000_000;
+}
+
+// Format a tiny dollar amount precisely enough to be informative
+// (Gemini Flash-Lite at our scale shows up in the cents); for larger
+// amounts switch to two decimals so dashboards don't get noisy. We
+// intentionally never round below the third decimal — at ~$0.02/day
+// rounding to $0.02 vs $0.018 swings the annual number by ~$15.
+function formatUsd(n: number): string {
+  if (n === 0) return '$0';
+  const abs = Math.abs(n);
+  if (abs < 0.01) return `$${n.toFixed(4)}`;
+  if (abs < 1) return `$${n.toFixed(3)}`;
+  return `$${n.toFixed(2)}`;
+}
+
+// Project a cost-per-window into a "≈ $X/day · $Y/year" string.
+// Window seconds come from the API so the math reflects the actual
+// query window, not a hard-coded "this is daily" assumption.
+function annualizeCost(usd: number, windowSeconds: number): string {
+  if (windowSeconds <= 0) return formatUsd(usd);
+  const perDay = (usd * 86_400) / windowSeconds;
+  const perYear = perDay * 365;
+  return `${formatUsd(perDay)}/day · ${formatUsd(perYear)}/year`;
+}
+
 function StatsCardError({ reason }: { reason: string }): JSX.Element {
   // Operator-facing — the prefix lets a glance distinguish "Axiom
   // returned a 4xx" (we configured it wrong) from "Axiom is
@@ -410,24 +449,72 @@ function TokensCard({
         Gemini + Jina, {result.ok ? formatWindow(result.value.windowSeconds) : 'last 24h'}
       </p>
       {result.ok ? (
-        <dl className="admin-page__stats-list">
-          <div>
-            <dt>Gemini total</dt>
-            <dd data-testid="admin-stats-gemini-tokens">
-              {formatInteger(result.value.geminiTotalTokens)}
-            </dd>
-          </div>
-          <div>
-            <dt>Jina</dt>
-            <dd data-testid="admin-stats-jina-tokens">
-              {formatInteger(result.value.jinaTokens)}
-            </dd>
-          </div>
-        </dl>
+        <TokensBody value={result.value} />
       ) : (
         <StatsCardError reason={result.reason} />
       )}
     </section>
+  );
+}
+
+function TokensBody({ value }: { value: TokensValue }): JSX.Element {
+  const geminiCost =
+    costUsd(value.geminiPromptTokens, GEMINI_INPUT_USD_PER_M) +
+    costUsd(value.geminiOutputTokens, GEMINI_OUTPUT_USD_PER_M);
+  const jinaCost = costUsd(value.jinaTokens, JINA_USD_PER_M);
+  const totalCost = geminiCost + jinaCost;
+  return (
+    <>
+      <dl className="admin-page__stats-list">
+        <div>
+          <dt>Gemini input</dt>
+          <dd data-testid="admin-stats-gemini-input-tokens">
+            {formatInteger(value.geminiPromptTokens)}
+          </dd>
+        </div>
+        <div>
+          <dt>Gemini output</dt>
+          <dd data-testid="admin-stats-gemini-output-tokens">
+            {formatInteger(value.geminiOutputTokens)}
+          </dd>
+        </div>
+        <div>
+          <dt>Jina</dt>
+          <dd data-testid="admin-stats-jina-tokens">
+            {formatInteger(value.jinaTokens)}
+          </dd>
+        </div>
+      </dl>
+      <dl className="admin-page__stats-list admin-page__stats-list--cost">
+        <div>
+          <dt>Gemini cost (≈)</dt>
+          <dd data-testid="admin-stats-gemini-cost">
+            {annualizeCost(geminiCost, value.windowSeconds)}
+          </dd>
+        </div>
+        <div>
+          <dt>Jina cost (≈)</dt>
+          <dd data-testid="admin-stats-jina-cost">
+            {annualizeCost(jinaCost, value.windowSeconds)}
+          </dd>
+        </div>
+        <div>
+          <dt>Total (≈)</dt>
+          <dd data-testid="admin-stats-total-cost">
+            {annualizeCost(totalCost, value.windowSeconds)}
+          </dd>
+        </div>
+      </dl>
+      <p className="admin-page__stats-note">
+        Estimates use hard-coded rates: Gemini 2.5 Flash-Lite (
+        ${GEMINI_INPUT_USD_PER_M.toFixed(2)}/M input, $
+        {GEMINI_OUTPUT_USD_PER_M.toFixed(2)}/M output) and Jina paid
+        tier (${JINA_USD_PER_M.toFixed(2)}/M). Free-tier Jina is $0
+        below 10M tokens/month. Update <code>GEMINI_*_USD_PER_M</code>
+        / <code>JINA_USD_PER_M</code> in <code>AdminPage.tsx</code>{' '}
+        when rates change.
+      </p>
+    </>
   );
 }
 

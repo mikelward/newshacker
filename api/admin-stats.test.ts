@@ -224,7 +224,7 @@ describe('handleAdminStatsRequest — auth gate', () => {
     process.env.AXIOM_DATASET = 'vercel';
     const { fetchImpl } = axiomFetchSequence([
       axiomTabular(['outcome', 'count_'], [['cached', 1]]),
-      axiomTabular(['geminiTotalTokens', 'jinaTokens'], [[0, 0]]),
+      axiomTabular(['geminiPromptTokens', 'geminiOutputTokens', 'jinaTokens'], [[0, 0, 0]]),
       axiomTabular(['reason', 'count_'], []),
       axiomTabular(['count_'], [[0]]),
       axiomTabular(['_time', 'durationMs', 'processed', 'storyCount'], []),
@@ -273,10 +273,11 @@ describe('handleAdminStatsRequest — card queries + parsing', () => {
           ['rate_limited', 2],
         ],
       ),
-      // tokens
+      // tokens — split prompt + output so the UI can multiply each
+      // by the right Gemini rate.
       axiomTabular(
-        ['geminiTotalTokens', 'jinaTokens'],
-        [[12_345, 5_678]],
+        ['geminiPromptTokens', 'geminiOutputTokens', 'jinaTokens'],
+        [[12_000, 345, 5_678]],
       ),
       // failures
       axiomTabular(
@@ -313,7 +314,12 @@ describe('handleAdminStatsRequest — card queries + parsing', () => {
     });
     expect(cards.tokens).toEqual({
       ok: true,
-      value: { windowSeconds: 86_400, geminiTotalTokens: 12_345, jinaTokens: 5_678 },
+      value: {
+        windowSeconds: 86_400,
+        geminiPromptTokens: 12_000,
+        geminiOutputTokens: 345,
+        jinaTokens: 5_678,
+      },
     });
     expect(cards.failures).toEqual({
       ok: true,
@@ -373,7 +379,7 @@ describe('handleAdminStatsRequest — card queries + parsing', () => {
     process.env.AXIOM_PROJECT_NAME = 'my-fork';
     const { fetchImpl, calls } = axiomFetchSequence([
       axiomTabular(['outcome', 'count_'], []),
-      axiomTabular(['geminiTotalTokens', 'jinaTokens'], [[0, 0]]),
+      axiomTabular(['geminiPromptTokens', 'geminiOutputTokens', 'jinaTokens'], [[0, 0, 0]]),
       axiomTabular(['reason', 'count_'], []),
       axiomTabular(['count_'], [[0]]),
       axiomTabular(['_time', 'durationMs', 'processed', 'storyCount'], []),
@@ -393,7 +399,7 @@ describe('handleAdminStatsRequest — card queries + parsing', () => {
     process.env.AXIOM_PROJECT_NAME = 'evil"; DROP --';
     const { fetchImpl, calls } = axiomFetchSequence([
       axiomTabular(['outcome', 'count_'], []),
-      axiomTabular(['geminiTotalTokens', 'jinaTokens'], [[0, 0]]),
+      axiomTabular(['geminiPromptTokens', 'geminiOutputTokens', 'jinaTokens'], [[0, 0, 0]]),
       axiomTabular(['reason', 'count_'], []),
       axiomTabular(['count_'], [[0]]),
       axiomTabular(['_time', 'durationMs', 'processed', 'storyCount'], []),
@@ -480,7 +486,7 @@ describe('handleAdminStatsRequest — card queries + parsing', () => {
     process.env.AXIOM_DATASET = "vercel'; DROP --"; // operator typo
     const { fetchImpl, calls } = axiomFetchSequence([
       axiomTabular(['outcome', 'count_'], []),
-      axiomTabular(['geminiTotalTokens', 'jinaTokens'], [[0, 0]]),
+      axiomTabular(['geminiPromptTokens', 'geminiOutputTokens', 'jinaTokens'], [[0, 0, 0]]),
       axiomTabular(['reason', 'count_'], []),
       axiomTabular(['count_'], [[0]]),
       axiomTabular(['_time', 'durationMs', 'processed', 'storyCount'], []),

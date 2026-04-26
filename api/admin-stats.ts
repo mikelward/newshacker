@@ -329,7 +329,13 @@ interface CacheHitsValue {
 
 interface TokensValue {
   windowSeconds: number;
-  geminiTotalTokens: number;
+  // Sums of the per-call token counts from `summary-outcome` /
+  // `comments-summary-outcome` log lines. Split into prompt + output
+  // so the UI can multiply each by the right Gemini rate (input vs
+  // output pricing differs by ~4× on Flash-Lite). Jina has no
+  // input/output split — its `usage.tokens` is a single number.
+  geminiPromptTokens: number;
+  geminiOutputTokens: number;
   jinaTokens: number;
 }
 
@@ -427,14 +433,15 @@ function tokensApl(dataset: string): string {
     quoteDataset(dataset),
     '| where _time > ago(24h)',
     summaryLineFilter(),
-    '| summarize geminiTotalTokens = sum(toint(e.geminiTotalTokens)), jinaTokens = sum(toint(e.jinaTokens))',
+    '| summarize geminiPromptTokens = sum(toint(e.geminiPromptTokens)), geminiOutputTokens = sum(toint(e.geminiOutputTokens)), jinaTokens = sum(toint(e.jinaTokens))',
   ].join(' ');
 }
 function parseTokens(rows: Record<string, unknown>[]): TokensValue {
   const r = rows[0] ?? {};
   return {
     windowSeconds: TOKENS_WINDOW_SECONDS,
-    geminiTotalTokens: toIntOrZero(r.geminiTotalTokens),
+    geminiPromptTokens: toIntOrZero(r.geminiPromptTokens),
+    geminiOutputTokens: toIntOrZero(r.geminiOutputTokens),
     jinaTokens: toIntOrZero(r.jinaTokens),
   };
 }
