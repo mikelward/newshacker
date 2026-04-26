@@ -1,4 +1,45 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git fetch)",
+      "Bash(git fetch *)",
+      "Bash(git rebase)",
+      "Bash(git rebase --continue)",
+      "Bash(git rebase --abort)",
+      "Bash(git rebase --skip)",
+      "Bash(git rebase origin/main)",
+      "Bash(git rebase origin/master)",
+      "Bash(git rebase main)",
+      "Bash(git rebase master)",
+      "Bash(git push -u origin claude/*)",
+      "Bash(git push origin claude/*)",
+      "Bash(git push --force-with-lease origin claude/*)",
+      "mcp__github__pull_request_read",
+      "mcp__github__list_pull_requests",
+      "mcp__github__list_branches",
+      "mcp__github__list_commits",
+      "mcp__github__list_issues",
+      "mcp__github__issue_read",
+      "mcp__github__get_commit",
+      "mcp__github__get_file_contents",
+      "mcp__github__get_me",
+      "mcp__github__search_code",
+      "mcp__github__search_issues",
+      "mcp__github__search_pull_requests",
+      "mcp__github__search_repositories",
+      "mcp__github__list_releases",
+      "mcp__github__list_tags",
+      "mcp__github__get_latest_release",
+      "mcp__github__get_release_by_tag",
+      "mcp__github__get_tag",
+      "mcp__github__get_label",
+      "mcp__github__list_issue_types",
+      "mcp__github__create_pull_request",
+      "mcp__github__update_pull_request",
+      "mcp__github__request_copilot_review",
+      "mcp__github__add_reply_to_pull_request_comment"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
