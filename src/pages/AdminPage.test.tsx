@@ -470,7 +470,8 @@ describe('<AdminPage> — analytics section', () => {
             ok: true,
             value: {
               windowSeconds: 86_400,
-              geminiTotalTokens: 12_345,
+              geminiPromptTokens: 12_000,
+              geminiOutputTokens: 345,
               jinaTokens: 5_678,
             },
           },
@@ -509,10 +510,28 @@ describe('<AdminPage> — analytics section', () => {
     // 80 / (80 + 20) = 80.0 %.
     expect(rate).toHaveTextContent('80.0%');
 
-    const gemini = screen.getByTestId('admin-stats-gemini-tokens');
-    expect(gemini.textContent).toMatch(/12[.,\s'’]345/);
+    const gIn = screen.getByTestId('admin-stats-gemini-input-tokens');
+    expect(gIn.textContent).toMatch(/12[.,\s'’]000/);
+    const gOut = screen.getByTestId('admin-stats-gemini-output-tokens');
+    expect(gOut).toHaveTextContent('345');
     const jina = screen.getByTestId('admin-stats-jina-tokens');
     expect(jina.textContent).toMatch(/5[.,\s'’]678/);
+
+    // Per-API cost rows. Window is 24 h so the daily figure is the
+    // window's own cost. Gemini: 12,000 × $0.10/M + 345 × $0.40/M
+    //   = $0.001200 + $0.000138 = $0.001338 ≈ "$0.0013/day".
+    // Jina:    5,678 × $0.02/M = $0.0001136 ≈ "$0.0001/day".
+    // Total:   $0.001338 + $0.0001136 ≈ "$0.0015/day".
+    // Use loose regexes — exact rounding format may shift across
+    // formatter tweaks; the contract worth pinning is "/day · $X/year".
+    const geminiCost = screen.getByTestId('admin-stats-gemini-cost');
+    expect(geminiCost.textContent).toMatch(/\$\d/);
+    expect(geminiCost.textContent).toMatch(/\/day/);
+    expect(geminiCost.textContent).toMatch(/\/year/);
+    const jinaCost = screen.getByTestId('admin-stats-jina-cost');
+    expect(jinaCost.textContent).toMatch(/\$\d/);
+    const totalCost = screen.getByTestId('admin-stats-total-cost');
+    expect(totalCost.textContent).toMatch(/\$\d/);
 
     const failures = screen.getByTestId('admin-stats-failures');
     expect(failures).toHaveTextContent('story_unreachable');
@@ -591,7 +610,8 @@ describe('<AdminPage> — analytics section', () => {
               ok: true,
               value: {
                 windowSeconds: 86_400,
-                geminiTotalTokens: 0,
+                geminiPromptTokens: 0,
+                geminiOutputTokens: 0,
                 jinaTokens: 0,
               },
             },

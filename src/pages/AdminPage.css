@@ -225,6 +225,19 @@
   font-size: 13px;
 }
 
+.admin-page__stats-list--cost {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--nh-border);
+}
+
+.admin-page__stats-note {
+  margin: 8px 0 0;
+  color: var(--nh-meta);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .admin-page__stats-not-configured {
   margin: 0 0 12px;
   padding: 12px 14px;
