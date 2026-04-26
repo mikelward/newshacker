@@ -32,6 +32,51 @@ interface AdminResponse {
   };
 }
 
+// Mirrors api/admin-stats.ts StatsResponse — kept local per the same
+// "no cross-boundary imports" convention as AdminResponse above.
+type CardResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: string };
+
+interface CacheHitsValue {
+  windowSeconds: number;
+  byOutcome: Record<string, number>;
+}
+interface TokensValue {
+  windowSeconds: number;
+  geminiTotalTokens: number;
+  jinaTokens: number;
+}
+interface FailuresValue {
+  windowSeconds: number;
+  byReason: { reason: string; count: number }[];
+}
+interface RateLimitValue {
+  windowSeconds: number;
+  count: number;
+}
+interface WarmCronValue {
+  windowSeconds: number;
+  lastRun: {
+    tISO: string;
+    durationMs: number | null;
+    processed: number | null;
+    storyCount: number | null;
+  } | null;
+}
+
+interface StatsResponse {
+  configured: boolean;
+  axiom: { tokenConfigured: boolean; dataset: string | null };
+  cards: {
+    cacheHits: CardResult<CacheHitsValue>;
+    tokens: CardResult<TokensValue>;
+    failures: CardResult<FailuresValue>;
+    rateLimit: CardResult<RateLimitValue>;
+    warmCron: CardResult<WarmCronValue>;
+  } | null;
+}
+
 interface ForbiddenPayload {
   error?: string;
   reason?: string;
@@ -40,6 +85,17 @@ interface ForbiddenPayload {
   // can see what HN actually returned to the server-side probe.
   hnStatus?: number;
   hnSnippet?: string;
+}
+
+async function fetchAdminStats(signal?: AbortSignal): Promise<StatsResponse> {
+  const res = await fetch('/api/admin-stats', { signal });
+  if (!res.ok) {
+    // Auth errors are surfaced through the primary /api/admin fetch's
+    // gate; if the analytics endpoint disagrees we treat it as a soft
+    // failure so the rest of the page still renders.
+    throw new Error(`http_${res.status}`);
+  }
+  return (await res.json()) as StatsResponse;
 }
 
 async function fetchAdmin(signal?: AbortSignal): Promise<AdminResponse> {
@@ -148,6 +204,64 @@ function jinaDetail(j: JinaAccount): string {
   return 'configured';
 }
 
+function formatWindow(seconds: number): string {
+  if (seconds % 86_400 === 0) {
+    const d = seconds / 86_400;
+    return d === 1 ? 'last 24h' : `last ${d}d`;
+  }
+  if (seconds % 3_600 === 0) {
+    const h = seconds / 3_600;
+    return h === 1 ? 'last hour' : `last ${h}h`;
+  }
+  return `last ${seconds}s`;
+}
+
+function formatInteger(n: number): string {
+  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+function formatRelativeTime(iso: string, now: number): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const seconds = Math.max(0, Math.round((now - t) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+// Cache-hit ratio: served-without-Gemini-call ÷ total. `cached` is
+// the only outcome that actually returns from the warm cache;
+// `generated` cost a Gemini call. `rate_limited` and `error` aren't
+// successful serves either — they're in the denominator only because
+// "the cache helped on N % of the work the endpoint did" is the
+// metric the operator wants. Returns null when the bucket was empty
+// (no work happened in the window).
+function cacheHitRate(byOutcome: Record<string, number>): number | null {
+  const total = Object.values(byOutcome).reduce((a, b) => a + b, 0);
+  if (total === 0) return null;
+  const cached = byOutcome.cached ?? 0;
+  return cached / total;
+}
+
+function formatPercent(ratio: number): string {
+  return `${(ratio * 100).toFixed(1)}%`;
+}
+
+function StatsCardError({ reason }: { reason: string }): JSX.Element {
+  // Operator-facing — the prefix lets a glance distinguish "Axiom
+  // returned a 4xx" (we configured it wrong) from "Axiom is
+  // unreachable" (their problem) from "we timed out" (slow query).
+  return (
+    <p className="admin-page__stats-error" role="status">
+      Unavailable: <code>{reason}</code>
+    </p>
+  );
+}
+
 function formatAmount(n: number | null | undefined): string {
   if (n === undefined) return 'unavailable';
   if (n === null) return 'unknown';
@@ -156,6 +270,281 @@ function formatAmount(n: number | null | undefined): string {
   // locale-aware thousands separator so large balances are
   // readable.
   return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+interface AnalyticsSectionProps {
+  stats: StatsResponse | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  onRefetch: () => void;
+}
+
+function AnalyticsSection(props: AnalyticsSectionProps): JSX.Element {
+  const { stats, isLoading, isError, isFetching, onRefetch } = props;
+  if (isLoading) {
+    return <p aria-busy="true">Loading analytics…</p>;
+  }
+  if (isError || !stats) {
+    return (
+      <p role="alert">
+        Could not load analytics.{' '}
+        <button
+          type="button"
+          className="admin-page__refresh"
+          onClick={onRefetch}
+        >
+          Retry
+        </button>
+      </p>
+    );
+  }
+  if (!stats.configured) {
+    // The token+dataset env vars aren't both set on this deployment.
+    // Tell the operator the exact missing piece so they don't have
+    // to grep `/api/status` to find out.
+    const missing: string[] = [];
+    if (!stats.axiom.tokenConfigured) missing.push('AXIOM_API_TOKEN');
+    if (!stats.axiom.dataset) missing.push('AXIOM_DATASET');
+    return (
+      <p
+        className="admin-page__stats-not-configured"
+        data-testid="admin-stats-not-configured"
+      >
+        Analytics not configured. Set{' '}
+        {missing.map((m, i) => (
+          <span key={m}>
+            {i > 0 ? ' and ' : ''}
+            <code>{m}</code>
+          </span>
+        ))}{' '}
+        in the Vercel project env vars and redeploy.
+      </p>
+    );
+  }
+  const c = stats.cards!;
+  return (
+    <div className="admin-page__stats-grid">
+      <CacheHitsCard result={c.cacheHits} />
+      <TokensCard result={c.tokens} />
+      <FailuresCard result={c.failures} />
+      <RateLimitCard result={c.rateLimit} />
+      <WarmCronCard result={c.warmCron} />
+      <p className="admin-page__actions">
+        <button
+          type="button"
+          className="admin-page__refresh"
+          onClick={onRefetch}
+          disabled={isFetching}
+        >
+          {isFetching ? 'Refreshing…' : 'Refresh analytics'}
+        </button>
+      </p>
+    </div>
+  );
+}
+
+function CacheHitsCard({
+  result,
+}: {
+  result: CardResult<CacheHitsValue>;
+}): JSX.Element {
+  return (
+    <section className="admin-page__stats-card" data-testid="admin-stats-cache-hits">
+      <h3 className="admin-page__stats-title">Cache hits</h3>
+      <p className="admin-page__stats-window">
+        summary + comments-summary, {result.ok ? formatWindow(result.value.windowSeconds) : 'last hour'}
+      </p>
+      {result.ok ? (
+        <CacheHitsBody value={result.value} />
+      ) : (
+        <StatsCardError reason={result.reason} />
+      )}
+    </section>
+  );
+}
+
+function CacheHitsBody({ value }: { value: CacheHitsValue }): JSX.Element {
+  const total = Object.values(value.byOutcome).reduce((a, b) => a + b, 0);
+  if (total === 0) {
+    return <p className="admin-page__stats-empty">No requests in this window.</p>;
+  }
+  const rate = cacheHitRate(value.byOutcome);
+  // Stable display order — keeps the visual block from reshuffling
+  // every refresh as outcomes change rank.
+  const order = ['cached', 'generated', 'rate_limited', 'error'];
+  const known = new Set(order);
+  const extras = Object.keys(value.byOutcome).filter((k) => !known.has(k));
+  const rows = [...order, ...extras]
+    .filter((k) => value.byOutcome[k] !== undefined)
+    .map((k) => ({ outcome: k, count: value.byOutcome[k] }));
+  return (
+    <>
+      <p
+        className="admin-page__stats-headline"
+        data-testid="admin-stats-cache-hits-rate"
+      >
+        {rate === null ? '—' : formatPercent(rate)} hit rate
+      </p>
+      <dl className="admin-page__stats-list">
+        {rows.map((r) => (
+          <div key={r.outcome}>
+            <dt>{r.outcome}</dt>
+            <dd>{formatInteger(r.count)}</dd>
+          </div>
+        ))}
+      </dl>
+    </>
+  );
+}
+
+function TokensCard({
+  result,
+}: {
+  result: CardResult<TokensValue>;
+}): JSX.Element {
+  return (
+    <section className="admin-page__stats-card" data-testid="admin-stats-tokens">
+      <h3 className="admin-page__stats-title">Token spend</h3>
+      <p className="admin-page__stats-window">
+        Gemini + Jina, {result.ok ? formatWindow(result.value.windowSeconds) : 'last 24h'}
+      </p>
+      {result.ok ? (
+        <dl className="admin-page__stats-list">
+          <div>
+            <dt>Gemini total</dt>
+            <dd data-testid="admin-stats-gemini-tokens">
+              {formatInteger(result.value.geminiTotalTokens)}
+            </dd>
+          </div>
+          <div>
+            <dt>Jina</dt>
+            <dd data-testid="admin-stats-jina-tokens">
+              {formatInteger(result.value.jinaTokens)}
+            </dd>
+          </div>
+        </dl>
+      ) : (
+        <StatsCardError reason={result.reason} />
+      )}
+    </section>
+  );
+}
+
+function FailuresCard({
+  result,
+}: {
+  result: CardResult<FailuresValue>;
+}): JSX.Element {
+  return (
+    <section className="admin-page__stats-card" data-testid="admin-stats-failures">
+      <h3 className="admin-page__stats-title">Top failure reasons</h3>
+      <p className="admin-page__stats-window">
+        outcome=error, {result.ok ? formatWindow(result.value.windowSeconds) : 'last 24h'}
+      </p>
+      {result.ok ? (
+        result.value.byReason.length === 0 ? (
+          <p className="admin-page__stats-empty">No errors in this window.</p>
+        ) : (
+          <dl className="admin-page__stats-list">
+            {result.value.byReason.map((r) => (
+              <div key={r.reason}>
+                <dt>{r.reason}</dt>
+                <dd>{formatInteger(r.count)}</dd>
+              </div>
+            ))}
+          </dl>
+        )
+      ) : (
+        <StatsCardError reason={result.reason} />
+      )}
+    </section>
+  );
+}
+
+function RateLimitCard({
+  result,
+}: {
+  result: CardResult<RateLimitValue>;
+}): JSX.Element {
+  return (
+    <section className="admin-page__stats-card" data-testid="admin-stats-rate-limit">
+      <h3 className="admin-page__stats-title">Rate-limited</h3>
+      <p className="admin-page__stats-window">
+        outcome=rate_limited,{' '}
+        {result.ok ? formatWindow(result.value.windowSeconds) : 'last hour'}
+      </p>
+      {result.ok ? (
+        <p
+          className="admin-page__stats-headline"
+          data-testid="admin-stats-rate-limit-count"
+        >
+          {formatInteger(result.value.count)}
+        </p>
+      ) : (
+        <StatsCardError reason={result.reason} />
+      )}
+    </section>
+  );
+}
+
+function WarmCronCard({
+  result,
+}: {
+  result: CardResult<WarmCronValue>;
+}): JSX.Element {
+  return (
+    <section className="admin-page__stats-card" data-testid="admin-stats-warm-cron">
+      <h3 className="admin-page__stats-title">Warm cron — last run</h3>
+      <p className="admin-page__stats-window">
+        warm-run,{' '}
+        {result.ok ? formatWindow(result.value.windowSeconds) : 'last 6h'}
+      </p>
+      {result.ok ? (
+        result.value.lastRun === null ? (
+          <p className="admin-page__stats-empty">
+            No <code>warm-run</code> log lines in this window. Check the
+            cron schedule.
+          </p>
+        ) : (
+          <dl className="admin-page__stats-list">
+            <div>
+              <dt>When</dt>
+              <dd data-testid="admin-stats-warm-cron-when">
+                {formatRelativeTime(result.value.lastRun.tISO, Date.now())}
+              </dd>
+            </div>
+            <div>
+              <dt>Stories</dt>
+              <dd data-testid="admin-stats-warm-cron-stories">
+                {result.value.lastRun.storyCount === null
+                  ? '—'
+                  : formatInteger(result.value.lastRun.storyCount)}
+              </dd>
+            </div>
+            <div>
+              <dt>Processed</dt>
+              <dd>
+                {result.value.lastRun.processed === null
+                  ? '—'
+                  : formatInteger(result.value.lastRun.processed)}
+              </dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd>
+                {result.value.lastRun.durationMs === null
+                  ? '—'
+                  : `${formatInteger(result.value.lastRun.durationMs)} ms`}
+              </dd>
+            </div>
+          </dl>
+        )
+      ) : (
+        <StatsCardError reason={result.reason} />
+      )}
+    </section>
+  );
 }
 
 export function AdminPage() {
@@ -175,6 +564,27 @@ export function AdminPage() {
     // default `gcTime` (~5 min) lets `/tuning` paint from cache
     // when the operator navigates between the two pages without
     // burning a second HN round-trip.
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
+  // Analytics rollup. Independent of the primary /api/admin fetch so
+  // a slow Axiom never blocks the service-health cards. We only enable
+  // the query once the primary call has confirmed the operator is
+  // authorized — otherwise an unauthenticated visitor would burn a
+  // server-side HN round-trip on the analytics endpoint too.
+  const statsEnabled = enabled && !!data;
+  const {
+    data: statsData,
+    isLoading: statsLoading,
+    isError: statsIsError,
+    refetch: refetchStats,
+    isFetching: statsFetching,
+  } = useQuery({
+    queryKey: ['admin-stats'],
+    queryFn: ({ signal }) => fetchAdminStats(signal),
+    enabled: statsEnabled,
     staleTime: 0,
     refetchOnWindowFocus: false,
     retry: false,
@@ -391,6 +801,20 @@ export function AdminPage() {
               {isFetching ? 'Refreshing…' : 'Refresh'}
             </button>
           </p>
+
+          <h2 className="admin-page__heading">Analytics</h2>
+          <p className="admin-page__note">
+            Aggregated from the structured logs Vercel forwards into
+            Axiom. Each card runs an independent query; one card
+            failing does not affect the others.
+          </p>
+          <AnalyticsSection
+            stats={statsData}
+            isLoading={statsLoading}
+            isError={statsIsError}
+            isFetching={statsFetching}
+            onRefetch={() => refetchStats()}
+          />
         </>
       )}
 

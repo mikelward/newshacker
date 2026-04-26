@@ -30,16 +30,28 @@ interface AdminBody {
   };
 }
 
+// Default `admin-stats` payload: not-configured. Tests that care about
+// the analytics rendering pass an explicit stats body.
+const NOT_CONFIGURED_STATS = {
+  configured: false,
+  axiom: { tokenConfigured: false, dataset: null as string | null },
+  cards: null,
+};
+
 // Route a single fetch mock by URL. /api/me gates the page at the
 // useAuth boundary; /api/admin delivers the operator data.
 function installFetchMock({
   me,
   admin,
   adminStatus = 200,
+  stats = NOT_CONFIGURED_STATS,
+  statsStatus = 200,
 }: {
   me: MeBody | (() => MeBody);
   admin: AdminBody | (() => AdminBody);
   adminStatus?: number | (() => number);
+  stats?: unknown | (() => unknown);
+  statsStatus?: number | (() => number);
 }) {
   const mock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : (input as URL).toString();
@@ -57,6 +69,15 @@ function installFetchMock({
     if (url.includes('/api/admin-telemetry-events')) {
       return new Response(JSON.stringify({ user: [], anon: [] }), {
         status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.includes('/api/admin-stats')) {
+      const body = typeof stats === 'function' ? stats() : stats;
+      const status =
+        typeof statsStatus === 'function' ? statsStatus() : statsStatus;
+      return new Response(JSON.stringify(body), {
+        status,
         headers: { 'content-type': 'application/json' },
       });
     }
@@ -375,7 +396,9 @@ describe('<AdminPage>', () => {
       expect(screen.getByText(/5 ms/)).toBeInTheDocument(),
     );
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /refresh/i }));
+    // Exact "Refresh" — there's also a "Refresh analytics" button on
+    // the page, and a regex match would be ambiguous.
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() =>
       expect(screen.getByText(/9 ms/)).toBeInTheDocument(),
     );
@@ -405,5 +428,215 @@ describe('<AdminPage>', () => {
     expect(
       screen.getByRole('link', { name: /back to top/i }),
     ).toHaveAttribute('href', '/top');
+  });
+});
+
+describe('<AdminPage> — analytics section', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('shows a "not configured" hint when AXIOM_API_TOKEN/DATASET are unset', async () => {
+    installFetchMock({
+      me: { username: 'mikelward' },
+      admin: OK_ADMIN,
+      stats: NOT_CONFIGURED_STATS,
+    });
+    renderWithProviders(<AdminPage />, { route: '/admin' });
+    const card = await screen.findByTestId('admin-stats-not-configured');
+    expect(card).toHaveTextContent(/AXIOM_API_TOKEN/);
+    expect(card).toHaveTextContent(/AXIOM_DATASET/);
+  });
+
+  it('renders all five cards from a happy-path stats response', async () => {
+    installFetchMock({
+      me: { username: 'mikelward' },
+      admin: OK_ADMIN,
+      stats: {
+        configured: true,
+        axiom: { tokenConfigured: true, dataset: 'vercel' },
+        cards: {
+          cacheHits: {
+            ok: true,
+            value: {
+              windowSeconds: 3600,
+              byOutcome: { cached: 80, generated: 20 },
+            },
+          },
+          tokens: {
+            ok: true,
+            value: {
+              windowSeconds: 86_400,
+              geminiTotalTokens: 12_345,
+              jinaTokens: 5_678,
+            },
+          },
+          failures: {
+            ok: true,
+            value: {
+              windowSeconds: 86_400,
+              byReason: [
+                { reason: 'story_unreachable', count: 7 },
+                { reason: 'summarization_failed', count: 3 },
+              ],
+            },
+          },
+          rateLimit: {
+            ok: true,
+            value: { windowSeconds: 3600, count: 4 },
+          },
+          warmCron: {
+            ok: true,
+            value: {
+              windowSeconds: 21_600,
+              lastRun: {
+                tISO: new Date(Date.now() - 60_000).toISOString(),
+                durationMs: 12_345,
+                processed: 60,
+                storyCount: 30,
+              },
+            },
+          },
+        },
+      },
+    });
+    renderWithProviders(<AdminPage />, { route: '/admin' });
+
+    const rate = await screen.findByTestId('admin-stats-cache-hits-rate');
+    // 80 / (80 + 20) = 80.0 %.
+    expect(rate).toHaveTextContent('80.0%');
+
+    const gemini = screen.getByTestId('admin-stats-gemini-tokens');
+    expect(gemini.textContent).toMatch(/12[.,\s'’]345/);
+    const jina = screen.getByTestId('admin-stats-jina-tokens');
+    expect(jina.textContent).toMatch(/5[.,\s'’]678/);
+
+    const failures = screen.getByTestId('admin-stats-failures');
+    expect(failures).toHaveTextContent('story_unreachable');
+    expect(failures).toHaveTextContent('summarization_failed');
+
+    const rateLimit = screen.getByTestId('admin-stats-rate-limit-count');
+    expect(rateLimit).toHaveTextContent('4');
+
+    const when = screen.getByTestId('admin-stats-warm-cron-when');
+    expect(when.textContent).toMatch(/(s|m) ago$/);
+    const stories = screen.getByTestId('admin-stats-warm-cron-stories');
+    expect(stories).toHaveTextContent('30');
+  });
+
+  it('renders a degraded card while keeping the rest of the dashboard alive', async () => {
+    installFetchMock({
+      me: { username: 'mikelward' },
+      admin: OK_ADMIN,
+      stats: {
+        configured: true,
+        axiom: { tokenConfigured: true, dataset: 'vercel' },
+        cards: {
+          cacheHits: {
+            ok: true,
+            value: { windowSeconds: 3600, byOutcome: { cached: 1 } },
+          },
+          tokens: { ok: false, reason: 'axiom_http_502' },
+          failures: { ok: true, value: { windowSeconds: 86_400, byReason: [] } },
+          rateLimit: {
+            ok: true,
+            value: { windowSeconds: 3600, count: 0 },
+          },
+          warmCron: {
+            ok: true,
+            value: { windowSeconds: 21_600, lastRun: null },
+          },
+        },
+      },
+    });
+    renderWithProviders(<AdminPage />, { route: '/admin' });
+    const tokens = await screen.findByTestId('admin-stats-tokens');
+    expect(tokens).toHaveTextContent(/Unavailable:/);
+    expect(tokens).toHaveTextContent('axiom_http_502');
+    // The other cards still render their happy-path content.
+    expect(screen.getByTestId('admin-stats-cache-hits-rate')).toHaveTextContent(
+      '100.0%',
+    );
+    // Empty buckets render explanatory copy rather than a stat.
+    expect(screen.getByTestId('admin-stats-failures')).toHaveTextContent(
+      /No errors in this window/i,
+    );
+    expect(screen.getByTestId('admin-stats-warm-cron')).toHaveTextContent(
+      /No .*warm-run.* log lines/i,
+    );
+  });
+
+  it('refetches analytics independently when the operator clicks "Refresh analytics"', async () => {
+    let call = 0;
+    const fetchMock = installFetchMock({
+      me: { username: 'mikelward' },
+      admin: OK_ADMIN,
+      stats: () => {
+        call += 1;
+        return {
+          configured: true,
+          axiom: { tokenConfigured: true, dataset: 'vercel' },
+          cards: {
+            cacheHits: {
+              ok: true,
+              value: {
+                windowSeconds: 3600,
+                byOutcome: { cached: call === 1 ? 5 : 9 },
+              },
+            },
+            tokens: {
+              ok: true,
+              value: {
+                windowSeconds: 86_400,
+                geminiTotalTokens: 0,
+                jinaTokens: 0,
+              },
+            },
+            failures: {
+              ok: true,
+              value: { windowSeconds: 86_400, byReason: [] },
+            },
+            rateLimit: {
+              ok: true,
+              value: { windowSeconds: 3600, count: 0 },
+            },
+            warmCron: {
+              ok: true,
+              value: { windowSeconds: 21_600, lastRun: null },
+            },
+          },
+        };
+      },
+    });
+    renderWithProviders(<AdminPage />, { route: '/admin' });
+    // First paint: the `cached` count from call #1.
+    const card = await screen.findByTestId('admin-stats-cache-hits');
+    expect(card).toHaveTextContent(/cached/);
+    await waitFor(() => expect(card).toHaveTextContent('5'));
+
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole('button', { name: /refresh analytics/i }),
+    );
+    // Second paint after refetch.
+    await waitFor(() => expect(card).toHaveTextContent('9'));
+
+    // /api/admin-stats was called twice; /api/admin only once (we
+    // didn't trigger the service-health refresh).
+    const statsCalls = fetchMock.mock.calls.filter((c) => {
+      const url =
+        typeof c[0] === 'string' ? c[0] : (c[0] as URL).toString();
+      return url.includes('/api/admin-stats');
+    });
+    expect(statsCalls).toHaveLength(2);
+    const adminCalls = fetchMock.mock.calls.filter((c) => {
+      const url =
+        typeof c[0] === 'string' ? c[0] : (c[0] as URL).toString();
+      return url.includes('/api/admin') && !url.includes('/api/admin-');
+    });
+    expect(adminCalls).toHaveLength(1);
   });
 });

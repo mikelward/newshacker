@@ -452,22 +452,28 @@ ends up on the front page on a given day.
   query templates in CRON.md § "Useful APL queries" are scoped to
   `newshacker` via the `['vercel.projectName']` filter — the
   integration itself ships all projects the Vercel team has access
-  to). That covers retention and ad-hoc querying. Two further
-  upgrades, to consider only if the logs turn out to be genuinely
-  useful (not if the answer is "knobs are fine, stop looking"):
-  (a) **Aggregation endpoint.** `/api/warm-summaries-stats` that
-      reads rollups (counts per outcome, per age-bucket, per track,
-      per hour/day) from a pre-aggregated Upstash sorted-set. Needs
-      a second hourly cron that scans the last hour's `warm-story`
-      lines and increments the counters. ~2 h. Lower-effort
-      alternative: save the CRON.md APL queries as Axiom starred
-      queries and skip the endpoint entirely.
-  (b) **Visual dashboard.** Either an Axiom dashboard (point-and-
-      click on the APL queries in CRON.md — probably 20 min) or
-      something custom rendered from (a). Only worth it if we're
-      iterating on the knobs regularly.
-  Don't pre-build these — the MVP logs answer "is there a real
-  signal here" in a week of data. Invest based on the answer.
+  to). That covers retention and ad-hoc querying.
+  **Phase 1.5 of the dashboard work shipped a partial answer**:
+  `/api/admin-stats` and the matching `/admin` cards now report
+  the most recent `warm-run` (timestamp + `processed` + `durationMs`)
+  alongside the user-path summary stats. Per-host paywall share,
+  per-host churn, and the article-track outcome histogram are still
+  not in the dashboard — they remain Axiom-console-only.
+  Two upgrades worth doing only if those Axiom queries turn out to be
+  load-bearing for tuning decisions (and not if the answer is
+  "knobs are fine, stop looking"):
+  (a) **Aggregation endpoint.** Extend `/api/admin-stats` (or a
+      sibling `/api/warm-summaries-stats`) with per-host paywall
+      share + churn rollups, either via additional APL queries or
+      via a pre-aggregated Upstash sorted-set populated by an
+      hourly cron. ~2 h via APL, more via the cron route.
+  (b) **Per-host card.** A sixth `/admin` card rendering the top-N
+      hosts by paywall share, with a small bar chart. Only worth
+      it once we're iterating on per-host policy (e.g. "stop
+      re-fetching this domain after the first paywalled fetch").
+  Don't pre-build these — the existing dashboard answers
+  "is the cron doing anything" at a glance, and the Axiom console
+  answers the rest until we know the per-host policy work is real.
 
 - **Article-fetch fallback.** We used to have a server-side raw-HTML
   fallback (plain `GET` with a spoofed desktop Chrome UA) that kicked

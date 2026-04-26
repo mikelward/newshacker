@@ -751,6 +751,22 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 
 **Cost / reliability (rule 11).** One Redis `LPUSH` + `LTRIM` per pin or hide that the client decides to emit (post-dedup). At ~50 actions/day for a heavy user that's ~100 ops/day — well under the Upstash free tier's daily limit. No new infra (existing Redis), no new vendor. Failure modes: telemetry endpoint down → fail-open client side, local ring buffer still grows; `/admin` view down → it just doesn't render the section. Nothing user-facing breaks at any point in the pipeline.
 
+## Operator analytics dashboard
+
+`/admin` renders a small analytics section that aggregates the structured `summary-outcome`, `comments-summary-outcome`, and `warm-run` log lines `api/summary.ts`, `api/comments-summary.ts`, and `api/warm-summaries.ts` already emit. Five cards, each independently queried so a single failure can't take the rest of the dashboard down:
+
+- **Cache hits** — `cached` / `generated` / `rate_limited` / `error` counts and the cache-hit ratio over the last hour. The headline number is `cached / total` — the slice of summary requests served without burning a Gemini call. Phase 2's "cache-hit collapse" alert (see `OBSERVABILITY.md`) keys off the same data.
+- **Token spend** — sum of `geminiTotalTokens` (article + comments summaries) and `jinaTokens` (URL-post summaries) over the last 24 h. Token counts not dollars, since per-token pricing drifts and the operator can multiply by current rates.
+- **Top failure reasons** — top 5 `reason` values for `outcome == "error"` over the last 24 h (e.g. `story_unreachable`, `summarization_failed`, `source_captcha`).
+- **Rate-limited** — count of `outcome == "rate_limited"` events over the last hour. Surfaces the 429-burst signal without the operator having to grep Axiom; pairs with the rate-limit-burst alert in `OBSERVABILITY.md`.
+- **Warm cron — last run** — most recent `warm-run` line in the last 6 h with its `durationMs`, `processed`, and `storyCount`. Confirms the cron is actually running and lets the operator spot ticks that are about to hit the 50 s wall-clock guard.
+
+**Backing endpoint.** `GET /api/admin-stats`. Same auth gate as `/api/admin` (HN round-trip — see *Threshold tuning telemetry → Auth model*). Reads `AXIOM_API_TOKEN` and `AXIOM_DATASET` from server env, never returns either to the client (per `AGENTS.md` rule 12 — `/api/admin-stats` only ever reports `tokenConfigured: boolean` and the dataset *name*). Each card runs a separate APL query against `https://api.axiom.co/v1/datasets/_apl?format=tabular` with a 5 s per-card hard timeout; failures are reported as `{ ok: false, reason }` so the UI renders a tasteful "Unavailable: axiom_http_502" instead of taking the page down. Every query also pins `['vercel.projectName'] == "newshacker"` (overridable via `AXIOM_PROJECT_NAME`) — Vercel's Axiom integration ships logs from *every* accessible Vercel project into the same dataset, so without that filter a multi-project Axiom would mix unrelated lines into the rollups; this matches the same scoping CRON.md's APL templates already use.
+
+**Configuration.** When either env var is missing the section renders a "Analytics not configured. Set `AXIOM_API_TOKEN` and `AXIOM_DATASET` …" hint instead of fetching. `/debug` does not surface the Axiom config — keeping rule 12's "sensitive operator data lives behind `/admin` and nowhere else" intact even though the *boolean* would technically be safe.
+
+**Cost / reliability (rule 11).** Axiom's free Vercel-integration tier covers the query API (and ~500 GB/month ingest, orders of magnitude above this project's volume). The dashboard issues five small aggregation queries per `/admin` page load; the operator hits `/admin` a few times a day. Effectively $0/month. Reliability impact: adds Axiom as a runtime dep of the analytics section only — service-health, Jina balance, and identity all keep painting if Axiom is down. Per-card timeout caps the worst-case page latency at the slowest query (5 s) since cards fire in parallel.
+
 ## Routes
 
 | Path | View |
@@ -765,7 +781,7 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 | `/opened` | recently opened stories (7-day history) |
 | `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
-| `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis; link to `/tuning`) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
+| `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis; link to `/tuning`; analytics rollup over the structured `summary-outcome` / `comments-summary-outcome` / `warm-run` log lines via Axiom — see *Operator analytics dashboard*) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
 | `/tuning` | operator-only Hot threshold tuning view (interactive expression + sliders, score and comments scatters, event list) — same auth gate as `/admin`; not linked from the UI |
 
 ## Accessibility

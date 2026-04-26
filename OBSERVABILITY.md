@@ -512,6 +512,42 @@ Still to do in later phases: Axiom monitors keying off these
 lines (Phase 2), OpsGenie / PagerDuty integration (Phase 3), and
 optionally Datadog migration (Phase 4).
 
+### Phase 1.5 — in-app analytics dashboard (shipped)
+
+Sits between Phase 1 (logs) and Phase 2 (monitors): an
+operator-facing rollup on `/admin` over the same Phase 1 log
+lines, so the operator can see "is the cache hit rate cratering?"
+or "is `story_unreachable` suddenly the top failure reason?"
+without opening Axiom. Doesn't replace monitors — Phase 2 still
+needs to fire when nobody's looking — but it makes the alert
+conditions concrete *before* you've built the monitors, which is
+useful for picking thresholds that aren't pulled out of thin air.
+
+Shipped:
+- `GET /api/admin-stats` with the same HN-round-trip auth gate as
+  `/api/admin`. Issues five APL queries against
+  `https://api.axiom.co/v1/datasets/_apl?format=tabular` in
+  parallel, each with a 5 s hard timeout, and degrades any single
+  failed card to `{ ok: false, reason }` so the rest of the
+  dashboard still paints.
+- Five cards on `/admin`: cache-hit ratio (1 h), token spend
+  (24 h), top failure reasons (24 h), rate-limited count (1 h),
+  warm-cron last-run summary (6 h). All key off the Phase 1 log
+  lines unchanged — no new instrumentation needed.
+- Configured via `AXIOM_API_TOKEN` (Query → CREATE on the dataset)
+  and `AXIOM_DATASET` env vars; both unset → the section renders
+  a "not configured" hint and skips the queries. Token value is
+  never returned to the client (per `AGENTS.md` rule 12).
+- See `SPEC.md` § *Operator analytics dashboard* for the rendered
+  contract; see `INSTALL.md` § *Getting an Axiom API token* for
+  the token-provisioning walkthrough.
+
+Cost: Axiom's free Vercel-integration tier covers the query API.
+Five small aggregation queries per `/admin` page load, a few page
+loads per day = effectively $0/month. Reliability: Axiom is now
+a runtime dep of the analytics section (only). Per-card timeout
+caps worst-case page latency at 5 s.
+
 ### Phase 2 — monitors (Axiom first)
 
 - Build the four monitors in Axiom against the Phase 1 log lines.
