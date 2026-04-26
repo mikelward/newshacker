@@ -4,6 +4,7 @@ import App from './App';
 import { renderWithProviders } from './test/renderUtils';
 import { installHNFetchMock } from './test/mockFetch';
 import { HOME_FEED_STORAGE_KEY } from './lib/homeFeed';
+import { HOME_PROMO_DISMISSED_STORAGE_KEY } from './lib/homePromo';
 
 const analyticsMock = vi.fn((_props: unknown) => null);
 vi.mock('@vercel/analytics/react', () => ({
@@ -13,10 +14,12 @@ vi.mock('@vercel/analytics/react', () => ({
 describe('<App> routing', () => {
   beforeEach(() => {
     window.localStorage.removeItem(HOME_FEED_STORAGE_KEY);
+    window.localStorage.removeItem(HOME_PROMO_DISMISSED_STORAGE_KEY);
   });
   afterEach(() => {
     vi.unstubAllGlobals();
     window.localStorage.removeItem(HOME_FEED_STORAGE_KEY);
+    window.localStorage.removeItem(HOME_PROMO_DISMISSED_STORAGE_KEY);
   });
 
   it('renders the header with the newshacker brand', () => {
@@ -47,6 +50,34 @@ describe('<App> routing', () => {
     expect(
       await screen.findByText(/nothing hot right now/i),
     ).toBeInTheDocument();
+  });
+
+  it('renders the Hot promo card on the default home view', async () => {
+    installHNFetchMock({ feeds: { topstories: [] } });
+    renderWithProviders(<App />, { route: '/' });
+    expect(await screen.findByTestId('empty-state')).toBeInTheDocument();
+    expect(screen.getByTestId('home-promo-link')).toHaveAttribute(
+      'href',
+      '/hot',
+    );
+  });
+
+  it('does not render the Hot promo card once dismissed', async () => {
+    window.localStorage.setItem(HOME_PROMO_DISMISSED_STORAGE_KEY, '1');
+    installHNFetchMock({ feeds: { topstories: [] } });
+    renderWithProviders(<App />, { route: '/' });
+    expect(await screen.findByTestId('empty-state')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-promo-link')).not.toBeInTheDocument();
+  });
+
+  it('does not render the Hot promo card when the home feed is hot', async () => {
+    window.localStorage.setItem(HOME_FEED_STORAGE_KEY, 'hot');
+    installHNFetchMock({ feeds: { topstories: [], newstories: [] } });
+    renderWithProviders(<App />, { route: '/' });
+    expect(
+      await screen.findByText(/nothing hot right now/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('home-promo-link')).not.toBeInTheDocument();
   });
 
   it('renders a 404 for unknown routes', () => {

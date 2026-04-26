@@ -5,6 +5,7 @@ import { AppUpdateWatcher } from './components/AppUpdateWatcher';
 import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
+import { HomePromoCard } from './components/HomePromoCard';
 import { HotStoryList, StoryList } from './components/StoryList';
 import { ToastProvider } from './components/Toast';
 import { useCloudSync } from './hooks/useCloudSync';
@@ -38,7 +39,17 @@ function HnFavoritesSyncBridge() {
 
 function HomeRoute() {
   const { homeFeed } = useHomeFeed();
-  return homeFeed === 'hot' ? <HotStoryList /> : <StoryList feed="top" />;
+  if (homeFeed === 'hot') return <HotStoryList />;
+  // Default home: top feed with a one-row dismissible banner pointing
+  // readers at `/hot` (see SPEC.md *Story feeds → /hot* → home promo).
+  // Banner is gone once dismissed; on `/hot` itself the `<HotRuleCard>`
+  // already sits in this slot, so we don't double-stack.
+  return (
+    <>
+      <HomePromoCard />
+      <StoryList feed="top" />
+    </>
+  );
 }
 
 export default function App() {
