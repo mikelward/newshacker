@@ -47,6 +47,8 @@ Put local values in `.env.local` at the repo root (git-ignored). On Vercel, set 
 | `SUMMARY_REFERER_ALLOWLIST` | No | Production + Preview | Comma-separated list of hostnames allowed to call `/api/summary`. Overrides the default (`newshacker.app,hnews.app`). `localhost`, `127.0.0.1`, and any `*.vercel.app` subdomain are always allowed. |
 | `SUMMARY_RATE_LIMIT_BURST` | No | Production + Preview | Cache-miss calls allowed per IP in a 10-minute window, shared across `/api/summary` and `/api/comments-summary`. Default `20`. Set to `0` or `off` to disable just the burst tier. Cached responses never count against this. |
 | `SUMMARY_RATE_LIMIT_DAILY` | No | Production + Preview | Cache-miss calls allowed per IP in a 24-hour window, shared across the two summary endpoints. Default `200`. Set to `0` or `off` to disable just the daily tier. |
+| `AXIOM_API_TOKEN` + `AXIOM_DATASET` | No, but required as a pair to populate the `/admin` analytics cards | Production + Preview | Axiom query API token and dataset name (the Vercel ↔ Axiom integration usually names it `vercel`). The `/api/admin-stats` handler issues APL queries against `https://api.axiom.co/v1/datasets/_apl?format=tabular`. The token needs **Query → CREATE** permission on that one dataset; everything else (Data, Ingest, org-level perms) should stay off. Without both vars set, the analytics section renders a "not configured" hint and skips the queries. The token value is never returned to the client. |
+| `AXIOM_PROJECT_NAME` | No | Production + Preview | Vercel project name used to scope APL queries to this app's logs only. The Vercel ↔ Axiom integration ships logs from *every* accessible Vercel project into the same dataset, so without this filter `/api/admin-stats` would mix unrelated projects' lines into the rollups. Defaults to `newshacker` (matches CRON.md's APL templates). Override only if you've forked or renamed the Vercel project. |
 
 Operating the scheduled cache warmer (`/api/warm-summaries`) — enabling it, verifying it, tuning the backoff knobs, disabling it — lives in its own playbook at `CRON.md`. Start there the first time you deploy.
 
@@ -67,6 +69,27 @@ curl -s -X POST \
 ```
 
 A successful response contains `candidates[].content.parts[].text`. `API_KEY_INVALID` means the key is wrong; `PERMISSION_DENIED` means the Generative Language API isn't enabled for the key's project.
+
+### Getting an Axiom API token (for the `/admin` analytics dashboard)
+
+The Vercel ↔ Axiom integration ships function logs into Axiom one-way; querying them back from `/api/admin-stats` needs an API token.
+
+1. Visit `app.axiom.co` and sign in (or create an account — the free tier covers this project's volume).
+2. **Settings → API tokens → New API token**. Give it a descriptive name (e.g. `newshacker-admin-stats`).
+3. Under **Individual datasets**, expand the dataset the Vercel integration is shipping logs into (usually `vercel` — confirm in **Datasets**) and tick **Query → CREATE**. Optionally also tick **Query → READ**. Leave Data, Ingest, Trim, Vacuum, Virtual fields, and every Org-level permission unchecked.
+4. Save and copy the token immediately — Axiom only shows it once.
+5. Set `AXIOM_API_TOKEN` and `AXIOM_DATASET` (the dataset name) in Vercel (Production + Preview) and redeploy.
+
+To verify the wiring, hit the endpoint directly:
+
+```bash
+curl -s -X POST 'https://api.axiom.co/v1/datasets/_apl?format=tabular' \
+  -H "Authorization: Bearer $AXIOM_API_TOKEN" \
+  -H 'content-type: application/json' \
+  -d "{\"apl\": \"['$AXIOM_DATASET'] | take 1\"}"
+```
+
+A successful response includes `"format":"tabular"` and a `tables` array. `401` means the token is wrong or missing the Query permission; `404` usually means the dataset name is wrong.
 
 ### Getting a Jina API key
 
