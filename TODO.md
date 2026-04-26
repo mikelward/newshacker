@@ -493,24 +493,20 @@ ends up on the front page on a given day.
   `isAccessibleForFree: false`, etc.), today we silently hand the
   user a summary built from the teaser. Options, roughly in order of
   upside-per-effort:
-  (a) **Archive links posted in comments.** HN readers routinely
-      paste `archive.org` / `web.archive.org` / `archive.ph` /
-      `archive.today` / `archive.is` / `ghostarchive.org` URLs into
-      the top-level comments on paywalled submissions — we'd just be
-      automating what a reader does manually. We already pull the
-      thread's comments for `/api/comments-summary`, so the
-      incremental work is a regex scan over text we have in hand.
-      Allowlist the archive hosts explicitly; don't follow arbitrary
-      comment URLs (spam / malicious / off-topic). On a hit, re-run
-      Jina against the archive URL and cache under the *original*
-      article's key so we don't re-scan on every request. Label in
-      the UI: "Summary based on archive copy linked by HN user
-      `<username>`." Reliability: archive.ph's Cloudflare challenge
-      blocks a lot of cloud IPs, so ~20–30% of archive.ph fetches
-      will still fail; archive.org is more permissive. Cost: one
-      extra Jina call per paywalled thread on cache miss, same
-      rate-limit bucket as the article summary, free-tier Jina
-      covers it at current traffic.
+  (a) **Archive links posted in comments.** *Done — see SPEC.md
+      § "Archive-link comment hoist".* When the first Jina pass on
+      a link post trips `detectPaywall`, `/api/summary` and the
+      warm cron walk the top 20 top-level comments for an
+      allowlisted archive URL (`archive.org`, `web.archive.org`,
+      `archive.ph`, `archive.today`, `archive.is`,
+      `ghostarchive.org`; exact host match — no subdomains) and
+      re-run Jina against the archive copy. Cached under the
+      original story id with `archiveSource` provenance so the UI
+      footer reads "Summary based on archive copy linked by HN user
+      `<username>`". Failure-soft: when no comment links to an
+      allowlisted archive, or the archive Jina pass fails
+      (Cloudflare challenge on archive.ph etc.), the handler falls
+      through to today's behavior and summarizes the paywall body.
   (b) **JSON-LD `NewsArticle` schema.** Many publishers embed the
       full `articleBody` in a `<script type="application/ld+json">`
       block so Google's structured-data crawler can read the piece

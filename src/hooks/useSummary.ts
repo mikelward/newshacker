@@ -20,6 +20,16 @@ export const SUMMARY_FRESHNESS_MS = 30 * 60 * 1000;
 export interface SummaryResult {
   summary: string;
   cached?: boolean;
+  // Present when the original article was paywalled and we summarized
+  // an allowlisted archive copy (archive.org / archive.ph / etc.) that
+  // was linked in the top-level comments. The UI uses this to caption
+  // the summary card so the reader knows the bytes came via an archive
+  // and which HN user surfaced the link.
+  archiveSource?: {
+    archiveUrl: string;
+    archiveHost: string;
+    username: string;
+  };
 }
 
 export type SummaryErrorReason =

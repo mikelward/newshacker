@@ -204,10 +204,26 @@ export interface SummaryRecord {
   // observation after deploy emits no `deltaBytes` on `changed`.
   contentBytes?: number;
   // Paywall-detector verdict on the Jina-clean body. `undefined` on
-  // records written before the detector landed; advisory only — see
-  // api/summary.ts § `detectPaywall` for the contract. Persisted so
-  // `unchanged` logs can emit the field without recomputing.
+  // records written before the detector landed; see api/summary.ts §
+  // `detectPaywall` for the contract. Persisted so `unchanged` logs
+  // can emit the field without recomputing. When `paywalled` is true
+  // and a usable archive link is found in the top-level comments, the
+  // summary is regenerated against the archive copy and
+  // `archiveSource` is populated below; the `paywalled` bit on the
+  // record then reflects the *original* article (still paywalled) so
+  // prevalence telemetry stays accurate.
   paywalled?: boolean;
+  // Provenance for archive-link comment hoist. See ArchiveSource and
+  // api/summary.ts § `findArchiveCandidate` for the contract.
+  // Mirrored across both handlers so a cache hit on the user-facing
+  // path matches what the cron would have written.
+  archiveSource?: ArchiveSource;
+}
+
+export interface ArchiveSource {
+  archiveUrl: string;
+  archiveHost: string;
+  username: string;
 }
 
 export interface SummaryStore {
@@ -254,6 +270,26 @@ function parseRecord(raw: unknown): SummaryRecord | null {
       ? { contentBytes: r.contentBytes }
       : {}),
     ...(typeof r.paywalled === 'boolean' ? { paywalled: r.paywalled } : {}),
+    ...(parseArchiveSource(r.archiveSource)
+      ? { archiveSource: parseArchiveSource(r.archiveSource)! }
+      : {}),
+  };
+}
+
+function parseArchiveSource(raw: unknown): ArchiveSource | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Partial<ArchiveSource>;
+  if (
+    typeof r.archiveUrl !== 'string' ||
+    typeof r.archiveHost !== 'string' ||
+    typeof r.username !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    archiveUrl: r.archiveUrl,
+    archiveHost: r.archiveHost,
+    username: r.username,
   };
 }
 
@@ -561,6 +597,78 @@ export function detectPaywall(content: string): boolean {
   return hits >= 1 && content.length <= PAYWALL_SHORT_BODY_CHARS;
 }
 
+// === Archive-link comment hoist (inlined — mirrored in api/summary.ts) ===
+// See api/summary.ts § "Archive-link comment hoist" for the contract
+// and the rationale. Duplicated per AGENTS.md § "Vercel api/ gotchas";
+// api/warm-summaries.test.ts § "archive host allowlist parity" fails
+// loudly if they drift.
+export const ARCHIVE_HOSTS: readonly string[] = [
+  'archive.org',
+  'web.archive.org',
+  'archive.ph',
+  'archive.today',
+  'archive.is',
+  'ghostarchive.org',
+];
+
+const ARCHIVE_TOP_LEVEL_SAMPLE_SIZE = 20;
+
+const ARCHIVE_URL_RE = /https?:\/\/[^\s<>"']+/gi;
+
+export function extractArchiveUrlFromComment(
+  text: string | undefined,
+): { archiveUrl: string; archiveHost: string } | null {
+  if (!text) return null;
+  const matches = text.match(ARCHIVE_URL_RE);
+  if (!matches) return null;
+  for (const raw of matches) {
+    const trimmed = raw.replace(/[.,;:!?)\]>]+$/, '');
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+    const host = parsed.hostname.toLowerCase();
+    if (ARCHIVE_HOSTS.some((allowed) => host === allowed)) {
+      return { archiveUrl: parsed.toString(), archiveHost: host };
+    }
+  }
+  return null;
+}
+
+export async function findArchiveCandidate(
+  story: HNItem,
+  fetchItem: (id: number, signal?: AbortSignal) => Promise<HNItem | null>,
+  signal?: AbortSignal,
+): Promise<ArchiveSource | null> {
+  const kidIds = (story.kids ?? []).slice(0, ARCHIVE_TOP_LEVEL_SAMPLE_SIZE);
+  if (kidIds.length === 0) return null;
+  const comments = await Promise.all(
+    kidIds.map(async (id) => {
+      try {
+        return await fetchItem(id, signal);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  for (const comment of comments) {
+    if (!comment || comment.deleted || comment.dead) continue;
+    if (typeof comment.by !== 'string' || !comment.by) continue;
+    const hit = extractArchiveUrlFromComment(comment.text);
+    if (hit) {
+      return {
+        archiveUrl: hit.archiveUrl,
+        archiveHost: hit.archiveHost,
+        username: comment.by,
+      };
+    }
+  }
+  return null;
+}
+
 // Jina's JSON envelope: { code, status, data: { content, usage: { tokens } } }.
 // We ask for JSON (rather than plain text) so the response carries an
 // authoritative `usage.tokens` count — cheaper and more accurate than
@@ -788,6 +896,15 @@ export interface StoryLog {
   // feeds the warm-summaries analytics so we can measure paywall
   // prevalence per domain before acting on it in the UI.
   paywalled?: boolean;
+  // Article track: lowercased hostname of the archive copy that
+  // produced this tick's summary, when the archive-link comment hoist
+  // fired (e.g. `archive.ph`, `web.archive.org`). Present on
+  // `first_seen` / `changed` / `unchanged` outcomes when the cached
+  // record carries an `archiveSource`; absent on plain article fetches.
+  // Lets operators measure how often the hoist actually rescues a
+  // paywalled fetch and which archive hosts succeed under Jina round-
+  // trip without grepping records out of KV.
+  archiveHost?: string;
   // Article track: `story.url`'s lowercased hostname. Present on
   // every line where the HN item was loaded and the story has a
   // valid URL — first_seen / unchanged / changed and the in-function
@@ -1191,6 +1308,12 @@ async function processArticleTrack(
   // URL-post stories: populated from Jina's paywall detector verdict.
   // Left undefined on self-posts (no Jina round-trip, no overlay).
   let paywalled: boolean | undefined;
+  // Populated only when the original fetch came back paywalled AND a
+  // top-level comment included an allowlisted archive URL we
+  // successfully re-fetched. Mirrored on the user-facing handler in
+  // api/summary.ts so the cron and the user path can't disagree on
+  // whether a given story's cached summary came from the archive.
+  let archiveSource: ArchiveSource | undefined;
   if (hasArticleUrl) {
     const articleUrl = story.url!;
     if (!jinaApiKey) return log({ outcome: 'skipped_unreachable' });
@@ -1204,6 +1327,35 @@ async function processArticleTrack(
     content = res.content;
     jinaTokens = res.tokens;
     paywalled = res.paywalled;
+
+    // Archive-link comment hoist. Mirrors api/summary.ts. On a paywalled
+    // first pass, scan the top-level comments for an allowlisted archive
+    // URL and re-summarize the archive copy. On any failure, fall through
+    // to the original (paywalled) content.
+    if (paywalled) {
+      const fetchItem = deps.fetchItem ?? defaultFetchItem;
+      let candidate: ArchiveSource | null = null;
+      try {
+        candidate = await findArchiveCandidate(story, fetchItem, ctx.signal);
+      } catch {
+        // best-effort; leave archive unset
+      }
+      if (candidate) {
+        const archiveResult = await fetchViaJina(
+          candidate.archiveUrl,
+          jinaApiKey,
+          fetchFn,
+        );
+        if (archiveResult.ok) {
+          content = archiveResult.content;
+          if (archiveResult.tokens !== undefined) {
+            jinaTokens = (jinaTokens ?? 0) + archiveResult.tokens;
+          }
+          archiveSource = candidate;
+        }
+      }
+    }
+
     prompt = buildPrompt(articleUrl, content);
   } else {
     // Self-post: body is already in the HN item, no Jina fetch needed.
@@ -1222,6 +1374,13 @@ async function processArticleTrack(
     // re-check — though in practice a story's URL-ness doesn't flip.
     const effectivePaywalled =
       paywalled !== undefined ? paywalled : existing.paywalled;
+    // Same logic for archiveSource: prefer this tick's verdict (we
+    // either successfully re-fetched the archive copy or tried and
+    // didn't get one) and fall back to the stored value when we
+    // skipped the scan (e.g. unchanged hash on a self-post path,
+    // which can't happen here but the precedent matches `paywalled`).
+    const effectiveArchiveSource =
+      archiveSource !== undefined ? archiveSource : existing.archiveSource;
     const updated: SummaryRecord = {
       ...existing,
       lastCheckedAt: now,
@@ -1231,6 +1390,7 @@ async function processArticleTrack(
       ...(effectivePaywalled !== undefined
         ? { paywalled: effectivePaywalled }
         : {}),
+      ...(effectiveArchiveSource ? { archiveSource: effectiveArchiveSource } : {}),
     };
     try {
       await store.set(storyId, updated, RECORD_TTL_SECONDS);
@@ -1246,6 +1406,9 @@ async function processArticleTrack(
       tokens: jinaTokens,
       ...(effectivePaywalled !== undefined
         ? { paywalled: effectivePaywalled }
+        : {}),
+      ...(effectiveArchiveSource
+        ? { archiveHost: effectiveArchiveSource.archiveHost }
         : {}),
     });
   }
@@ -1278,6 +1441,7 @@ async function processArticleTrack(
     lastChangedAt: now,
     contentBytes,
     ...(paywalled !== undefined ? { paywalled } : {}),
+    ...(archiveSource ? { archiveSource } : {}),
   };
   try {
     await store.set(storyId, record, RECORD_TTL_SECONDS);
@@ -1290,6 +1454,7 @@ async function processArticleTrack(
       contentBytes,
       tokens: jinaTokens,
       ...(paywalled !== undefined ? { paywalled } : {}),
+      ...(archiveSource ? { archiveHost: archiveSource.archiveHost } : {}),
     });
   }
   const deltaBytes =
@@ -1306,6 +1471,7 @@ async function processArticleTrack(
     ...(deltaBytes !== undefined ? { deltaBytes } : {}),
     tokens: jinaTokens,
     ...(paywalled !== undefined ? { paywalled } : {}),
+    ...(archiveSource ? { archiveHost: archiveSource.archiveHost } : {}),
   });
 }
 
