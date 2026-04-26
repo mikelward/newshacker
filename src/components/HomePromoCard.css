@@ -1,0 +1,90 @@
+/* Edge-to-edge banner — same logical column as `.story-list__item`
+   and `.hot-toolbar` (no horizontal margin, hairline bottom border,
+   `--nh-bg-card` background). No container padding: each child owns
+   its own inset so the link's hit area stretches all the way to
+   the dismiss button without leaving a non-clickable gutter. */
+.home-promo {
+  display: flex;
+  align-items: stretch;
+  background: var(--nh-bg-card);
+  border-bottom: 1px solid var(--nh-border);
+}
+
+/* Stretched link — owns the row's left/top/bottom padding so the
+   tap zone covers everything left of the dismiss button. The 12px
+   left padding matches `.story-row`'s inner gutter so the link's
+   text starts on the same content edge as every story title below
+   it. min-height uses the app-wide --tap-min (48px) so the tap
+   zone clears the comfortable-touch threshold. */
+.home-promo__link {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  padding: 4px 8px 4px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--nh-text);
+  text-decoration: none;
+}
+
+.home-promo__link:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+@media (hover: hover) {
+  .home-promo__link:hover {
+    color: var(--nh-orange-dark);
+  }
+}
+
+.home-promo__link:active {
+  color: var(--nh-orange-dark);
+}
+
+/* Compact transparent dismiss button — same 40×40 borderless shape
+   as `.hot-toolbar__button`, so the visual language stays consistent
+   between the two banners that can sit at the top of `/`. The 4px
+   right margin matches `.hot-toolbar__row`'s 8px right padding minus
+   the 4px the button visually centers itself in, so the icon's
+   optical edge lines up with the toolbar above when both render. */
+.home-promo__dismiss {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 40px;
+  height: 40px;
+  margin-right: 4px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--nh-meta);
+  cursor: pointer;
+}
+
+.home-promo__dismiss:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) {
+  .home-promo__dismiss:hover {
+    background: var(--nh-bg);
+    color: var(--nh-text);
+  }
+}
+
+.home-promo__dismiss:active {
+  background: var(--nh-bg);
+  color: var(--nh-text);
+}
+
+.home-promo__icon {
+  display: block;
+}
