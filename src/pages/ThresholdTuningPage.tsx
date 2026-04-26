@@ -811,7 +811,7 @@ function Scatter({
         strokeOpacity="0.4"
       />
       {(referenceLines ?? []).map((ref, i) => {
-        const stroke = 'var(--nh-orange, #ff6600)';
+        const stroke = 'var(--nh-orange, #e65100)';
         if (ref.kind === 'horizontal') {
           return (
             <line
@@ -1231,7 +1231,7 @@ interface PreviewProps {
 // alone, before the eye resolves the glyph shape; shape (exclam
 // vs. question) is the secondary cue. `#a16207` clears WCAG AA
 // non-text contrast on the white row background and sits clearly
-// outside HN's brand orange (`#ff6600`) in hue.
+// outside the brand orange (`#e65100`) in hue.
 const DIFF_ICON_LOOSEN_COLOR = '#d32f2f';
 const DIFF_ICON_TIGHTEN_COLOR = '#a16207';
 

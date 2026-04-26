@@ -102,7 +102,7 @@
     background: var(--nh-pressed);
   }
   .edit-avatar-form__btn--primary:hover {
-    background: #e65c00;
+    background: var(--nh-orange-dark);
   }
 }
 
@@ -111,7 +111,7 @@
 }
 
 .edit-avatar-form__btn--primary:active {
-  background: #cc5200;
+  background: var(--nh-orange-dark);
 }
 
 .edit-avatar-form__btn:disabled {

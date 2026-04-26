@@ -68,14 +68,6 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   known color regardless of theme.
   Only matters for iOS-installed PWAs; defer until someone actually
   uses the app that way.
-- **Swap HN orange (`#ff6600`) to a non-HN hex if we want a distinct
-  brand.** Today `--nh-orange` is HN's exact orange, used for the
-  logo disc, focus rings, and accents. Replacing it is a one-token
-  swap (plus a favicon re-rasterize and a manifest `theme_color`
-  update to match) — easy to land independently once a preferred
-  hex is chosen. Candidates surveyed in chat: Tailwind orange-500
-  (`#f97316`), orange-600 (`#ea580c`), orange-700 / "Burnt"
-  (`#c2410c`).
 
 ## Optimistic-action feedback
 
