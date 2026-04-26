@@ -28,7 +28,7 @@ We achieve that by:
 
 - Mobile-first responsive layout; also usable on desktop.
 - Fast, minimal-JS bundle; good Lighthouse scores.
-- Cream background and compact typography reminiscent of HN, with HN orange (`#ff6600`) reserved for the logo mark (a white "n" on an orange tile with a home-indicator pill at the bottom) and accents rather than painting the whole header. The sticky header uses the page surface tokens (`--nh-bg` / `--nh-text`) so the bar, the body, and the mobile browser URL-bar tint all agree. Tap targets are **fewer, larger, better-spaced** than HN's own mobile site.
+- Cream background and compact typography reminiscent of HN, with brand orange (`#ef5f00`, a slightly darker shade than HN's `#ff6600` so we don't read as a clone) reserved for the logo mark (a white "n" on an orange tile with a home-indicator pill at the bottom) and accents rather than painting the whole header. The sticky header uses the page surface tokens (`--nh-bg` / `--nh-text`) so the bar, the body, and the mobile browser URL-bar tint all agree. Tap targets are **fewer, larger, better-spaced** than HN's own mobile site.
 - Read the main HN story feeds (top, new, best, ask, show, jobs).
 - View a story's comment thread (read-only for MVP).
 - Optional: log in and upvote stories via HN's existing web endpoints (from the thread page action bar; the story rows stay a two-tap-zone read surface).
@@ -705,7 +705,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 ## Visual Design
 
-- Primary color: `#ff6600` (HN orange) — reserved for the logo mark (the "n" on an orange tile with a home-indicator pill at the bottom, in the header and the favicon/PWA icon), focus rings, and accents. The sticky header bar itself uses `--nh-bg` / `--nh-text` (cream / near-black) so the bar, the page body, and the mobile browser's URL-bar tint all read as a single surface.
+- Primary color: `#ef5f00` (newshacker brand orange — a slightly darker shade of HN's `#ff6600`, deliberately distinct so we don't read as a clone) — reserved for the logo mark (the "n" on an orange tile with a home-indicator pill at the bottom, in the header and the favicon/PWA icon), focus rings, and accents. The sticky header bar itself uses `--nh-bg` / `--nh-text` (cream / near-black) so the bar, the page body, and the mobile browser's URL-bar tint all read as a single surface.
 - Background: `#f6f6ef` (HN cream) for the page, white for cards/rows.
 - Text: `#000` primary, `#5a5a5a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it.
 - Font stack: system UI (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`). HN's Verdana looks dated on mobile; we use system.
@@ -789,7 +789,7 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 - Semantic HTML (`<main>`, `<nav>`, `<article>`).
 - Visible focus styles.
 - `prefers-reduced-motion` respected for the collapse animation and the tooltip fade-in.
-- Color contrast ≥ 4.5:1 for body text. HN orange `#ff6600` hits only 3.14:1 on white, so it's never used for body text — only as a background behind white glyphs (the logo tile behind the white "n"), as an outline color (focus rings, borders, the Classic preset's disc ring), or as the *wordmark* in the Duo preset. WCAG 1.4.3 exempts logotypes from the text-contrast minimum, and "newshacker" in the header is the wordmark side of the logo, not running text — the 3:1 non-text threshold applies instead, which `#ff6600` on `--nh-bg` clears in both light and dark modes.
+- Color contrast ≥ 4.5:1 for body text. Brand orange `#ef5f00` hits only ~3.3:1 on white, so it's never used for body text — only as a background behind white glyphs (the logo tile behind the white "n"), as an outline color (focus rings, borders, the Classic preset's disc ring), or as the *wordmark* in the Duo preset. WCAG 1.4.3 exempts logotypes from the text-contrast minimum, and "newshacker" in the header is the wordmark side of the logo, not running text — the 3:1 non-text threshold applies instead, which `#ef5f00` on `--nh-bg` clears in both light and dark modes.
 - Every icon-only `<button>` has an accessible name — either via `aria-label` or a `visually-hidden` caption inside the button. The long-press tooltip (see *Visual Design*) is visual-only; screen readers rely on the accessible name, not the transient tooltip DOM.
 
 ## Performance Targets
@@ -816,7 +816,7 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 newshacker is installable as a Progressive Web App on desktop and mobile, and supports offline reading of previously-seen content.
 
 ### Install identity
-- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ff6600`, background `#f6f6ef`, `display: standalone`, `start_url: /` (matches the *Routes* table — `/` is the home and renders Top inline; an installed PWA cold launch lands there too instead of diverging onto `/top`).
+- Web app manifest (via `vite-plugin-pwa`): name "newshacker", theme `#ef5f00`, background `#f6f6ef`, `display: standalone`, `start_url: /` (matches the *Routes* table — `/` is the home and renders Top inline; an installed PWA cold launch lands there too instead of diverging onto `/top`).
 - Icons (generated once by `scripts/generate-icons.mjs`, checked into `public/`): `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` (180), `favicon.svg`, `favicon-maskable.svg`, `favicon-32.png`. The mark is an orange rounded-square tile with a white "n" biased toward the top and a small white home-indicator pill near the bottom edge — the iOS / Android gesture bar people see every day, so the "mobile-first" signal is in the mark, not just the copy. At favicon scale the pill survives as a thin horizontal stroke; at 192/512 it reads plainly. Can never be mistaken for the HN `Y` logo. The maskable variant is rasterized from a separate `favicon-maskable.svg` that uses a full-bleed orange tile (no rounded corners, since the launcher applies its own shape mask) and pulls the glyph + pill into the 80% adaptive-icon safe zone so aggressive OEM crops can't clip them.
 - `index.html` declares the manifest, apple-touch-icon, and `apple-mobile-web-app-*` meta tags so iOS home-screen installs get a native-feeling shell.
 
