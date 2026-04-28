@@ -220,26 +220,45 @@ export async function checkRateLimit(
 
 let defaultRateLimitStore: RateLimitStore | null | undefined;
 
+// Pipeline-shaped subset of @upstash/redis that the rate-limit store
+// actually uses. See api/summary.ts for the parallel definition; kept
+// duplicated per AGENTS.md § "Vercel api/ gotchas".
+export interface RateLimitPipeline {
+  incr(key: string): RateLimitPipeline;
+  expire(key: string, seconds: number, option: 'NX'): RateLimitPipeline;
+  exec<T extends unknown[]>(): Promise<T>;
+}
+export interface RateLimitRedis {
+  pipeline(): RateLimitPipeline;
+}
+
+export function createRedisRateLimitStore(
+  redis: RateLimitRedis,
+): RateLimitStore {
+  return {
+    async incrementWithExpiry(key: string, windowSeconds: number) {
+      // Atomic INCR + EXPIRE-NX. See api/summary.ts for the full
+      // rationale: every increment proposes a TTL via EXPIRE NX so a
+      // single missed EXPIRE can't strand the key without an expiry,
+      // and the NX guard preserves fixed-window semantics by not
+      // resetting the TTL on subsequent hits in the same window.
+      const [count] = await redis
+        .pipeline()
+        .incr(key)
+        .expire(key, windowSeconds, 'NX')
+        .exec<[number, 0 | 1]>();
+      return count;
+    },
+  };
+}
+
 function createDefaultRateLimitStore(): RateLimitStore | null {
   const url =
     process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
   const token =
     process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
-  const redis = new Redis({ url, token });
-  return {
-    async incrementWithExpiry(key: string, windowSeconds: number) {
-      const count = await redis.incr(key);
-      if (count === 1) {
-        try {
-          await redis.expire(key, windowSeconds);
-        } catch {
-          // Best-effort — see api/summary.ts for the full rationale.
-        }
-      }
-      return count;
-    },
-  };
+  return createRedisRateLimitStore(new Redis({ url, token }));
 }
 
 function getDefaultRateLimitStore(): RateLimitStore | null {
