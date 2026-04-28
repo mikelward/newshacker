@@ -38,8 +38,10 @@ describe('<Comment> expand/collapse icon affordance', () => {
     const icon = toggle.querySelector('.comment__toggle-icon');
     expect(icon).not.toBeNull();
     expect(icon).toHaveAttribute('data-expanded', 'false');
-    // Collapsed state renders the "add" (+) icon — the meta-text span
-    // sits before the icon so the +/− lands at the end of the line.
+    // Collapsed state renders the "add" (+) icon — the toggle button
+    // is icon-only (the meta sits in its own .comment__meta sibling
+    // earlier in the footer row), so the icon is the last (and only)
+    // child of the toggle.
     const iconParent = icon!.parentElement as HTMLElement;
     const children = Array.from(iconParent.children);
     expect(children[children.length - 1]).toBe(icon);

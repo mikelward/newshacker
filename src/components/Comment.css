@@ -1,12 +1,15 @@
 .comment {
-  /* Asymmetric on purpose: the trailing .comment__header's author
-     and toggle buttons carry an internal 4px vertical padding (for
-     tap-target height), so a 4px padding-bottom here plus that 4px
-     internal padding visually matches the 8px gap above the body
-     text. Using symmetric 10/10 made the bottom gap read noticeably
-     larger than the top. The padding-bottom value comes from
-     --comment-stack-gap so it stays locked to .comment__children's
-     margin-top below — see global.css for the pairing rationale. */
+  /* Asymmetric vertical padding on purpose. The top edge sits
+     directly above body text and reads best with a comfortable 8px
+     gap. The bottom edge sits below the footer row, whose toggle and
+     toolbar buttons each carry 10px of internal vertical padding for
+     tap-target height — that internal padding already provides
+     substantial visual breathing room below the icons, so a smaller
+     card padding-bottom keeps the bottom from reading heavier than
+     the top. Symmetric 8/8 (or 10/10) made the bottom feel weighted.
+     The padding-bottom value comes from --comment-stack-gap so it
+     stays locked to .comment__children's margin-top below — see
+     global.css for the pairing rationale. */
   padding: 8px var(--comment-gutter) var(--comment-stack-gap);
   border-top: 1px solid var(--nh-border);
   background: var(--nh-bg-card);
@@ -20,13 +23,31 @@
   cursor: default;
 }
 
-.comment__header {
+/* Bottom action row of the card: meta comes first and flexes to
+   fill the left side, the optional toolbar (upvote/downvote/reply,
+   expanded only) sits to the right of the meta, and the expand/
+   collapse toggle is pinned to the far right. The four icons (three
+   in the toolbar plus the toggle) are grouped in the right-hand
+   corner, with an 8px gap between the toolbar and the toggle so the
+   collapse reads as a distinct control rather than a fourth action.
+   The toggle stays at the bottom of the .comment block, so when the
+   comment expands and the body un-clamps + children render below,
+   the button visually moves down with the growing card. */
+.comment__footer {
   display: flex;
-  align-items: baseline;
-  margin-top: 0;
+  align-items: center;
+  gap: 8px;
   padding-left: 1px;
   font-size: 13px;
   color: var(--nh-meta);
+}
+
+.comment__meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .comment__author {
@@ -39,54 +60,6 @@
 @media (hover: hover) {
   .comment__author:hover {
     text-decoration: underline;
-  }
-}
-
-.comment__toggle {
-  /* Content-sized (not flex: 1) so the +/− icon inside sits
-     immediately after the last meta piece — "12 replies [+]" —
-     rather than being pushed to the far right of a stretched
-     button. Reply and vote actions live below the header in the
-     `.comment__toolbar` strip, so nothing needs the right edge of
-     this row. */
-  padding: 4px 2px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.comment__toggle-text {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* +/− expand icon, rendered immediately after the meta text.
-   Visible on every device so the control is obvious regardless of
-   whether the reader taps the card body or aims for the icon. */
-.comment__toggle-icon {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--nh-meta);
-}
-
-.comment__toggle-icon svg {
-  display: block;
-}
-
-@media (hover: hover) {
-  .comment__toggle:hover .comment__toggle-icon {
-    color: var(--nh-text);
   }
 }
 
@@ -128,17 +101,17 @@
   margin-bottom: 0;
 }
 
-/* Thin borderless action strip at the bottom of an expanded comment.
-   Sits between the meta row and the nested replies so the primary
-   per-comment actions (vote up/down, reply) are reachable without
-   leaving the card. Borderless on purpose — the strip reads as a
-   single toolbar rather than a row of separate controls. */
+/* Thin borderless action toolbar on the right side of the footer
+   row, between the flex-filling meta and the far-right toggle.
+   Present only when the comment is expanded. Borderless on purpose
+   — the strip reads as a single toolbar rather than a row of
+   separate controls. */
 .comment__toolbar {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-top: 4px;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .comment__toolbar-button {
@@ -216,6 +189,58 @@
   background: transparent;
 }
 
+/* Expand/collapse button at the bottom-right of the card. Same
+   tap-target shape as the toolbar buttons (min 44×44, 10/12 padding,
+   borderless background, hover/active feedback) so the four icons
+   on an expanded card read as one consistent action row. */
+.comment__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--nh-meta);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  /* Pin to the right edge regardless of whether the toolbar is
+     present (expanded) or absent (collapsed). With `flex: 1` on
+     .comment__meta this is technically redundant, but stating the
+     intent here keeps the layout robust if the meta is ever empty
+     (e.g. a comment with no author and no age). */
+  margin-left: auto;
+}
+
+@media (hover: hover) {
+  .comment__toggle:hover {
+    color: var(--nh-text);
+    background: var(--nh-pressed);
+  }
+}
+
+.comment__toggle:active {
+  background: var(--nh-border);
+}
+
+.comment__toggle:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
+}
+
+.comment__toggle-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.comment__toggle-icon svg {
+  display: block;
+}
+
 .comment__children {
   /* --comment-stack-gap matches .comment's padding-bottom: the
      parent's padding-bottom only takes effect after all children, so
@@ -240,6 +265,6 @@
   list-style: none;
 }
 
-.comment--loading .comment__header {
+.comment--loading .comment__footer {
   opacity: 0.6;
 }

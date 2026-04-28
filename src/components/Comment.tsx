@@ -83,8 +83,10 @@ export function Comment({ id, defaultExpanded = false }: Props) {
         className="comment comment--loading"
         aria-busy="true"
       >
-        <div className="comment__header">
-          <span className="comment__author">…</span>
+        <div className="comment__footer">
+          <div className="comment__meta">
+            <span className="comment__author">…</span>
+          </div>
         </div>
       </div>
     );
@@ -129,7 +131,7 @@ export function Comment({ id, defaultExpanded = false }: Props) {
       `${kids.length} ${pluralize(kids.length, 'reply', 'replies')}`,
     );
   }
-  const metaSuffix = metaParts.length ? ` · ${metaParts.join(' · ')}` : '';
+  const metaTail = metaParts.join(' · ');
 
   return (
     <div
@@ -146,12 +148,82 @@ export function Comment({ id, defaultExpanded = false }: Props) {
         onClick={handleLinkClick}
         dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(item.text) }}
       />
-      <div className="comment__header">
-        {item.by ? (
-          <Link to={`/user/${item.by}`} className="comment__author">
-            {item.by}
-          </Link>
+      <div className="comment__footer">
+        <div className="comment__meta">
+          {item.by ? (
+            <Link to={`/user/${item.by}`} className="comment__author">
+              {item.by}
+            </Link>
+          ) : null}
+          {metaTail ? (
+            <span className="comment__meta-suffix">
+              {item.by ? ` · ${metaTail}` : metaTail}
+            </span>
+          ) : null}
+        </div>
+        {isExpanded ? (
+          <div
+            className="comment__toolbar"
+            onClick={(e) => {
+              // Keeps a tap on the strip's dead space between buttons
+              // from reaching the row's toggle handler and collapsing
+              // the comment. Button/link taps already bail out via the
+              // row's closest('a, button') guard.
+              e.stopPropagation();
+            }}
+          >
+            <TooltipButton
+              type="button"
+              className={
+                'comment__toolbar-button' +
+                (voted ? ' comment__toolbar-button--active' : '')
+              }
+              tooltip={voted ? 'Unvote' : 'Upvote'}
+              aria-label={voted ? 'Unvote' : 'Upvote'}
+              aria-pressed={voted}
+              data-testid="comment-upvote"
+              onClick={() => toggleVote(id)}
+            >
+              <ToolbarUpArrowIcon />
+            </TooltipButton>
+            {/* Downvote — HN gates the `how=down` anchor behind ~500
+                karma and some per-item rules (own posts, etc). For
+                low-karma viewers the scrape step in /api/vote returns
+                502 and useVote surfaces a toast. We don't pre-check
+                that; it would cost an extra item-page fetch per
+                render for a minority case. */}
+            <TooltipButton
+              type="button"
+              className={
+                'comment__toolbar-button' +
+                (downvoted ? ' comment__toolbar-button--active' : '')
+              }
+              tooltip={downvoted ? 'Undownvote' : 'Downvote'}
+              aria-label={downvoted ? 'Undownvote' : 'Downvote'}
+              aria-pressed={downvoted}
+              data-testid="comment-downvote"
+              onClick={() => toggleDownvote(id)}
+            >
+              <ToolbarDownArrowIcon />
+            </TooltipButton>
+            <a
+              className="comment__toolbar-button"
+              href={`https://news.ycombinator.com/reply?id=${id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Reply on HN"
+              title="Reply on HN"
+              data-testid="comment-reply"
+            >
+              <ToolbarReplyIcon />
+            </a>
+          </div>
         ) : null}
+        {/* Expand/collapse pinned to the bottom-right of the card.
+            Material Symbols `add`/`remove` so collapsed → "+" and
+            expanded → "−"; visible on every device so the control
+            is obvious regardless of whether the reader tries to
+            tap the card body or aim for the icon. */}
         <button
           type="button"
           className="comment__toggle"
@@ -159,12 +231,6 @@ export function Comment({ id, defaultExpanded = false }: Props) {
           aria-label={isExpanded ? 'Collapse comment' : 'Expand comment'}
           onClick={toggle}
         >
-          <span className="comment__toggle-text">{metaSuffix}</span>
-          {/* Expand/collapse affordance at the end of the meta line.
-              Material Symbols `add`/`remove` so collapsed → "+" and
-              expanded → "−"; visible on every device so the control
-              is obvious regardless of whether the reader tries to
-              tap the card body or aim for the icon. */}
           <span
             className="comment__toggle-icon"
             data-expanded={isExpanded ? 'true' : 'false'}
@@ -186,64 +252,6 @@ export function Comment({ id, defaultExpanded = false }: Props) {
           </span>
         </button>
       </div>
-      {isExpanded ? (
-        <div
-          className="comment__toolbar"
-          onClick={(e) => {
-            // Keeps a tap on the strip's dead space between buttons
-            // from reaching the row's toggle handler and collapsing
-            // the comment. Button/link taps already bail out via the
-            // row's closest('a, button') guard.
-            e.stopPropagation();
-          }}
-        >
-          <TooltipButton
-            type="button"
-            className={
-              'comment__toolbar-button' +
-              (voted ? ' comment__toolbar-button--active' : '')
-            }
-            tooltip={voted ? 'Unvote' : 'Upvote'}
-            aria-label={voted ? 'Unvote' : 'Upvote'}
-            aria-pressed={voted}
-            data-testid="comment-upvote"
-            onClick={() => toggleVote(id)}
-          >
-            <ToolbarUpArrowIcon />
-          </TooltipButton>
-          {/* Downvote — HN gates the `how=down` anchor behind ~500
-              karma and some per-item rules (own posts, etc). For
-              low-karma viewers the scrape step in /api/vote returns
-              502 and useVote surfaces a toast. We don't pre-check
-              that; it would cost an extra item-page fetch per
-              render for a minority case. */}
-          <TooltipButton
-            type="button"
-            className={
-              'comment__toolbar-button' +
-              (downvoted ? ' comment__toolbar-button--active' : '')
-            }
-            tooltip={downvoted ? 'Undownvote' : 'Downvote'}
-            aria-label={downvoted ? 'Undownvote' : 'Downvote'}
-            aria-pressed={downvoted}
-            data-testid="comment-downvote"
-            onClick={() => toggleDownvote(id)}
-          >
-            <ToolbarDownArrowIcon />
-          </TooltipButton>
-          <a
-            className="comment__toolbar-button"
-            href={`https://news.ycombinator.com/reply?id=${id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Reply on HN"
-            title="Reply on HN"
-            data-testid="comment-reply"
-          >
-            <ToolbarReplyIcon />
-          </a>
-        </div>
-      ) : null}
       {hasReplies && isExpanded ? (
         <ol className="comment__children">
           {kids.map((kidId) => (

@@ -639,35 +639,51 @@ Naming convention for share entries: a noun ("Share **article**") names *what* i
 
 ## Comment row layout
 
-Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, and the action toolbar's upvote / downvote / **Reply on HN** buttons on expanded comments) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors. The toolbar's own wrapper stops propagation too, so a tap in the strip's dead space between buttons doesn't leak up to the row and collapse the comment.
+Comments match the "fewer tap targets" rule: the whole row is one tap zone that toggles expand/collapse. Interactive children (the author link, the bottom-right expand/collapse button, and on expanded comments the upvote / downvote / **Reply on HN** buttons) keep their own tap behavior via a `closest('a, button')` bail-out in the row's click handler; the row handler also stops propagation so tapping a nested reply only expands that reply, not its ancestors. The toolbar's own wrapper stops propagation too, so a tap in the strip's dead space between buttons doesn't leak up to the row and collapse the comment.
+
+Collapsed state (default):
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ First three lines of the comment body are shown here     │
 │ as a preview, clipped with an ellipsis if longer than    │
 │ three lines…                                             │
-│ alice · 4m · 12 replies                                  │
+│ alice · 4m · 12 replies                              [+] │
 └──────────────────────────────────────────────────────────┘
 ```
 
-Collapsed state (default):
-
-- Body clamped to 3 lines (CSS `-webkit-line-clamp: 3`), 15px to match the AI summary card.
-- Meta row sits directly **below** the body: author link, then plain text " · age · N replies" (reply count omitted when there are none), all on one baseline at 13px. The meta row hugs the body above it (no `margin-top`; the toggle button's own 4px top padding is the only gap) so it reads as belonging to the comment it follows, not the one below. The comment's vertical padding is asymmetric on purpose — `8px` top / `--comment-stack-gap` bottom — because the meta row's author and toggle buttons each carry an internal 4px vertical padding for tap-target height; a 4px card `padding-bottom` plus that 4px button padding visually matches the 8px gap above the body text, and a symmetric 10/10 used to read as noticeably heavier on the bottom. The gap between any two comment borders — whether the next comment is a sibling or the first nested reply — comes from the same `--comment-stack-gap` token, used by both `.comment`'s padding-bottom (sibling case) and `.comment__children`'s margin-top (nested case), so the two transitions can't drift apart. Tune the rhythm in one place.
-- Horizontal gutter is a single `--comment-gutter` token (12px) applied as `.comment`'s left and right padding. `.comment__children`'s horizontal margin is **asymmetric** on purpose: `margin-left` is 0 (so a nested reply sits inside the parent's left padding, and stacked left indents are the visual cue for reply depth), and `margin-right` is `calc(var(--comment-gutter) * -1)` (so the nested list pulls back out of the parent's right padding and reaches the thread's right edge). Without the negative right margin, each nesting level would shrink the reading column by another gutter on the right, compounding into a lopsided right-hand margin that has nothing to do with depth. The left indent accumulates with nesting; the right gutter stays constant.
-- No action row, no children.
-- Cursor is `pointer`.
-
 Expanded state:
 
-- Background tints to `--nh-pressed` so the active node stands out in a long thread.
-- Body shows in full.
-- A thin borderless action toolbar appears below the meta row and above the nested replies. Left-to-right it carries **Upvote** (▲), **Downvote** (▼), and **Reply on HN** (`news.ycombinator.com/reply?id=:id`, opens in a new tab). Upvote and Downvote share the thread action bar's optimistic-vote path: tapping flips local state immediately, POSTs `/api/vote` in the background, and rolls back + toasts on failure. The voted button paints in `--nh-orange` (shape stays solid — HN's own shape+color convention, matching the story vote button). Switching direction (up → down, or down → up) chains two API hits — `un` then the new direction — because HN models it that way; if the second leg fails after a successful `un` the UI lands at neutral locally rather than restoring the original direction, so the client can't display a vote HN no longer has. Reply is a working link that hands off to HN (newshacker doesn't submit comments itself). Buttons have no individual borders — the strip reads as a single toolbar rather than a row of separate controls — and each is ≥44×44px so the icons stay tappable. Each icon button carries a tooltip + `aria-label` (icon-only buttons need an accessible name; the tooltip is visual-only).
-- **Downvote is karma-gated and time-windowed by HN.** The `how=down` anchor is only rendered on HN's item page for viewers above a karma threshold (historically ~500) and not for the viewer's own posts, and HN also stops rendering the downvote anchor once a comment is past its downvote window (comments are only downvotable for a limited time after posting; HN's exact threshold is undocumented). For any of these cases the scrape step in `/api/vote` returns 502 (the expected anchor is absent) and the hook toasts. We deliberately don't pre-check any of this — it would cost an extra item-page fetch per Downvote button render for a minority case — and we also don't try to distinguish karma-gate from too-old from a genuine HN error in the toast; the user sees an action-specific message ("Downvote unavailable on this item. It may be too old, your karma may not qualify, or you may have already voted.") that they can act on, without us pretending to know which of the causes applies. Historically the toast surfaced the raw "Could not find vote link on Hacker News item page" scraper message, which was accurate but unhelpful; the handler now returns a reader-friendly string per `how`.
-- Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
-- Cursor reverts to `default` (reading state).
+```
+┌──────────────────────────────────────────────────────────┐
+│ Full comment body, un-clamped, wraps to as many lines    │
+│ as the comment actually needs.                           │
+│ alice · 4m · 12 replies              [↑] [↓] [↩]    [−] │
+│   ┌────────────────────────────────────────────────────┐ │
+│   │ nested reply (collapsed, 3-line preview)           │ │
+│   └────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
 
-A real `<button>` inside the meta row carries `aria-expanded` and the keyboard-accessible `Expand comment` / `Collapse comment` label, even though on-screen it just reads as the plain meta text.
+The card has a single bottom **footer row** (`.comment__footer`) with three slots, in order:
+
+1. **Meta** (left, always). `flex: 1` so it absorbs the row's free space and ellipses on narrow viewports / deeply nested replies. Author link in `--nh-meta` weight 600, then plain text " · age · N replies" (reply count omitted when there are none), all on one 13px baseline. Sits on the bottom-left of the card — the same position the meta has always occupied.
+2. **Action toolbar** (right of meta, expanded only). Three icon buttons in this order: **Upvote** (▲), **Downvote** (▼), **Reply on HN** (`news.ycombinator.com/reply?id=:id`, opens in a new tab). Hidden entirely when the comment is collapsed. Reply is a working link that hands off to HN (newshacker doesn't submit comments itself). Buttons have no individual borders — the strip reads as a single toolbar rather than a row of separate controls — and each is ≥44×44px so the icons stay tappable. Each carries a tooltip + `aria-label`. The four icons (these three + the toggle) sit together in the right-hand corner of the card so the action affordances are grouped, with an 8px gap separating the toolbar from the toggle so the expand/collapse reads as a distinct control rather than a fourth action.
+3. **Expand/collapse toggle** (far right, always). Real `<button>` carrying `aria-expanded` and the keyboard-accessible `Expand comment` / `Collapse comment` label. Same 44×44 tap-target shape as the toolbar buttons. Pinned to the right via the meta's `flex: 1` (and a `margin-left: auto` belt-and-braces in case the meta is ever empty). The button stays at the bottom of the `.comment` block, so when the comment expands and the body un-clamps + children render below, the toggle visually moves down with the growing card.
+
+Card behavior:
+
+- **Body** clamped to 3 lines collapsed (CSS `-webkit-line-clamp: 3`) at 15px to match the AI summary card; un-clamped when expanded.
+- **Background** tints to `--nh-pressed` on the expanded comment so the active node stands out in a long thread.
+- **Cursor** is `pointer` collapsed and `default` (reading state) when expanded.
+- **Vote behavior.** Upvote and Downvote share the thread action bar's optimistic-vote path: tapping flips local state immediately, POSTs `/api/vote` in the background, and rolls back + toasts on failure. The voted button paints in `--nh-orange` (shape stays solid — HN's own shape+color convention, matching the story vote button). Switching direction (up → down, or down → up) chains two API hits — `un` then the new direction — because HN models it that way; if the second leg fails after a successful `un` the UI lands at neutral locally rather than restoring the original direction, so the client can't display a vote HN no longer has.
+- **Downvote is karma-gated and time-windowed by HN.** The `how=down` anchor is only rendered on HN's item page for viewers above a karma threshold (historically ~500) and not for the viewer's own posts, and HN also stops rendering the downvote anchor once a comment is past its downvote window (comments are only downvotable for a limited time after posting; HN's exact threshold is undocumented). For any of these cases the scrape step in `/api/vote` returns 502 (the expected anchor is absent) and the hook toasts. We deliberately don't pre-check any of this — it would cost an extra item-page fetch per Downvote button render for a minority case — and we also don't try to distinguish karma-gate from too-old from a genuine HN error in the toast; the user sees an action-specific message ("Downvote unavailable on this item. It may be too old, your karma may not qualify, or you may have already voted.") that they can act on, without us pretending to know which of the causes applies. Historically the toast surfaced the raw "Could not find vote link on Hacker News item page" scraper message, which was accurate but unhelpful; the handler now returns a reader-friendly string per `how`.
+- **Children.** Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
+
+Spacing tokens:
+
+- The comment's vertical padding is asymmetric on purpose — `8px` top / `--comment-stack-gap` bottom. The top edge sits directly above body text and reads best with a comfortable 8px gap; the bottom edge sits below the footer row, whose toggle and toolbar buttons each carry 10px of internal vertical padding for tap-target height. That internal padding already provides substantial visual breathing room below the icons, so a smaller card `padding-bottom` keeps the bottom from reading heavier than the top — symmetric 8/8 (or 10/10) made the bottom feel weighted. The gap between any two comment borders — whether the next comment is a sibling or the first nested reply — comes from the same `--comment-stack-gap` token, used by both `.comment`'s padding-bottom (sibling case) and `.comment__children`'s margin-top (nested case), so the two transitions can't drift apart. Tune the rhythm in one place.
+- Horizontal gutter is a single `--comment-gutter` token (12px) applied as `.comment`'s left and right padding. `.comment__children`'s horizontal margin is **asymmetric** on purpose: `margin-left` is 0 (so a nested reply sits inside the parent's left padding, and stacked left indents are the visual cue for reply depth), and `margin-right` is `calc(var(--comment-gutter) * -1)` (so the nested list pulls back out of the parent's right padding and reaches the thread's right edge). Without the negative right margin, each nesting level would shrink the reading column by another gutter on the right, compounding into a lopsided right-hand margin that has nothing to do with depth. The left indent accumulates with nesting; the right gutter stays constant.
 
 Deleted, dead, and empty comments are not rendered at all — including their subtrees — so a thread never shows "[deleted]" placeholder rows.
 
@@ -717,7 +733,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all thre
 
 - **Right-click opens the row menu on desktop** — the mouse equivalent of the touch long-press on a story row. Gated on `(hover: hover)` so mobile touch long-press (which already opens the menu via our swipe/long-press hook) isn't double-triggered by the synthetic `contextmenu` some mobile browsers still fire. The anchor is the row itself. Whether the menu came from a right-click or a long-press, it renders as the anchored popover described under *Thread action bar* — the popover is the default on both pointer and touch devices.
 
-- **Comment-card +/− expand icon (all devices).** Each comment row's meta line ends with a small +/− icon (Material Symbols `add` when collapsed, `remove` when expanded) right after the reply count. Visible on every device so the expand/collapse control is obvious regardless of whether the reader taps the card body or aims for the icon. Using +/− rather than a chevron keeps the affordance neutral on both orientations and leaves room to iterate on the exact shape later — see `TODO.md § Desktop layout` for the open question of whether a chevron or directional expand icon would read better once we have usage data.
+- **Comment-card +/− expand icon (all devices).** Each comment card's footer row carries a small +/− icon button (Material Symbols `add` when collapsed, `remove` when expanded) pinned to the bottom-right. Visible on every device so the expand/collapse control is obvious regardless of whether the reader taps the card body or aims for the icon. Using +/− rather than a chevron keeps the affordance neutral on both orientations and leaves room to iterate on the exact shape later — see `TODO.md § Desktop layout` for the open question of whether a chevron or directional expand icon would read better once we have usage data.
 
 ## Threshold tuning telemetry
 
