@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DebugPage } from './DebugPage';
 import { renderWithProviders } from '../test/renderUtils';
@@ -179,33 +179,65 @@ describe('<DebugPage>', () => {
     // (empty string → "unknown") is covered by the next test, which
     // mocks `../lib/buildInfo` directly.
     vi.useFakeTimers();
-    // Pin "now" 2 hours after the fixed commit time so the relative age
-    // is a stable "2h ago".
-    vi.setSystemTime(new Date('2026-01-01T02:00:00.000Z'));
+    try {
+      // Pin "now" 2 hours after the fixed commit time so the relative age
+      // is a stable "2h ago".
+      vi.setSystemTime(new Date('2026-01-01T02:00:00.000Z'));
 
-    mockStatus({
-      region: 'iad1',
-      build: 'abc1234def5678',
-      services: {
-        gemini: { configured: false },
-        jina: { configured: false },
-        redis: { configured: false },
-        sync: { configured: false },
-      },
-    });
-    renderWithProviders(<DebugPage />, { route: '/debug' });
+      mockStatus({
+        region: 'iad1',
+        build: 'abc1234def5678',
+        services: {
+          gemini: { configured: false },
+          jina: { configured: false },
+          redis: { configured: false },
+          sync: { configured: false },
+        },
+      });
+      renderWithProviders(<DebugPage />, { route: '/debug' });
 
-    await vi.waitFor(() => {
-      expect(screen.getByText('Built')).toBeInTheDocument();
-    });
-    const builtRow = screen.getByText('Built').closest('div');
-    expect(builtRow).not.toBeNull();
-    const timeEl = builtRow!.querySelector('time');
-    expect(timeEl).not.toBeNull();
-    expect(timeEl!.getAttribute('datetime')).toBe('2026-01-01T00:00:00.000Z');
-    expect(builtRow!.textContent).toMatch(/\(2h ago\)/);
+      await vi.waitFor(() => {
+        expect(screen.getByText('Built')).toBeInTheDocument();
+      });
+      const builtRow = screen.getByText('Built').closest('div');
+      expect(builtRow).not.toBeNull();
+      const timeEl = builtRow!.querySelector('time');
+      expect(timeEl).not.toBeNull();
+      expect(timeEl!.getAttribute('datetime')).toBe('2026-01-01T00:00:00.000Z');
+      expect(builtRow!.textContent).toMatch(/\(2h ago\)/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-    vi.useRealTimers();
+  it('updates the relative build age while the page stays open', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T02:00:00.000Z'));
+      mockStatus({
+        region: 'iad1',
+        build: 'abc1234def5678',
+        services: {
+          gemini: { configured: false },
+          jina: { configured: false },
+          redis: { configured: false },
+          sync: { configured: false },
+        },
+      });
+      renderWithProviders(<DebugPage />, { route: '/debug' });
+
+      await vi.waitFor(() => {
+        expect(screen.getByText(/\(2h ago\)/)).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(60 * 60 * 1000);
+      });
+
+      expect(screen.getByText(/\(3h ago\)/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows "unknown" when the build commit time is empty', async () => {
