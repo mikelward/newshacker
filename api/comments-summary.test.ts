@@ -188,10 +188,18 @@ describe('handleCommentsSummaryRequest', () => {
 
   it('returns 503 when GOOGLE_API_KEY is unset', async () => {
     delete process.env.GOOGLE_API_KEY;
+    // Key check runs first, so no fetchItem fixture is needed — if the
+    // handler ever reaches the story fetch in this branch, that's the
+    // bug.
+    const fetchItem = vi.fn(async () => {
+      throw new Error('fetchItem should not be called when not_configured');
+    });
     const res = await handleCommentsSummaryRequest(makeRequest('1'), {
+      fetchItem,
       store: null,
     });
     expect(res.status).toBe(503);
+    expect(fetchItem).not.toHaveBeenCalled();
   });
 
   it('returns 404 when the story is missing / deleted / dead', async () => {
@@ -235,6 +243,96 @@ describe('handleCommentsSummaryRequest', () => {
         reason: 'low_score',
       });
     }
+  });
+
+  // Regression for the "cached summary bypasses current eligibility"
+  // bug: a story that was eligible when its insights were generated
+  // can later be deleted, killed, or drop below the score floor. The
+  // cached record is opaque about that, so the handler must re-check
+  // the live HN story before serving the cache.
+  it('does not serve cached insights when the story is now deleted', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      40,
+      {
+        insights: ['stale insight'],
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFrom({
+      40: { id: 40, type: 'story', deleted: true },
+    });
+    const res = await handleCommentsSummaryRequest(makeRequest('40'), {
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('does not serve cached insights when the story is now dead', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      41,
+      {
+        insights: ['stale insight'],
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFrom({
+      41: { id: 41, type: 'story', dead: true },
+    });
+    const res = await handleCommentsSummaryRequest(makeRequest('41'), {
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('does not serve cached insights when the story has dropped below the score floor', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      42,
+      {
+        insights: ['stale insight'],
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFrom({
+      42: {
+        id: 42,
+        type: 'story',
+        kids: [99],
+        time: OLD_STORY_TIME,
+        score: 1,
+      },
+    });
+    const res = await handleCommentsSummaryRequest(makeRequest('42'), {
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Story is not eligible for summary',
+      reason: 'low_score',
+    });
   });
 
   it('returns 404 when a story has no kids', async () => {
@@ -778,6 +876,15 @@ describe('handleCommentsSummaryRequest — rate limiting', () => {
       },
       60,
     );
+    const fetchItem = fetchItemFrom({
+      1: {
+        id: 1,
+        type: 'story',
+        kids: [99],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+    });
     const rateLimitStore = createTestRateLimitStore();
     const tiers: RateLimitTier[] = [
       { name: 'burst', limit: 1, windowSeconds: 600 },
@@ -786,6 +893,7 @@ describe('handleCommentsSummaryRequest — rate limiting', () => {
       const res = await handleCommentsSummaryRequest(
         makeRequest('1', { forwardedFor: '203.0.113.7' }),
         {
+          fetchItem,
           store,
           rateLimitStore,
           rateLimitTiers: tiers,
@@ -954,8 +1062,18 @@ describe('handleCommentsSummaryRequest — comments-summary-outcome log events',
       },
       60,
     );
+    const fetchItem = fetchItemFrom({
+      7: {
+        id: 7,
+        type: 'story',
+        kids: [99],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+    });
 
     const res = await handleCommentsSummaryRequest(makeRequest('7'), {
+      fetchItem,
       store,
     });
     expect(res.status).toBe(200);
