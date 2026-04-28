@@ -11,10 +11,21 @@ export const SUMMARY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 // for a newer one (React Query staleTime). 30 min matches the
 // warm-summaries cron's default check interval
 // (`WARM_REFRESH_CHECK_INTERVAL_SECONDS`, see CRON.md), so we never ask
-// for a version newer than what the cron could have produced. The
-// service worker's StaleWhileRevalidate makes the refetch itself a
-// no-latency operation in practice — we render from cache immediately
-// and quietly pick up any change.
+// for a version newer than what the cron could have produced.
+//
+// Interaction with the service worker's StaleWhileRevalidate: when
+// React Query refetches after staleTime expires, the SW returns the
+// *cached* response synchronously (which React Query then treats as
+// the latest answer for another staleTime window) and kicks off a
+// background revalidation that updates the SW cache. The newly-fetched
+// bytes are therefore only observed on the *next* React Query refetch
+// cycle, so worst-case visible lag is roughly 2× staleTime — not
+// "instant." That's fine for AI summaries, which change rarely and
+// don't need to be minute-fresh, but don't shorten staleTime expecting
+// SWR to close the gap: it won't, and you'd just double the request
+// volume to the SW. If a future feature needs tighter freshness
+// (live-updating summary, e.g.), switch that route's SW handler to
+// NetworkFirst so the refetch path actually sees the network response.
 export const SUMMARY_FRESHNESS_MS = 30 * 60 * 1000;
 
 export interface SummaryResult {
