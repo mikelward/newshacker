@@ -857,13 +857,19 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 `/api/summary` and `/api/comments-summary` use a **shared Redis store**
 (provisioned through Vercel's Storage Marketplace, which auto-injects
 `KV_REST_API_URL` / `KV_REST_API_TOKEN` into every deployment) as the
-cross-instance cache. The handler reads the key on entry and returns
-immediately on hit; on miss it generates via Gemini and writes the
-result. **Both article and comment summaries** live 30 days and rely
-on the cron for in-window freshness — the cron re-hashes the source
-(article body for `/api/summary`, top-20-transcript for
-`/api/comments-summary`) and only burns Gemini tokens when the hash
-changes. See *Scheduled warming and change analytics* below.
+cross-instance cache. The handler fetches the live HN item first to
+re-check eligibility (not deleted, not dead, score above the floor),
+then reads the cache key — a hit returns immediately, a miss generates
+via Gemini and writes the result. The eligibility re-check on every
+request keeps a story that has since been deleted, killed, or
+downvoted from continuing to serve its old cached summary while the
+30-day TTL runs out; the trade is one extra Firebase HN item fetch on
+the cache-hit path (free, ~100–300 ms p50, no $/month). **Both article
+and comment summaries** live 30 days and rely on the cron for
+in-window freshness — the cron re-hashes the source (article body for
+`/api/summary`, top-20-transcript for `/api/comments-summary`) and
+only burns Gemini tokens when the hash changes. See *Scheduled warming
+and change analytics* below.
 Reads from a
 function in the same AWS region as the Redis primary are single-digit
 ms — fast enough that the per-instance in-memory `Map` we used to keep

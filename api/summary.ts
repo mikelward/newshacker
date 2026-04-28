@@ -859,31 +859,16 @@ export async function handleSummaryRequest(
     return json({ error: 'Invalid id parameter' }, 400);
   }
 
-  const store =
-    deps.store === undefined ? getDefaultStore() : deps.store;
-
-  if (store) {
-    // Fail-open at the handler layer too: if the store implementation
-    // forgets to catch (the default Upstash one does, but tests and
-    // future stores might not), KV trouble must not break the endpoint.
-    // Any record present means "return it" — freshness is owned by the
-    // cron, not by this read path.
-    try {
-      const cached = await store.get(storyId);
-      if (cached) {
-        emitSummaryOutcome('cached', storyId, undefined, {
-          chars: cached.summary.length,
-          ...(cached.paywalled !== undefined
-            ? { paywalled: cached.paywalled }
-            : {}),
-        });
-        return json({ summary: cached.summary, cached: true });
-      }
-    } catch {
-      // fall through to live generation
-    }
-  }
-
+  // Eligibility is checked BEFORE the cache lookup so a story that has
+  // since been deleted, killed, or fallen below the score floor stops
+  // serving its old cached summary immediately, instead of riding out
+  // the 30 d Upstash TTL. The extra Firebase HN item fetch on the
+  // cache-hit path is free (HN's API is unmetered for read traffic,
+  // ~100–300 ms p50, no $/month) — we accept that cost so the cache
+  // can never disagree with the live feed about eligibility. The new
+  // failure mode is "HN unreachable while cache is warm": previously
+  // the cached value would be returned, now we 502 along with the
+  // cache-miss path. Worth it to plug the staleness leak.
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
   let story: HNItem | null;
   try {
@@ -914,6 +899,32 @@ export async function handleSummaryRequest(
       400,
     );
   }
+
+  const store =
+    deps.store === undefined ? getDefaultStore() : deps.store;
+
+  if (store) {
+    // Fail-open at the handler layer too: if the store implementation
+    // forgets to catch (the default Upstash one does, but tests and
+    // future stores might not), KV trouble must not break the endpoint.
+    // Any record present means "return it" — freshness is owned by the
+    // cron, not by this read path.
+    try {
+      const cached = await store.get(storyId);
+      if (cached) {
+        emitSummaryOutcome('cached', storyId, undefined, {
+          chars: cached.summary.length,
+          ...(cached.paywalled !== undefined
+            ? { paywalled: cached.paywalled }
+            : {}),
+        });
+        return json({ summary: cached.summary, cached: true });
+      }
+    } catch {
+      // fall through to live generation
+    }
+  }
+
   const hasArticleUrl = !!story.url && isValidHttpUrl(story.url);
   const selfPostBody = hasArticleUrl
     ? ''

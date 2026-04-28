@@ -924,6 +924,116 @@ describe('handleSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
+  it('does not serve a cached summary for a now-deleted story', async () => {
+    // Regression: eligibility must be checked before the cache lookup, so
+    // a story that was successfully summarized and later deleted/flagged
+    // on HN stops serving its old cached summary immediately rather than
+    // riding out the 30 d Upstash TTL.
+    const articleUrl = 'https://example.com/deleted';
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      900,
+      {
+        summary: 'pre-deletion summary',
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFor({
+      900: {
+        id: 900,
+        type: 'story',
+        url: articleUrl,
+        score: 10,
+        deleted: true,
+      },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(900), {
+      createClient: () => client,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(404);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('does not serve a cached summary for a now-dead story', async () => {
+    const articleUrl = 'https://example.com/dead';
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      901,
+      {
+        summary: 'pre-flag summary',
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFor({
+      901: {
+        id: 901,
+        type: 'story',
+        url: articleUrl,
+        score: 10,
+        dead: true,
+      },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(901), {
+      createClient: () => client,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(404);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('does not serve a cached summary for a story whose score has dropped below the floor', async () => {
+    // The score floor is `> 1` — a downvoted/penalized story can drop to
+    // 1 (or even 0) after a summary is cached. Eligibility re-checks
+    // every request keep the cache from outliving the floor.
+    const articleUrl = 'https://example.com/sunk';
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      902,
+      {
+        summary: 'pre-flag summary',
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFor({
+      902: { id: 902, type: 'story', url: articleUrl, score: 1 },
+    });
+    const client = createFakeClient([]);
+    const res = await handleSummaryRequest(makeRequest(902), {
+      createClient: () => client,
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Story is not eligible for summary',
+      reason: 'low_score',
+    });
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
   it('parseRecord rejects legacy string entries and malformed objects', () => {
     // Pre-schema entries were plain strings; we treat them as absent so
     // the next hit writes a fresh record, which silently migrates them.
@@ -1198,6 +1308,11 @@ describe('handleSummaryRequest — rate limiting', () => {
       },
       60,
     );
+    // Eligibility is checked before the cache lookup, so the handler
+    // calls fetchItem on the cache-hit path too.
+    const fetchItem = fetchItemFor({
+      1: { id: 1, type: 'story', url: 'https://example.com/a', score: 10 },
+    });
     const rateLimitStore = createTestRateLimitStore();
     const tiers: RateLimitTier[] = [
       // Limit of 0 would block a live call, but the cache hit must not
@@ -1209,6 +1324,7 @@ describe('handleSummaryRequest — rate limiting', () => {
       const res = await handleSummaryRequest(
         makeRequest(1, { forwardedFor: '203.0.113.7' }),
         {
+          fetchItem,
           store,
           rateLimitStore,
           rateLimitTiers: tiers,
@@ -1398,8 +1514,14 @@ describe('handleSummaryRequest — summary-outcome log events', () => {
       },
       60,
     );
+    const fetchItem = fetchItemFor({
+      7: { id: 7, type: 'story', url: 'https://example.com/a', score: 10 },
+    });
 
-    const res = await handleSummaryRequest(makeRequest(7), { store });
+    const res = await handleSummaryRequest(makeRequest(7), {
+      fetchItem,
+      store,
+    });
     expect(res.status).toBe(200);
 
     const lines = outcomeLines();
@@ -1774,7 +1896,10 @@ describe('handleSummaryRequest — paywalled field propagation', () => {
       },
       60,
     );
-    await handleSummaryRequest(makeRequest(702), { store });
+    const fetchItem = fetchItemFor({
+      702: { id: 702, type: 'story', url: 'https://example.com/a', score: 10 },
+    });
+    await handleSummaryRequest(makeRequest(702), { fetchItem, store });
     const lines = outcomeLines();
     expect(lines[0]).toMatchObject({
       outcome: 'cached',
@@ -1802,7 +1927,10 @@ describe('handleSummaryRequest — paywalled field propagation', () => {
       },
       60,
     );
-    await handleSummaryRequest(makeRequest(703), { store });
+    const fetchItem = fetchItemFor({
+      703: { id: 703, type: 'story', url: 'https://example.com/a', score: 10 },
+    });
+    await handleSummaryRequest(makeRequest(703), { fetchItem, store });
     const lines = outcomeLines();
     expect(lines[0]).toMatchObject({ outcome: 'cached' });
     expect(lines[0]).not.toHaveProperty('paywalled');

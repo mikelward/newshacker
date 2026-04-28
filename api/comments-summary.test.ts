@@ -188,7 +188,21 @@ describe('handleCommentsSummaryRequest', () => {
 
   it('returns 503 when GOOGLE_API_KEY is unset', async () => {
     delete process.env.GOOGLE_API_KEY;
+    // The not_configured branch fires after eligibility, so we still
+    // need a valid story for the handler to reach it. (A cache hit
+    // wouldn't go to Gemini at all, which is why eligibility — not
+    // API-key configuration — gates the cache lookup.)
+    const fetchItem = fetchItemFrom({
+      1: {
+        id: 1,
+        type: 'story',
+        kids: [2],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+    });
     const res = await handleCommentsSummaryRequest(makeRequest('1'), {
+      fetchItem,
       store: null,
     });
     expect(res.status).toBe(503);
@@ -528,6 +542,121 @@ describe('handleCommentsSummaryRequest', () => {
     expect(client2.models.generateContent).not.toHaveBeenCalled();
   });
 
+  it('does not serve cached insights for a now-deleted story', async () => {
+    // Regression: eligibility must be checked before the cache lookup, so
+    // a story that was successfully summarized and later deleted/flagged
+    // on HN stops serving its old cached insights immediately rather than
+    // riding out the 30 d Upstash TTL.
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      1100,
+      {
+        insights: ['pre-deletion'],
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFrom({
+      1100: {
+        id: 1100,
+        type: 'story',
+        kids: [1101],
+        time: OLD_STORY_TIME,
+        score: 10,
+        deleted: true,
+      },
+    });
+    const client = createFakeClient([]);
+    const res = await handleCommentsSummaryRequest(makeRequest('1100'), {
+      fetchItem,
+      createClient: () => client,
+      now: () => now,
+      store,
+    });
+    expect(res.status).toBe(404);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('does not serve cached insights for a now-dead story', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      1101,
+      {
+        insights: ['pre-flag'],
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFrom({
+      1101: {
+        id: 1101,
+        type: 'story',
+        kids: [1102],
+        time: OLD_STORY_TIME,
+        score: 10,
+        dead: true,
+      },
+    });
+    const client = createFakeClient([]);
+    const res = await handleCommentsSummaryRequest(makeRequest('1101'), {
+      fetchItem,
+      createClient: () => client,
+      now: () => now,
+      store,
+    });
+    expect(res.status).toBe(404);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('does not serve cached insights for a story whose score has dropped below the floor', async () => {
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      1102,
+      {
+        insights: ['pre-flag'],
+        transcriptHash: hashTranscript('x'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const fetchItem = fetchItemFrom({
+      1102: {
+        id: 1102,
+        type: 'story',
+        kids: [1103],
+        time: OLD_STORY_TIME,
+        score: 1,
+      },
+    });
+    const client = createFakeClient([]);
+    const res = await handleCommentsSummaryRequest(makeRequest('1102'), {
+      fetchItem,
+      createClient: () => client,
+      now: () => now,
+      store,
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Story is not eligible for summary',
+      reason: 'low_score',
+    });
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
   it('writes a full record to the shared store with a 30d TTL', async () => {
     const commentText = 'hi';
     const fetchItem = fetchItemFrom({
@@ -778,6 +907,17 @@ describe('handleCommentsSummaryRequest — rate limiting', () => {
       },
       60,
     );
+    // Eligibility is checked before the cache lookup, so the handler
+    // calls fetchItem on the cache-hit path too.
+    const fetchItem = fetchItemFrom({
+      1: {
+        id: 1,
+        type: 'story',
+        kids: [2],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+    });
     const rateLimitStore = createTestRateLimitStore();
     const tiers: RateLimitTier[] = [
       { name: 'burst', limit: 1, windowSeconds: 600 },
@@ -786,6 +926,7 @@ describe('handleCommentsSummaryRequest — rate limiting', () => {
       const res = await handleCommentsSummaryRequest(
         makeRequest('1', { forwardedFor: '203.0.113.7' }),
         {
+          fetchItem,
           store,
           rateLimitStore,
           rateLimitTiers: tiers,
@@ -954,8 +1095,18 @@ describe('handleCommentsSummaryRequest — comments-summary-outcome log events',
       },
       60,
     );
+    const fetchItem = fetchItemFrom({
+      7: {
+        id: 7,
+        type: 'story',
+        kids: [8],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+    });
 
     const res = await handleCommentsSummaryRequest(makeRequest('7'), {
+      fetchItem,
       store,
     });
     expect(res.status).toBe(200);
