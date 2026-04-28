@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
 import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
 import { buildCommitTime } from '../lib/buildInfo';
@@ -58,8 +58,11 @@ function serviceBadgeState(status: ServiceStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
+const parsedBuildTime = parseBuildTime(buildCommitTime);
+const parsedBuildTimeMs = parsedBuildTime?.getTime() ?? null;
+
 export function DebugPage() {
-  const [_nowMs, setNowMs] = useState(() => Date.now());
+  const [, forceTick] = useReducer((n: number) => n + 1, 0);
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['debug-status'],
     queryFn: ({ signal }) => fetchStatus(signal),
@@ -67,15 +70,14 @@ export function DebugPage() {
     gcTime: 0,
     refetchOnWindowFocus: false,
   });
-  const built = parseBuildTime(buildCommitTime);
 
   useEffect(() => {
-    if (!built) return;
+    if (parsedBuildTimeMs === null) return;
     const id = window.setInterval(() => {
-      setNowMs(Date.now());
+      forceTick();
     }, 60_000);
     return () => window.clearInterval(id);
-  }, [built]);
+  }, []);
 
   return (
     <article className="debug-page">
@@ -115,15 +117,15 @@ export function DebugPage() {
             <div>
               <dt>Built</dt>
               <dd>
-                {!built ? (
+                {parsedBuildTimeMs === null ? (
                   <em>unknown</em>
                 ) : (
                   <>
-                    <time dateTime={built.toISOString()}>
-                      {built.toLocaleString()}
+                    <time dateTime={parsedBuildTime!.toISOString()}>
+                      {parsedBuildTime!.toLocaleString()}
                     </time>{' '}
                     <span className="debug-page__muted">
-                      ({formatTimeAgo(Math.floor(built.getTime() / 1000))} ago)
+                      ({formatTimeAgo(Math.floor(parsedBuildTimeMs / 1000))} ago)
                     </span>
                   </>
                 )}
