@@ -859,31 +859,27 @@ export async function handleSummaryRequest(
     return json({ error: 'Invalid id parameter' }, 400);
   }
 
-  const store =
-    deps.store === undefined ? getDefaultStore() : deps.store;
-
-  if (store) {
-    // Fail-open at the handler layer too: if the store implementation
-    // forgets to catch (the default Upstash one does, but tests and
-    // future stores might not), KV trouble must not break the endpoint.
-    // Any record present means "return it" — freshness is owned by the
-    // cron, not by this read path.
-    try {
-      const cached = await store.get(storyId);
-      if (cached) {
-        emitSummaryOutcome('cached', storyId, undefined, {
-          chars: cached.summary.length,
-          ...(cached.paywalled !== undefined
-            ? { paywalled: cached.paywalled }
-            : {}),
-        });
-        return json({ summary: cached.summary, cached: true });
-      }
-    } catch {
-      // fall through to live generation
-    }
+  // Fail fast on misconfigured deploys — no point fetching anything
+  // (HN, cache, Jina) if we'd just return 503 not_configured at the end.
+  // Keeps misconfig from generating Firebase / KV traffic on every
+  // request, and keeps the operator-visible error a clean 503 rather
+  // than a misleading 502 if HN happens to be down at the same time.
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    emitSummaryOutcome('error', storyId, 'not_configured');
+    return json(
+      { error: 'Summary is not configured', reason: 'not_configured' },
+      503,
+    );
   }
 
+  // Fetch the story BEFORE consulting the cache so the same eligibility
+  // checks (deleted/dead, score floor) gate the cached read path. A story
+  // that earned a summary while eligible can later be deleted, killed, or
+  // dropped below the score floor; the cache record itself is opaque
+  // about that, so we have to ask HN. Otherwise stale-but-cached
+  // summaries keep serving for up to TTL after the story becomes
+  // ineligible.
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
   let story: HNItem | null;
   try {
@@ -914,6 +910,32 @@ export async function handleSummaryRequest(
       400,
     );
   }
+
+  const store =
+    deps.store === undefined ? getDefaultStore() : deps.store;
+
+  if (store) {
+    // Fail-open at the handler layer too: if the store implementation
+    // forgets to catch (the default Upstash one does, but tests and
+    // future stores might not), KV trouble must not break the endpoint.
+    // Any record present means "return it" — freshness is owned by the
+    // cron, not by this read path.
+    try {
+      const cached = await store.get(storyId);
+      if (cached) {
+        emitSummaryOutcome('cached', storyId, undefined, {
+          chars: cached.summary.length,
+          ...(cached.paywalled !== undefined
+            ? { paywalled: cached.paywalled }
+            : {}),
+        });
+        return json({ summary: cached.summary, cached: true });
+      }
+    } catch {
+      // fall through to live generation
+    }
+  }
+
   const hasArticleUrl = !!story.url && isValidHttpUrl(story.url);
   const selfPostBody = hasArticleUrl
     ? ''
@@ -923,15 +945,6 @@ export async function handleSummaryRequest(
     return json(
       { error: 'Story has no article to summarize', reason: 'no_article' },
       400,
-    );
-  }
-
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    emitSummaryOutcome('error', storyId, 'not_configured');
-    return json(
-      { error: 'Summary is not configured', reason: 'not_configured' },
-      503,
     );
   }
 

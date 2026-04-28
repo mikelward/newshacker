@@ -611,7 +611,49 @@ export async function handleCommentsSummaryRequest(
     return json({ error: 'Invalid id parameter' }, 400);
   }
 
+  // Fail fast on misconfigured deploys — no point fetching anything
+  // (HN, cache) if we'd just return 503 not_configured at the end.
+  // Keeps misconfig from generating Firebase / KV traffic on every
+  // request, and keeps the operator-visible error a clean 503 rather
+  // than a misleading 502 if HN happens to be down at the same time.
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    emitCommentsSummaryOutcome('error', storyId, 'not_configured');
+    return json({ error: 'Summary is not configured' }, 503);
+  }
+
   const now = deps.now ?? Date.now;
+
+  // Fetch the story BEFORE consulting the cache so the same eligibility
+  // checks (deleted/dead, score floor) gate the cached read path. A
+  // story that earned an insights record while eligible can later be
+  // deleted, killed, or drop below the score floor; the cache record
+  // itself is opaque about that, so we have to ask HN. Otherwise
+  // stale-but-cached insights keep serving for up to TTL after the
+  // story becomes ineligible.
+  const fetchItem = deps.fetchItem ?? defaultFetchItem;
+  let story: HNItem | null;
+  try {
+    story = await fetchItem(storyId, request.signal);
+  } catch {
+    emitCommentsSummaryOutcome('error', storyId, 'story_unreachable');
+    return json({ error: 'Could not load story' }, 502);
+  }
+  if (!story || story.deleted || story.dead) {
+    emitCommentsSummaryOutcome('error', storyId, 'story_not_available');
+    return json({ error: 'Story not available' }, 404);
+  }
+  // Anti-abuse floor — see the matching comment in api/summary.ts for
+  // the rationale. `> 1` means at least one organic upvote beyond the
+  // submitter's implicit self-vote.
+  if (!(typeof story.score === 'number' && story.score > 1)) {
+    emitCommentsSummaryOutcome('error', storyId, 'low_score');
+    return json(
+      { error: 'Story is not eligible for summary', reason: 'low_score' },
+      400,
+    );
+  }
+
   const store =
     deps.store === undefined ? getDefaultStore() : deps.store;
 
@@ -634,35 +676,6 @@ export async function handleCommentsSummaryRequest(
     } catch {
       // fall through to live generation
     }
-  }
-
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    emitCommentsSummaryOutcome('error', storyId, 'not_configured');
-    return json({ error: 'Summary is not configured' }, 503);
-  }
-
-  const fetchItem = deps.fetchItem ?? defaultFetchItem;
-  let story: HNItem | null;
-  try {
-    story = await fetchItem(storyId, request.signal);
-  } catch {
-    emitCommentsSummaryOutcome('error', storyId, 'story_unreachable');
-    return json({ error: 'Could not load story' }, 502);
-  }
-  if (!story || story.deleted || story.dead) {
-    emitCommentsSummaryOutcome('error', storyId, 'story_not_available');
-    return json({ error: 'Story not available' }, 404);
-  }
-  // Anti-abuse floor — see the matching comment in api/summary.ts for
-  // the rationale. `> 1` means at least one organic upvote beyond the
-  // submitter's implicit self-vote.
-  if (!(typeof story.score === 'number' && story.score > 1)) {
-    emitCommentsSummaryOutcome('error', storyId, 'low_score');
-    return json(
-      { error: 'Story is not eligible for summary', reason: 'low_score' },
-      400,
-    );
   }
 
   const kidIds = (story.kids ?? []).slice(0, TOP_LEVEL_SAMPLE_SIZE);
