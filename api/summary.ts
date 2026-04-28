@@ -179,38 +179,48 @@ export async function checkRateLimit(
 
 let defaultRateLimitStore: RateLimitStore | null | undefined;
 
+// Pipeline-shaped subset of @upstash/redis that the rate-limit store
+// actually uses. Carved out so tests can pass a fake without dragging in
+// the full Redis surface.
+export interface RateLimitPipeline {
+  incr(key: string): RateLimitPipeline;
+  expire(key: string, seconds: number, option: 'NX'): RateLimitPipeline;
+  exec<T extends unknown[]>(): Promise<T>;
+}
+export interface RateLimitRedis {
+  pipeline(): RateLimitPipeline;
+}
+
+export function createRedisRateLimitStore(
+  redis: RateLimitRedis,
+): RateLimitStore {
+  return {
+    async incrementWithExpiry(key: string, windowSeconds: number) {
+      // Atomic INCR + EXPIRE-NX pipelined into a single round trip. The
+      // older shape was "INCR, then EXPIRE only when count===1": if that
+      // one EXPIRE failed, the key kept being INCR'd without a TTL and
+      // the next call (count > 1) would never re-try the EXPIRE. With
+      // EXPIRE ... NX, every increment proposes a TTL; Redis ignores it
+      // when one is already set, so fixed-window semantics are preserved
+      // (the TTL isn't reset on every hit) and any earlier missed EXPIRE
+      // is automatically repaired on the next call.
+      const [count] = await redis
+        .pipeline()
+        .incr(key)
+        .expire(key, windowSeconds, 'NX')
+        .exec<[number, 0 | 1]>();
+      return count;
+    },
+  };
+}
+
 function createDefaultRateLimitStore(): RateLimitStore | null {
   const url =
     process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
   const token =
     process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
-  const redis = new Redis({ url, token });
-  return {
-    async incrementWithExpiry(key: string, windowSeconds: number) {
-      const count = await redis.incr(key);
-      // Only the first caller in a window needs to set TTL; subsequent
-      // INCRs preserve the existing expiry. This is the standard
-      // fixed-window counter pattern and trades ~1 in-flight race
-      // (two clients racing INCR=1) for one fewer round trip in the
-      // steady state. The race just means two EXPIREs in the same
-      // second, which is harmless.
-      if (count === 1) {
-        try {
-          await redis.expire(key, windowSeconds);
-        } catch {
-          // Best-effort: a missed EXPIRE means the key persists
-          // without an expiry, so the counter may outlive the
-          // intended window. The next INCR won't come back as 1, so
-          // we also won't re-attempt the EXPIRE — but Upstash's own
-          // memory eviction will drop the key eventually, and the
-          // worst-case is one user getting slightly more lenient
-          // bucketing than intended. Not worth failing the request.
-        }
-      }
-      return count;
-    },
-  };
+  return createRedisRateLimitStore(new Redis({ url, token }));
 }
 
 function getDefaultRateLimitStore(): RateLimitStore | null {
