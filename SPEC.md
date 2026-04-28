@@ -848,7 +848,7 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 - **App shell**: precached at build time so the app boots offline. Navigation falls back to precached `index.html`; React Router takes over client-side.
 - **HN items** (`/item/:id.json`): StaleWhileRevalidate, 7-day TTL, 500 entries.
 - **Feed lists** (`topstories`, `newstories`, etc.): NetworkFirst with 10s timeout, 1-day TTL, 10 entries. The longer timeout stops ordinary mobile-data latency from flipping the strategy to "serve last-known list" on reload.
-- **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, summary records live in KV for **30 days** and freshness is owned by the warm-summaries cron (see *Scheduled warming and change analytics* below) rather than a short per-record TTL. The user-facing handler returns any present record unconditionally.
+- **AI summary** (`/api/summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, summary records live in KV for **30 days** and freshness is owned by the warm-summaries cron (see *Scheduled warming and change analytics* below) rather than a short per-record TTL. The user-facing handler returns any present record once it has re-checked story eligibility against HN — see *Shared server-side cache* below.
 - **AI comment summary** (`/api/comments-summary`): StaleWhileRevalidate, 7-day TTL, 200 entries. Server-side, comment-summary records also live in KV for **30 days** and freshness is owned by the same warm-summaries cron.
 - **Summary React Query cache (client):** both hooks use a **30-minute `staleTime` / 7-day `gcTime`** split. Retention (7 d) matches the SW runtime cache so a pinned story revisited mid-week is a synchronous cache hit with no loading flash. Freshness (30 min) matches the cron's default `WARM_REFRESH_CHECK_INTERVAL_SECONDS` — so we never ask for a version newer than what the cron could have produced, but we do ask often enough to surface cron-regenerated updates. The SW's StaleWhileRevalidate absorbs the refetch latency: the UI renders from the React Query cache immediately, the refetch hits the SW cache first, and only surfaces a changed response if the server actually has one.
 - **Items batch proxy** (`/api/items`): NetworkFirst with 10s timeout, 1-day TTL, 50 entries. The batch URL keys on the exact id set, which means a refresh of the same feed page hits the same cache entry — SWR here would silently repaint yesterday's score/comment counts. NetworkFirst still falls back to the cache when the user is genuinely offline, so `/pinned` and friends keep working.
@@ -857,13 +857,19 @@ newshacker is installable as a Progressive Web App on desktop and mobile, and su
 `/api/summary` and `/api/comments-summary` use a **shared Redis store**
 (provisioned through Vercel's Storage Marketplace, which auto-injects
 `KV_REST_API_URL` / `KV_REST_API_TOKEN` into every deployment) as the
-cross-instance cache. The handler reads the key on entry and returns
-immediately on hit; on miss it generates via Gemini and writes the
-result. **Both article and comment summaries** live 30 days and rely
-on the cron for in-window freshness — the cron re-hashes the source
-(article body for `/api/summary`, top-20-transcript for
-`/api/comments-summary`) and only burns Gemini tokens when the hash
-changes. See *Scheduled warming and change analytics* below.
+cross-instance cache. The handler fetches the live HN item first to
+re-check eligibility (not deleted, not dead, score above the floor),
+then reads the cache key — a hit returns immediately, a miss generates
+via Gemini and writes the result. The eligibility re-check on every
+request keeps a story that has since been deleted, killed, or
+downvoted from continuing to serve its old cached summary while the
+30-day TTL runs out; the trade is one extra Firebase HN item fetch on
+the cache-hit path (free, ~100–300 ms p50, no $/month). **Both article
+and comment summaries** live 30 days and rely on the cron for
+in-window freshness — the cron re-hashes the source (article body for
+`/api/summary`, top-20-transcript for `/api/comments-summary`) and
+only burns Gemini tokens when the hash changes. See *Scheduled warming
+and change analytics* below.
 Reads from a
 function in the same AWS region as the Redis primary are single-digit
 ms — fast enough that the per-instance in-memory `Map` we used to keep
@@ -1006,7 +1012,7 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
   - Article: `newshacker:summary:article:<id>` → `{ summary, articleHash, firstSeenAt, summaryGeneratedAt, lastCheckedAt, lastChangedAt }`
   - Comments: `newshacker:summary:comments:<id>` → `{ insights, transcriptHash, firstSeenAt, summaryGeneratedAt, lastCheckedAt, lastChangedAt }`
 
-  Legacy pre-schema entries (plain summary string / bare `string[]` of insights) are treated as absent on read and silently overwritten by the next regeneration. The user-facing endpoints return any present record unconditionally — the cron owns freshness.
+  Legacy pre-schema entries (plain summary string / bare `string[]` of insights) are treated as absent on read and silently overwritten by the next regeneration. The user-facing endpoints return any present record once they've re-checked story eligibility against HN (deleted / dead / score floor — see *Shared server-side cache*) — within those guards, the cron owns freshness.
 - **Tiered backoff (the knobs these analytics exist to tune).** The article and comments tracks have diverged: articles use a flat fresh/stable split, comments use a doubling-width ladder keyed off HN `story.time`. Bucket widths match the analytics `ageBand` axis below so the "when do polls stop being worth it" question is answered by the same histogram on both sides.
   - `WARM_REFRESH_CHECK_INTERVAL_SECONDS` (default **30 min**): article re-check cadence while content is "fresh". Also the fallback comments cadence when HN `story.time` is missing.
   - `WARM_STABLE_CHECK_INTERVAL_SECONDS` (default **2 h**): re-check cadence once content has been unchanged for ≥ `WARM_STABLE_THRESHOLD_SECONDS`. Both tracks. Stable wins even inside a short comments tier.

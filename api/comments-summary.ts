@@ -612,6 +612,40 @@ export async function handleCommentsSummaryRequest(
   }
 
   const now = deps.now ?? Date.now;
+
+  // Eligibility is checked BEFORE the cache lookup so a story that has
+  // since been deleted, killed, or fallen below the score floor stops
+  // serving its old cached insights immediately, instead of riding out
+  // the 30 d Upstash TTL. The extra Firebase HN item fetch on the
+  // cache-hit path is free (HN's API is unmetered for read traffic,
+  // ~100–300 ms p50, no $/month) — we accept that cost so the cache
+  // can never disagree with the live feed about eligibility. The new
+  // failure mode is "HN unreachable while cache is warm": previously
+  // the cached value would be returned, now we 502 along with the
+  // cache-miss path. Worth it to plug the staleness leak.
+  const fetchItem = deps.fetchItem ?? defaultFetchItem;
+  let story: HNItem | null;
+  try {
+    story = await fetchItem(storyId, request.signal);
+  } catch {
+    emitCommentsSummaryOutcome('error', storyId, 'story_unreachable');
+    return json({ error: 'Could not load story' }, 502);
+  }
+  if (!story || story.deleted || story.dead) {
+    emitCommentsSummaryOutcome('error', storyId, 'story_not_available');
+    return json({ error: 'Story not available' }, 404);
+  }
+  // Anti-abuse floor — see the matching comment in api/summary.ts for
+  // the rationale. `> 1` means at least one organic upvote beyond the
+  // submitter's implicit self-vote.
+  if (!(typeof story.score === 'number' && story.score > 1)) {
+    emitCommentsSummaryOutcome('error', storyId, 'low_score');
+    return json(
+      { error: 'Story is not eligible for summary', reason: 'low_score' },
+      400,
+    );
+  }
+
   const store =
     deps.store === undefined ? getDefaultStore() : deps.store;
 
@@ -640,29 +674,6 @@ export async function handleCommentsSummaryRequest(
   if (!apiKey) {
     emitCommentsSummaryOutcome('error', storyId, 'not_configured');
     return json({ error: 'Summary is not configured' }, 503);
-  }
-
-  const fetchItem = deps.fetchItem ?? defaultFetchItem;
-  let story: HNItem | null;
-  try {
-    story = await fetchItem(storyId, request.signal);
-  } catch {
-    emitCommentsSummaryOutcome('error', storyId, 'story_unreachable');
-    return json({ error: 'Could not load story' }, 502);
-  }
-  if (!story || story.deleted || story.dead) {
-    emitCommentsSummaryOutcome('error', storyId, 'story_not_available');
-    return json({ error: 'Story not available' }, 404);
-  }
-  // Anti-abuse floor — see the matching comment in api/summary.ts for
-  // the rationale. `> 1` means at least one organic upvote beyond the
-  // submitter's implicit self-vote.
-  if (!(typeof story.score === 'number' && story.score > 1)) {
-    emitCommentsSummaryOutcome('error', storyId, 'low_score');
-    return json(
-      { error: 'Story is not eligible for summary', reason: 'low_score' },
-      400,
-    );
   }
 
   const kidIds = (story.kids ?? []).slice(0, TOP_LEVEL_SAMPLE_SIZE);
