@@ -173,8 +173,17 @@ types get documented here in the same commit they ship in.
   four alert conditions. If a future condition genuinely needs
   per-IP aggregation, revisit with a hashing scheme so the log
   line carries an opaque bucket id, not the address.
+- **newshacker-user-generated content.** If/when this app gains
+  user-submitted text (profile bio, saved-list notes, anything
+  typed into our UI), that content does not go into logs. It's
+  user-attributable, the user did not opt in to log retention,
+  and we don't need it for alerts.
 - **Article URL / title / body text.** Not needed for alerts;
-  leaking user-visible content into logs is gratuitous.
+  leaking user-visible content into logs is gratuitous. The
+  warm-cron emits boolean / hash / count signals instead
+  (`titleChanged`, `ledeChanged`, `correctionKeywordDelta`,
+  `linkCountDelta`, `deltaBytes`) — same analytical leverage
+  without the content.
 - **Gemini / Jina raw request or response bodies.** Same reasoning;
   also expensive in log volume.
 
@@ -182,6 +191,28 @@ The `summary-jina-payment-required` line does carry
 `articleUrl` — keep it, because the operator genuinely needs it to
 triage which publisher tripped a CAPTCHA, and Jina's upstream URL
 isn't user-identifying in the same way an IP is.
+
+### Cached vs. logged: what `SummaryRecord` keeps in Redis
+
+The warm-cron's `SummaryRecord` (Upstash Redis, 30-day TTL)
+persists a small set of fields that look like content but never
+leave the cron's own state path: the HN `title`, a `ledeHash`,
+the markdown `bodySample` (first ~1 KB of the Jina-clean body),
+plus the structured `correctionKeywordCounts` / `linkCount`
+fingerprints. These are needed for tick-over-tick comparison —
+"did the title change since last check?" requires comparing
+this tick's HN title against the prior one — and may eventually
+back an authenticated debug endpoint for spot-checking specific
+events.
+
+This is **not** a relaxation of the no-content-in-logs rule
+above. Redis is internal cron state, not exported, not surfaced
+to users, not in Vercel/Axiom's log retention. The `bodySample`
+is a 1 KB prefix of HN-public article content (fetched from a
+public API), not anything typed by a newshacker user. If/when
+the debug-endpoint use case is built, that endpoint sits behind
+the same HN-verified admin gate as `/api/admin` — see
+`AGENTS.md` § *Sensitive operator data*.
 
 ## Monitoring layer (where the log queries + monitors live)
 

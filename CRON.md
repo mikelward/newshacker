@@ -382,6 +382,45 @@ Paste any of these into the Axiom query console:
 ```
 
 ```apl
+// Hypothesis-testing instrumentation (article track only, added
+// per reports/2026-04-29-cache-strategy.md). For each `changed`
+// event in the suspected-noise tier (`deltaBytes < 256`), would
+// title-change, lede-change, or a correction-keyword delta have
+// flagged the row as "actually significant"? If most noise-tier
+// events have all three flags absent, a future skip rule can
+// treat them as no-ops with high confidence; if any one of them
+// fires often, that's the signal worth wiring into the gate.
+['vercel']
+| where _time > ago(7d)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article"
+| where tostring(e.outcome) == "changed"
+// Exclude legacy `changed` rows whose prior record predated
+// `contentBytes` persistence — those have no `deltaBytes`, and
+// `toint(null)` evaluates to 0, which would mis-classify them
+// as the suspected-noise tier.
+| where isnotnull(e.deltaBytes)
+| where toint(e.deltaBytes) < 256
+| extend
+    titleChanged = tobool(e.titleChanged) == true,
+    ledeChanged = tobool(e.ledeChanged) == true,
+    hasCorrectionDelta = isnotnull(e.correctionKeywordDelta)
+| summarize
+    total = count(),
+    titleOnly = countif(titleChanged and not(ledeChanged) and not(hasCorrectionDelta)),
+    ledeOnly = countif(not(titleChanged) and ledeChanged and not(hasCorrectionDelta)),
+    correctionOnly = countif(not(titleChanged) and not(ledeChanged) and hasCorrectionDelta),
+    anySignal = countif(titleChanged or ledeChanged or hasCorrectionDelta),
+    noSignal = countif(not(titleChanged) and not(ledeChanged) and not(hasCorrectionDelta))
+| extend
+    anySignalShare = round(todouble(anySignal) / todouble(total), 3),
+    noSignalShare = round(todouble(noSignal) / todouble(total), 3)
+```
+
+```apl
 // Cron-only Gemini spend, last 24 h. The cron logs Gemini token
 // counts on `warm-story` lines for `first_seen` and `changed`
 // outcomes (both tracks) — `geminiPromptTokens`,

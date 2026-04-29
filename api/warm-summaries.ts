@@ -192,6 +192,20 @@ interface HNItem {
   kids?: number[];
 }
 
+// Per-record snapshot of how many times each correction-shaped phrase
+// appears in the Jina-clean body. Compared tick-over-tick to surface
+// "did a correction appear since last time?" as a Δ on the log line,
+// without having to keep the full body in Redis. Buckets are coarse
+// on purpose so the keyword list can grow without breaking the
+// persisted shape.
+export interface CorrectionKeywordCounts {
+  update: number;
+  correction: number;
+  retraction: number;
+  editorsNote: number;
+  clarification: number;
+}
+
 export interface SummaryRecord {
   summary: string;
   articleHash: string;
@@ -208,6 +222,38 @@ export interface SummaryRecord {
   // api/summary.ts § `detectPaywall` for the contract. Persisted so
   // `unchanged` logs can emit the field without recomputing.
   paywalled?: boolean;
+  // Hypothesis-testing fields (added in the cache-strategy work — see
+  // reports/2026-04-29-cache-strategy.md). All optional, all populated
+  // on every write path once we've fetched a fresh body. None of them
+  // affect the regen decision today; they exist purely so a week of
+  // production data can answer "would this signal have helped suppress
+  // the noise tier without missing real corrections?".
+  //
+  // HN title at the last check. Compared tick-over-tick to surface
+  // editor-driven title rewrites (corrections, clarifications, tag
+  // strips) on the warm-story log without storing the full HN item.
+  title?: string;
+  // sha256 of the normalized first ~500 chars of the body. Lets a
+  // future filter ask "did the meaningful prefix change?" cheaply
+  // without storing the lede prose itself; bodySample below covers
+  // the spot-checking case.
+  ledeHash?: string;
+  // Verbatim first ~1000 chars of the Jina-clean body. The lede is
+  // where corrections almost always appear, so this is enough to
+  // eyeball noise vs. signal in Axiom and to log a side-by-side
+  // body-diff sample on small-delta `changed` events. Bounded length
+  // keeps the per-record bloat predictable (~1 KB × catalog size).
+  bodySample?: string;
+  // Per-keyword bucket counts over the full body. Compared on the
+  // next tick to emit `correctionKeywordDelta` on the log line — a
+  // direct measure of how often "would correction-keyword detection
+  // have fired here?" lands.
+  correctionKeywordCounts?: CorrectionKeywordCounts;
+  // Count of markdown links in the body. Bloated link lists
+  // ("Related articles", "You may also like") are one of the
+  // suspected noise sources; tick-over-tick `linkCountDelta` should
+  // separate that from prose churn.
+  linkCount?: number;
 }
 
 export interface SummaryStore {
@@ -254,12 +300,148 @@ function parseRecord(raw: unknown): SummaryRecord | null {
       ? { contentBytes: r.contentBytes }
       : {}),
     ...(typeof r.paywalled === 'boolean' ? { paywalled: r.paywalled } : {}),
+    ...(typeof r.title === 'string' ? { title: r.title } : {}),
+    ...(typeof r.ledeHash === 'string' ? { ledeHash: r.ledeHash } : {}),
+    ...(typeof r.bodySample === 'string' ? { bodySample: r.bodySample } : {}),
+    ...(isCorrectionKeywordCounts(r.correctionKeywordCounts)
+      ? { correctionKeywordCounts: r.correctionKeywordCounts }
+      : {}),
+    ...(isNonNegativeInteger(r.linkCount) ? { linkCount: r.linkCount } : {}),
   };
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0
+  );
+}
+
+function isCorrectionKeywordCounts(
+  raw: unknown,
+): raw is CorrectionKeywordCounts {
+  if (!raw || typeof raw !== 'object') return false;
+  const c = raw as Partial<CorrectionKeywordCounts>;
+  // Reject NaN, Infinity, negative, and non-integer values — this is
+  // the parser boundary for data coming back from Redis, and a
+  // hand-edited or corrupted record should not emit misleading
+  // deltas downstream.
+  return (
+    isNonNegativeInteger(c.update) &&
+    isNonNegativeInteger(c.correction) &&
+    isNonNegativeInteger(c.retraction) &&
+    isNonNegativeInteger(c.editorsNote) &&
+    isNonNegativeInteger(c.clarification)
+  );
 }
 
 export function hashArticle(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
+
+// Lede = first ~500 chars of the body, with leading/trailing
+// whitespace dropped and runs of internal whitespace collapsed to a
+// single space. The intent is "would a human reader say the article
+// opens the same way?" — not "are the bytes identical?". Whitespace-
+// normalization is the cheapest noise filter that actually moves the
+// signal: most "the article changed" oscillations are markdown-render
+// drift in the trailing nav, but when they reach the lede they show
+// up as extra newlines around an ad-slot or a "Updated 3 hours ago"
+// banner above the headline.
+const LEDE_CHARS = 500;
+const BODY_SAMPLE_CHARS = 1000;
+
+export function normalizeLede(content: string): string {
+  return content.trim().replace(/\s+/g, ' ').slice(0, LEDE_CHARS);
+}
+
+export function hashLede(content: string): string {
+  return createHash('sha256').update(normalizeLede(content)).digest('hex');
+}
+
+export function bodySampleOf(content: string): string {
+  return content.slice(0, BODY_SAMPLE_CHARS);
+}
+
+// Correction-shaped phrase patterns. Case-insensitive and global —
+// matches anywhere in the body, no `^` anchoring or multiline mode.
+// Word-bounded so "Update:" matches but "UpdateScript" does not.
+// Counts are per-bucket because we want "did corrections appear
+// since last tick" to be a single comparison per bucket, not a
+// cross-product of every regex.
+const CORRECTION_PATTERNS: Record<keyof CorrectionKeywordCounts, RegExp> = {
+  // Both `Update:` and `Updated:` — corrections at the top of an article
+  // commonly use either. Word-bounded prefix; trailing punctuation keeps
+  // out body sentences like "the team updates the page nightly".
+  update: /\bupdated?\s*:/gi,
+  correction: /\bcorrection\s*:/gi,
+  // `Retraction` and the journalistic stock phrase "we regret the
+  // error" — the latter is a reliable signal even when no formal
+  // banner is present.
+  retraction: /\bretract(?:ion|ed)\b|\bwe regret the error\b/gi,
+  // `Editor's note:` / `Editorial note:` — the apostrophe in
+  // "Editor's" sometimes renders as a typographic quote in Jina's
+  // markdown output, so accept either.
+  editorsNote: /\beditor(?:'|’)?s?\s+note\s*:|\beditorial\s+note\s*:/gi,
+  clarification: /\bclarification\s*:/gi,
+};
+
+export function countCorrectionKeywords(
+  content: string,
+): CorrectionKeywordCounts {
+  const out: CorrectionKeywordCounts = {
+    update: 0,
+    correction: 0,
+    retraction: 0,
+    editorsNote: 0,
+    clarification: 0,
+  };
+  for (const key of Object.keys(out) as (keyof CorrectionKeywordCounts)[]) {
+    const matches = content.match(CORRECTION_PATTERNS[key]);
+    out[key] = matches ? matches.length : 0;
+  }
+  return out;
+}
+
+// Approximate count of markdown links — `](http…)` is a stable shape
+// in Jina's output. Not exact (matches inside code fences too), but
+// the goal is a tick-over-tick delta, and code fences are stable
+// across re-fetches of the same article.
+const LINK_PATTERN = /\]\(https?:/g;
+
+export function countLinks(content: string): number {
+  const matches = content.match(LINK_PATTERN);
+  return matches ? matches.length : 0;
+}
+
+// Caller is responsible for only invoking this when `prev` is defined.
+// The "delta vs implicit zero baseline" path was a foot-gun for legacy
+// records (see correctionKeywordDelta call site for the guard).
+function diffCorrectionKeywords(
+  next: CorrectionKeywordCounts,
+  prev: CorrectionKeywordCounts,
+): CorrectionKeywordCounts {
+  return {
+    update: next.update - prev.update,
+    correction: next.correction - prev.correction,
+    retraction: next.retraction - prev.retraction,
+    editorsNote: next.editorsNote - prev.editorsNote,
+    clarification: next.clarification - prev.clarification,
+  };
+}
+
+function correctionDeltaIsZero(d: CorrectionKeywordCounts): boolean {
+  return (
+    d.update === 0 &&
+    d.correction === 0 &&
+    d.retraction === 0 &&
+    d.editorsNote === 0 &&
+    d.clarification === 0
+  );
+}
+
 
 // Comments track: mirror of SummaryRecord / SummaryStore with
 // insights[] and transcriptHash. Kept in lockstep with
@@ -833,6 +1015,44 @@ export interface StoryLog {
   geminiPromptTokens?: number;
   geminiOutputTokens?: number;
   geminiTotalTokens?: number;
+  // Hypothesis-testing instrumentation (article track only — see
+  // reports/2026-04-29-cache-strategy.md). Pure measurement: none of
+  // these fields gate regen today. After a week of production data
+  // we'll know whether title-change, lede-change, or correction-
+  // keyword-delta would have suppressed the noise tier without
+  // missing real corrections.
+  //
+  // Whether the HN title differs from the previously-stored title.
+  // Article track only. Boolean only — the title strings themselves
+  // stay in the SummaryRecord cache and are deliberately not
+  // surfaced to logs (see OBSERVABILITY.md § *Deliberately not
+  // logged* — article title text is internal HN content and
+  // gratuitous in observability retention). Absent when there's no
+  // prior title to compare against (first_seen, or a pre-
+  // instrumentation legacy record on its first post-deploy tick).
+  titleChanged?: boolean;
+  // Whether the normalized lede hash (first ~500 chars, whitespace-
+  // collapsed) differs from the previously-stored ledeHash. Article
+  // track only. Absent when there's no prior ledeHash to compare
+  // against. A `changed` event with `ledeChanged: false` is
+  // suspicious — the body's bytes moved but the meaningful prefix
+  // didn't, which is what trailing-nav noise looks like.
+  ledeChanged?: boolean;
+  // Per-keyword count delta vs. the previously-stored counts. Only
+  // emitted when at least one bucket is non-zero — a flat-zero delta
+  // would crowd every log line with five fields that say "nothing
+  // happened". In practice this means it only ever appears on
+  // `changed` outcomes: on `unchanged` the body hash matches, so
+  // the body bytes are identical, so the keyword counts derived
+  // from them are identical, so the delta is always zero and
+  // omitted.
+  correctionKeywordDelta?: CorrectionKeywordCounts;
+  // Total markdown-link count in the current body, plus tick-over-
+  // tick absolute delta. linkCount is cheap to emit on every fetch;
+  // linkCountDelta is omitted on first_seen and on legacy records
+  // where prior linkCount wasn't persisted yet.
+  linkCount?: number;
+  linkCountDelta?: number;
 }
 
 // Per-track outcome tallies on the run log so we can separate article
@@ -1256,6 +1476,81 @@ async function processArticleTrack(
   const newHash = hashArticle(content);
   const contentBytes = Buffer.byteLength(content, 'utf8');
 
+  // Hypothesis-testing instrumentation. Computed once per fetch and
+  // reused across the unchanged / first_seen / changed branches —
+  // every write path persists the snapshot, every log path emits the
+  // tick-over-tick deltas. None of these gate regen today; see
+  // SummaryRecord docstrings.
+  const ledeHash = hashLede(content);
+  const bodySample = bodySampleOf(content);
+  const correctionKeywordCounts = countCorrectionKeywords(content);
+  const linkCount = countLinks(content);
+  const currentTitle = typeof story.title === 'string' ? story.title : '';
+
+  // Carry the prior title forward when the HN item is momentarily
+  // missing one. Without this fall-through, a `changed` event whose
+  // story.title happened to be undefined (rare but possible — the
+  // HNItem.title field is optional) would erase the cached title on
+  // the freshly-written record. The persistence shape is "store the
+  // best title we know of", not "store whatever HN returned this
+  // tick".
+  const priorTitleStored =
+    existing && typeof existing.title === 'string' ? existing.title : '';
+  const titleToStore = currentTitle || priorTitleStored;
+
+  const hypothesisRecordFields: Partial<SummaryRecord> = {
+    ...(titleToStore ? { title: titleToStore } : {}),
+    ledeHash,
+    bodySample,
+    correctionKeywordCounts,
+    linkCount,
+  };
+
+  // Per-tick log spread: title-change pair, lede-change bit, keyword
+  // delta (when non-zero), link-count + delta. Article track only —
+  // every callsite below reuses this builder so the comparison logic
+  // lives in one place.
+  const buildHypothesisLogFields = (
+    prior: SummaryRecord | null,
+  ): Partial<StoryLog> => {
+    const out: Partial<StoryLog> = { linkCount };
+    if (prior) {
+      const priorTitle = typeof prior.title === 'string' ? prior.title : '';
+      // Only fire titleChanged when both prior and current titles are
+      // non-empty. A legacy record without `title` would otherwise
+      // emit a spurious "changed" on every story's first post-deploy
+      // tick; an HN item with a momentarily-empty title would emit
+      // titleChanged repeatedly because we don't overwrite the
+      // persisted title with empty (see titleToStore above).
+      if (priorTitle && currentTitle) {
+        out.titleChanged = currentTitle !== priorTitle;
+      }
+      if (typeof prior.ledeHash === 'string') {
+        out.ledeChanged = prior.ledeHash !== ledeHash;
+      }
+      // Only emit correctionKeywordDelta when the prior record has
+      // persisted keyword counts. Diffing against an implicit
+      // zero-baseline on a legacy record would log a non-zero
+      // delta on every story whose body already contained an
+      // `Update:` banner before we deployed the instrumentation,
+      // contaminating exactly the dataset this commit is meant to
+      // collect.
+      if (prior.correctionKeywordCounts) {
+        const delta = diffCorrectionKeywords(
+          correctionKeywordCounts,
+          prior.correctionKeywordCounts,
+        );
+        if (!correctionDeltaIsZero(delta)) {
+          out.correctionKeywordDelta = delta;
+        }
+      }
+      if (typeof prior.linkCount === 'number') {
+        out.linkCountDelta = Math.abs(linkCount - prior.linkCount);
+      }
+    }
+    return out;
+  };
+
   if (existing && existing.articleHash === newHash) {
     // Hash-stable: prefer the fresh detection (it's what hashed to the
     // same bytes we saw last tick, so it's authoritative now); fall
@@ -1273,6 +1568,7 @@ async function processArticleTrack(
       ...(effectivePaywalled !== undefined
         ? { paywalled: effectivePaywalled }
         : {}),
+      ...hypothesisRecordFields,
     };
     try {
       await store.set(storyId, updated, RECORD_TTL_SECONDS);
@@ -1289,6 +1585,7 @@ async function processArticleTrack(
       ...(effectivePaywalled !== undefined
         ? { paywalled: effectivePaywalled }
         : {}),
+      ...buildHypothesisLogFields(existing),
     });
   }
 
@@ -1340,6 +1637,7 @@ async function processArticleTrack(
     lastChangedAt: now,
     contentBytes,
     ...(paywalled !== undefined ? { paywalled } : {}),
+    ...hypothesisRecordFields,
   };
   try {
     await store.set(storyId, record, RECORD_TTL_SECONDS);
@@ -1353,6 +1651,7 @@ async function processArticleTrack(
       tokens: jinaTokens,
       ...(paywalled !== undefined ? { paywalled } : {}),
       ...geminiFields,
+      ...buildHypothesisLogFields(null),
     });
   }
   const deltaBytes =
@@ -1370,6 +1669,7 @@ async function processArticleTrack(
     tokens: jinaTokens,
     ...(paywalled !== undefined ? { paywalled } : {}),
     ...geminiFields,
+    ...buildHypothesisLogFields(existing),
   });
 }
 
