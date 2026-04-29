@@ -2,13 +2,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ageBandFromMinutes,
+  countCorrectionKeywords,
+  countLinks,
   decideCommentsInterval,
   decideInterval,
   detectPaywall as detectPaywallWarm,
   handleWarmRequest,
   hashArticle,
+  hashLede,
   hashTranscript,
   isAuthorizedCronRequest,
+  normalizeLede,
   parseWarmFeed,
   parseWarmN,
   readKnobs,
@@ -1957,5 +1961,624 @@ describe('warm-summaries — paywalled field propagation', () => {
     const article = stories.find((s) => s.track === 'article')!;
     expect(article.outcome).toBe('skipped_unreachable');
     expect(article).not.toHaveProperty('paywalled');
+  });
+});
+
+describe('correction-keyword + lede helpers (article-track hypothesis instrumentation)', () => {
+  // Pure-function tests for the helpers that feed the hypothesis log
+  // fields. These don't exercise the cron round-trip — that's the
+  // next describe — they pin the helpers' behaviour so a regression
+  // can't silently flatten the signal.
+
+  it('normalizeLede caps at 500 chars and collapses whitespace', () => {
+    const long = 'a '.repeat(400) + 'TAIL';
+    const norm = normalizeLede(long);
+    expect(norm.length).toBeLessThanOrEqual(500);
+    // Internal whitespace runs are collapsed to a single space, so
+    // "a a a …" survives; the doubled spacing in the input doesn't.
+    expect(norm.startsWith('a a a')).toBe(true);
+    // Leading/trailing whitespace is stripped before slicing.
+    expect(normalizeLede('   hello\n\nworld   ')).toBe('hello world');
+  });
+
+  it('hashLede is deterministic and indifferent to whitespace-only churn', () => {
+    // The whole point of normalizing before hashing — a markdown
+    // re-render that doubles a newline must not bump the lede hash.
+    expect(hashLede('Hello   world')).toBe(hashLede('Hello world'));
+    expect(hashLede('Hello world\n')).toBe(hashLede(' Hello world '));
+    // But a real prefix change does flip the hash.
+    expect(hashLede('Hello world')).not.toBe(hashLede('Goodbye world'));
+  });
+
+  it('countCorrectionKeywords picks up each correction-shaped phrase, case-insensitively', () => {
+    const body = [
+      '# Headline',
+      '',
+      'UPDATE: this is a correction',
+      "Editor's note: we got it wrong",
+      'Editorial note: again',
+      'Clarification: more',
+      'We regret the error',
+      'Update: again',
+      'Updated: also',
+      'Correction: x',
+    ].join('\n');
+    expect(countCorrectionKeywords(body)).toEqual({
+      // "UPDATE:" + "Update:" + "Updated:" → 3 in the update bucket
+      // (case-insensitive; "updated:" matches the word-bounded prefix).
+      update: 3,
+      // Only "Correction: x" — the prose-form "this is a correction"
+      // is missing the colon prefix, so it must not count. Pinning
+      // this guards against a future regex loosening that would
+      // create false positives on every article that uses the word
+      // in its body.
+      correction: 1,
+      // "We regret the error" maps into the retraction bucket.
+      retraction: 1,
+      editorsNote: 2,
+      clarification: 1,
+    });
+  });
+
+  it('countCorrectionKeywords does not match inside non-prefix words', () => {
+    // "the team updates the page nightly" must NOT match the
+    // update bucket — only a word-bounded `Update:` / `Updated:`
+    // prefix counts.
+    expect(
+      countCorrectionKeywords('the team updates the page nightly'),
+    ).toEqual({
+      update: 0,
+      correction: 0,
+      retraction: 0,
+      editorsNote: 0,
+      clarification: 0,
+    });
+  });
+
+  it('countLinks counts markdown links once each', () => {
+    const body =
+      'see [one](https://a.example) and [two](http://b.example) and a [non-http](mailto:x)';
+    expect(countLinks(body)).toBe(2);
+  });
+});
+
+describe('warm-summaries — hypothesis-testing instrumentation', () => {
+  // These tests cover the cache-strategy report's "measure first"
+  // commit: title cache, ledeHash, bodySample, correctionKeywordCounts,
+  // linkCount on the record, plus the matching titleChanged /
+  // ledeChanged / correctionKeywordDelta / bodyDiffSample fields on
+  // the warm-story log line. None of this gates regen yet — it's
+  // pure measurement so we can answer the hypothesis questions in
+  // reports/2026-04-29-cache-strategy.md from a week of Axiom data.
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+    delete process.env.CRON_SECRET;
+  });
+  afterEach(() => {
+    if (origGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = origGoogle;
+    if (origJina === undefined) delete process.env.JINA_API_KEY;
+    else process.env.JINA_API_KEY = origJina;
+  });
+
+  it('first_seen persists title / ledeHash / bodySample / correctionKeywordCounts / linkCount on the record and emits linkCount on the log', async () => {
+    const articleUrl = 'https://example.com/instrumented';
+    const articleBody =
+      'Lead paragraph for the article. ' +
+      'See [link one](https://a.example) and [link two](https://b.example).';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(articleBody) },
+    });
+    const fetchItem = fetchItemFor({
+      7001: {
+        id: 7001,
+        type: 'story',
+        url: articleUrl,
+        title: 'Original headline',
+        score: 50,
+      },
+    });
+    const store = createTestStore();
+    const client = createFakeClient([{ text: 'summary' }]);
+    const { logger, stories } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [7001],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('first_seen');
+    // first_seen has no prior, so titleChanged / ledeChanged are
+    // omitted; linkCount fires regardless because the prior-vs-now
+    // comparison isn't required to emit the absolute count.
+    expect(article).not.toHaveProperty('titleChanged');
+    expect(article).not.toHaveProperty('ledeChanged');
+    expect(article).not.toHaveProperty('correctionKeywordDelta');
+    expect(article.linkCount).toBe(2);
+    expect(article).not.toHaveProperty('linkCountDelta');
+
+    const record = store.map.get(7001)!;
+    expect(record.title).toBe('Original headline');
+    expect(record.ledeHash).toBe(hashLede(articleBody));
+    expect(record.bodySample).toBe(articleBody.slice(0, 1000));
+    expect(record.correctionKeywordCounts).toEqual({
+      update: 0,
+      correction: 0,
+      retraction: 0,
+      editorsNote: 0,
+      clarification: 0,
+    });
+    expect(record.linkCount).toBe(2);
+  });
+
+  it('unchanged: emits titleChanged + previousTitle/currentTitle when HN edited the title under a stable body', async () => {
+    // Title-only edits (HN mods clean up tags / case) leave the body
+    // hash alone but flip story.title. We persist the new title and
+    // emit the change pair so an analyst can see how often this
+    // happens versus genuine corrections.
+    const articleUrl = 'https://example.com/title-edit';
+    const body = 'stable body bytes';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(body) },
+    });
+    const fetchItem = fetchItemFor({
+      7002: {
+        id: 7002,
+        type: 'story',
+        url: articleUrl,
+        title: 'New cleaned-up title',
+        score: 10,
+      },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(7002, {
+      summary: 'old',
+      articleHash: hashArticle(body),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      title: '[OLD] tag-prefixed title',
+      ledeHash: hashLede(body),
+      bodySample: body,
+      correctionKeywordCounts: {
+        update: 0,
+        correction: 0,
+        retraction: 0,
+        editorsNote: 0,
+        clarification: 0,
+      },
+      linkCount: 0,
+    });
+    const client = createFakeClient([]); // must NOT regen on a title-only change
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [7002],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('unchanged');
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    // Boolean signal only — the title strings themselves are
+    // deliberately not surfaced to logs (see OBSERVABILITY.md
+    // § *Deliberately not logged*). The previous / current titles
+    // stay in the SummaryRecord cache for tick-over-tick comparison.
+    expect(article.titleChanged).toBe(true);
+    expect(article).not.toHaveProperty('previousTitle');
+    expect(article).not.toHaveProperty('currentTitle');
+    expect(article.ledeChanged).toBe(false);
+    expect(article).not.toHaveProperty('correctionKeywordDelta');
+    expect(article.linkCount).toBe(0);
+    expect(article.linkCountDelta).toBe(0);
+    // The new title is persisted in Redis so the next tick has
+    // fresh truth — the cache is the only place the title strings
+    // live.
+    expect(store.map.get(7002)!.title).toBe('New cleaned-up title');
+  });
+
+  it('unchanged: omits titleChanged when prior had no title (legacy record), but still backfills the new fields', async () => {
+    // Pre-instrumentation records lack `title` / `ledeHash` / etc.
+    // The first post-deploy tick must NOT emit a spurious
+    // titleChanged or ledeChanged signal — there's no prior to
+    // compare against. The record write should backfill so the
+    // next tick has data.
+    const articleUrl = 'https://example.com/legacy';
+    const body = 'legacy stable body';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(body) },
+    });
+    const fetchItem = fetchItemFor({
+      7003: {
+        id: 7003,
+        type: 'story',
+        url: articleUrl,
+        title: 'Some title',
+        score: 10,
+      },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(7003, {
+      summary: 'old',
+      articleHash: hashArticle(body),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+    });
+    const client = createFakeClient([]);
+    const { logger, stories } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [7003],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => firstSeenAt + 45 * MINUTES,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('unchanged');
+    expect(article).not.toHaveProperty('titleChanged');
+    expect(article).not.toHaveProperty('ledeChanged');
+    expect(article).not.toHaveProperty('linkCountDelta');
+    // Backfill: next tick will have a baseline.
+    const updated = store.map.get(7003)!;
+    expect(updated.title).toBe('Some title');
+    expect(updated.ledeHash).toBe(hashLede(body));
+    expect(updated.bodySample).toBe(body);
+    expect(updated.linkCount).toBe(0);
+  });
+
+  it('legacy record with correction-shaped body does not emit a spurious correctionKeywordDelta on the first post-deploy tick', async () => {
+    // Regression guard: a pre-instrumentation record has no
+    // `correctionKeywordCounts`, so diffing against an implicit zero
+    // baseline would report `update: 1` on every story whose body
+    // already contained "Update:" before we deployed the
+    // instrumentation — exactly the data we're trying to clean.
+    // The fix: require the prior to have persisted counts before
+    // emitting any delta.
+    const articleUrl = 'https://example.com/legacy-correction-banner';
+    const body = '# Headline\n\nUpdate: this banner was always here.';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(body) },
+    });
+    const fetchItem = fetchItemFor({
+      7006: {
+        id: 7006,
+        type: 'story',
+        url: articleUrl,
+        title: 'Headline',
+        score: 10,
+      },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    // Legacy record: body hash matches but no instrumentation fields.
+    store.map.set(7006, {
+      summary: 'old',
+      articleHash: hashArticle(body),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+    });
+    const client = createFakeClient([]);
+    const { logger, stories } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [7006],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => firstSeenAt + 45 * MINUTES,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('unchanged');
+    // The body has "Update:" → countCorrectionKeywords returns
+    // { update: 1 }. But the prior had no counts to compare
+    // against, so we must not emit a delta. The fresh counts get
+    // backfilled onto the record for next tick.
+    expect(article).not.toHaveProperty('correctionKeywordDelta');
+    expect(store.map.get(7006)!.correctionKeywordCounts).toEqual({
+      update: 1,
+      correction: 0,
+      retraction: 0,
+      editorsNote: 0,
+      clarification: 0,
+    });
+  });
+
+  it('empty current title: does not emit titleChanged and preserves the prior persisted title', async () => {
+    // Regression guard: HNItem.title is optional, and a story whose
+    // title is briefly missing (or refetched as empty) should not
+    // (a) emit titleChanged with currentTitle: "" — that would log
+    // a "change" repeatedly because we don't overwrite the cached
+    // title with empty — nor (b) erase the previously-stored title
+    // on the persisted record.
+    const articleUrl = 'https://example.com/empty-title-blip';
+    const body = 'stable body';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(body) },
+    });
+    const fetchItem = fetchItemFor({
+      7007: {
+        id: 7007,
+        type: 'story',
+        url: articleUrl,
+        // No title key at all — common shape from the HN API when
+        // a story is in flight.
+        score: 10,
+      },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(7007, {
+      summary: 'old',
+      articleHash: hashArticle(body),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      title: 'Original cached title',
+      ledeHash: hashLede(body),
+      bodySample: body,
+      correctionKeywordCounts: {
+        update: 0,
+        correction: 0,
+        retraction: 0,
+        editorsNote: 0,
+        clarification: 0,
+      },
+      linkCount: 0,
+    });
+    const client = createFakeClient([]);
+    const { logger, stories } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [7007],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => firstSeenAt + 45 * MINUTES,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('unchanged');
+    expect(article).not.toHaveProperty('titleChanged');
+    // The persisted title must survive the empty blip, so the next
+    // tick (when HN returns the title again) doesn't see this as a
+    // brand-new title.
+    expect(store.map.get(7007)!.title).toBe('Original cached title');
+  });
+
+  it('changed: emits ledeChanged + correctionKeywordDelta on a small-delta correction edit (boolean / count signals only — no body samples in logs)', async () => {
+    const articleUrl = 'https://example.com/correction';
+    const oldBody = 'Original opening sentence. Body of the article.';
+    const newBody =
+      'Correction: the original was wrong. Body of the article.';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      7004: {
+        id: 7004,
+        type: 'story',
+        url: articleUrl,
+        title: 'Headline',
+        score: 10,
+      },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(7004, {
+      summary: 'old summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+      title: 'Headline',
+      ledeHash: hashLede(oldBody),
+      bodySample: oldBody,
+      correctionKeywordCounts: {
+        update: 0,
+        correction: 0,
+        retraction: 0,
+        editorsNote: 0,
+        clarification: 0,
+      },
+      linkCount: 0,
+    });
+    const client = createFakeClient([{ text: 'corrected summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [7004],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(article.deltaBytes).toBeLessThan(256);
+    expect(article.ledeChanged).toBe(true);
+    expect(article.correctionKeywordDelta).toEqual({
+      update: 0,
+      correction: 1,
+      retraction: 0,
+      editorsNote: 0,
+      clarification: 0,
+    });
+    expect(article.titleChanged).toBe(false);
+
+    const updated = store.map.get(7004)!;
+    expect(updated.correctionKeywordCounts).toEqual({
+      update: 0,
+      correction: 1,
+      retraction: 0,
+      editorsNote: 0,
+      clarification: 0,
+    });
+    expect(updated.ledeHash).toBe(hashLede(newBody));
+    // bodySample stays in Redis — it's the per-record cache, not
+    // the log line. Logs deliberately don't carry article body
+    // text (OBSERVABILITY.md § *Deliberately not logged*).
+    expect(updated.bodySample).toBe(newBody);
+  });
+
+  it('warm-story log lines never carry verbatim article body text or title strings', async () => {
+    // Lock the OBSERVABILITY.md § *Deliberately not logged* contract
+    // for the article track: only boolean / hash / count signals
+    // surface to logs, never raw title or body content. If a future
+    // change adds a verbatim-content field to StoryLog, this test
+    // catches it before the policy drift ships.
+    const articleUrl = 'https://example.com/policy-guard';
+    const oldBody = 'Some article opening line. Rest of the article.';
+    const newBody = 'Update: Some article opening line. Rest of the article.';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      7008: {
+        id: 7008,
+        type: 'story',
+        url: articleUrl,
+        title: 'Updated headline',
+        score: 10,
+      },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(7008, {
+      summary: 'old',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+      title: 'Original headline',
+      ledeHash: hashLede(oldBody),
+      bodySample: oldBody,
+      correctionKeywordCounts: {
+        update: 0,
+        correction: 0,
+        retraction: 0,
+        editorsNote: 0,
+        clarification: 0,
+      },
+      linkCount: 0,
+    });
+    const client = createFakeClient([{ text: 'fresh summary' }]);
+    const { logger, stories } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [7008],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => firstSeenAt + 45 * MINUTES,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(article.titleChanged).toBe(true);
+    // The forbidden fields. Adding any of these to StoryLog without
+    // updating OBSERVABILITY.md is a policy regression.
+    expect(article).not.toHaveProperty('previousTitle');
+    expect(article).not.toHaveProperty('currentTitle');
+    expect(article).not.toHaveProperty('bodyDiffSample');
+    expect(article).not.toHaveProperty('bodySample');
+    // No log field should contain raw HN title text or article body
+    // bytes either.
+    const serialized = JSON.stringify(article);
+    expect(serialized).not.toContain('Updated headline');
+    expect(serialized).not.toContain('Original headline');
+    expect(serialized).not.toContain('Some article opening line');
+    expect(serialized).not.toContain('Update: Some article');
+  });
+
+  it('SummaryRecord parser round-trips the new fields and tolerates legacy records', async () => {
+    // Indirect coverage of the parser: round-trip a record through
+    // the redis-shaped `set` → `get` path the cron uses, asserting
+    // the new fields survive intact AND that a record without them
+    // still parses (legacy compatibility).
+    const fullBody = 'Hello world. See [a](https://x.example).';
+    const fullCounts = countCorrectionKeywords(fullBody);
+    const full: SummaryRecord = {
+      summary: 's',
+      articleHash: hashArticle(fullBody),
+      firstSeenAt: 1,
+      summaryGeneratedAt: 1,
+      lastCheckedAt: 1,
+      lastChangedAt: 1,
+      contentBytes: Buffer.byteLength(fullBody, 'utf8'),
+      title: 'A title',
+      ledeHash: hashLede(fullBody),
+      bodySample: fullBody,
+      correctionKeywordCounts: fullCounts,
+      linkCount: countLinks(fullBody),
+    };
+    // Same shape Upstash hands us — JSON-parse round-trip via the
+    // store's own contract.
+    const store = createTestStore();
+    await store.set(1, full, 60);
+    const got = await store.get(1);
+    expect(got).toEqual(full);
+
+    // Legacy: drop every new field; parser must still accept.
+    const legacy: SummaryRecord = {
+      summary: 's',
+      articleHash: 'h',
+      firstSeenAt: 1,
+      summaryGeneratedAt: 1,
+      lastCheckedAt: 1,
+      lastChangedAt: 1,
+    };
+    await store.set(2, legacy, 60);
+    const back = await store.get(2);
+    expect(back).toEqual(legacy);
   });
 });
