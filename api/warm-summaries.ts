@@ -79,6 +79,24 @@ const DEFAULT_STABLE_CHECK_INTERVAL = 60 * 60 * 2; // 2 h for stable stories
 const DEFAULT_STABLE_THRESHOLD = 60 * 60 * 6; // "stable" = unchanged ≥ 6 h
 const DEFAULT_MAX_STORY_AGE = 60 * 60 * 32; // give up after 32 h (article track)
 const DEFAULT_TOP_N = 30;
+// Article-track delta guard. When the Jina-clean body's hash flips
+// and `0 < |contentBytes_now − contentBytes_prev| < WARM_MIN_DELTA_BYTES`,
+// skip the Gemini regen and log `skipped_minor_delta` instead. The
+// `0 <` lower bound is intentional: a zero-byte delta means the body
+// changed at the character level without changing length (date-format
+// swap, same-length wording change), and byte count alone can't tell
+// "real character-level edit" from "rendering coincidence" — those
+// fall through to Gemini so we don't pin the baseline forever on a
+// real edit. Most "changed" events at <100 B are in-body timestamps,
+// ad slots, or related-article widgets churning — not real edits.
+// 256 B is a conservative starting point that catches all <100 B
+// noise plus part of the 100-1000 B oscillation band, while still
+// letting a real multi-paragraph edit through. For non-zero deltas
+// cumulative drift will eventually trip the threshold even if
+// individual ticks don't, because we leave `articleHash` /
+// `contentBytes` / `lastChangedAt` from the last real regen intact on
+// a `skipped_minor_delta` tick.
+const DEFAULT_MIN_DELTA_BYTES = 256;
 // Comments-track tiered schedule: a doubling ladder keyed off HN
 // story age (now − story.time). The first tier whose maxAge the
 // story is still under decides the re-check interval. Past the
@@ -132,6 +150,8 @@ export interface WarmKnobs {
   // by design and match the ageBand analytics axis.
   commentsMaxStoryAgeSeconds: number;
   commentsMinKids: number;
+  // Article-track only: see DEFAULT_MIN_DELTA_BYTES.
+  minDeltaBytes: number;
 }
 
 export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
@@ -161,6 +181,10 @@ export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
       env.WARM_COMMENTS_MIN_KIDS,
       DEFAULT_COMMENTS_MIN_KIDS,
     ),
+    minDeltaBytes: parseNonNegativeInt(
+      env.WARM_MIN_DELTA_BYTES,
+      DEFAULT_MIN_DELTA_BYTES,
+    ),
   };
 }
 
@@ -171,7 +195,40 @@ function parsePositiveInt(
   if (!raw) return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
+  // Floor first, then re-validate. `0.5` would otherwise pass the
+  // `n <= 0` check and floor to 0, silently disabling whatever knob is
+  // calling this — same bug class `parseNonNegativeInt` (below) was
+  // built to avoid. We tolerate `'5.5'` → `5` since that's a sensible
+  // truncation and matches the original loose-parsing intent; only
+  // values that floor below 1 fall back.
+  const i = Math.floor(n);
+  if (i <= 0) return fallback;
+  return i;
+}
+
+// Like parsePositiveInt but accepts 0 as "disabled" — used for
+// WARM_MIN_DELTA_BYTES so an operator can turn the delta guard off
+// without a redeploy by setting it to 0. Strict integer-only: rejects
+// whitespace-only strings (Number(' ') === 0 would otherwise silently
+// disable the guard) and rejects non-integer strings like '0.5' (which
+// Math.floor would silently round down to 0). Also rejects values
+// past Number.MAX_SAFE_INTEGER — the regex would let a 20-digit
+// string through but `Number()` loses precision past 2^53, which
+// would let a misconfigured knob behave non-deterministically. Any
+// real threshold for this knob is in the low thousands, so the
+// safe-integer ceiling is far above the useful range. Negatives,
+// floats, oversized values, and junk all fall back to the default.
+function parseNonNegativeInt(
+  raw: string | undefined,
+  fallback: number,
+): number {
+  if (raw === undefined) return fallback;
+  const trimmed = raw.trim();
+  if (trimmed === '') return fallback;
+  if (!/^\d+$/.test(trimmed)) return fallback;
+  const n = Number(trimmed);
+  if (!Number.isSafeInteger(n)) return fallback;
+  return n;
 }
 
 // Matches api/summary.ts + api/comments-summary.ts — kept in lockstep.
@@ -732,6 +789,20 @@ export type CheckOutcome =
   | 'first_seen'
   | 'unchanged'
   | 'changed'
+  // Article track only: hash flipped but the body's byte length barely
+  // moved (`0 < deltaBytes < WARM_MIN_DELTA_BYTES`). The strict-positive
+  // lower bound is intentional — `deltaBytes === 0` (same-length
+  // character-level change: date-format swap, typo fix, equal-length
+  // wording change) is excluded and still logs as `changed`, since byte
+  // count alone can't distinguish those from rendering coincidence and
+  // skipping would pin the baseline indefinitely on a real edit.
+  // Treated as "still the same article, page noise made the markdown
+  // re-render different" — we refresh `lastCheckedAt` only and leave
+  // `articleHash` / `contentBytes` / `lastChangedAt` / `summary` from
+  // the last real regen intact, so cumulative drift will still
+  // eventually trip the
+  // threshold. Costs Jina (we already fetched) but skips Gemini.
+  | 'skipped_minor_delta'
   | 'error';
 
 export interface StoryLog {
@@ -774,29 +845,45 @@ export interface StoryLog {
   // entries the `deltaBytes` field below does that cross-correlation
   // for you — one column instead of a self-join.
   contentBytes?: number;
-  // On `changed` outcomes: `|contentBytes_now − contentBytes_prev|`
-  // for articles, `|transcriptBytes_now − transcriptBytes_prev|` for
-  // comments. Lets a single APL query separate noise (small delta
-  // from an in-body timestamp flip) from real edits (multi-KB
-  // delta). Absent on `changed` only when the prior record predates
-  // the contentBytes / transcriptBytes persistence (legacy records);
-  // the next `changed` tick populates it.
+  // On `changed` and `skipped_minor_delta` outcomes:
+  // `|contentBytes_now − contentBytes_prev|` for articles,
+  // `|transcriptBytes_now − transcriptBytes_prev|` for comments. Lets
+  // a single APL query separate noise (small delta from an in-body
+  // timestamp flip) from real edits (multi-KB delta). On
+  // `skipped_minor_delta` the value is by definition under
+  // `WARM_MIN_DELTA_BYTES`, so an effectiveness query that buckets by
+  // `deltaBytes` will see this outcome cluster at the low end.
+  // Absent on `changed` only when the prior record predates the
+  // contentBytes / transcriptBytes persistence (legacy records); the
+  // next `changed` tick populates it. Always present on
+  // `skipped_minor_delta` (the guard requires `existing.contentBytes`
+  // to fire).
   deltaBytes?: number;
   // Article track: Jina Reader's billed token count for this fetch
-  // (from the `usage.tokens` field of the JSON response). Missing when
-  // we didn't call Jina this tick (skipped_*, self-posts) or when Jina
+  // (from the `usage.tokens` field of the JSON response). Present on
+  // every outcome where Jina was actually called this tick — that's
+  // `first_seen`, `unchanged`, `changed`, and `skipped_minor_delta`
+  // (which is a `skipped_*` outcome but fires *after* the Jina fetch,
+  // since the byte-length comparison needs the freshly-fetched body).
+  // Absent on outcomes where no Jina fetch happened: the pre-fetch
+  // `skipped_*` branches (`skipped_age`, `skipped_interval`,
+  // `skipped_low_score`, `skipped_no_content`, `skipped_unreachable`,
+  // `skipped_payment_required`, `skipped_budget`), self-posts (body
+  // came from `story.text`, no round-trip), and runs where Jina
   // omitted the field. The run-level `articleTokensTotal` rolls these
   // up so operators can watch for budget drift without post-processing
   // the per-story lines.
   tokens?: number;
   // Article track: `detectPaywall()` verdict on the Jina-clean body.
-  // Present on `first_seen` and `changed` (freshly detected this
-  // tick) and on `unchanged` (propagated from the stored record when
-  // it carries the field; freshly computed as a backfill when it
-  // doesn't). Absent on skipped_* outcomes (no Jina fetch) and on
-  // self-posts (no Jina round-trip). Advisory — today this just
-  // feeds the warm-summaries analytics so we can measure paywall
-  // prevalence per domain before acting on it in the UI.
+  // Present on every outcome where Jina was actually called this tick:
+  // `first_seen` and `changed` (freshly detected), `unchanged`
+  // (propagated from the stored record when it carries the field;
+  // freshly computed as a backfill when it doesn't), and
+  // `skipped_minor_delta` (same propagate-or-backfill behaviour as
+  // `unchanged`). Absent on the pre-fetch `skipped_*` branches and on
+  // self-posts (no Jina round-trip). Advisory — today this just feeds
+  // the warm-summaries analytics so we can measure paywall prevalence
+  // per domain before acting on it in the UI.
   paywalled?: boolean;
   // Article track: `story.url`'s lowercased hostname. Present on
   // every line where the HN item was loaded and the story has a
@@ -895,6 +982,7 @@ function emptyOutcomeCounts(): Record<CheckOutcome, number> {
     first_seen: 0,
     unchanged: 0,
     changed: 0,
+    skipped_minor_delta: 0,
     error: 0,
   };
 }
@@ -1292,6 +1380,83 @@ async function processArticleTrack(
     });
   }
 
+  // Hash flipped but the body's byte length barely moved — treat as
+  // page-noise (timestamps, ad slots, related-article widgets) and
+  // skip the Gemini regen. We refresh lastCheckedAt only; articleHash,
+  // contentBytes, lastChangedAt and summary stay pinned to the last
+  // real regen so cumulative drift trips the threshold once enough
+  // small ticks accumulate, even if no individual tick crosses it.
+  // URL-post path only — self-posts don't go through Jina (no markdown
+  // re-render noise) and tend to be short enough that a small text
+  // edit is genuinely material to the summary, so we let those through
+  // to Gemini. Also requires contentBytes on the prior record (legacy
+  // records pre-instrumentation get a free Gemini regen on their first
+  // changed tick — accepted, since the next tick will have
+  // contentBytes and the guard kicks in).
+  //
+  // Strictly-positive deltaBytes only. A `deltaBytes === 0` flip
+  // (hash differs, byte length identical — same-length wording change,
+  // date-format swap "Jan 28"→"Jan 29", typo fix "color"→"honor") is
+  // ambiguous: byte count alone can't tell "real edit at the character
+  // level" from "rendering coincidence". Skipping forever on those
+  // would leave a stale summary in cache indefinitely, since with the
+  // baseline pinned every subsequent tick recomputes the same 0 delta
+  // and skips again — the "cumulative drift trips eventually" property
+  // doesn't apply when there's no drift. Erring toward false-positive
+  // regen (~$0.0008 each) is cheaper than indefinite false-negative
+  // staleness, so deltaBytes === 0 falls through to Gemini.
+  //
+  // Second-order effect on Jina spend: pinning `lastChangedAt` here
+  // means the article-track backoff logic (`decideInterval`, keyed off
+  // `stableFor = now − lastChangedAt`) sees a noisy story as "still
+  // stable" once 6 h passes without a real edit — at which point
+  // polling drops from the 30-min fresh interval to the 2-h stable
+  // interval, ~4× fewer ticks per day, ~4× fewer Jina fetches per
+  // story during the stable window. Pre-fix behaviour reset
+  // `lastChangedAt` on every noisy hash flip so a story drowning in
+  // timestamp churn never graduated past the fresh interval. This is
+  // separate from the Finding 1 ($5/mo Gemini) headline savings;
+  // Jina-side recovery here grows over time as the backoff catches up.
+  const deltaBytes =
+    existing && existing.contentBytes !== undefined
+      ? Math.abs(contentBytes - existing.contentBytes)
+      : undefined;
+  if (
+    hasArticleUrl &&
+    existing &&
+    deltaBytes !== undefined &&
+    knobs.minDeltaBytes > 0 &&
+    deltaBytes > 0 &&
+    deltaBytes < knobs.minDeltaBytes
+  ) {
+    const effectivePaywalled =
+      paywalled !== undefined ? paywalled : existing.paywalled;
+    const updated: SummaryRecord = {
+      ...existing,
+      lastCheckedAt: now,
+      ...(effectivePaywalled !== undefined
+        ? { paywalled: effectivePaywalled }
+        : {}),
+    };
+    try {
+      await store.set(storyId, updated, RECORD_TTL_SECONDS);
+    } catch {
+      // best-effort
+    }
+    return log({
+      outcome: 'skipped_minor_delta',
+      ageMinutes: minutes(now - existing.firstSeenAt),
+      stableForMinutes: minutes(now - existing.lastChangedAt),
+      sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
+      contentBytes,
+      deltaBytes,
+      tokens: jinaTokens,
+      ...(effectivePaywalled !== undefined
+        ? { paywalled: effectivePaywalled }
+        : {}),
+    });
+  }
+
   if (!apiKey) return log({ outcome: 'error', tokens: jinaTokens });
 
   const client: SummaryClient = deps.createClient
@@ -1355,10 +1520,13 @@ async function processArticleTrack(
       ...geminiFields,
     });
   }
-  const deltaBytes =
-    typeof existing.contentBytes === 'number'
-      ? Math.abs(contentBytes - existing.contentBytes)
-      : undefined;
+  // `deltaBytes` was already computed once above for the
+  // skipped_minor_delta guard; reuse it here. By this point `existing`
+  // is truthy (the `!existing` first_seen branch returned), so the
+  // hoisted const has the same semantics as the previous local
+  // declaration (`typeof existing.contentBytes === 'number'` is
+  // equivalent to the hoisted ternary's `existing.contentBytes !== undefined`
+  // condition for valid records).
   return log({
     outcome: 'changed',
     ageMinutes: minutes(now - existing.firstSeenAt),
