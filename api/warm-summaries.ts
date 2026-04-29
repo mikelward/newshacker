@@ -239,10 +239,14 @@ export interface SummaryRecord {
   // the spot-checking case.
   ledeHash?: string;
   // Verbatim first ~1000 chars of the Jina-clean body. The lede is
-  // where corrections almost always appear, so this is enough to
-  // eyeball noise vs. signal in Axiom and to log a side-by-side
-  // body-diff sample on small-delta `changed` events. Bounded length
-  // keeps the per-record bloat predictable (~1 KB × catalog size).
+  // where corrections almost always appear, so a bounded sample on
+  // the record leaves us the option of an authenticated debug
+  // endpoint for spot-checking specific events without re-fetching
+  // the article. `warm-story` logs intentionally do not emit body
+  // text (see OBSERVABILITY.md § *Deliberately not logged*) and
+  // Axiom cannot read Redis, so this field is Redis-only. Bounded
+  // length keeps the per-record bloat predictable (~1 KB × catalog
+  // size).
   bodySample?: string;
   // Per-keyword bucket counts over the full body. Compared on the
   // next tick to emit `correctionKeywordDelta` on the log line — a
@@ -1506,7 +1510,7 @@ async function processArticleTrack(
     linkCount,
   };
 
-  // Per-tick log spread: title-change pair, lede-change bit, keyword
+  // Per-tick log spread: title-changed bit, lede-change bit, keyword
   // delta (when non-zero), link-count + delta. Article track only —
   // every callsite below reuses this builder so the comparison logic
   // lives in one place.
