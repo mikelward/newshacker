@@ -2122,11 +2122,13 @@ describe('warm-summaries — hypothesis-testing instrumentation', () => {
     expect(record.linkCount).toBe(2);
   });
 
-  it('unchanged: emits titleChanged + previousTitle/currentTitle when HN edited the title under a stable body', async () => {
+  it('unchanged: emits titleChanged when HN edited the title under a stable body (no raw title strings in logs)', async () => {
     // Title-only edits (HN mods clean up tags / case) leave the body
-    // hash alone but flip story.title. We persist the new title and
-    // emit the change pair so an analyst can see how often this
-    // happens versus genuine corrections.
+    // hash alone but flip story.title. We persist the new title in
+    // Redis and emit a `titleChanged: true` boolean on the log so an
+    // analyst can see how often this happens versus genuine
+    // corrections — the raw title strings stay out of logs per
+    // OBSERVABILITY.md.
     const articleUrl = 'https://example.com/title-edit';
     const body = 'stable body bytes';
     const fetchImpl = createFakeFetch({
