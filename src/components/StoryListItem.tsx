@@ -40,6 +40,7 @@ interface Props {
   onPin?: (id: number) => void;
   onUnpin?: (id: number) => void;
   onShare?: (story: HNItem) => void;
+  onMarkUnread?: (id: number) => void;
   onOpenThread?: (id: number) => void;
   /**
    * Per-row override for the trailing flag segment in the meta line.
@@ -123,6 +124,7 @@ export function StoryListItem({
   onPin,
   onUnpin,
   onShare,
+  onMarkUnread,
   onOpenThread,
   rightAction,
   flag,
@@ -172,6 +174,10 @@ export function StoryListItem({
   const handleShare = useCallback(() => {
     onShare?.(story);
   }, [onShare, story]);
+
+  const handleMarkUnread = useCallback(() => {
+    onMarkUnread?.(story.id);
+  }, [onMarkUnread, story.id]);
 
   const openMenu = useCallback(() => setMenuOpen(true), []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
@@ -227,7 +233,14 @@ export function StoryListItem({
   // double-fire on mobile where long-press also opens the menu and
   // the OS may fire a synthetic contextmenu.
   const swipeOnContextMenu = handlers.onContextMenu;
-  const hasAnyMenuItem = !!(onHide || onPin || onUnpin || onShare);
+  const rowOpened = articleOpened || commentsOpened;
+  const hasAnyMenuItem = !!(
+    onHide ||
+    onPin ||
+    onUnpin ||
+    onShare ||
+    (rowOpened && onMarkUnread)
+  );
   const handleContextMenu = useCallback(
     (e: MouseEvent<HTMLElement>) => {
       swipeOnContextMenu?.(e);
@@ -237,8 +250,6 @@ export function StoryListItem({
     },
     [swipeOnContextMenu, pointerDevice, hasAnyMenuItem],
   );
-
-  const rowOpened = articleOpened || commentsOpened;
 
   const rowClass =
     'story-row' +
@@ -258,6 +269,13 @@ export function StoryListItem({
     if (onHide && !pinned) {
       items.push({ key: 'hide', label: 'Hide', onSelect: handleHide });
     }
+    if (rowOpened && onMarkUnread) {
+      items.push({
+        key: 'mark-unread',
+        label: 'Mark unread',
+        onSelect: handleMarkUnread,
+      });
+    }
     if (onShare) {
       items.push({ key: 'share', label: 'Share', onSelect: handleShare });
     }
@@ -267,10 +285,13 @@ export function StoryListItem({
     onPin,
     onUnpin,
     onHide,
+    rowOpened,
+    onMarkUnread,
     onShare,
     handlePin,
     handleUnpin,
     handleHide,
+    handleMarkUnread,
     handleShare,
   ]);
 

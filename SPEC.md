@@ -157,6 +157,11 @@ gesture: "Pinned" explains why the swipe snapped back; "Hide"
 previews what the committed swipe will do. No new DOM elements on
 rows that don't need them; the hints render conditionally from
 `pinned`, `hidden`, `onHide`, and `onPin` props in `StoryListItem`.
+When a row is already opened (article or comments), that same row menu
+also includes **Mark unread**, which clears the story's opened entry
+from `newshacker:openedStoryIds` (both halves) so the opened dim
+treatment is removed immediately and the story drops from `/opened`
+without waiting for TTL expiry. Unopened rows do not show this item.
 
 Hidden rows show only on `/hidden` (they're filtered from every
 feed). They render with the standard opened/unopened coloring — no
