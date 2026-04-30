@@ -219,3 +219,29 @@ If any of the above fails, fix it — don't disable the check.
 - Check `INSTALL.md` for env-var / API-key setup.
 - Check `OBSERVABILITY.md` for alerting / monitors / paging decisions and runbook stubs.
 - If a task seems to conflict with any of these docs, flag it and ask rather than silently diverging.
+
+## Cursor Cloud specific instructions
+
+### Node.js
+
+The VM does not ship Node.js. nvm is installed at `~/.nvm` (sourced from `~/.bashrc`). The update script runs `npm install`; Node 22 is the default alias. To use node in a fresh tmux session, run:
+```bash
+export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+```
+
+### Running the app locally
+
+- `npm run dev` starts the Vite dev server on port 5173 — **frontend only**. All `/api/*` calls return the SPA shell (Vite's catch-all), which causes "Could not load stories" because `/api/items` returns HTML instead of JSON.
+- `npx vercel dev` runs both Vite and the `/api/*` serverless functions, but requires Vercel authentication (OAuth device flow). See `INSTALL.md` for details.
+- **Without Vercel auth**, use `dev-proxy.mjs` (a standalone Node reverse proxy) to get stories loading locally:
+  1. `npm run dev` — starts Vite on port 5173
+  2. `node dev-proxy.mjs` — starts proxy on port 3000, intercepts `/api/items` (fans out to Firebase), passes everything else to Vite
+  3. Open `http://localhost:3000` in the browser
+
+### Commands reference
+
+Standard commands are in `AGENTS.md` § Commands and `INSTALL.md`. Quick reference:
+- `npm test` — Vitest in CI mode (all 124 test files / 1560 tests)
+- `npm run lint` — ESLint
+- `npm run typecheck` — `tsc -b --noEmit`
+- `npm run build` — production build (tsc + vite build + PWA)
