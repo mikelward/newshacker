@@ -291,6 +291,9 @@ export function StoryListImpl({
 
   const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
     feedItems;
+  // Depth caption should reflect how many stories have been loaded from this
+  // feed so far, independent of visibility filters (hidden/done/score).
+  const loadedStoriesCount = items.length;
   const { stories: rawOffFeedPinnedStories } =
     useOffFeedPinnedStories(allIds);
   // Pin is a shield against Hide, so new state can't produce a pin ∩
@@ -788,8 +791,8 @@ export function StoryListImpl({
       </ol>
       {hasMore ? (
         <div className="story-list__count" data-testid="story-list-count">
-          Showing {visibleStories.length}{' '}
-          {visibleStories.length === 1 ? 'story' : 'stories'}
+          Loaded {loadedStoriesCount} {sourceFeed}{' '}
+          {loadedStoriesCount === 1 ? 'story' : 'stories'}
         </div>
       ) : null}
       <div className="story-list__footer story-list__footer--feed">

@@ -102,9 +102,10 @@ describe('<StoryList>', () => {
     // Edge case: a feed page can have hasMore=true with zero visible
     // rows when the score>1 / hidden / done filters drop every loaded
     // story. The caption mirrors the More button (same hasMore gate),
-    // so in that state it reads "Showing 0 stories" — telling the
-    // reader the next chunk is the only way out — instead of vanishing
-    // and leaving More on its own.
+    // so in that state it still reports the loaded feed depth
+    // ("Loaded 30 top stories") instead of dropping to zero visible
+    // rows — telling the reader the next chunk is the only way out —
+    // instead of vanishing and leaving More on its own.
     const ids = Array.from({ length: 60 }, (_, i) => i + 1);
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { score: 1 })]),
@@ -114,16 +115,16 @@ describe('<StoryList>', () => {
     renderWithProviders(<StoryList feed="top" />);
 
     const caption = await screen.findByTestId('story-list-count');
-    expect(caption).toHaveTextContent('Showing 0 stories');
+    expect(caption).toHaveTextContent('Loaded 30 top stories');
     expect(screen.getByRole('button', { name: /^more$/i })).toBeInTheDocument();
   });
 
-  it('shows a "Showing N stories" caption above More that updates as the reader pages further in', async () => {
+  it('shows a "Loaded N <feed> stories" caption above More that updates as the reader pages further in', async () => {
     // The caption is the depth signal that lets a reader notice
     // they're at story 120 before they tap More again. It sits in its
     // own row immediately above the More button; the count tracks the
-    // visible (rendered) story rows, matching the rank shown on the
-    // last row.
+    // number of loaded feed items so pin/hidden/done filters don't
+    // affect the depth signal.
     const ids = Array.from({ length: 120 }, (_, i) => i + 1);
     const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
     installHNFetchMock({ feeds: { topstories: ids }, items });
@@ -131,7 +132,7 @@ describe('<StoryList>', () => {
     renderWithProviders(<StoryList feed="top" />);
 
     const caption = await screen.findByTestId('story-list-count');
-    expect(caption).toHaveTextContent('Showing 30 stories');
+    expect(caption).toHaveTextContent('Loaded 30 top stories');
 
     const more = screen.getByRole('button', { name: /^more$/i });
     // Caption is in its own row immediately above More — same parent,
@@ -145,7 +146,7 @@ describe('<StoryList>', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('story-list-count')).toHaveTextContent(
-        'Showing 60 stories',
+        'Loaded 60 top stories',
       );
     });
   });
