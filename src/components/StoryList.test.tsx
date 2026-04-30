@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient } from '@tanstack/react-query';
 import { StoryList } from './StoryList';
@@ -233,5 +233,51 @@ describe('<StoryList>', () => {
     });
     // Pill is suppressed because the user disabled the Top branch.
     expect(screen.queryByTestId('story-hot')).toBeNull();
+  });
+
+  it('long-press menu marks an opened row unread', async () => {
+    const ids = [1];
+    const items = {
+      1: makeStory(1, { title: 'Opened story', descendants: 7 }),
+    };
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+    window.localStorage.setItem(
+      'newshacker:openedStoryIds',
+      JSON.stringify([
+        {
+          id: 1,
+          at: Date.now(),
+          articleAt: Date.now(),
+          commentsAt: Date.now(),
+          seenCommentCount: 5,
+        },
+      ]),
+    );
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Opened story')).toBeInTheDocument();
+    });
+    vi.useFakeTimers();
+    const row = screen.getByTestId('story-row');
+    const evt = new Event('pointerdown', { bubbles: true, cancelable: true });
+    Object.assign(evt, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+      isPrimary: true,
+    });
+    act(() => {
+      row.dispatchEvent(evt);
+      vi.advanceTimersByTime(600);
+    });
+    const markUnread = screen.getByTestId('story-row-menu-mark-unread');
+    fireEvent.click(markUnread);
+    const stored = window.localStorage.getItem('newshacker:openedStoryIds');
+    expect(stored).toBe('[]');
+    vi.useRealTimers();
   });
 });

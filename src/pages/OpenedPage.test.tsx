@@ -159,4 +159,40 @@ describe('<OpenedPage>', () => {
     const className = screen.getByTestId('story-row').className;
     expect(className).toContain('story-row--opened');
   });
+
+  it('long-press Mark unread removes a story from /opened', async () => {
+    installHNFetchMock({
+      items: { 7: makeStory(7, { title: 'Seven' }) },
+    });
+    addOpenedId(7);
+
+    renderWithProviders(<OpenedPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Seven')).toBeInTheDocument();
+    });
+
+    vi.useFakeTimers();
+
+    const row = screen.getByTestId('story-row');
+    const down = new Event('pointerdown', { bubbles: true, cancelable: true });
+    Object.assign(down, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+      isPrimary: true,
+    });
+    act(() => {
+      row.dispatchEvent(down);
+      vi.advanceTimersByTime(600);
+    });
+
+    const markUnread = screen.getByTestId('story-row-menu-mark-unread');
+    expect(markUnread).toHaveTextContent('Mark unread');
+    fireEvent.click(markUnread);
+
+    expect(screen.getByText(/haven't opened any stories/i)).toBeInTheDocument();
+    vi.useRealTimers();
+  });
 });

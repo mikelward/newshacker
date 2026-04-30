@@ -553,6 +553,41 @@ describe('StoryListItem long-press menu', () => {
     expect(screen.queryByTestId('story-row-menu-hide')).toBeNull();
   });
 
+  it('shows Mark unread for opened rows and invokes onMarkUnread', () => {
+    vi.useFakeTimers();
+    const onMarkUnread = vi.fn();
+    renderWithProviders(
+      <StoryListItem
+        story={baseStory}
+        commentsOpened
+        onPin={vi.fn()}
+        onMarkUnread={onMarkUnread}
+      />,
+    );
+    const row = screen.getByTestId('story-row');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    const menuItem = screen.getByTestId('story-row-menu-mark-unread');
+    expect(menuItem).toHaveTextContent('Mark unread');
+    fireEvent.click(menuItem);
+    expect(onMarkUnread).toHaveBeenCalledWith(baseStory.id);
+  });
+
+  it('omits Mark unread for unopened rows', () => {
+    vi.useFakeTimers();
+    renderWithProviders(
+      <StoryListItem story={baseStory} onPin={vi.fn()} onMarkUnread={vi.fn()} />,
+    );
+    const row = screen.getByTestId('story-row');
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(screen.queryByTestId('story-row-menu-mark-unread')).toBeNull();
+  });
+
   it('invokes onPin when Pin is selected from the menu', () => {
     vi.useFakeTimers();
     const onPin = vi.fn();

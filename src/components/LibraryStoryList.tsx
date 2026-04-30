@@ -43,7 +43,7 @@ export function LibraryStoryList({
   rightAction,
 }: Props) {
   const { hide, hiddenIds } = useHiddenStories();
-  const { articleOpenedIds, commentsOpenedIds, seenCommentCounts } =
+  const { articleOpenedIds, commentsOpenedIds, seenCommentCounts, unopen } =
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
@@ -156,6 +156,10 @@ export function LibraryStoryList({
                 onPin={isHidden ? undefined : pin}
                 onUnpin={isHidden ? undefined : unpin}
                 onShare={shareStory}
+                // Long-press "Mark unread" mirrors the feed-row menu:
+                // it clears both opened halves so the row returns to an
+                // unread visual state and drops from /opened immediately.
+                onMarkUnread={unopen}
                 onOpenThread={handleOpenThread}
                 rightAction={
                   rightAction

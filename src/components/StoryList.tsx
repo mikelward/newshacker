@@ -265,7 +265,7 @@ export function StoryListImpl({
   const { isAuthenticated } = useAuth();
   const { hiddenIds, hide } = useHiddenStories();
   const { doneIds } = useDoneStories();
-  const { articleOpenedIds, commentsOpenedIds, seenCommentCounts } =
+  const { articleOpenedIds, commentsOpenedIds, seenCommentCounts, unopen } =
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
@@ -669,6 +669,10 @@ export function StoryListImpl({
     [items, offFeedPinnedStories],
   );
 
+  // Long-press "Mark unread" should clear both opened halves so the row
+  // immediately returns to the unread visual state (and drops from /opened).
+  const handleMarkUnread = useCallback((id: number) => unopen(id), [unopen]);
+
   const hasAnyItems = items.length > 0;
   if (!hasAnyItems && feedItems.isLoading) {
     return (
@@ -727,6 +731,7 @@ export function StoryListImpl({
               onPin={readOnly ? undefined : handlePin}
               onUnpin={readOnly ? undefined : unpin}
               onShare={readOnly ? undefined : shareStory}
+              onMarkUnread={readOnly ? undefined : handleMarkUnread}
               onOpenThread={handleOpenThread}
               readOnly={readOnly}
             />
@@ -774,6 +779,7 @@ export function StoryListImpl({
                 readOnly || hiddenIds.has(story.id) ? undefined : unpin
               }
               onShare={readOnly ? undefined : shareStory}
+              onMarkUnread={readOnly ? undefined : handleMarkUnread}
               onOpenThread={handleOpenThread}
               readOnly={readOnly}
             />
