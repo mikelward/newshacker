@@ -5,6 +5,37 @@ import { summaryQueryOptions, SUMMARY_RETENTION_MS } from '../hooks/useSummary';
 import { commentsSummaryQueryOptions } from '../hooks/useCommentsSummary';
 import { prefetchCommentBatch } from './commentPrefetch';
 
+type PinnedStoryPrefetchInput = Pick<HNItem, 'id' | 'url'> & Partial<HNItem>;
+
+function hasStoryPayload(story: PinnedStoryPrefetchInput): boolean {
+  return (
+    story.type !== undefined ||
+    story.title !== undefined ||
+    story.text !== undefined ||
+    story.by !== undefined ||
+    story.score !== undefined ||
+    story.descendants !== undefined ||
+    story.dead !== undefined ||
+    story.deleted !== undefined
+  );
+}
+
+function seedItemRootFromStory(
+  client: QueryClient,
+  story: PinnedStoryPrefetchInput,
+): void {
+  if (!hasStoryPayload(story)) return;
+  if (client.getQueryData(['itemRoot', story.id]) !== undefined) return;
+  const item: HNItem = { ...story, id: story.id };
+  const kidIds = item.deleted || item.dead ? [] : (item.kids ?? []);
+  client.setQueryData(['itemRoot', story.id], { item, kidIds });
+  void client.invalidateQueries({
+    queryKey: ['itemRoot', story.id],
+    exact: true,
+    refetchType: 'none',
+  });
+}
+
 // When a user pins a story we try to make everything they'll need on the
 // pinned page available without a second network trip: the item itself (for
 // the title/domain/points row), the AI summary (article + comments), and the
@@ -20,8 +51,9 @@ import { prefetchCommentBatch } from './commentPrefetch';
 // ~100ms from the common case.
 export function prefetchPinnedStory(
   client: QueryClient,
-  story: Pick<HNItem, 'id' | 'url'>,
+  story: PinnedStoryPrefetchInput,
 ): void {
+  seedItemRootFromStory(client, story);
   client.prefetchQuery({
     queryKey: ['itemRoot', story.id],
     queryFn: async ({ signal }) => {

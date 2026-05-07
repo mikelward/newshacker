@@ -50,6 +50,27 @@ describe('networkStatus tracker', () => {
       expect(getOnline()).toBe(true);
     });
 
+    it('flips offline for non-TypeError fetch failures used by browsers and native shells', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new DOMException('The network connection was lost.', 'NetworkError'),
+        )
+        .mockRejectedValueOnce(new Error('Network request failed'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(trackedFetch('/dom')).rejects.toBeInstanceOf(DOMException);
+      expect(getOnline()).toBe(false);
+
+      reportFetchSuccess();
+      expect(getOnline()).toBe(true);
+
+      await expect(trackedFetch('/native')).rejects.toThrow(
+        /network request failed/i,
+      );
+      expect(getOnline()).toBe(false);
+    });
+
     it('ignores AbortError — a superseded request is not a connectivity signal', async () => {
       const err = new DOMException('aborted', 'AbortError');
       vi.stubGlobal(

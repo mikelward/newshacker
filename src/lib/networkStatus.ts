@@ -73,10 +73,27 @@ function isNetworkError(err: unknown): boolean {
   // this when a query is superseded), not a signal about connectivity.
   if (err instanceof DOMException && err.name === 'AbortError') return false;
   if (err instanceof Error && err.name === 'AbortError') return false;
+  if (err instanceof DOMException && err.name === 'NetworkError') return true;
   // fetch throws TypeError for all network-layer failures: DNS,
-  // unreachable host, dropped connection, CORS preflight fail. Any of
-  // those reasonably mean "not online right now".
+  // unreachable host, dropped connection, CORS preflight fail. Some
+  // runtimes surface the same failures as DOMException/Error names or
+  // messages instead, so match the common cross-browser strings too.
+  // Any of those reasonably mean "not online right now".
   if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('fetch failed') ||
+      msg.includes('load failed') ||
+      msg.includes('networkerror') ||
+      msg.includes('network request failed') ||
+      msg.includes('network connection was lost') ||
+      msg.includes('internet connection appears to be offline')
+    ) {
+      return true;
+    }
+  }
   return false;
 }
 

@@ -33,6 +33,10 @@ export function useItemTree(id: number) {
     queryKey: ['itemRoot', id],
     queryFn: ({ signal }) => loadRoot(id, signal, client),
     enabled: Number.isFinite(id),
+    // Keep root story/comment metadata alongside pinned/favorite/comment
+    // prefetches so a saved thread can hydrate immediately after a long
+    // offline gap; freshness still follows the app-wide staleTime.
+    gcTime: SUMMARY_RETENTION_MS,
   });
 }
 
