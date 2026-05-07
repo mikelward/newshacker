@@ -1,9 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { PinnedPage } from './PinnedPage';
+import { Thread } from '../components/Thread';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addPinnedId } from '../lib/pinnedStories';
+import type { HNItem } from '../lib/hn';
+
+function deferredResponse() {
+  let resolve!: (value: Response) => void;
+  const promise = new Promise<Response>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 describe('<PinnedPage>', () => {
   beforeEach(() => {
@@ -11,6 +21,7 @@ describe('<PinnedPage>', () => {
   });
   afterEach(() => {
     window.localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   it('shows an empty state when nothing is pinned', () => {
@@ -81,5 +92,88 @@ describe('<PinnedPage>', () => {
     const rows = screen.getAllByTestId('story-row');
     expect(rows[0]).toHaveTextContent('Two');
     expect(rows[1]).toHaveTextContent('One');
+  });
+
+  it('hydrates the thread from the pinned-list cache while the full warm is still in flight', async () => {
+    const thinStory: HNItem = makeStory(9, {
+      title: 'Seeded pinned story',
+      descendants: 1,
+    });
+    delete thinStory.kids;
+    const fullStory: HNItem = { ...thinStory, kids: [901] };
+    const comment: HNItem = {
+      id: 901,
+      type: 'comment',
+      by: 'alice',
+      text: 'cached comment',
+      time: 1_700_000_000,
+    };
+    const rootFetch = deferredResponse();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/api/items')) {
+        const parsed = new URL(url, 'http://localhost');
+        const ids = (parsed.searchParams.get('ids') ?? '')
+          .split(',')
+          .filter(Boolean)
+          .map(Number);
+        const body = ids.map((id) => {
+          if (id === 9) return thinStory;
+          if (id === 901) return comment;
+          return null;
+        });
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/v0/item/9.json')) {
+        return rootFetch.promise;
+      }
+      if (url.includes('/api/summary') || url.includes('/api/comments-summary')) {
+        return new Response(JSON.stringify({ error: 'not configured' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    addPinnedId(9);
+
+    const pinned = renderWithProviders(<PinnedPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Seeded pinned story')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(pinned.client.getQueryData(['itemRoot', 9])).toMatchObject({
+        item: { id: 9, title: 'Seeded pinned story' },
+        kidIds: [],
+      });
+    });
+
+    pinned.unmount();
+    renderWithProviders(<Thread id={9} />, {
+      route: '/item/9',
+      client: pinned.client,
+    });
+
+    expect(screen.getByText('Seeded pinned story')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/loading thread/i)).toBeNull();
+
+    await act(async () => {
+      rootFetch.resolve(
+        new Response(JSON.stringify(fullStory), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(pinned.client.getQueryData(['itemRoot', 9])).toMatchObject({
+        kidIds: [901],
+      });
+    });
   });
 });

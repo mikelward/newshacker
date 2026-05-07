@@ -59,6 +59,62 @@ describe('prefetchPinnedStory', () => {
     expect(calls.some((u) => u.includes('/api/summary'))).toBe(true);
   });
 
+  it('seeds itemRoot synchronously from row data before the full item request returns', async () => {
+    let resolveRoot!: (value: Response) => void;
+    const rootPromise = new Promise<Response>((resolve) => {
+      resolveRoot = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/77')) return rootPromise;
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ error: 'not configured' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchPinnedStory(client, {
+      id: 77,
+      type: 'story',
+      title: 'Immediate row title',
+      url: 'https://example.com/immediate',
+      descendants: 5,
+    });
+
+    expect(client.getQueryData(['itemRoot', 77])).toMatchObject({
+      item: { id: 77, title: 'Immediate row title' },
+      kidIds: [],
+    });
+
+    resolveRoot(
+      new Response(
+        JSON.stringify({
+          id: 77,
+          type: 'story',
+          title: 'Full item title',
+          url: 'https://example.com/immediate',
+          kids: [7701],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 77])).toMatchObject({
+        item: { title: 'Full item title' },
+        kidIds: [7701],
+      });
+    });
+  });
+
   it('batches top-level comments via /api/items so offline pinned threads have real discussion', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();

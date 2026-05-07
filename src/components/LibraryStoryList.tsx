@@ -1,6 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getItems, type HNItem } from '../lib/hn';
 import { isHotStory } from '../lib/format';
 import { useHiddenStories } from '../hooks/useHiddenStories';
@@ -16,6 +16,7 @@ import { useShareStory } from '../hooks/useShareStory';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
 import { markCommentsOpenedId } from '../lib/openedStories';
+import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import './StoryList.css';
 
 interface Props {
@@ -46,6 +47,7 @@ export function LibraryStoryList({
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts, unopen } =
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
+  const queryClient = useQueryClient();
   const shareStory = useShareStory();
   // Hoist `useHotThresholds()` here so the user's `<HotRuleCard>`
   // overrides reach the row pill without per-row hook subscriptions
@@ -71,6 +73,36 @@ export function LibraryStoryList({
 
   const stories = (items.data ?? []).filter(
     (it): it is NonNullable<typeof it> => it != null,
+  );
+
+  // Library rows arrive through ['libraryStoryItems', ...], while the thread
+  // page reads ['itemRoot', id]. Seed pinned rows into the thread key before
+  // the full warm finishes so tapping a pinned article never waits on the
+  // network just to paint the header. Cost/reliability: this reuses the
+  // existing pin-time warm (one Firebase item request, one /api/items comment
+  // batch, and summary endpoints on cache misses; no new infrastructure) and
+  // is best-effort, so failures only mean the thread falls back to its normal
+  // fetch path.
+  const warmedPinnedIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    for (const story of stories) {
+      if (!pinnedIds.has(story.id)) continue;
+      if (warmedPinnedIdsRef.current.has(story.id)) continue;
+      warmedPinnedIdsRef.current.add(story.id);
+      prefetchPinnedStory(queryClient, story);
+    }
+  }, [stories, pinnedIds, queryClient]);
+
+  const handlePin = useCallback(
+    (id: number) => {
+      pin(id);
+      const story = stories.find((s) => s.id === id);
+      if (story) {
+        warmedPinnedIdsRef.current.add(id);
+        prefetchPinnedStory(queryClient, story);
+      }
+    },
+    [pin, stories, queryClient],
   );
 
   const handleOpenThread = useCallback(
@@ -153,7 +185,7 @@ export function LibraryStoryList({
                 pinned={pinnedIds.has(story.id)}
                 hidden={isHidden}
                 onHide={hide}
-                onPin={isHidden ? undefined : pin}
+                onPin={isHidden ? undefined : handlePin}
                 onUnpin={isHidden ? undefined : unpin}
                 onShare={shareStory}
                 // Long-press "Mark unread" mirrors the feed-row menu:
