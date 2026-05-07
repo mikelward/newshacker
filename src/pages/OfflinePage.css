@@ -1,0 +1,7 @@
+.offline-page__intro {
+  max-width: var(--content-max-width, 720px);
+  margin: 0 auto 0.5rem;
+  padding: 0 0.75rem;
+  color: var(--nh-muted);
+  font-size: 0.875rem;
+}

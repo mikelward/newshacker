@@ -226,6 +226,11 @@ export function AppDrawer({ open, onClose }: Props) {
             </Link>
           </li>
           <li>
+            <Link to="/offline" className="app-drawer__link">
+              Offline
+            </Link>
+          </li>
+          <li>
             <Link to="/done" className="app-drawer__link">
               Done
             </Link>

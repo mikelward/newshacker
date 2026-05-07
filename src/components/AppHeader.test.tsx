@@ -57,6 +57,16 @@ describe('<AppHeader>', () => {
     expect(screen.getByTestId('offline-indicator')).toBeInTheDocument();
   });
 
+  it('links the offline pill to the offline story list', () => {
+    setOnline(false);
+    window.dispatchEvent(new Event('offline'));
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    expect(screen.getByRole('link', { name: /view offline stories/i })).toHaveAttribute(
+      'href',
+      '/offline',
+    );
+  });
+
   it('shows the offline pill on non-feed routes too', () => {
     setOnline(false);
     window.dispatchEvent(new Event('offline'));

@@ -19,6 +19,7 @@ import { HiddenPage } from './pages/HiddenPage';
 import { DonePage } from './pages/DonePage';
 import { PinnedPage } from './pages/PinnedPage';
 import { FavoritesPage } from './pages/FavoritesPage';
+import { OfflinePage } from './pages/OfflinePage';
 import { HelpPage } from './pages/HelpPage';
 import { AboutPage } from './pages/AboutPage';
 import { DebugPage } from './pages/DebugPage';
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="/done" element={<DonePage />} />
             <Route path="/pinned" element={<PinnedPage />} />
             <Route path="/favorites" element={<FavoritesPage />} />
+            <Route path="/offline" element={<OfflinePage />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/debug" element={<DebugPage />} />
