@@ -1,17 +1,56 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { IsRestoringProvider } from '@tanstack/react-query';
 import { StoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { summaryQueryKey } from '../hooks/useSummary';
 import { commentsSummaryQueryKey } from '../hooks/useCommentsSummary';
+import { addPinnedId } from '../lib/pinnedStories';
+import { _resetHomePinnedRefreshForTests } from '../lib/homePinnedRefresh';
+import { _resetNetworkStatusForTests } from '../lib/networkStatus';
+
+function RestoringStoryListHarness() {
+  const [restoring, setRestoring] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setRestoring(false)}>
+        finish restore
+      </button>
+      <IsRestoringProvider value={restoring}>
+        <StoryList feed="top" />
+      </IsRestoringProvider>
+    </>
+  );
+}
+
+function hasFullPinnedRootBatch(
+  fetchMock: ReturnType<typeof installHNFetchMock>,
+  id: number,
+): boolean {
+  return fetchMock.mock.calls
+    .map((call) => (typeof call[0] === 'string' ? call[0] : call[0].toString()))
+    .some((url) => {
+      if (!url.includes('/api/items')) return false;
+      const parsed = new URL(url, 'http://localhost');
+      return (
+        parsed.searchParams.get('ids') === String(id) &&
+        parsed.searchParams.get('fields') === 'full'
+      );
+    });
+}
 
 describe('<StoryList> trending-score cache warming', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    _resetHomePinnedRefreshForTests();
+    _resetNetworkStatusForTests();
   });
   afterEach(() => {
     window.localStorage.clear();
+    _resetHomePinnedRefreshForTests();
+    _resetNetworkStatusForTests();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -70,5 +109,78 @@ describe('<StoryList> trending-score cache warming', () => {
     expect(client.getQueryData(['itemRoot', 3])).toBeUndefined();
     expect(client.getQueryData(summaryQueryKey(2))).toBeUndefined();
     expect(client.getQueryData(summaryQueryKey(3))).toBeUndefined();
+  });
+
+  it('refreshes pinned thread roots on home view even below the trending threshold', async () => {
+    addPinnedId(4);
+    const fetchMock = installHNFetchMock({
+      feeds: { topstories: [4] },
+      items: {
+        4: makeStory(4, {
+          title: 'Pinned but quiet',
+          score: 2,
+          kids: [41],
+        }),
+        41: {
+          id: 41,
+          type: 'comment',
+          by: 'a',
+          text: 'pinned comment',
+          time: 1,
+        },
+      },
+    });
+
+    const { client } = renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 4])).toMatchObject({
+        item: { id: 4, title: 'Pinned but quiet' },
+        kidIds: [41],
+      });
+      expect(client.getQueryData(['comment', 41])).toMatchObject({ id: 41 });
+    });
+
+    expect(hasFullPinnedRootBatch(fetchMock, 4)).toBe(true);
+  });
+
+  it('waits for persisted query cache restore before refreshing pinned roots', async () => {
+    addPinnedId(5);
+    const fetchMock = installHNFetchMock({
+      feeds: { topstories: [5] },
+      items: {
+        5: makeStory(5, {
+          title: 'Restored pin',
+          score: 2,
+          kids: [51],
+        }),
+        51: {
+          id: 51,
+          type: 'comment',
+          by: 'a',
+          text: 'restored comment',
+          time: 1,
+        },
+      },
+    });
+
+    const { client } = renderWithProviders(<RestoringStoryListHarness />);
+
+    await act(async () => {});
+    expect(hasFullPinnedRootBatch(fetchMock, 5)).toBe(false);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /finish restore/i }),
+    );
+
+    await waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 5])).toMatchObject({
+        item: { id: 5, title: 'Restored pin' },
+        kidIds: [51],
+      });
+    });
   });
 });

@@ -200,14 +200,19 @@ for Pinned, Done, and tombstones once we have real usage data.
 **Pinned offline warm:** Pinning a story, loading a pinned row from a
 library view, or seeing a synced pin on `/pinned` seeds the thread cache
 immediately from the row data and then warms the full story, first page of
-top-level comments, and AI summaries in the background. That means tapping a
-pinned article can paint from cache even while the full item refresh is still
-in flight. Cost: this reuses the existing pin-time warm — at most one
-Firebase item request, one `/api/items` comment batch, and summary endpoint
-requests per newly seen pinned row, with no new infrastructure. Reliability:
-the warm is best-effort and fail-open; if any request fails, the pinned row
-still renders and the thread falls back to whatever cache is already present
-or the normal online fetch path.
+top-level comments, and AI summaries in the background. Feed/home views also
+refresh stale or missing pinned roots in the foreground, capped to the newest
+30 pins and one 30-comment batch, so pinned data stays fresh without a
+background timer. The feed/home refresh path deliberately skips proactive AI
+summary refresh to avoid surprise Gemini spend on routine app opens. That
+means tapping a pinned article can paint from cache even while the full item
+refresh is still in flight. Cost: this reuses existing APIs — at most one
+Firebase item request for pin-time id-only warms, one `/api/items` story batch
+per feed/home view, one capped `/api/items` comment batch, and summary
+endpoint requests only on pin-time warms, with no new infrastructure.
+Reliability: the warm is best-effort and fail-open; if any request fails, the
+pinned row still renders and the thread falls back to whatever cache is
+already present or the normal online fetch path.
 
 **Cross-device sync:** all four lists — Pinned, Favorite, Hidden, Done —
 ride `/api/sync` (Upstash Redis, per-user, per-id last-write-wins,
