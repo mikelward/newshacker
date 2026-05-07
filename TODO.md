@@ -31,13 +31,14 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 ## PWA / offline
 
 - **Offline cache integrity follow-up.** The pinned-story warm now seeds
-  thread data from any pinned/library row and refreshes the first comment
-  page, but the broader model is still opportunistic. Audit the remaining
-  gaps: pins created by cross-device sync should queue a warm as soon as the
-  device is online (not only after `/pinned` renders), the offline indicator
-  should have an explicit reachability probe instead of depending solely on
-  the next app fetch to fail, and users who care about a full mega-thread need
-  a deliberate deeper-cache action rather than the default 30-comment slice.
+  thread data from any pinned/library row or foreground feed view and refreshes
+  the first comment page, but the broader model is still opportunistic. Audit
+  the remaining gaps: pins created by cross-device sync should queue a warm as
+  soon as the device is online (not only after `/pinned` renders), the offline
+  indicator should have an explicit reachability probe instead of depending
+  solely on the next app fetch to fail, and users who care about a full
+  mega-thread need a deliberate deeper-cache action rather than the default
+  30-comment slice.
   Cost/reliability: keep the default path fail-open and cheap by reusing the
   existing `/api/items` batching and summary caches; any proactive probe must
   be low-frequency/backoff-based so it does not add a new battery or request

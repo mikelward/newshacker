@@ -3,7 +3,7 @@ import type {
   AnimationEvent as ReactAnimationEvent,
   ReactNode,
 } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsRestoring, useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useHotFeedItems } from '../hooks/useHotFeedItems';
@@ -26,6 +26,7 @@ import { TooltipButton } from './TooltipButton';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
+import { refreshPinnedStoriesForHomeView } from '../lib/homePinnedRefresh';
 import {
   FEED_PREFETCH_SCORE_THRESHOLD,
   prefetchFeedStory,
@@ -262,6 +263,7 @@ export function StoryListImpl({
   hotThresholds,
 }: ImplProps) {
   const queryClient = useQueryClient();
+  const isRestoring = useIsRestoring();
   const { isAuthenticated } = useAuth();
   const { hiddenIds, hide } = useHiddenStories();
   const { doneIds } = useDoneStories();
@@ -296,6 +298,14 @@ export function StoryListImpl({
   const loadedStoriesCount = items.length;
   const { stories: rawOffFeedPinnedStories } =
     useOffFeedPinnedStories(allIds);
+  useEffect(() => {
+    if (!includeOffFeedPinned) return;
+    if (isRestoring) return;
+    refreshPinnedStoriesForHomeView(queryClient);
+    const refreshOnFocus = () => refreshPinnedStoriesForHomeView(queryClient);
+    window.addEventListener('focus', refreshOnFocus);
+    return () => window.removeEventListener('focus', refreshOnFocus);
+  }, [includeOffFeedPinned, isRestoring, pinnedIds, queryClient]);
   // Pin is a shield against Hide, so new state can't produce a pin ∩
   // hidden collision (swipe-right and menu "Hide" are blocked on
   // pinned rows; see StoryListItem). This filter is defense-in-depth
