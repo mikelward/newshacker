@@ -34,9 +34,10 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   product promise rather than growing new surfaces by default:
   1. Explicit **Save full thread offline** action for readers who want more
      than the default first-comment-page warm on mega-threads.
-  2. **Cache status UI/debug signal** for pinned stories (root/comments/article
-     summary/comments summary present, partial, or missing) so offline support
-     is observable before a user loses connectivity.
+  2. **Cache status UI/debug signal** for pinned stories using
+     `getOfflineCacheStatus` (root/comments/article summary/comments summary
+     present, partial, or missing) so offline support is observable before a
+     user loses connectivity.
   3. **Event-driven reachability probe** after failed fetches, browser
      `online`, app resume, or user refresh — not a periodic always-on timer.
   5. **Cache quota / eviction policy** that treats pinned/favorite/thread
