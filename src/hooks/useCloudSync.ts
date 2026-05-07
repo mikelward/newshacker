@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { startCloudSync, stopCloudSync } from '../lib/cloudSync';
 import { useAuth } from './useAuth';
 
@@ -7,6 +8,7 @@ import { useAuth } from './useAuth';
 // and tears it down on logout or user switch.
 export function useCloudSync(): void {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const username = user?.username ?? null;
 
   useEffect(() => {
@@ -14,9 +16,9 @@ export function useCloudSync(): void {
       stopCloudSync();
       return;
     }
-    void startCloudSync(username);
+    void startCloudSync(username, { queryClient });
     return () => {
       stopCloudSync();
     };
-  }, [username]);
+  }, [username, queryClient]);
 }

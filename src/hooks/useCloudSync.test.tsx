@@ -57,6 +57,7 @@ describe('useCloudSync', () => {
     await waitFor(() => {
       expect(_getCloudSyncRuntimeForTests()?.username).toBe('alice');
     });
+    expect(_getCloudSyncRuntimeForTests()?.queryClient).toBe(client);
   });
 
   it('does nothing while the user is not authenticated', async () => {

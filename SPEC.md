@@ -198,16 +198,17 @@ after 7 days. Only Favorite is clearly intended to be forever — see
 for Pinned, Done, and tombstones once we have real usage data.
 
 **Pinned offline warm:** Pinning a story, loading a pinned row from a
-library view, or seeing a synced pin on `/pinned` seeds the thread cache
-immediately from the row data and then warms the full story, first page of
-top-level comments, and AI summaries in the background. That means tapping a
-pinned article can paint from cache even while the full item refresh is still
-in flight. Cost: this reuses the existing pin-time warm — at most one
-Firebase item request, one `/api/items` comment batch, and summary endpoint
-requests per newly seen pinned row, with no new infrastructure. Reliability:
-the warm is best-effort and fail-open; if any request fails, the pinned row
-still renders and the thread falls back to whatever cache is already present
-or the normal online fetch path.
+library view, or pulling a new pin from cross-device sync seeds or warms the
+thread cache. Rows seed immediately from the row data; sync-created pins warm
+by id as soon as the device is online. Both paths then fetch the full story,
+first page of top-level comments, and AI summaries in the background. That
+means tapping a pinned article can paint from cache even while the full item
+refresh is still in flight. Cost: this reuses the existing pin-time warm — at
+most one Firebase item request, one `/api/items` comment batch, and summary
+endpoint requests per newly seen pinned row, with no new infrastructure.
+Reliability: the warm is best-effort and fail-open; if any request fails, the
+pinned row still renders and the thread falls back to whatever cache is
+already present or the normal online fetch path.
 
 **Cross-device sync:** all four lists — Pinned, Favorite, Hidden, Done —
 ride `/api/sync` (Upstash Redis, per-user, per-id last-write-wins,

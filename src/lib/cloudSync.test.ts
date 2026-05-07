@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient } from '@tanstack/react-query';
 import {
   getCloudSyncDebug,
   mergeEntries,
@@ -39,6 +40,7 @@ import {
   getStoredHotThresholds,
   setStoredHotThresholds,
 } from './hotThresholds';
+import { summaryQueryKey } from '../hooks/useSummary';
 
 const NOW = Date.now();
 const T = {
@@ -58,6 +60,14 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json' },
+  });
+}
+
+function newQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: 0, networkMode: 'always' },
+    },
   });
 }
 
@@ -274,6 +284,68 @@ describe('cloudSync lifecycle', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(getPinnedIds()).toEqual(new Set([1]));
+  });
+
+  it('warms server-created pins from sync into the pinned-story cache', async () => {
+    const server: SyncState = {
+      pinned: [{ id: 42, at: T.T3 }],
+      favorite: [],
+      hidden: [],
+      done: [],
+    };
+    const fetchMock = queuedFetch([{ response: jsonResponse(server) }]);
+    const warmFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/v0/item/42.json')) {
+        return jsonResponse({
+          id: 42,
+          type: 'story',
+          title: 'Synced pin',
+          url: 'https://example.com/synced-pin',
+          kids: [4201],
+        });
+      }
+      if (url.includes('/api/items')) {
+        return jsonResponse([
+          {
+            id: 4201,
+            type: 'comment',
+            by: 'alice',
+            text: 'warm comment',
+            time: 1,
+          },
+        ]);
+      }
+      if (url.includes('/api/summary')) {
+        return jsonResponse({ summary: 'warm article summary' });
+      }
+      if (url.includes('/api/comments-summary')) {
+        return jsonResponse({ insights: ['warm comments'] });
+      }
+      throw new Error(`Unexpected warm fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', warmFetch);
+    const client = newQueryClient();
+
+    await startCloudSync('alice', {
+      fetchImpl: fetchMock,
+      debounceMs: 0,
+      queryClient: client,
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 42])).toMatchObject({
+        item: { id: 42, title: 'Synced pin' },
+        kidIds: [4201],
+      });
+      expect(client.getQueryData(['comment', 4201])).toMatchObject({
+        id: 4201,
+      });
+      expect(client.getQueryData(summaryQueryKey(42))).toEqual({
+        summary: 'warm article summary',
+      });
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('survives a failed POST — next change retries', async () => {
