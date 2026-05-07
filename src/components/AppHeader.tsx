@@ -97,15 +97,17 @@ export function AppHeader() {
     }
   }, [refresh, refreshing]);
   const offlinePill = !online ? (
-    <span
+    <Link
+      to="/offline"
       className="app-header__offline"
       data-testid="offline-indicator"
-      role="status"
-      aria-live="polite"
-      title="You are offline. Pinned and recently viewed stories remain available."
+      aria-label="Offline. View offline stories."
+      title="You are offline. View stories cached on this device."
     >
-      Offline
-    </span>
+      <span role="status" aria-live="polite">
+        Offline
+      </span>
+    </Link>
   ) : null;
 
   return (

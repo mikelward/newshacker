@@ -47,6 +47,10 @@ describe('<AppDrawer>', () => {
       'href',
       '/pinned',
     );
+    expect(screen.getByRole('link', { name: 'Offline' })).toHaveAttribute(
+      'href',
+      '/offline',
+    );
     expect(screen.getByRole('link', { name: 'Opened' })).toHaveAttribute(
       'href',
       '/opened',

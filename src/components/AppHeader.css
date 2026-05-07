@@ -126,8 +126,11 @@
 .app-header__offline {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   margin-left: auto;
-  padding: 2px 8px;
+  min-height: var(--tap-min);
+  min-width: var(--tap-min);
+  padding: 0 8px;
   border: 1px solid var(--nh-border);
   border-radius: 10px;
   font-size: 12px;
@@ -136,6 +139,18 @@
   letter-spacing: 0.02em;
   color: var(--nh-text);
   background: transparent;
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .app-header__offline:hover {
+    background: color-mix(in srgb, var(--nh-border) 35%, transparent);
+    text-decoration: none;
+  }
+}
+
+.app-header__offline:active {
+  background: color-mix(in srgb, var(--nh-border) 50%, transparent);
 }
 
 .app-header__actions .app-header__offline {

@@ -34,7 +34,7 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   product promise rather than growing new surfaces by default:
   1. Explicit **Save full thread offline** action for readers who want more
      than the default first-comment-page warm on mega-threads.
-  2. **Cache status UI/debug signal** for pinned stories using
+  2. **Cache status UI/debug signal** for `/offline` / pinned stories using
      `getOfflineCacheStatus` (root/comments/article summary/comments summary
      present, partial, or missing) so offline support is observable before a
      user loses connectivity.
