@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { IsRestoringProvider, QueryClient } from '@tanstack/react-query';
 import { PinnedPage } from './PinnedPage';
 import { Thread } from '../components/Thread';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addPinnedId } from '../lib/pinnedStories';
 import type { HNItem } from '../lib/hn';
+import { _resetNetworkStatusForTests } from '../lib/networkStatus';
 
 function deferredResponse() {
   let resolve!: (value: Response) => void;
@@ -18,9 +20,11 @@ function deferredResponse() {
 describe('<PinnedPage>', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    _resetNetworkStatusForTests();
   });
   afterEach(() => {
     window.localStorage.clear();
+    _resetNetworkStatusForTests();
     vi.unstubAllGlobals();
   });
 
@@ -174,6 +178,82 @@ describe('<PinnedPage>', () => {
       expect(pinned.client.getQueryData(['itemRoot', 9])).toMatchObject({
         kidIds: [901],
       });
+    });
+  });
+
+  it('renders cached item roots when the pinned batch is unavailable offline', async () => {
+    addPinnedId(42);
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0, staleTime: 0, networkMode: 'offlineFirst' },
+      },
+    });
+    client.setQueryData(['itemRoot', 42], {
+      item: makeStory(42, { title: 'Cached offline pin', kids: [] }),
+      kidIds: [],
+    });
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderWithProviders(<PinnedPage />, { client });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cached offline pin')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Could not load stories.')).toBeNull();
+  });
+
+  it('waits for persisted cache restore before showing a pinned-list error', async () => {
+    addPinnedId(77);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+    );
+
+    renderWithProviders(
+      <IsRestoringProvider value={true}>
+        <PinnedPage />
+      </IsRestoringProvider>,
+    );
+
+    expect(screen.getByLabelText(/loading stories/i)).toBeInTheDocument();
+    expect(screen.queryByText('Could not load stories.')).toBeNull();
+  });
+
+  it('renders a cached item root that arrives after the pinned list already errored', async () => {
+    addPinnedId(88);
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0, staleTime: 0, networkMode: 'offlineFirst' },
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+    );
+
+    renderWithProviders(<PinnedPage />, { client });
+
+    await waitFor(() => {
+      expect(screen.getByText('Could not load stories.')).toBeInTheDocument();
+    });
+
+    act(() => {
+      client.setQueryData(['itemRoot', 88], {
+        item: makeStory(88, { title: 'Broadcast cached pin', kids: [] }),
+        kidIds: [],
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Broadcast cached pin')).toBeInTheDocument();
+      expect(screen.queryByText('Could not load stories.')).toBeNull();
     });
   });
 });

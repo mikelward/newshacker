@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useIsRestoring,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { getItems, type HNItem } from '../lib/hn';
+import type { ItemRoot } from '../hooks/useItemTree';
 import { isHotStory } from '../lib/format';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useHotThresholds } from '../hooks/useHotThresholds';
@@ -48,6 +53,8 @@ export function LibraryStoryList({
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const queryClient = useQueryClient();
+  const isRestoring = useIsRestoring();
+  const [cacheVersion, setCacheVersion] = useState(0);
   const shareStory = useShareStory();
   // Hoist `useHotThresholds()` here so the user's `<HotRuleCard>`
   // overrides reach the row pill without per-row hook subscriptions
@@ -70,10 +77,33 @@ export function LibraryStoryList({
     queryFn: ({ signal }) => getItems(ids, signal),
     enabled: ids.length > 0,
   });
+  useEffect(() => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    return queryClient.getQueryCache().subscribe((event) => {
+      const key = event.query.queryKey;
+      if (key[0] !== 'itemRoot') return;
+      const id = key[1];
+      if (typeof id !== 'number' || !idSet.has(id)) return;
+      setCacheVersion((version) => version + 1);
+    });
+  }, [ids, queryClient]);
 
-  const stories = (items.data ?? []).filter(
-    (it): it is NonNullable<typeof it> => it != null,
-  );
+  // `cacheVersion` is intentionally read here: query-cache subscriptions
+  // bump it when a sibling tab (or a late prefetch) writes itemRoot data
+  // after the library list rendered. That forces this synchronous cache
+  // fallback to re-run without installing a disabled observer for every id.
+  void cacheVersion;
+  const stories = isRestoring
+    ? (items.data ?? []).filter((it): it is HNItem => it != null)
+    : ids
+        .map((id, idx) => {
+          const batchItem = items.data?.[idx] ?? null;
+          if (batchItem) return batchItem;
+          return queryClient.getQueryData<ItemRoot | null>(['itemRoot', id])
+            ?.item ?? null;
+        })
+        .filter((it): it is HNItem => it != null);
 
   // Library rows arrive through ['libraryStoryItems', ...], while the thread
   // page reads ['itemRoot', id]. Seed pinned rows into the thread key before
@@ -117,7 +147,7 @@ export function LibraryStoryList({
     return <EmptyState message={emptyMessage} />;
   }
 
-  if (items.isLoading) {
+  if ((items.isLoading || isRestoring) && stories.length === 0) {
     return (
       <ol
         className="story-list"
@@ -133,7 +163,7 @@ export function LibraryStoryList({
     );
   }
 
-  if (items.isError) {
+  if (items.isError && stories.length === 0) {
     return (
       <ErrorState
         message="Could not load stories."
