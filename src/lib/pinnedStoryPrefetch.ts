@@ -60,6 +60,9 @@ export function prefetchPinnedStory(
       const item = await getItem(story.id, signal);
       if (!item) return null;
       const kidIds = item.deleted || item.dead ? [] : (item.kids ?? []);
+      if (!story.url && item.url) {
+        client.prefetchQuery(summaryQueryOptions(item.id));
+      }
       // Fire-and-forget: warm the top-level comment cache using the ids
       // we just got from the root. prefetchCommentBatch batches via
       // /api/items so a 30-comment warm is one HTTP request. Needs the

@@ -9,7 +9,8 @@
 // retried on the next event or reconnect. Local storage remains the
 // source of truth for the UI; /api/sync is purely additive.
 
-import { trackedFetch, subscribeOnline } from './networkStatus';
+import type { QueryClient } from '@tanstack/react-query';
+import { trackedFetch, subscribeOnline, getOnline } from './networkStatus';
 import {
   PINNED_STORIES_CHANGE_EVENT,
   getAllPinnedEntries,
@@ -47,6 +48,7 @@ import {
   replaceHotThresholds,
   type HotThresholds,
 } from './hotThresholds';
+import { prefetchPinnedStory } from './pinnedStoryPrefetch';
 
 export const SYNC_DEBOUNCE_MS = 2000;
 // Visibility-triggered pulls are gated: tab-switching shouldn't hammer
@@ -132,6 +134,9 @@ interface SyncRuntime {
   unsubscribeVisibility: (() => void) | null;
   onChange: () => void;
   fetchImpl: typeof fetch;
+  queryClient: QueryClient | null;
+  pendingSyncedPinWarmIds: Set<number>;
+  warmedSyncedPinIds: Set<number>;
   debounceMs: number;
   // Timestamp of the most recent pull attempt (any outcome). Used to
   // gate visibility-change pulls.
@@ -234,6 +239,45 @@ function writeLocal(list: ListName, entries: SyncEntry[]): void {
   }
 }
 
+function serverWonLivePinIds(
+  current: SyncEntry[],
+  incoming: SyncEntry[],
+): number[] {
+  const currentById = new Map<number, SyncEntry>();
+  for (const entry of current) currentById.set(entry.id, entry);
+  const ids: number[] = [];
+  for (const entry of incoming) {
+    if (entry.deleted) continue;
+    const existing = currentById.get(entry.id);
+    if (existing && !existing.deleted) continue;
+    if (existing && existing.at >= entry.at) continue;
+    ids.push(entry.id);
+  }
+  return ids;
+}
+
+function flushSyncedPinWarms(): void {
+  if (!runtime?.queryClient) return;
+  if (!getOnline()) return;
+  const ids = Array.from(runtime.pendingSyncedPinWarmIds);
+  if (ids.length === 0) return;
+  runtime.pendingSyncedPinWarmIds.clear();
+  for (const id of ids) {
+    if (runtime.warmedSyncedPinIds.has(id)) continue;
+    runtime.warmedSyncedPinIds.add(id);
+    prefetchPinnedStory(runtime.queryClient, { id });
+  }
+}
+
+function queueSyncedPinWarms(ids: readonly number[]): void {
+  if (!runtime) return;
+  for (const id of ids) {
+    if (runtime.warmedSyncedPinIds.has(id)) continue;
+    runtime.pendingSyncedPinWarmIds.add(id);
+  }
+  flushSyncedPinWarms();
+}
+
 // Strip the raw email before shipping the record over the wire: we
 // intentionally never send it, since the server only needs the hash
 // to build the Gravatar URL on other devices. Also strips anything
@@ -278,18 +322,24 @@ function localHotThresholdsAt(): number {
 function applyServerState(state: SyncState): void {
   if (!runtime) return;
   const lists: ListName[] = ['pinned', 'favorite', 'hidden', 'done'];
+  const syncedPinnedIds: number[] = [];
   for (const list of lists) {
     // Tolerate a missing list on the server response — an older server
     // that predates the Done rollout won't return `done` at all, and we
     // don't want to crash the pull path during the deploy window.
     const incoming = state[list] ?? [];
-    const merged = mergeEntries(readLocal(list), incoming);
+    const current = readLocal(list);
+    if (list === 'pinned') {
+      syncedPinnedIds.push(...serverWonLivePinIds(current, incoming));
+    }
+    const merged = mergeEntries(current, incoming);
     writeLocal(list, merged);
     runtime.lastPushed[list] = Math.max(
       runtime.lastPushed[list],
       maxAt(incoming),
     );
   }
+  queueSyncedPinWarms(syncedPinnedIds);
   if (state.avatar) {
     // LWW on a single record: strictly-newer server `at` overwrites
     // local, otherwise we keep the local copy. The local
@@ -660,6 +710,7 @@ async function runPush(): Promise<void> {
 
 export interface StartOptions {
   fetchImpl?: typeof fetch;
+  queryClient?: QueryClient;
   // Debounce window before a POST fires after a local change event.
   // Tests override this to 0 so they don't need fake timers; default
   // is the production 2-second debounce.
@@ -689,7 +740,13 @@ export async function startCloudSync(
   username: string,
   opts: StartOptions = {},
 ): Promise<void> {
-  if (runtime && runtime.username === username) return;
+  if (runtime && runtime.username === username) {
+    if (opts.queryClient) {
+      runtime.queryClient = opts.queryClient;
+      flushSyncedPinWarms();
+    }
+    return;
+  }
   stopCloudSync();
 
   const fetchImpl = opts.fetchImpl ?? trackedFetch;
@@ -707,6 +764,9 @@ export async function startCloudSync(
     unsubscribeVisibility: null,
     onChange,
     fetchImpl,
+    queryClient: opts.queryClient ?? null,
+    pendingSyncedPinWarmIds: new Set(),
+    warmedSyncedPinIds: new Set(),
     debounceMs: opts.debounceMs ?? SYNC_DEBOUNCE_MS,
     lastPullAttemptAt: 0,
   };
@@ -721,7 +781,11 @@ export async function startCloudSync(
   runtime.unsubscribeOnline = subscribeOnline((online) => {
     if (!online) return;
     // Re-pull on reconnect and flush any deltas accumulated offline.
-    void pull().then(() => schedulePush(0));
+    flushSyncedPinWarms();
+    void pull().then(() => {
+      flushSyncedPinWarms();
+      schedulePush(0);
+    });
   });
   runtime.unsubscribeVisibility = subscribeVisibility();
 
