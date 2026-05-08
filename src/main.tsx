@@ -6,17 +6,29 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
 import { startQueryCacheSync } from './lib/queryCacheSync';
+import {
+  lockAllPinnedQueriesGcTime,
+  startPinnedQueryRetention,
+} from './lib/pinnedQueryRetention';
 import './styles/global.css';
 import './styles/chromePreview.css';
 
 // Bump when the shape of cached data changes in a way that would break
-// hydrated readers — it busts all persisted queries in one go.
+// hydrated readers — it busts all persisted queries in one go (pinned
+// entries included; intentional, the data shape on disk no longer
+// matches what the new readers expect).
 const CACHE_BUSTER = '2';
 const ONE_HOUR = 60 * 60 * 1000;
-// Saved stories prefetch their item data and AI summary at save-time; we
-// want those to stay usable when the user comes back to /saved days later,
-// so the persisted cache lives as long as the saved-story TTL.
-const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+// Persister maxAge is intentionally Infinity. Pinned stories must
+// survive arbitrarily long offline gaps, and the persister discards
+// the entire blob if it's older than maxAge — so any finite ceiling
+// would silently evict the pinned cache after the user is away that
+// long. Per-query gcTime still bounds non-pinned entries (default 1 h
+// in memory, 7 d for itemRoot/summary/comments-summary/comment), so
+// the persisted blob doesn't grow unboundedly: GC'd queries fall out
+// of the next dehydrate. Pinned-story queries are explicitly locked
+// at gcTime Infinity in prefetchPinnedStory + lockPinnedQueryGcTime.
+const PERSIST_MAX_AGE = Number.POSITIVE_INFINITY;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,11 +64,24 @@ const persister = createSyncStoragePersister({
 // on unload.
 startQueryCacheSync(queryClient);
 
+// Same lifecycle: re-lock every pinned story's gcTime to Infinity on
+// any pin/unpin event (incl. cross-tab via the storage event), so a
+// story pinned in tab A also stops being evictable in tab B once
+// queryCacheSync delivers its data.
+startPinnedQueryRetention(queryClient);
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister, maxAge: SEVEN_DAYS, buster: CACHE_BUSTER }}
+      persistOptions={{ persister, maxAge: PERSIST_MAX_AGE, buster: CACHE_BUSTER }}
+      onSuccess={() => {
+        // Persister rehydrate creates queries with the queryClient's
+        // default gcTime (1 h); without this, any pinned-story query
+        // restored from disk would be GC'd within an hour of boot if
+        // no observer attached. Lock them at Infinity immediately.
+        lockAllPinnedQueriesGcTime(queryClient);
+      }}
     >
       <BrowserRouter>
         <App />

@@ -21,6 +21,10 @@ type BatchFetcher = (
 // 7-day stale/gc window so the persister keeps these alive alongside
 // the item root and AI summary.
 //
+// `gcTime` overrides the default 7-day window — pinned-story prefetches
+// pass `Number.POSITIVE_INFINITY` so the comment cache for a pinned
+// thread is never evicted (see src/lib/pinnedQueryRetention.ts).
+//
 // Best-effort: any failure is swallowed. Callers must not depend on a
 // successful prefetch (per-comment useCommentItem falls back to
 // individual Firebase fetches).
@@ -29,6 +33,7 @@ export async function prefetchCommentBatch(
   kidIds: readonly number[],
   fetcher: BatchFetcher,
   limit: number = COMMENT_BATCH_LIMIT,
+  gcTime: number = SUMMARY_RETENTION_MS,
 ): Promise<void> {
   if (kidIds.length === 0) return;
   const slice = kidIds.slice(0, limit);
@@ -59,7 +64,7 @@ export async function prefetchCommentBatch(
         queryKey: ['comment', id],
         queryFn: () => resolved,
         staleTime: 0,
-        gcTime: SUMMARY_RETENTION_MS,
+        gcTime,
       }),
     );
   }
