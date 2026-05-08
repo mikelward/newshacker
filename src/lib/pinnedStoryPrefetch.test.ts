@@ -1,16 +1,22 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { prefetchPinnedStory } from './pinnedStoryPrefetch';
 import { summaryQueryKey } from '../hooks/useSummary';
 import { commentsSummaryQueryKey } from '../hooks/useCommentsSummary';
+import { addPinnedId, clearPinnedIds } from './pinnedStories';
 
 describe('prefetchPinnedStory', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    if (typeof window !== 'undefined') window.localStorage.clear();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    if (typeof window !== 'undefined') {
+      clearPinnedIds();
+      window.localStorage.clear();
+    }
   });
 
   it('prefetches item root and AI summary so /pinned has both without a round-trip', async () => {
@@ -311,6 +317,154 @@ describe('prefetchPinnedStory', () => {
     await vi.waitFor(() => {
       expect(client.getQueryData(['itemRoot', 322])).toBeTruthy();
     });
+  });
+
+  it('locks every prefetched query at gcTime Infinity when the story is already pinned', async () => {
+    // Happy path for "pinned articles never get evicted from the client
+    // cache": when prefetchPinnedStory is called for a story that's
+    // present in the pinned-ids list, every cache entry it warms — item
+    // root, both AI summaries, and the per-comment entries — must end
+    // up with gcTime Infinity so React Query never schedules a gc
+    // timeout against them. Companion tests in pinnedQueryRetention
+    // cover the path where the query already exists with a finite
+    // gcTime when the pin happens.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/808')) {
+        return new Response(
+          JSON.stringify({
+            id: 808,
+            type: 'story',
+            title: 'Locked',
+            url: 'https://example.com/locked',
+            kids: [8081],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/items')) {
+        const parsed = new URL(url, 'http://localhost');
+        const ids = (parsed.searchParams.get('ids') ?? '')
+          .split(',')
+          .map(Number);
+        return new Response(
+          JSON.stringify(
+            ids.map((id) => ({
+              id,
+              type: 'comment',
+              by: 'alice',
+              text: `body ${id}`,
+              time: 1,
+              kids: [],
+            })),
+          ),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'pinned' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/comments-summary')) {
+        return new Response(JSON.stringify({ insights: ['pinned'] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    // Pin BEFORE prefetch — matches the production order:
+    // usePinnedStories.pin(id) writes localStorage and dispatches the
+    // change event, then the caller invokes prefetchPinnedStory.
+    addPinnedId(808);
+    prefetchPinnedStory(client, {
+      id: 808,
+      url: 'https://example.com/locked',
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 808])).toBeTruthy();
+      expect(client.getQueryData(summaryQueryKey(808))).toEqual({
+        summary: 'pinned',
+      });
+      expect(client.getQueryData(commentsSummaryQueryKey(808))).toEqual({
+        insights: ['pinned'],
+      });
+      expect(client.getQueryData(['comment', 8081])).toMatchObject({ id: 8081 });
+    });
+
+    const cache = client.getQueryCache();
+    const gcTimeFor = (key: readonly unknown[]) =>
+      cache.find({ queryKey: key, exact: true })?.gcTime;
+    expect(gcTimeFor(['itemRoot', 808])).toBe(Infinity);
+    expect(gcTimeFor(summaryQueryKey(808))).toBe(Infinity);
+    expect(gcTimeFor(commentsSummaryQueryKey(808))).toBe(Infinity);
+    expect(gcTimeFor(['comment', 8081])).toBe(Infinity);
+  });
+
+  it('keeps the regular 7-day gcTime for feed warms (story not in pinned list)', async () => {
+    // prefetchFeedStory reuses prefetchPinnedStory for trending feed
+    // rows where the user has not pinned the story. Those entries must
+    // still expire normally — locking every drive-by feed warm at
+    // Infinity would let an active feed-browser pile up unbounded
+    // localStorage usage with no recovery.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/item/909')) {
+        return new Response(
+          JSON.stringify({
+            id: 909,
+            type: 'story',
+            title: 'Trending',
+            url: 'https://example.com/trending',
+            kids: [],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'trending' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/comments-summary')) {
+        return new Response(JSON.stringify({ insights: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    // Story is NOT pinned.
+    prefetchPinnedStory(client, {
+      id: 909,
+      url: 'https://example.com/trending',
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 909])).toBeTruthy();
+    });
+
+    const root = client
+      .getQueryCache()
+      .find({ queryKey: ['itemRoot', 909], exact: true });
+    expect(root?.gcTime).not.toBe(Infinity);
+    expect(root?.gcTime).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
   });
 
   it('skips the summary prefetch for self-posts without a url', async () => {
