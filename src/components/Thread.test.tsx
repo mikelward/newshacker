@@ -768,13 +768,27 @@ describe('<Thread>', () => {
     return outer;
   }
 
-  it('does not render the thread upvote button when logged out', async () => {
-    installVoteFetchMock(null);
+  it('renders the thread upvote button when logged out and opens the login dialog on tap', async () => {
+    const fetchMock = installVoteFetchMock(null);
     renderWithProviders(<Thread id={800} />);
     await waitFor(() => {
       expect(screen.getByText('Votable')).toBeInTheDocument();
     });
-    expect(screen.queryByTestId('thread-vote')).toBeNull();
+    const vote = await screen.findByTestId('thread-vote');
+    expect(vote).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(vote);
+
+    const dialog = await screen.findByTestId('login-dialog');
+    expect(dialog).toHaveTextContent('Sign in to upvote');
+
+    // The optimistic flip should NOT have fired, and no /api/vote
+    // request should have gone out.
+    expect(vote).toHaveAttribute('aria-pressed', 'false');
+    const voteCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url) === '/api/vote',
+    );
+    expect(voteCalls).toHaveLength(0);
   });
 
   it('renders the thread upvote button and toggles the voted state when signed in', async () => {
@@ -841,15 +855,17 @@ describe('<Thread>', () => {
       expect(screen.getByTestId('thread-vote')).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByTestId('thread-vote'));
+    const vote = screen.getByTestId('thread-vote');
+    await userEvent.click(vote);
 
     // useVote eagerly clears the auth state on a 401 (otherwise
-    // the user keeps seeing logged-in UI for up to 1h), so the
-    // upvote button is hidden by Thread's auth gate by the time
-    // the rejection finishes. The vote rollback is still
-    // observable via the persisted store: nothing was saved.
+    // the user keeps seeing logged-in UI for up to 1h). The button
+    // still renders (the upvote affordance is now always visible —
+    // tapping it while logged out prompts to sign in), but the
+    // optimistic vote rolls back to neutral and nothing is
+    // persisted under alice's namespace.
     await waitFor(() => {
-      expect(screen.queryByTestId('thread-vote')).toBeNull();
+      expect(vote).toHaveAttribute('aria-pressed', 'false');
     });
     expect(
       window.localStorage.getItem('newshacker:votedStoryIds:alice'),

@@ -337,6 +337,25 @@ server-side with most-recent-first eviction.
      anywhere; only the resulting opaque HN cookie is persisted (as the
      `hn_session` cookie on the user's browser). The login page carries
      a short, honest disclosure to that effect.
+   - **Login dialog (modal).** Logged-in actions reachable from inside
+     a feed or thread (Upvote on the thread action bar, Upvote /
+     Downvote on a comment) open a global modal sign-in dialog rather
+     than yanking the reader to `/login` and losing their place. The
+     dialog hosts the same `<LoginForm>` the `/login` route uses
+     (single source of truth — no duplicated state machine for
+     username / password / error / submit) and carries the same trust
+     disclosure. Opened by the caller via `useLoginDialog()`
+     (`openLoginDialog({ reason })`); `reason` becomes the heading
+     ("Sign in to upvote", "Sign in to vote") so a reader who taps a
+     button two seconds after page load isn't asked "Sign in to
+     Hacker News" out of context. Dismissed via the close button,
+     scrim tap, Escape, or a successful login. If the viewer is
+     already authenticated when `openLoginDialog` is called, the
+     provider silently no-ops — the caller doesn't have to check
+     first. The dialog mounts once at the App level inside the
+     `LoginDialogProvider`, just below `ToastProvider`. Direct visits
+     to `/login` still render the full-page form (deep-link / shared
+     URL case); the dialog is the in-place complement.
 
 6. **Account UI** (header chip, not drawer). The sticky header
    gains a single always-visible account control on the far right — one
@@ -640,7 +659,7 @@ The icon is always painted in HN orange (`.pin-btn--active`) because every visib
 
 ### Thread action bar
 
-Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** (hidden when logged out) → **Pin/Unpin** → **Done** → **More actions ⋮**. Each icon button is 48×48px with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--nh-meta` by default and `--nh-orange` when voted; tapping flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip.
+Row order, left-to-right: **Read article** (hidden on self-posts) → **Upvote** → **Pin/Unpin** → **Done** → **More actions ⋮**. Each icon button is 48×48px with ≥8px spacing. The Upvote button uses HN's triangle shape (solid `▲`), colored `--nh-meta` by default and `--nh-orange` when voted; tapping while signed in flips local state optimistically and POSTs `/api/vote` in the background, rolling back and toasting on failure. See item 7 under *Features* for the full round-trip. **Logged-out viewers see the same button** — tapping it opens the global **Login dialog** with a "Sign in to upvote" heading rather than silently dropping the action (see *Login dialog* below). The earlier design hid Upvote when logged out, which left readers wondering whether voting was supported at all; surfacing it consistently is the better discovery cue, and the dialog gates the actual write.
 
 **Read-article "read" state.** The HN-orange Read article button drops to the neutral secondary palette once the reader has opened the article at least once in this browser (tracked by `articleOpenedIds` in the `useOpenedStories` hook, persisted to `localStorage` under `newshacker:openedStoryIds`). Layout, icon, label, and href are unchanged — only the colors shift — so a re-visit still surfaces the link without visually shouting "read this!" at someone who already has. Implemented as a `.thread__action--read` modifier stacked on top of `.thread__action--primary`; ordering in `Thread.css` matters (read overrides primary). Tapping the button still calls `markArticleOpenedId`, which is a no-op if the id is already set. Matches the feed row's "visited" treatment where opened stories fade the title.
 
@@ -699,7 +718,7 @@ Card behavior:
 - **Body** clamped to 3 lines collapsed (CSS `-webkit-line-clamp: 3`) at 15px to match the AI summary card; un-clamped when expanded.
 - **Background** tints to `--nh-pressed` on the expanded comment so the active node stands out in a long thread.
 - **Cursor** is `pointer` collapsed and `default` (reading state) when expanded.
-- **Vote behavior.** Upvote and Downvote share the thread action bar's optimistic-vote path: tapping flips local state immediately, POSTs `/api/vote` in the background, and rolls back + toasts on failure. The voted button paints in `--nh-orange` (shape stays solid — HN's own shape+color convention, matching the story vote button). Switching direction (up → down, or down → up) chains two API hits — `un` then the new direction — because HN models it that way; if the second leg fails after a successful `un` the UI lands at neutral locally rather than restoring the original direction, so the client can't display a vote HN no longer has.
+- **Vote behavior.** Upvote and Downvote share the thread action bar's optimistic-vote path: tapping while signed in flips local state immediately, POSTs `/api/vote` in the background, and rolls back + toasts on failure. The voted button paints in `--nh-orange` (shape stays solid — HN's own shape+color convention, matching the story vote button). Switching direction (up → down, or down → up) chains two API hits — `un` then the new direction — because HN models it that way; if the second leg fails after a successful `un` the UI lands at neutral locally rather than restoring the original direction, so the client can't display a vote HN no longer has. A logged-out tap on either button opens the global **Login dialog** ("Sign in to upvote" / "Sign in to vote") instead of silently dropping the action — see *Login dialog* below.
 - **Downvote is karma-gated and time-windowed by HN.** The `how=down` anchor is only rendered on HN's item page for viewers above a karma threshold (historically ~500) and not for the viewer's own posts, and HN also stops rendering the downvote anchor once a comment is past its downvote window (comments are only downvotable for a limited time after posting; HN's exact threshold is undocumented). For any of these cases the scrape step in `/api/vote` returns 502 (the expected anchor is absent) and the hook toasts. We deliberately don't pre-check any of this — it would cost an extra item-page fetch per Downvote button render for a minority case — and we also don't try to distinguish karma-gate from too-old from a genuine HN error in the toast; the user sees an action-specific message ("Downvote unavailable on this item. It may be too old, your karma may not qualify, or you may have already voted.") that they can act on, without us pretending to know which of the causes applies. Historically the toast surfaced the raw "Could not find vote link on Hacker News item page" scraper message, which was accurate but unhelpful; the handler now returns a reader-friendly string per `how`.
 - **Children.** Immediate children render below as their own collapsed `<Comment>` nodes — i.e. each child is itself a 3-line preview until tapped.
 

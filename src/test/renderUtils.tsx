@@ -3,6 +3,7 @@ import { render, type RenderOptions } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FeedBarProvider } from '../components/FeedBarContext';
+import { LoginDialogProvider } from '../components/LoginDialog';
 
 interface Options extends Omit<RenderOptions, 'wrapper'> {
   route?: string;
@@ -28,7 +29,9 @@ export function renderWithProviders(ui: ReactElement, options: Options = {}) {
     ...render(
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={[route]}>
-          <FeedBarProvider>{ui}</FeedBarProvider>
+          <LoginDialogProvider>
+            <FeedBarProvider>{ui}</FeedBarProvider>
+          </LoginDialogProvider>
         </MemoryRouter>
       </QueryClientProvider>,
       rest,

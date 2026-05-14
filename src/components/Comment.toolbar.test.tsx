@@ -225,12 +225,11 @@ describe('<Comment> upvote wiring', () => {
     expect(body).toEqual({ id: 9201, how: 'un' });
   });
 
-  it('logged-out tap is a no-op — no request, no aria-pressed flip', async () => {
-    // Guards the contract: useVote.toggleVote returns early when
-    // there's no signed-in user, so the comment row shouldn't surface
-    // a "failed to upvote" toast either. This test would regress if a
-    // refactor started POSTing speculatively and relying on the
-    // server to 401.
+  it('logged-out tap opens the login dialog — no POST, no aria-pressed flip', async () => {
+    // Guards the contract: useVote.toggleVote prompts the reader to
+    // sign in instead of silently dropping the action. The optimistic
+    // path doesn't fire, /api/vote isn't called, and the LoginDialog
+    // is now visible.
     const fetchMock = stubVoteFetch({
       me: null,
       items: { 9202: commentFixture(9202) },
@@ -247,10 +246,13 @@ describe('<Comment> upvote wiring', () => {
     const upvote = await screen.findByTestId('comment-upvote');
     await userEvent.click(upvote);
 
-    // Give the optimistic path + any async auth settling a beat.
-    await waitFor(() => {
-      expect(upvote).toHaveAttribute('aria-pressed', 'false');
-    });
+    // Dialog should be in the DOM with the upvote-specific heading.
+    const dialog = await screen.findByTestId('login-dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveTextContent('Sign in to upvote');
+
+    // No optimistic flip, no /api/vote round-trip.
+    expect(upvote).toHaveAttribute('aria-pressed', 'false');
     const voteCalls = fetchMock.mock.calls.filter(
       ([url]) => String(url) === '/api/vote',
     );
