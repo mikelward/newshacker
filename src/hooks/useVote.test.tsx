@@ -11,6 +11,10 @@ import {
   getVotedIds,
 } from '../lib/votes';
 import { ToastContext, type ToastOptions } from './useToast';
+import {
+  LoginDialogContext,
+  type OpenLoginDialogOptions,
+} from './useLoginDialog';
 
 function newClient() {
   return new QueryClient({
@@ -47,7 +51,11 @@ function stubFetch(plan: FetchPlan): ReturnType<typeof vi.fn> {
   return fn;
 }
 
-function wrapperFor(client: QueryClient, toasts: ToastOptions[] = []) {
+function wrapperFor(
+  client: QueryClient,
+  toasts: ToastOptions[] = [],
+  loginPrompts: OpenLoginDialogOptions[] = [],
+) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={client}>
@@ -58,7 +66,15 @@ function wrapperFor(client: QueryClient, toasts: ToastOptions[] = []) {
             },
           }}
         >
-          {children}
+          <LoginDialogContext.Provider
+            value={{
+              openLoginDialog: (opts) => {
+                loginPrompts.push(opts ?? {});
+              },
+            }}
+          >
+            {children}
+          </LoginDialogContext.Provider>
         </ToastContext.Provider>
       </QueryClientProvider>
     );
@@ -68,10 +84,14 @@ function wrapperFor(client: QueryClient, toasts: ToastOptions[] = []) {
 // Render useAuth alongside useVote so tests can wait for /api/me to
 // resolve without poking at useVote (whose toggleVote is destructive —
 // it flips state and POSTs, so it can't be used as an idempotent probe).
-function renderVoteAndAuth(client: QueryClient, toasts: ToastOptions[] = []) {
+function renderVoteAndAuth(
+  client: QueryClient,
+  toasts: ToastOptions[] = [],
+  loginPrompts: OpenLoginDialogOptions[] = [],
+) {
   return renderHook(
     () => ({ vote: useVote(), auth: useAuth() }),
-    { wrapper: wrapperFor(client, toasts) },
+    { wrapper: wrapperFor(client, toasts, loginPrompts) },
   );
 }
 
@@ -94,18 +114,97 @@ describe('useVote', () => {
     vi.unstubAllGlobals();
   });
 
-  it('logged out: toggleVote is a no-op', () => {
-    stubFetch({
+  it('logged out: toggleVote opens the login dialog and skips the POST', async () => {
+    const loginPrompts: OpenLoginDialogOptions[] = [];
+    const fetchMock = stubFetch({
       me: null,
       vote: () => new Response(null, { status: 204 }),
     });
-    const { result } = renderHook(() => useVote(), {
-      wrapper: wrapperFor(newClient()),
+    const { result } = renderVoteAndAuth(newClient(), [], loginPrompts);
+    // Wait for /api/me to settle to 401 → auth.isLoading = false.
+    // The hook deliberately drops taps while loading, so the dialog
+    // wouldn't open if we called toggleVote synchronously here.
+    await waitFor(() => {
+      expect(result.current.auth.isLoading).toBe(false);
     });
     act(() => {
-      result.current.toggleVote(42);
+      result.current.vote.toggleVote(42);
     });
-    expect(result.current.votedIds).toEqual(new Set());
+    expect(result.current.vote.votedIds).toEqual(new Set());
+    expect(loginPrompts).toHaveLength(1);
+    expect(loginPrompts[0].reason).toBe('Sign in to upvote');
+    // Nothing should have hit /api/vote.
+    const voteCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url) === '/api/vote',
+    );
+    expect(voteCalls).toHaveLength(0);
+  });
+
+  it('auth still loading: toggleVote drops the tap silently (no dialog, no POST)', async () => {
+    // A returning user with a valid session cookie will resolve as
+    // authenticated once /api/me comes back, but during that
+    // cold-fetch window `user` is null. Treating that as "logged
+    // out" would pop the sign-in dialog at a returning user every
+    // first page load — wrong. Hold /api/me open and verify the
+    // hook neither prompts nor POSTs.
+    const loginPrompts: OpenLoginDialogOptions[] = [];
+    let releaseMe: (() => void) | undefined;
+    const mePromise = new Promise<void>((resolve) => {
+      releaseMe = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/me') {
+        await mePromise;
+        return new Response(JSON.stringify({ username: 'alice' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url === '/api/vote') {
+        return new Response(null, { status: 204 });
+      }
+      return new Response('{}', { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const { result } = renderHook(() => useVote(), {
+        wrapper: wrapperFor(newClient(), [], loginPrompts),
+      });
+      act(() => {
+        result.current.toggleVote(42);
+      });
+      expect(loginPrompts).toHaveLength(0);
+      const voteCalls = fetchMock.mock.calls.filter(
+        ([url]) => String(url) === '/api/vote',
+      );
+      expect(voteCalls).toHaveLength(0);
+    } finally {
+      releaseMe?.();
+    }
+  });
+
+  it('logged out: toggleDownvote opens the login dialog and skips the POST', async () => {
+    const loginPrompts: OpenLoginDialogOptions[] = [];
+    const fetchMock = stubFetch({
+      me: null,
+      vote: () => new Response(null, { status: 204 }),
+    });
+    const { result } = renderVoteAndAuth(newClient(), [], loginPrompts);
+    await waitFor(() => {
+      expect(result.current.auth.isLoading).toBe(false);
+    });
+    act(() => {
+      result.current.vote.toggleDownvote(42);
+    });
+    expect(result.current.vote.downvotedIds).toEqual(new Set());
+    expect(loginPrompts).toHaveLength(1);
+    expect(loginPrompts[0].reason).toMatch(/sign in/i);
+    const voteCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url) === '/api/vote',
+    );
+    expect(voteCalls).toHaveLength(0);
   });
 
   it('logged in: toggleVote flips optimistically and POSTs /api/vote', async () => {

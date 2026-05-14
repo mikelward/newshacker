@@ -1,0 +1,157 @@
+.login-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.login-dialog__scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.login-dialog__panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  padding: 20px 16px 24px;
+  color: var(--nh-text);
+  font-size: 15px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.login-dialog__close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--nh-meta);
+  font-size: 28px;
+  line-height: 1;
+  padding: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .login-dialog__close:hover {
+    background: var(--nh-pressed);
+    color: var(--nh-text);
+  }
+}
+
+.login-dialog__close:active {
+  background: var(--nh-border);
+}
+
+.login-dialog__heading {
+  margin: 0 var(--tap-min) 10px 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.login-dialog__intro {
+  margin: 0 0 20px;
+  color: var(--nh-meta);
+  font-size: 14px;
+}
+
+.login-dialog__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-dialog__label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--nh-meta);
+}
+
+.login-dialog__label input {
+  font: inherit;
+  font-size: 16px;
+  color: var(--nh-text);
+  background: var(--nh-bg);
+  border: 1px solid var(--nh-border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  min-height: var(--tap-min);
+  box-sizing: border-box;
+}
+
+.login-dialog__label input:focus {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: 1px;
+  border-color: var(--nh-orange);
+}
+
+.login-dialog__submit {
+  margin-top: 4px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--nh-orange);
+  border: none;
+  border-radius: 4px;
+  padding: 12px 16px;
+  min-height: var(--tap-min);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .login-dialog__submit:not(:disabled):hover {
+    background: var(--nh-orange-dark);
+  }
+}
+
+.login-dialog__submit:not(:disabled):active {
+  background: var(--nh-orange-dark);
+}
+
+.login-dialog__submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.login-dialog__error {
+  margin: 0;
+  color: #c3200a;
+  font-size: 14px;
+}
+
+.login-dialog__disclosure {
+  margin: 20px 0 0;
+  color: var(--nh-meta);
+  font-size: 13px;
+}
+
+.login-dialog__disclosure a {
+  color: var(--nh-orange);
+  text-decoration: underline;
+}

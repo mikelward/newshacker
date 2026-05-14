@@ -510,7 +510,6 @@ interface ThreadActionBarProps {
   itemId: number;
   articleUrl?: string;
   articleOpened: boolean;
-  canVote: boolean;
   voted: boolean;
   pinned: boolean;
   done: boolean;
@@ -537,7 +536,6 @@ function ThreadActionBar({
   itemId,
   articleUrl,
   articleOpened,
-  canVote,
   voted,
   pinned,
   done,
@@ -588,24 +586,22 @@ function ThreadActionBar({
           <span className="thread__action-label">Read article</span>
         </a>
       ) : null}
-      {canVote ? (
-        <TooltipButton
-          type="button"
-          className={
-            'thread__action thread__action--icon' +
-            (voted ? ' thread__action--active' : '')
-          }
-          data-testid={`thread-vote${testIdSuffix}`}
-          aria-pressed={voted}
-          tooltip={voted ? 'Unvote' : 'Upvote'}
-          onClick={onToggleVote}
-        >
-          <UpArrowIcon />
-          <span className="visually-hidden">
-            {voted ? 'Unvote' : 'Upvote'}
-          </span>
-        </TooltipButton>
-      ) : null}
+      <TooltipButton
+        type="button"
+        className={
+          'thread__action thread__action--icon' +
+          (voted ? ' thread__action--active' : '')
+        }
+        data-testid={`thread-vote${testIdSuffix}`}
+        aria-pressed={voted}
+        tooltip={voted ? 'Unvote' : 'Upvote'}
+        onClick={onToggleVote}
+      >
+        <UpArrowIcon />
+        <span className="visually-hidden">
+          {voted ? 'Unvote' : 'Upvote'}
+        </span>
+      </TooltipButton>
       <TooltipButton
         type="button"
         className={
@@ -987,7 +983,6 @@ export function Thread({ id }: Props) {
           itemId={item.id}
           articleUrl={item.url}
           articleOpened={articleOpened}
-          canVote={isAuthenticated}
           voted={voted}
           pinned={pinned}
           done={done}
@@ -1058,7 +1053,6 @@ export function Thread({ id }: Props) {
           itemId={item.id}
           articleUrl={item.url}
           articleOpened={articleOpened}
-          canVote={isAuthenticated}
           voted={voted}
           pinned={pinned}
           done={done}

@@ -67,23 +67,17 @@ const TABLET_VIEWPORTS = [480, 500, 600, 768, 1024];
 const ALL_VIEWPORTS = [...PHONE_VIEWPORTS, ...TABLET_VIEWPORTS];
 
 describe('<Thread> action bar row count across viewports (logical model)', () => {
-  // Logged-in, URL-backed story: stretch slot + 4 icon buttons (Upvote,
-  // Pin, Done, More). This is the worst case — logged-out drops one
-  // icon button, making the bar narrower, which can only help.
+  // URL-backed story: stretch slot + 4 icon buttons (Upvote, Pin, Done,
+  // More). The Upvote button is now always visible — taps from a
+  // logged-out viewer open the login dialog instead of being hidden —
+  // so the logged-in and logged-out bars share the same width budget.
   const iconCount = 4;
 
   for (const w of ALL_VIEWPORTS) {
-    it(`fits on a single row at ${w}px viewport (with Upvote, logged in)`, () => {
+    it(`fits on a single row at ${w}px viewport (with Upvote)`, () => {
       expect(simulateActionBarRows(w, iconCount, true)).toBe(1);
     });
   }
-
-  it('fits on a single row at every tested viewport when logged out (no Upvote)', () => {
-    const loggedOutIconCount = 3; // Pin, Done, More
-    for (const w of ALL_VIEWPORTS) {
-      expect(simulateActionBarRows(w, loggedOutIconCount, true)).toBe(1);
-    }
-  });
 
   it('fits on a single row on self-posts (no stretch slot on the top bar)', () => {
     // Self-posts: top bar has no Read article → just the icon buttons.

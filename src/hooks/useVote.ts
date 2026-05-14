@@ -11,6 +11,7 @@ import {
 } from '../lib/votes';
 import { postVote, VoteError, type VoteHow } from '../lib/vote';
 import { useToast } from './useToast';
+import { useLoginDialog } from './useLoginDialog';
 import { ME_QUERY_KEY, useAuth } from './useAuth';
 
 export interface UseVoteResult {
@@ -37,9 +38,10 @@ export interface UseVoteResult {
 // transient failure surfaces as a toast and the user can retry
 // manually.
 export function useVote(): UseVoteResult {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const username = user?.username ?? '';
   const { showToast } = useToast();
+  const { openLoginDialog } = useLoginDialog();
   const queryClient = useQueryClient();
   // When a write (vote) returns 401 — meaning HN's session died
   // server-side — the client should immediately reflect that
@@ -146,7 +148,21 @@ export function useVote(): UseVoteResult {
 
   const toggleVote = useCallback(
     (id: number) => {
-      if (!username) return;
+      if (!username) {
+        // Cold /api/me still in flight? Don't show the dialog yet —
+        // a returning user with a valid session cookie will resolve
+        // authenticated in a moment, and prompting them to sign in
+        // would be wrong. The button re-renders with the correct
+        // state once auth settles; the reader can re-tap then.
+        if (authLoading) return;
+        // Confirmed logged out: prompt to sign in instead of silently
+        // dropping the action. The dialog is global (mounted in
+        // App.tsx); useLoginDialog defaults to a no-op when no
+        // provider is mounted, so this is safe in tests that don't
+        // wire one up.
+        openLoginDialog({ reason: 'Sign in to upvote' });
+        return;
+      }
       const upvoted = getVotedIds(username).has(id);
       const downvoted = getDownvotedIds(username).has(id);
 
@@ -175,12 +191,16 @@ export function useVote(): UseVoteResult {
         'Could not upvote.',
       );
     },
-    [username, flipAndPost, chainSwitch],
+    [username, authLoading, flipAndPost, chainSwitch, openLoginDialog],
   );
 
   const toggleDownvote = useCallback(
     (id: number) => {
-      if (!username) return;
+      if (!username) {
+        if (authLoading) return;
+        openLoginDialog({ reason: 'Sign in to vote' });
+        return;
+      }
       const downvoted = getDownvotedIds(username).has(id);
       const upvoted = getVotedIds(username).has(id);
 
@@ -210,7 +230,7 @@ export function useVote(): UseVoteResult {
         'Could not downvote.',
       );
     },
-    [username, flipAndPost, chainSwitch],
+    [username, authLoading, flipAndPost, chainSwitch, openLoginDialog],
   );
 
   const isVoted = useCallback((id: number) => votedIds.has(id), [votedIds]);
