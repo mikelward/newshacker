@@ -371,7 +371,7 @@ Shipped:
 - `useCommentsSummary` hook + `CommentsSummaryCard` inside `Thread.tsx`. Auto-runs on thread load whenever the story has kids — works for self-posts too.
 - Freshness-aware server cache: 30-min TTL for stories < 2 h old, 1-h TTL for older stories. React Query TTL on the client is 1 h.
 - Prefetched on pin and favorite via the shared `prefetchPinnedStory` / `prefetchFavoriteStory` paths so pinned/favorited stories have a cached comment summary available offline.
-- Service Worker runtime cache rule (`ai-comment-summaries`, StaleWhileRevalidate, 7-day, 200 entries) — sibling to the article-summary rule.
+- Service Worker runtime cache rule (`ai-comment-summaries`, StaleWhileRevalidate, no expiration) — sibling to the article-summary rule. Expiration was removed (both time- and LRU-count-based) alongside `hn-items` and `ai-summaries` so pinned stories keep their summaries available offline forever; see SPEC.md *Caching strategy* for the rationale.
 - Shared `api/lib/referer.ts` + `api/lib/hnFetch.ts` helpers so `api/summary.ts`, `api/items.ts`, and `api/comments-summary.ts` don't duplicate the allowlist / Firebase fetch.
 
 ### Phase 6c — Summary latency tuning

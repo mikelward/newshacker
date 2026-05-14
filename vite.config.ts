@@ -104,7 +104,20 @@ export default defineConfig({
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'hn-items',
-              expiration: { maxEntries: 500, maxAgeSeconds: 7 * 24 * 60 * 60 },
+              // No `expiration` — neither time-based nor LRU-count-based.
+              // Pinned items are meant to be kept forever (CLAUDE.md rule 9,
+              // SPEC.md *Retention today*), and the SW running in
+              // `generateSW` mode has no way to tell at request time which
+              // item ids are pinned, so a per-entry exemption isn't
+              // possible. Any finite `maxAgeSeconds` is wrong (7-day was
+              // the original user-reported bug; 365-day was the half-fix
+              // pushed back on by the reporter — "365 days is not
+              // forever"), and any finite `maxEntries` is also wrong
+              // because LRU could still evict a pinned item the user hasn't
+              // re-opened recently. Cache Storage is bounded by the
+              // browser's per-origin quota (multi-GB on modern engines), so
+              // the practical worst case for a heavy reader is tens of MB
+              // of small JSON — well below quota.
               cacheableResponse: { statuses: [0, 200] },
             },
           },
@@ -139,20 +152,21 @@ export default defineConfig({
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'ai-summaries',
-              expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
+              // No `expiration` — see the `hn-items` rule above. A pinned
+              // story's summary must outlive any time window or LRU
+              // position we can name.
               cacheableResponse: { statuses: [0, 200] },
             },
           },
           {
-            // Sibling rule for comment summaries. Same strategy + TTL as
-            // /api/summary so that a pinned or favorited story keeps its
-            // comment summary available offline exactly as long as its
-            // article summary does.
+            // Sibling rule for comment summaries. Same strategy + retention
+            // as /api/summary so that a pinned or favorited story keeps
+            // its comment summary available offline for exactly as long
+            // as its article summary does — i.e. forever.
             urlPattern: /\/api\/comments-summary(?:\?.*)?$/,
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'ai-comment-summaries',
-              expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

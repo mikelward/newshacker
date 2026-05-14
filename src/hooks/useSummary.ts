@@ -1,10 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { trackedFetch } from '../lib/networkStatus';
 
-// Retention: how long we keep the bytes around (React Query gcTime, SW
-// Cache Storage, persister). Matches the service-worker `ai-summaries`
-// entry TTL in `vite.config.ts` so a pinned story that sits for a week
-// still has a warm local copy.
+// Retention: how long the React Query in-memory + persister cache keeps
+// a summary alive for *non-pinned* stories. Pinned stories are locked
+// at `gcTime: Infinity` separately (see `pinnedQueryRetention.ts`), so
+// this value never bounds them. We intentionally do NOT match this to
+// the service-worker `ai-summaries` retention in `vite.config.ts`,
+// which has no expiration at all (pinned stories must live forever in
+// the SW cache, see CLAUDE.md rule 9). Keeping every cold-read summary
+// in localStorage indefinitely would bloat the persister blob and risk
+// QuotaExceededError, so React Query is the in-memory hot cache + a
+// bounded persisted window for whatever the reader actually touched
+// recently. On the next refetch after the RQ window expires, the SW
+// cache still serves the bytes so there's no user-visible regression
+// — just an extra trip through the SW.
 export const SUMMARY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Freshness: how long we trust the local copy before asking the server
