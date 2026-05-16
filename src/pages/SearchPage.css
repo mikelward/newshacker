@@ -1,0 +1,114 @@
+.search-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-page__form {
+  /* Not sticky on purpose: `.app-header` already sticks at top: 0
+     with a higher z-index, so a second sticky bar here would
+     collide and the header would cover the input on a scrolled
+     page. Refining a query is a scroll-to-top action, same as
+     every other list view in the app. */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  background: var(--nh-bg);
+  border-bottom: 1px solid var(--nh-border);
+}
+
+/* Local sr-only — the global stylesheet doesn't ship one and we
+   don't want to depend on Thread.css being loaded first. */
+.search-page .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.search-page__input {
+  width: 100%;
+  min-height: var(--tap-min, 48px);
+  padding: 10px 12px;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--nh-text);
+  background: var(--nh-bg);
+  border: 1px solid var(--nh-border);
+  border-radius: 8px;
+  appearance: none;
+  box-sizing: border-box;
+}
+
+.search-page__input:focus {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: 1px;
+}
+
+.search-page__sort {
+  display: inline-flex;
+  gap: 4px;
+  align-self: flex-start;
+}
+
+.search-page__sort-btn {
+  min-height: var(--tap-min, 48px);
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nh-text);
+  background: transparent;
+  border: 1px solid var(--nh-border);
+  border-radius: 18px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .search-page__sort-btn:hover {
+    background: color-mix(in srgb, var(--nh-border) 35%, transparent);
+  }
+}
+
+.search-page__sort-btn:active {
+  background: color-mix(in srgb, var(--nh-border) 50%, transparent);
+}
+
+.search-page__sort-btn--active {
+  color: #fff;
+  background: var(--nh-orange);
+  border-color: var(--nh-orange);
+}
+
+@media (hover: hover) {
+  .search-page__sort-btn--active:hover {
+    background: var(--nh-orange);
+  }
+}
+
+.search-page__more {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+}
+
+.search-page__more-btn {
+  min-height: var(--tap-min, 48px);
+  padding: 0 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nh-text);
+  background: transparent;
+  border: 1px solid var(--nh-border);
+  border-radius: 18px;
+  cursor: pointer;
+}
+
+.search-page__more-btn:disabled {
+  cursor: default;
+  color: color-mix(in srgb, var(--nh-text) 45%, transparent);
+}

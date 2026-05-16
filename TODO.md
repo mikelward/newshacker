@@ -15,14 +15,15 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   keeping one page of lookahead warm would eliminate nearly every
   visible pagination "Loading…" for steady scrollers. Cap the
   lookahead so we don't drain the whole feed on mount.
-- **Experiment with Algolia HN Search** as an alternative data source.
-  One request returns a page of items with the fields we need; tags
-  map to most of our feeds (`top`→`front_page`, `ask`→`ask_hn`,
-  `show`→`show_hn`, `jobs`→`job`, `new`→`search_by_date&tags=story`).
-  `best` has no direct equivalent — may need a different definition
-  (e.g. "highest-voted story in the last 24h" via numericFilters).
-  Worth prototyping a side-by-side to see if the order / content
-  differs meaningfully from Firebase's `topstories` etc.
+- **Algolia HN Search as a feed source.** `/search` already uses
+  Algolia for full-text search (see SPEC.md *Search*); open question
+  is whether Algolia's `front_page`, `ask_hn`, `show_hn`, `job`, and
+  date-sorted `story` queries can also replace the Firebase
+  `topstories` / `askstories` / etc. id lists. `best` has no direct
+  equivalent — may need a different definition (e.g. "highest-voted
+  story in the last 24h" via numericFilters). Worth prototyping a
+  side-by-side to see if order / content differs meaningfully from
+  Firebase's lists.
 - **Persist item bodies across sessions.** React Query's localStorage
   persister caches the whole client; for item bodies specifically we
   could tier the persistence so they survive longer (days) than the
