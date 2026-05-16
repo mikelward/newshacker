@@ -23,6 +23,7 @@ import { StoryListItem, type RowFlag } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { TooltipButton } from './TooltipButton';
+import { useListKeyboardNav } from '../hooks/useListKeyboardNav';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
@@ -262,6 +263,7 @@ export function StoryListImpl({
   readOnly = false,
   hotThresholds,
 }: ImplProps) {
+  useListKeyboardNav();
   const queryClient = useQueryClient();
   const isRestoring = useIsRestoring();
   const { isAuthenticated } = useAuth();

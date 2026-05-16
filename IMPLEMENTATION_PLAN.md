@@ -73,6 +73,7 @@ Staged so each phase lands as a working, shippable increment. Each phase ends wi
 - `prefers-color-scheme: dark` variant (optional; HN itself is light).
 - User page: karma, about, created.
 - Tests for loading/error/empty states.
+- Keyboard navigation on list pages (j/k/↑/↓, Enter, Space → row menu, `o` → article, `p` → pin, `d` → dismiss, `?` → help overlay). Active row = native DOM focus on `.story-row__body`; `:focus-visible` paints the active treatment. See SPEC.md *Accessibility → Keyboard shortcuts*.
 
 ## Phase 5 — Accounts & collaboration
 

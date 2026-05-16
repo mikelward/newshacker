@@ -128,6 +128,41 @@ export function HelpPage() {
         Entries here expire after seven days.
       </p>
 
+      <h2 className="about-page__heading">Keyboard shortcuts</h2>
+      <p>
+        On any list page, use the keyboard to navigate without
+        touching the mouse. Press <strong>?</strong> at any time to
+        see the same list as an overlay.
+      </p>
+      <ul>
+        <li>
+          <strong>j</strong> or <strong>↓</strong> — next story.{' '}
+          <strong>k</strong> or <strong>↑</strong> — previous story.
+          The first press focuses the first row.
+        </li>
+        <li>
+          <strong>Enter</strong> — open the highlighted story&rsquo;s
+          comments.
+        </li>
+        <li>
+          <strong>Space</strong> — open the row actions menu (Pin,
+          Hide, Share, …).
+        </li>
+        <li>
+          <strong>o</strong> — open the article URL in a new tab.
+        </li>
+        <li>
+          <strong>p</strong> — pin or unpin the highlighted story.
+        </li>
+        <li>
+          <strong>d</strong> — dismiss (hide) the highlighted story.
+          Focus jumps to the next row.
+        </li>
+        <li>
+          <strong>Esc</strong> — close an open menu or this help.
+        </li>
+      </ul>
+
       <h2 className="about-page__heading">Switching theme</h2>
       <p>
         Open the menu and pick <strong>Light</strong>,{' '}
