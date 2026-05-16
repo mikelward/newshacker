@@ -6,6 +6,7 @@ import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { HomePromoCard } from './components/HomePromoCard';
+import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
 import { HotStoryList, StoryList } from './components/StoryList';
 import { ToastProvider } from './components/Toast';
 import { LoginDialogProvider } from './components/LoginDialog';
@@ -106,6 +107,7 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </main>
+          <KeyboardShortcutsOverlay />
         </FeedBarProvider>
       </LoginDialogProvider>
     </ToastProvider>

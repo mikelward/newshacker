@@ -105,6 +105,24 @@
   background: var(--nh-border);
 }
 
+/* Keyboard-navigated active row. Mirrors the expanded-comment left
+   gutter (see `.comment.is-expanded` in Comment.css): a solid, straight
+   3px brand-orange line flush with the row's left edge, no curve from
+   the row body's border-radius. The shadow lives on the outer
+   `.story-row` (not the inner `<a>`) so it sits behind the body's
+   padding and reads as the same "active marker" treatment the
+   expanded-comment card uses. `:has(:focus-visible)` keeps the
+   indicator out of click-focus territory — mouse clicks never leave it
+   stuck on a row. The default browser focus ring on the inner link
+   is suppressed since the gutter is doing the same job. */
+.story-row:has(.story-row__body:focus-visible) {
+  background: var(--nh-pressed);
+  box-shadow: inset 3px 0 0 var(--nh-orange);
+}
+.story-row__body:focus-visible {
+  outline: none;
+}
+
 .story-row__title-text {
   display: block;
   font-size: 16px;

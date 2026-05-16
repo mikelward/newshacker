@@ -17,6 +17,7 @@ import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
 import { EmptyState, ErrorState } from './States';
+import { useListKeyboardNav } from '../hooks/useListKeyboardNav';
 import { useShareStory } from '../hooks/useShareStory';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
@@ -48,6 +49,7 @@ export function LibraryStoryList({
   emptyMessage,
   rightAction,
 }: Props) {
+  useListKeyboardNav();
   const { hide, hiddenIds } = useHiddenStories();
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts, unopen } =
     useOpenedStories();

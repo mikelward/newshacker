@@ -854,6 +854,25 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 - Color contrast ≥ 4.5:1 for body text. Brand orange `#ef5f00` hits only ~3.3:1 on white, so it's never used for body text — only as a background behind white glyphs (the logo tile behind the white "n"), as an outline color (focus rings, borders, the Classic preset's disc ring), or as the *wordmark* in the Duo preset. WCAG 1.4.3 exempts logotypes from the text-contrast minimum, and "newshacker" in the header is the wordmark side of the logo, not running text — the 3:1 non-text threshold applies instead, which `#ef5f00` on `--nh-bg` clears in both light and dark modes.
 - Every icon-only `<button>` has an accessible name — either via `aria-label` or a `visually-hidden` caption inside the button. The long-press tooltip (see *Visual Design*) is visual-only; screen readers rely on the accessible name, not the transient tooltip DOM.
 
+### Keyboard shortcuts
+
+newshacker is keyboard-navigable on every list page (`/`, `/:feed`, `/hot`, and the library views `/pinned`, `/favorites`, `/done`, `/hidden`, `/opened`). The active row is whichever row body has DOM focus — no parallel "selected row" state, no localStorage mirror; `:focus-visible` paints the active treatment (a 3px brand-orange left border and the pressed-grey background), so the indicator only appears for keyboard users and clicking with a mouse never leaves a row stuck in the highlighted state.
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Focus the next row. If nothing is focused, focus the first row. |
+| `k` / `↑` | Focus the previous row. If nothing is focused, focus the first row. |
+| `Enter` | Open the focused row's comments (native `<Link>` activation). |
+| `Space` | Open the row's actions menu (the same menu touch users get from long-press). |
+| `o` | Open the focused row's article URL in a new tab (no-op on self-posts). |
+| `p` | Toggle pin on the focused row. |
+| `d` | Dismiss (hide) the focused row. Focus moves to whatever takes the vacated slot. |
+| `?` | Open the keyboard-shortcuts help overlay. |
+| `Esc` | Close the menu / overlay (existing behavior). |
+
+- **No auto-focus on initial load.** The page renders with focus untouched. The first press of `j`, `k`, `↑`, or `↓` focuses the first visible row. Route changes between feeds reset to the same behavior — landing on `/new` from `/top` leaves the page at scroll top with nothing focused until a key is pressed. This avoids stealing focus from screen readers and avoids viewport jumps for readers who arrived via a deep link expecting to read the page header first.
+- **Bail-out conditions** (every handler exits early): focus is in an `<input>` / `<textarea>` / `<select>` / `[contenteditable]`; any dialog or menu is already open (`StoryRowMenu`, `LoginDialog`, `AppDrawer`, `HeaderAccountMenu`, the shortcuts overlay — they all set `role="dialog"` or `role="menu"`); a modifier key (Cmd/Ctrl/Alt) is held; or the event has already been `defaultPrevented`. So Cmd-click on a row link, browser find, form typing, and "open another modal first" all keep working unchanged.
+
 ## Performance Targets
 
 - First Contentful Paint < 1.5s on a 4G mobile profile.

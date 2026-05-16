@@ -1,12 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { MouseEvent, ReactNode } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { HNItem } from '../lib/hn';
 import {
   formatDisplayDomain,
   formatStoryMetaTail,
   isHotStory,
+  isSafeHttpUrl,
 } from '../lib/format';
+import { markArticleOpenedId } from '../lib/openedStories';
 import { usePointerDevice } from '../hooks/usePointerDevice';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
@@ -297,6 +299,83 @@ export function StoryListItem({
 
   const pinLabel = pinned ? `Unpin ${title}` : `Pin ${title}`;
 
+  // Per-row keyboard shortcuts: Space opens the row menu, `o` opens
+  // the article in a new tab, `p` toggles pin, `d` dismisses (hides)
+  // the row. Enter falls through to the native <Link> activation.
+  // Navigation (j/k/arrows) and the `?` help overlay are handled at
+  // document scope by useListKeyboardNav / KeyboardShortcutsOverlay.
+  const handleRowKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLAnchorElement>) => {
+      if (e.defaultPrevented) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      switch (e.key) {
+        case ' ':
+        case 'Spacebar': {
+          if (menuItems.length > 0) {
+            e.preventDefault();
+            openMenu();
+          }
+          break;
+        }
+        case 'o': {
+          // Mirror Thread's "Read article" link: gate on the same
+          // http(s) allowlist so an HN URL with a `javascript:`/`data:`
+          // scheme can't reach `window.open`, and record the
+          // article-open so the row picks up its "opened" treatment
+          // and shows up in `/opened` just like the click path.
+          const url = story.url;
+          if (isSafeHttpUrl(url)) {
+            e.preventDefault();
+            markArticleOpenedId(story.id);
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }
+          break;
+        }
+        case 'p': {
+          if (onPin || onUnpin) {
+            e.preventDefault();
+            handleTogglePin();
+          }
+          break;
+        }
+        case 'd': {
+          if (onHide && !pinned) {
+            e.preventDefault();
+            // Capture the focused row's index in the document-wide
+            // list, then re-query after the hide commits so we focus
+            // whatever moved into the slot the hidden row vacated.
+            const rows = Array.from(
+              document.querySelectorAll<HTMLElement>('.story-row__body'),
+            );
+            const idx = rows.indexOf(e.currentTarget);
+            handleHide();
+            requestAnimationFrame(() => {
+              const next = Array.from(
+                document.querySelectorAll<HTMLElement>('.story-row__body'),
+              );
+              if (next.length === 0) return;
+              const at = idx < 0 ? 0 : Math.min(idx, next.length - 1);
+              next[at]?.focus();
+            });
+          }
+          break;
+        }
+      }
+    },
+    [
+      menuItems.length,
+      openMenu,
+      story.id,
+      story.url,
+      onPin,
+      onUnpin,
+      handleTogglePin,
+      onHide,
+      pinned,
+      handleHide,
+    ],
+  );
+
   // Swipe-reveal hints, shown behind the row. Each edge labels the
   // outcome of a swipe that reveals *that* edge: shield text when
   // the row's state blocks the gesture, action text when the
@@ -359,6 +438,7 @@ export function StoryListItem({
         className="story-row__body story-row__body--stretched"
         data-testid="story-title"
         onClick={handleOpenThread}
+        onKeyDown={handleRowKeyDown}
       >
         <span className="story-row__title-text">{title}</span>
         <span className="story-row__meta" data-testid="story-meta">
