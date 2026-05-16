@@ -158,4 +158,23 @@ describe('<AppHeader>', () => {
       '/',
     );
   });
+
+  it('shows a search button on feed pages that navigates to /search', () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    const btn = screen.getByTestId('search-btn');
+    expect(btn).toHaveAccessibleName(/search hacker news/i);
+    fireEvent.click(btn);
+    // Search button doesn't render on /search itself.
+    expect(screen.queryByTestId('search-btn')).toBeNull();
+  });
+
+  it('shows a search button on non-feed pages too', () => {
+    renderWithProviders(<AppHeader />, { route: '/pinned' });
+    expect(screen.getByTestId('search-btn')).toBeInTheDocument();
+  });
+
+  it('does not show a search button on /search', () => {
+    renderWithProviders(<AppHeader />, { route: '/search' });
+    expect(screen.queryByTestId('search-btn')).toBeNull();
+  });
 });

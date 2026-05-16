@@ -28,6 +28,7 @@ import { AdminPage } from './pages/AdminPage';
 import { ThresholdTuningPage } from './pages/ThresholdTuningPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { SearchPage } from './pages/SearchPage';
 
 function CloudSyncBridge() {
   useCloudSync();
@@ -100,6 +101,7 @@ export default function App() {
                   preview have proper room. */}
               <Route path="/tuning" element={<ThresholdTuningPage />} />
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/search" element={<SearchPage />} />
               <Route path="/item/:id" element={<ItemPage />} />
               <Route path="/user/:id" element={<UserPage />} />
               <Route path="/:feed" element={<FeedPage />} />

@@ -829,6 +829,24 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 
 **Cost / reliability (rule 11).** Axiom's free Vercel-integration tier covers the query API (and ~500 GB/month ingest, orders of magnitude above this project's volume). The dashboard issues five small aggregation queries per `/admin` page load; the operator hits `/admin` a few times a day. Effectively $0/month. Reliability impact: adds Axiom as a runtime dep of the analytics section only — service-health, Jina balance, and identity all keep painting if Axiom is down. Per-card timeout caps the worst-case page latency at the slowest query (5 s) since cards fire in parallel.
 
+## Search
+
+`/search` is a full-text search over Hacker News stories. The page is a search input on top, a Relevance / Date sort toggle, and a list of `StoryListItem` rows underneath — same row chrome as every other feed, so pin/unpin, swipe-to-hide, long-press menu, and "N new comments" indicators all work identically on a result row.
+
+**Entry point.** A search-glass icon (Material Symbols `search`) lives in the right-actions group of `AppHeader`, on both feed pages (offline → search → refresh → undo → sweep → account) and non-feed pages (offline → search → account). The button suppresses itself on `/search` so it never navigates to the page you're already on.
+
+**URL state.** Everything the page needs is in the query string: `/search?q=<text>&sort=<relevance|date>`. Reload, share, and back/forward all round-trip the search exactly. Typing into the input debounces by 250 ms before flushing to the URL (`replace: true`, so the back button still points at wherever the reader entered search from).
+
+**Sort.** Two segmented buttons. **Relevance** (default) hits Algolia's `/search`, **Date** hits `/search_by_date`. Toggling swaps endpoints, resets to page 0, and re-renders the existing list — no full reload.
+
+**Pagination.** 30 results per page (`SEARCH_PAGE_SIZE`, matching `PAGE_SIZE` in feed views). A **More** button appears below the list when Algolia reports more pages; tapping it appends the next page.
+
+**Scope.** Stories only — Algolia `tags=(story,job)` covers plain HN stories, Ask HN, Show HN (carried as sub-tags of `story`), and job posts. Polls and bare comments are excluded because we have no row component for them. Searching surfaces the *story*, not individual matched comments — the thread page is where comment-level reading happens.
+
+**Data source.** Public Algolia HN Search API (`https://hn.algolia.com/api/v1/{search,search_by_date}`), called directly from the client. No `/api/search` proxy: Algolia is CORS-friendly, requires no auth, and the response already carries everything `StoryListItem` needs (title, url, author, points, num_comments, created_at_i), so we don't round-trip back through `/api/items` to hydrate rows. Adapter `algoliaHitToHNItem` in `src/lib/algolia.ts` maps a hit to the existing `HNItem` shape — `kids` is absent, which is fine for list rendering; the thread page re-fetches via the normal `itemRoot` path when the reader opens a result.
+
+**Cost / reliability (rule 11).** Algolia HN Search is free and public; **$0/month at any traffic newshacker is plausibly going to serve**. It has powered HN's own search for ~10 years and there are no published per-IP rate limits at normal request rates. New failure mode: if Algolia is down or rate-limits us, `/search` shows an error state with a Retry button; the rest of the app is unaffected because feeds and threads still come from Firebase. If abuse later forces server-side rate limiting, the same client hook can be repointed at a new `/api/search` proxy without changing anything else.
+
 ## Routes
 
 | Path | View |
@@ -843,6 +861,7 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 | `/opened` | recently opened stories (7-day history) |
 | `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
+| `/search` | full-text search over HN stories — see *Search* |
 | `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis; link to `/tuning`; analytics rollup over the structured `summary-outcome` / `comments-summary-outcome` / `warm-run` log lines via Axiom — see *Operator analytics dashboard*) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
 | `/tuning` | operator-only Hot threshold tuning view (interactive expression + sliders, score and comments scatters, event list) — same auth gate as `/admin`; not linked from the UI |
 

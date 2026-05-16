@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AppDrawer } from './AppDrawer';
 import { HeaderAccountMenu } from './HeaderAccountMenu';
 import { TooltipButton } from './TooltipButton';
@@ -51,6 +51,21 @@ function SweepIcon() {
   );
 }
 
+function SearchIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="24"
+      height="24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-440q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Z" />
+    </svg>
+  );
+}
+
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
     <svg
@@ -81,8 +96,27 @@ export function AppHeader() {
   } = useFeedBar();
   const online = useOnlineStatus();
   const [refreshing, setRefreshing] = useState(false);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   const onFeedPage = useIsFeedPage();
+  // Search lives outside the feed-scoped action group so its position
+  // stays put across feed / non-feed routes. Suppressed on /search
+  // itself to avoid a button that navigates to the page you're on.
+  const showSearchButton = pathname !== '/search';
+  const goToSearch = useCallback(() => navigate('/search'), [navigate]);
+  const searchButton = showSearchButton ? (
+    <TooltipButton
+      type="button"
+      className="app-header__icon-btn"
+      data-testid="search-btn"
+      tooltip="Search"
+      aria-label="Search Hacker News"
+      onClick={goToSearch}
+    >
+      <SearchIcon />
+    </TooltipButton>
+  ) : null;
   // sweepCount is > 0 iff there are fully-visible, unpinned rows to hide;
   // the number itself is never surfaced to users.
   const canSweep = !!sweep && sweepCount > 0;
@@ -136,6 +170,7 @@ export function AppHeader() {
         {onFeedPage ? (
           <div className="app-header__actions">
             {offlinePill}
+            {searchButton}
             <TooltipButton
               type="button"
               className="app-header__icon-btn"
@@ -181,6 +216,7 @@ export function AppHeader() {
         ) : (
           <div className="app-header__actions">
             {offlinePill}
+            {searchButton}
             <HeaderAccountMenu />
           </div>
         )}
