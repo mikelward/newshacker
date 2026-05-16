@@ -15,8 +15,6 @@ export function useFeedBar(): FeedBarContextValue {
     sweep: null,
     sweepCount: 0,
     setSweep: noop,
-    refresh: null,
-    setRefresh: noop,
     canUndo: false,
     recordHide: noop,
     undo: noop,

@@ -273,7 +273,7 @@ export function StoryListImpl({
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
-  const { setSweep, setRefresh, recordHide } = useFeedBar();
+  const { setSweep, recordHide } = useFeedBar();
   // `hotThresholds` is supplied by the parent (`<StoryList>` for
   // shipping feeds, `<HotStoryList>` for /hot, `ThresholdTuningPage`
   // for the Preview), so this component opens no `useHotThresholds`
@@ -664,10 +664,6 @@ export function StoryListImpl({
       Promise.all([refetch(), cloudSyncPullNow(), checkForServiceWorkerUpdate()]),
     [refetch],
   );
-  useEffect(() => {
-    setRefresh(handleRefresh);
-    return () => setRefresh(null);
-  }, [setRefresh, handleRefresh]);
 
   // Snapshot the current comment count so later visits can show a
   // "N new" badge for anything posted since. Look the story up in both
@@ -721,7 +717,7 @@ export function StoryListImpl({
       // the user's "show me the latest" gesture and they'd expect
       // pins from other devices to land here too. cloudSyncPullNow
       // (inside handleRefresh) is a no-op when the user isn't
-      // signed in. Same handler backs the header Refresh button.
+      // signed in.
       onRefresh={handleRefresh}
     >
       <ol className="story-list" onAnimationEnd={handleListAnimationEnd}>
