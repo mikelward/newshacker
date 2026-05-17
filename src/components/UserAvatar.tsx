@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { avatarColorForUsername } from '../lib/avatarColor';
 import './UserAvatar.css';
 
@@ -7,7 +7,8 @@ interface Props {
   size?: number;
   // Optional remote picture. Rendered on top of the letter circle; if
   // it 404s or fails to load, we hide it and the letter remains
-  // visible underneath with no layout shift.
+  // visible underneath with no layout shift. To reset load/fail state
+  // when the URL changes, callers pass `key={imageUrl}`.
   imageUrl?: string | null;
 }
 
@@ -19,11 +20,6 @@ export function UserAvatar({ username, size = 32, imageUrl }: Props) {
   const initial = username ? username.slice(0, 1).toUpperCase() : '';
   const [imgFailed, setImgFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
-
-  useEffect(() => {
-    setImgFailed(false);
-    setImgLoaded(false);
-  }, [imageUrl]);
 
   const style = {
     width: size,

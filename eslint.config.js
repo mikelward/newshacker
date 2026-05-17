@@ -18,17 +18,7 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      // v5's recommended preset enabled `rules-of-hooks` and
-      // `exhaustive-deps`. v7's preset additionally turns on React
-      // Compiler rules; opt into the high-signal subset (clear
-      // correctness bugs around refs, purity, and outer-scope writes)
-      // and defer `set-state-in-effect`, which often demands a
-      // `useSyncExternalStore` refactor.
-      'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
-      'react-hooks/refs': 'error',
-      'react-hooks/purity': 'error',
-      'react-hooks/globals': 'error',
+      ...reactHooks.configs['recommended-latest'].rules,
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

@@ -99,24 +99,24 @@ describe('<UserAvatar>', () => {
     expect(img).toHaveAttribute('data-loaded', 'true');
   });
 
-  it('resets the failed state when imageUrl changes', () => {
+  it('resets the failed state when imageUrl changes (caller keys on imageUrl)', () => {
+    // UserAvatar holds its failed/loaded state in component-local
+    // state. The contract is that callers pass `key={imageUrl}` so a
+    // URL change remounts the component and resets the flags — see
+    // HeaderAccountMenu for the canonical usage.
+    const firstUrl = 'https://github.com/does-not-exist-xyzzy.png';
+    const secondUrl = 'https://gravatar.com/avatar/abc';
     const { rerender } = render(
-      <UserAvatar
-        username="alice"
-        imageUrl="https://github.com/does-not-exist-xyzzy.png"
-      />,
+      <UserAvatar key={firstUrl} username="alice" imageUrl={firstUrl} />,
     );
     fireEvent.error(screen.getByTestId('user-avatar-img'));
     expect(screen.queryByTestId('user-avatar-img')).not.toBeInTheDocument();
     rerender(
-      <UserAvatar
-        username="alice"
-        imageUrl="https://gravatar.com/avatar/abc"
-      />,
+      <UserAvatar key={secondUrl} username="alice" imageUrl={secondUrl} />,
     );
     expect(screen.getByTestId('user-avatar-img')).toHaveAttribute(
       'src',
-      'https://gravatar.com/avatar/abc',
+      secondUrl,
     );
   });
 

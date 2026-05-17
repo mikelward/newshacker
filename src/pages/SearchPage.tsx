@@ -33,13 +33,18 @@ export function SearchPage() {
   // Local input state so typing stays smooth — committed to the URL
   // (which drives the actual query) after a short debounce.
   const [input, setInput] = useState(urlQuery);
+  const [lastUrlQuery, setLastUrlQuery] = useState(urlQuery);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Reflect external URL changes back into the input (e.g. browser
-  // back/forward, or a shared link landing on /search?q=…).
-  useEffect(() => {
+  // back/forward, or a shared link landing on /search?q=…). React
+  // synchronously re-renders without an extra commit when state is
+  // set during render this way — see "Adjusting state when a prop
+  // changes" in the React docs.
+  if (urlQuery !== lastUrlQuery) {
+    setLastUrlQuery(urlQuery);
     setInput(urlQuery);
-  }, [urlQuery]);
+  }
 
   // Debounce the input into the URL so each keystroke doesn't spawn
   // a fresh history entry or fetch. `replace: true` keeps the back
