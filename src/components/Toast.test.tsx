@@ -113,17 +113,11 @@ describe('<ToastProvider>', () => {
   });
 
   it('useToast() is a safe no-op with no provider', () => {
-    let caught: unknown = null;
     function Consumer() {
       const toast = useToast();
-      try {
-        toast.showToast({ message: 'no-op' });
-      } catch (e) {
-        caught = e;
-      }
+      toast.showToast({ message: 'no-op' });
       return null;
     }
     expect(() => render(<Consumer />)).not.toThrow();
-    expect(caught).toBeNull();
   });
 });

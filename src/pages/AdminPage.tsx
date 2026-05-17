@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
@@ -580,6 +581,11 @@ function WarmCronCard({
 }: {
   result: CardResult<WarmCronValue>;
 }): JSX.Element {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
   return (
     <section className="admin-page__stats-card" data-testid="admin-stats-warm-cron">
       <h3 className="admin-page__stats-title">Warm cron — last run</h3>
@@ -598,7 +604,7 @@ function WarmCronCard({
             <div>
               <dt>When</dt>
               <dd data-testid="admin-stats-warm-cron-when">
-                {formatRelativeTime(result.value.lastRun.tISO, Date.now())}
+                {formatRelativeTime(result.value.lastRun.tISO, now)}
               </dd>
             </div>
             <div>

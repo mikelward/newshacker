@@ -158,6 +158,7 @@ export function StoryListItem({
     flag === undefined ? (isHotStory(story) ? 'hot' : null) : flag;
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const articleRef = useRef<HTMLElement>(null);
   const pointerDevice = usePointerDevice();
 
@@ -181,7 +182,10 @@ export function StoryListItem({
     onMarkUnread?.(story.id);
   }, [onMarkUnread, story.id]);
 
-  const openMenu = useCallback(() => setMenuOpen(true), []);
+  const openMenu = useCallback(() => {
+    setMenuAnchor(articleRef.current);
+    setMenuOpen(true);
+  }, []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   const handleOpenThread = useCallback(() => {
@@ -248,6 +252,7 @@ export function StoryListItem({
       swipeOnContextMenu?.(e);
       if (!pointerDevice || !hasAnyMenuItem) return;
       e.preventDefault();
+      setMenuAnchor(articleRef.current);
       setMenuOpen(true);
     },
     [swipeOnContextMenu, pointerDevice, hasAnyMenuItem],
@@ -504,7 +509,7 @@ export function StoryListItem({
           open={menuOpen}
           title={title}
           items={menuItems}
-          anchorEl={articleRef.current}
+          anchorEl={menuAnchor}
           onClose={closeMenu}
         />
       ) : null}
