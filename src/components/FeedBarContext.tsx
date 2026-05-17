@@ -2,7 +2,6 @@ import {
   createContext,
   useCallback,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -32,8 +31,6 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
   // Only the most recent hide action is undoable — one level of undo,
   // matching the "undo the last sweep or last swipe" behaviour.
   const [lastHidden, setLastHidden] = useState<readonly number[]>([]);
-  const lastHiddenRef = useRef<readonly number[]>([]);
-  lastHiddenRef.current = lastHidden;
 
   const setSweep = useCallback(
     (handler: Handler | null, count: number) => {
@@ -51,11 +48,10 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const undo = useCallback(() => {
-    const ids = lastHiddenRef.current;
-    if (ids.length === 0) return;
-    for (const id of ids) removeHiddenId(id);
+    if (lastHidden.length === 0) return;
+    for (const id of lastHidden) removeHiddenId(id);
     setLastHidden([]);
-  }, []);
+  }, [lastHidden]);
 
   const value = useMemo<FeedBarContextValue>(
     () => ({

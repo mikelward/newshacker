@@ -470,6 +470,13 @@ export function StoryListImpl({
     };
   }, [headerInset]);
 
+  // Cache one stable callback-ref per row id so React doesn't tear
+  // down the IntersectionObserver attachment on every render. The
+  // proper React-19 alternative is a single callback ref that returns
+  // a cleanup function, but we're still on 18.3 where cleanup-returning
+  // refs don't exist — hence the per-id cache held in a useRef. Two
+  // `react-hooks/refs` disables below silence the rule at the two map
+  // call sites that thread `getRowRef` into JSX.
   const rowRefCache = useRef<
     Map<number, (el: HTMLLIElement | null) => void>
   >(new Map());
@@ -721,6 +728,7 @@ export function StoryListImpl({
       onRefresh={handleRefresh}
     >
       <ol className="story-list" onAnimationEnd={handleListAnimationEnd}>
+        {/* eslint-disable-next-line react-hooks/refs -- getRowRef caches per-id callback refs, see rowRefCache note above */}
         {offFeedPinnedStories.map((story) => (
           <li
             key={`pinned-${story.id}`}
@@ -748,6 +756,7 @@ export function StoryListImpl({
             />
           </li>
         ))}
+        {/* eslint-disable-next-line react-hooks/refs -- getRowRef caches per-id callback refs, see rowRefCache note above */}
         {visibleStories.map((story, idx) => (
           <li
             key={story.id}

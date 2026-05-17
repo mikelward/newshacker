@@ -18,11 +18,17 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      // Pin the two rules that v5's `recommended` enabled. v6+ also turns
-      // on React Compiler rules (purity, set-state-in-effect, etc.) that
-      // would require code changes outside the scope of an ESLint upgrade.
+      // v5's recommended preset enabled `rules-of-hooks` and
+      // `exhaustive-deps`. v7's preset additionally turns on React
+      // Compiler rules; opt into the high-signal subset (clear
+      // correctness bugs around refs, purity, and outer-scope writes)
+      // and defer `set-state-in-effect`, which often demands a
+      // `useSyncExternalStore` refactor.
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/refs': 'error',
+      'react-hooks/purity': 'error',
+      'react-hooks/globals': 'error',
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },
