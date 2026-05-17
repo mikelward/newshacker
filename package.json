@@ -15,7 +15,7 @@
     "analyze:telemetry": "node --env-file-if-exists=.env.local scripts/analyze-summary-layout.mjs"
   },
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": "^20.19.0 || ^22.13.0 || >=24"
   },
   "dependencies": {
     "@google/genai": "^1.50.1",
@@ -32,6 +32,7 @@
     "workbox-window": "^7.4.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
@@ -41,8 +42,8 @@
     "@typescript-eslint/eslint-plugin": "^8.8.1",
     "@typescript-eslint/parser": "^8.8.1",
     "@vitejs/plugin-react": "^5.2.0",
-    "eslint": "^9.12.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint": "^10.4.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.4.12",
     "globals": "^15.11.0",
     "happy-dom": "^20.9.0",

@@ -248,10 +248,7 @@ export async function handleHnFavoritesListRequest(
       allIds.push(id);
     }
 
-    if (!morePath) {
-      nextUrl = null;
-      break;
-    }
+    if (!morePath) break;
     nextUrl = resolveMorePath(morePath);
     if (page === maxPages - 1) truncated = true;
   }

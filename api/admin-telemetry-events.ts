@@ -271,8 +271,8 @@ export async function handleTelemetryEvents(
   const userKey = `telemetry:user:${username}`;
   const anonKey = 'telemetry:preview:anon';
 
-  let userRaw: unknown[] = [];
-  let anonRaw: unknown[] = [];
+  let userRaw: unknown[];
+  let anonRaw: unknown[];
   try {
     [userRaw, anonRaw] = await Promise.all([
       redis.lrange(userKey, 0, -1),

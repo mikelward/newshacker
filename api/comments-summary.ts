@@ -706,7 +706,7 @@ export async function handleCommentsSummaryRequest(
     ? deps.createClient(apiKey)
     : (new GoogleGenAI({ apiKey }) as unknown as SummaryClient);
 
-  let rawResponse = '';
+  let rawResponse: string;
   let geminiPromptTokens: number | undefined;
   let geminiOutputTokens: number | undefined;
   let geminiTotalTokens: number | undefined;
