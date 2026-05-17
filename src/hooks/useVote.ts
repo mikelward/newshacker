@@ -67,14 +67,18 @@ export function useVote(): UseVoteResult {
     username ? getDownvotedIds(username) : new Set(),
   );
 
+  // Re-seed the local sets when the signed-in user changes (sign in,
+  // sign out, account switch). Using the "previous value" idiom so
+  // React re-renders synchronously without an extra effect commit.
+  const [lastUsername, setLastUsername] = useState(username);
+  if (lastUsername !== username) {
+    setLastUsername(username);
+    setVotedIds(username ? getVotedIds(username) : new Set());
+    setDownvotedIds(username ? getDownvotedIds(username) : new Set());
+  }
+
   useEffect(() => {
-    if (!username) {
-      setVotedIds(new Set());
-      setDownvotedIds(new Set());
-      return;
-    }
-    setVotedIds(getVotedIds(username));
-    setDownvotedIds(getDownvotedIds(username));
+    if (!username) return;
     const sync = () => {
       setVotedIds(getVotedIds(username));
       setDownvotedIds(getDownvotedIds(username));

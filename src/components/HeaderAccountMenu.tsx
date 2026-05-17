@@ -61,16 +61,25 @@ export function HeaderAccountMenu() {
     };
   }, [open]);
 
-  // Close the menu on route change — we don't want a stale menu hanging
-  // over a brand-new page. Drop any in-progress edit too.
-  useEffect(() => {
+  // Two pieces of state-coupling done with the "previous value"
+  // idiom so React re-renders synchronously without an extra effect
+  // commit (see "Adjusting state when a prop changes" in the React
+  // docs):
+  //   1. Drop any in-progress edit when the menu closes — editing
+  //      only makes sense while the menu is open.
+  //   2. Close the menu on route change — we don't want a stale menu
+  //      hanging over a brand-new page.
+  const [lastOpen, setLastOpen] = useState(open);
+  if (lastOpen !== open) {
+    setLastOpen(open);
+    if (!open) setEditing(false);
+  }
+  const [lastPath, setLastPath] = useState(location.pathname);
+  if (lastPath !== location.pathname) {
+    setLastPath(location.pathname);
     setOpen(false);
     setEditing(false);
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!open) setEditing(false);
-  }, [open]);
+  }
 
   const onButtonClick = useCallback(() => {
     if (!auth.user) {
@@ -116,7 +125,11 @@ export function HeaderAccountMenu() {
         aria-expanded={user ? open : undefined}
         onClick={onButtonClick}
       >
-        <UserAvatar username={user?.username} imageUrl={imageUrl} />
+        <UserAvatar
+          key={imageUrl ?? ''}
+          username={user?.username}
+          imageUrl={imageUrl}
+        />
       </TooltipButton>
       {user && open ? (
         <div
