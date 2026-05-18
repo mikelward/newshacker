@@ -13,12 +13,15 @@
 // store to prove the key namespace is shared.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createRedisRateLimitStore as createSummaryRedisStore,
   handleSummaryRequest,
   RATE_LIMIT_KEY_PREFIX as SUMMARY_RATE_LIMIT_KEY_PREFIX,
+  type RateLimitRedis as SummaryRateLimitRedis,
   type RateLimitStore as SummaryRateLimitStore,
   type RateLimitTier as SummaryRateLimitTier,
 } from './summary';
 import {
+  createRedisRateLimitStore as createCommentsRedisStore,
   handleCommentsSummaryRequest,
   RATE_LIMIT_KEY_PREFIX as COMMENTS_RATE_LIMIT_KEY_PREFIX,
 } from './comments-summary';
@@ -189,5 +192,83 @@ describe('shared rate-limit bucket across summary handlers', () => {
     expect(uniqueKeys.size).toBe(1);
     const [only] = uniqueKeys;
     expect(rateLimitStore.counts.get(only!)).toBe(3);
+  });
+});
+
+// Regression: each increment must atomically (re-)propose the TTL via
+// EXPIRE NX, so a single dropped EXPIRE can't leave the key alive
+// without an expiry. The pre-fix shape called EXPIRE only when
+// count===1 inside a try/catch that swallowed the error — meaning a
+// transient blip stranded the key without a TTL until Upstash's
+// memory eviction kicked in.
+//
+// Tests both handler copies of `createRedisRateLimitStore` because they
+// are inlined per-handler (AGENTS.md § "Vercel api/ gotchas") and the
+// regression has to be guarded in both.
+describe.each([
+  ['summary', createSummaryRedisStore] as const,
+  ['comments-summary', createCommentsRedisStore] as const,
+])('createRedisRateLimitStore (%s)', (_label, factory) => {
+  function fakeRedis() {
+    const counts = new Map<string, number>();
+    const calls: Array<
+      ['incr', string] | ['expire', string, number, string]
+    > = [];
+    const redis: SummaryRateLimitRedis = {
+      pipeline() {
+        const queued: Array<() => unknown> = [];
+        const builder: ReturnType<SummaryRateLimitRedis['pipeline']> = {
+          incr(key: string) {
+            queued.push(() => {
+              calls.push(['incr', key]);
+              const next = (counts.get(key) ?? 0) + 1;
+              counts.set(key, next);
+              return next;
+            });
+            return builder;
+          },
+          expire(key: string, seconds: number, option: 'NX') {
+            queued.push(() => {
+              calls.push(['expire', key, seconds, option]);
+              return 1;
+            });
+            return builder;
+          },
+          exec<T extends unknown[]>() {
+            return Promise.resolve(queued.map((fn) => fn()) as T);
+          },
+        };
+        return builder;
+      },
+    };
+    return { redis, counts, calls };
+  }
+
+  it('issues INCR + EXPIRE NX in a single pipeline on every call', async () => {
+    const { redis, calls } = fakeRedis();
+    const store = factory(redis);
+    await store.incrementWithExpiry('k', 600);
+    await store.incrementWithExpiry('k', 600);
+    await store.incrementWithExpiry('k', 600);
+    // Three pipelined round trips, each with INCR followed by EXPIRE NX.
+    // The NX guard on EXPIRE is what preserves fixed-window semantics —
+    // without it, every increment would refresh the TTL into a sliding
+    // window and a busy IP's counter would never reset.
+    expect(calls).toEqual([
+      ['incr', 'k'],
+      ['expire', 'k', 600, 'NX'],
+      ['incr', 'k'],
+      ['expire', 'k', 600, 'NX'],
+      ['incr', 'k'],
+      ['expire', 'k', 600, 'NX'],
+    ]);
+  });
+
+  it('returns the post-INCR count from the pipeline result', async () => {
+    const { redis } = fakeRedis();
+    const store = factory(redis);
+    expect(await store.incrementWithExpiry('k', 600)).toBe(1);
+    expect(await store.incrementWithExpiry('k', 600)).toBe(2);
+    expect(await store.incrementWithExpiry('k', 600)).toBe(3);
   });
 });
