@@ -1,8 +1,22 @@
 /* Toolbar sits inside the same logical column as the story list:
    no horizontal margin (list rows go edge-to-edge), only an inner
    padding that matches `.story-row`'s 12px so the customize button
-   aligns to the same content gutter as every story row's title. */
+   aligns to the same content gutter as every story row's title.
+
+   Sticky pinned just below the <AppHeader> so Undo / Sweep (and the
+   Hot customize button on `/hot`) stay reachable as the reader
+   scrolls — the user has to be able to sweep without scrolling back
+   to the top of a long list. `top` matches the header's outer
+   height (`--app-header-height` in `global.css`); `z-index` sits one
+   below the header's `10` so the header always paints over the
+   toolbar's top edge if the two ever hairline-overlap. The toolbar
+   already carries an opaque `--nh-bg-card` background and a hairline
+   bottom border, so content below scrolls cleanly underneath without
+   bleeding through. */
 .list-toolbar {
+  position: sticky;
+  top: var(--app-header-height);
+  z-index: 9;
   margin: 0;
   border-bottom: 1px solid var(--nh-border);
   background: var(--nh-bg-card);
