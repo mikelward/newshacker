@@ -105,19 +105,20 @@
   background: var(--nh-border);
 }
 
-/* Keyboard-navigated active row. Mirrors the expanded-comment left
-   gutter (see `.comment.is-expanded` in Comment.css): a solid, straight
-   3px brand-orange line flush with the row's left edge, no curve from
-   the row body's border-radius. The shadow lives on the outer
+/* Keyboard-navigated active row. Mirrors the thread keyboard-focus
+   marker (`.comment[data-keyboard-focused]` in Comment.css): a solid,
+   straight 3px brand-orange line flush with the row's top edge, so
+   the same "this is the row the keys act on" cue reads consistently
+   between list pages and thread pages. The shadow lives on the outer
    `.story-row` (not the inner `<a>`) so it sits behind the body's
-   padding and reads as the same "active marker" treatment the
-   expanded-comment card uses. `:has(:focus-visible)` keeps the
-   indicator out of click-focus territory — mouse clicks never leave it
-   stuck on a row. The default browser focus ring on the inner link
-   is suppressed since the gutter is doing the same job. */
+   padding and is the full width of the row. `:has(:focus-visible)`
+   keeps the indicator out of click-focus territory — mouse clicks
+   never leave it stuck on a row. The default browser focus ring on
+   the inner link is suppressed since the top bar is doing the same
+   job. */
 .story-row:has(.story-row__body:focus-visible) {
   background: var(--nh-pressed);
-  box-shadow: inset 3px 0 0 var(--nh-orange);
+  box-shadow: inset 0 3px 0 var(--nh-orange);
 }
 .story-row__body:focus-visible {
   outline: none;
