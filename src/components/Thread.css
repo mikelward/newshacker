@@ -153,6 +153,54 @@
   padding: 12px;
 }
 
+/* Desktop: shrink the action bar so "Read article" and the icon
+   buttons don't dominate the wider reading column. The 56px mobile
+   sizing is tuned for fingertips; on a mouse-driven desktop it reads
+   as oversized, especially after the column expands to 860px at
+   ≥960px. Min-height drops to 36px (standard desktop button height
+   — mouse pointers don't need touch-target sizing), the inline
+   icons shrink in lock-step (28 → 20px) so the icon/button ratio
+   stays close to the mobile 50%, and the primary/stretch slot caps
+   at 280px so "Read article" / "Back to top" stops eating the row's
+   whole width while still having a comfortable amount of horizontal
+   room. Tied to the same min-width: 960px breakpoint that widens
+   .app-main in global.css; below that (iPad portrait, landscape
+   phones) the bar keeps the touch-friendly 56px sizing.
+
+   ALSO gated on `(hover: hover)` so touch-primary devices that
+   happen to match the width cutoff — landscape tablets, Surface-
+   style 2-in-1s in tablet mode, touch laptops with no mouse — keep
+   the 56px tap targets. A pure width media query would silently
+   drop those users below the documented 48×48 floor. */
+@media (min-width: 960px) and (hover: hover) {
+  .thread__action {
+    min-height: 36px;
+    padding: 6px 14px;
+    gap: 6px;
+    font-size: 14px;
+  }
+
+  .thread__action-icon {
+    /* Override the inline width/height on the Material SVGs (set to
+       28px for the mobile button) so they shrink with the button. */
+    width: 20px;
+    height: 20px;
+  }
+
+  .thread__action--icon {
+    width: 36px;
+    /* 6px each side keeps the 20px icon inside a 22px content box
+       (36 − 2px border − 12px padding) so the global
+       `svg { max-width: 100% }` reset doesn't downscale it. */
+    padding: 6px;
+  }
+
+  .thread__action--primary,
+  .thread__action--stretch {
+    max-width: 280px;
+  }
+}
+
 .thread__action--active {
   color: var(--nh-orange);
   border-color: var(--nh-orange);
