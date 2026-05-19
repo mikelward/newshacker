@@ -50,6 +50,11 @@ const SWEEP_ANIMATION_MS = 200;
 
 interface Props {
   feed: Feed;
+  // When true, the toolbar above the list renders the one-row
+  // "Try the Hot view" promo link + dismiss button on the left. Only
+  // the home route at `/` sets this (and only when the home feed is
+  // `top`, not `/hot` itself).
+  homePromo?: boolean;
 }
 
 // /hot rows that came from the `/new` source (and were not also in
@@ -136,6 +141,10 @@ interface ImplProps {
   // When true, the toolbar bar above the list renders the Hot rule
   // customize button + expandable panel. Only `/hot` sets it.
   showHotCustomize?: boolean;
+  // When true, the toolbar renders the one-row "Try the Hot view"
+  // promo link + dismiss button on the left. Only `/` (home top
+  // feed) sets it; suppressed once the reader has dismissed the promo.
+  showHomePromo?: boolean;
 }
 
 interface StoryListItemRightAction {
@@ -194,7 +203,7 @@ function UndoIcon() {
   );
 }
 
-export function StoryList({ feed }: Props) {
+export function StoryList({ feed, homePromo = false }: Props) {
   const feedItems = useFeedItems(feed);
   // Subscribe to the user's Hot customize panel overrides once per route
   // mount and pass them down so `<StoryListImpl>` doesn't open its
@@ -205,6 +214,7 @@ export function StoryList({ feed }: Props) {
       feedItems={feedItems}
       sourceFeed={feed}
       hotThresholds={hotThresholds}
+      showHomePromo={homePromo}
     />
   );
 }
@@ -280,6 +290,7 @@ export function StoryListImpl({
   readOnly = false,
   hotThresholds,
   showHotCustomize = false,
+  showHomePromo = false,
 }: ImplProps) {
   useListKeyboardNav();
   const queryClient = useQueryClient();
@@ -711,7 +722,10 @@ export function StoryListImpl({
   // case — readOnly (the /tuning Preview) opts out since the page has
   // its own controls and no sweep affordance applies there.
   const toolbar = readOnly ? null : (
-    <ListToolbar showHotCustomize={showHotCustomize} />
+    <ListToolbar
+      showHotCustomize={showHotCustomize}
+      showHomePromo={showHomePromo}
+    />
   );
 
   const hasAnyItems = items.length > 0;

@@ -1,7 +1,8 @@
-// One-shot dismissal flag for the home promo card pointing readers at
-// `/hot` (see `<HomePromoCard>` and SPEC.md *Story feeds → /hot*). The
-// card renders only on `/` when the home feed is `top` and only until
-// the reader taps its dismiss button — there is no un-dismiss path.
+// One-shot dismissal flag for the home promo link pointing readers at
+// `/hot` (rendered inline in `<ListToolbar>` — see SPEC.md *Story
+// feeds → /hot* → *Home discovery banner*). The link renders only on
+// `/` when the home feed is `top` and only until the reader taps its
+// dismiss button — there is no un-dismiss path.
 // Storage is a single string value: exactly `'1'` ⇒ dismissed,
 // anything else (missing key, empty string, future-other-value) ⇒
 // not dismissed. Cross-tab sync would just hide a card the other tab
