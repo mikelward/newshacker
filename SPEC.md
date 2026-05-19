@@ -874,7 +874,7 @@ The client decides whether to fire by checking the build-time `VERCEL_ENV` (mirr
 
 ### Keyboard shortcuts
 
-newshacker is keyboard-navigable on every list page (`/`, `/:feed`, `/hot`, and the library views `/pinned`, `/favorites`, `/done`, `/hidden`, `/opened`). The active row is whichever row body has DOM focus — no parallel "selected row" state, no localStorage mirror; `:focus-visible` paints the active treatment (a 3px brand-orange left border and the pressed-grey background), so the indicator only appears for keyboard users and clicking with a mouse never leaves a row stuck in the highlighted state.
+newshacker is keyboard-navigable on every list page (`/`, `/:feed`, `/hot`, and the library views `/pinned`, `/favorites`, `/done`, `/hidden`, `/opened`). The active row is whichever row body has DOM focus — no parallel "selected row" state, no localStorage mirror; `:focus-visible` paints the active treatment (a 3px brand-orange bar across the row's top edge and the pressed-grey background, matching the thread keyboard-focus marker on `/item/:id`), so the indicator only appears for keyboard users and clicking with a mouse never leaves a row stuck in the highlighted state.
 
 | Key | Action |
 |-----|--------|
