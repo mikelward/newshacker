@@ -4,6 +4,7 @@ import { AppDrawer } from './AppDrawer';
 import { HeaderAccountMenu } from './HeaderAccountMenu';
 import { TooltipButton } from './TooltipButton';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useShareCurrentPage } from '../hooks/useShareCurrentPage';
 import './AppHeader.css';
 
 // Material Symbols Outlined — Apache 2.0, Google. viewBox 0 -960 960 960,
@@ -21,6 +22,21 @@ function SearchIcon() {
       focusable="false"
     >
       <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-440q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Z" />
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="24"
+      height="24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z" />
     </svg>
   );
 }
@@ -48,6 +64,19 @@ export function AppHeader() {
       <SearchIcon />
     </TooltipButton>
   ) : null;
+  const sharePage = useShareCurrentPage();
+  const shareButton = (
+    <TooltipButton
+      type="button"
+      className="app-header__icon-btn"
+      data-testid="share-page-btn"
+      tooltip="Share page"
+      aria-label="Share this page"
+      onClick={sharePage}
+    >
+      <ShareIcon />
+    </TooltipButton>
+  );
   const offlinePill = !online ? (
     <Link
       to="/offline"
@@ -88,6 +117,7 @@ export function AppHeader() {
         <div className="app-header__actions">
           {offlinePill}
           {searchButton}
+          {shareButton}
           <HeaderAccountMenu />
         </div>
       </header>
