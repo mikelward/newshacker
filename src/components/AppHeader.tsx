@@ -14,6 +14,9 @@ function useIsFeedPage(): boolean {
   // header-chrome purposes (sweep, undo, offline pill).
   if (pathname === '/') return true;
   const first = pathname.split('/').filter(Boolean)[0];
+  // `/hot` is a feed page (SPEC.md → Story feeds → /hot) but isn't an HN
+  // endpoint, so it's not in `FEEDS`. Treat it explicitly here.
+  if (first === 'hot') return true;
   return !!first && isFeed(first);
 }
 
