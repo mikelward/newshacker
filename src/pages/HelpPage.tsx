@@ -165,7 +165,10 @@ export function HelpPage() {
       <p>
         On a story&rsquo;s comments page the same letter keys carry
         over: <strong>j</strong>/<strong>k</strong> scroll between
-        comments, <strong>o</strong> opens the article,{' '}
+        visible comments one at a time (expanding a comment makes its
+        replies visible, and j walks those next),{' '}
+        <strong>Enter</strong> expands or collapses the comment at the
+        top of the screen, <strong>o</strong> opens the article,{' '}
         <strong>p</strong> toggles pin, and <strong>d</strong> marks
         the story done and closes the thread.
       </p>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation } from 'react-router-dom';
 import './KeyboardShortcutsOverlay.css';
 
 interface Shortcut {
@@ -7,7 +8,10 @@ interface Shortcut {
   description: string;
 }
 
-const KEYBOARD_SHORTCUTS: Shortcut[] = [
+// Shortcuts active on the list pages (`/`, `/:feed`, `/hot`, and the
+// library views — anywhere `useListKeyboardNav` is mounted). The
+// active row is whichever row body has DOM focus.
+const LIST_SHORTCUTS: Shortcut[] = [
   { keys: ['j', '↓'], description: 'Next story' },
   { keys: ['k', '↑'], description: 'Previous story' },
   { keys: ['Enter'], description: 'Open comments' },
@@ -15,6 +19,21 @@ const KEYBOARD_SHORTCUTS: Shortcut[] = [
   { keys: ['o'], description: 'Open the article in a new tab' },
   { keys: ['p'], description: 'Pin or unpin the story' },
   { keys: ['d'], description: 'Dismiss (hide) the story' },
+  { keys: ['?'], description: 'Show this help' },
+  { keys: ['Esc'], description: 'Close menus or this help' },
+];
+
+// Shortcuts active on the story comments page (`/item/:id`). Same
+// letter keys as the list pages, with thread-scoped meanings. j/k
+// walk the top-level comments only — nested replies don't get their
+// own stop, see `useThreadKeyboardNav`.
+const THREAD_SHORTCUTS: Shortcut[] = [
+  { keys: ['j', '↓'], description: 'Next comment' },
+  { keys: ['k', '↑'], description: 'Previous comment' },
+  { keys: ['Enter'], description: 'Expand or collapse this comment' },
+  { keys: ['o'], description: 'Open the article in a new tab' },
+  { keys: ['p'], description: 'Pin or unpin the story' },
+  { keys: ['d'], description: 'Mark the story done' },
   { keys: ['?'], description: 'Show this help' },
   { keys: ['Esc'], description: 'Close menus or this help' },
 ];
@@ -39,6 +58,15 @@ export function KeyboardShortcutsOverlay() {
   const [open, setOpen] = useState(false);
   const previouslyFocused = useRef<Element | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const location = useLocation();
+  // `/item/<storyId>` and `/item/<commentId>` are the only routes
+  // that render <Thread>, so a path-prefix check is enough to pick
+  // the right shortcut list without each page needing to opt in.
+  const onThread = location.pathname.startsWith('/item/');
+  const shortcuts = onThread ? THREAD_SHORTCUTS : LIST_SHORTCUTS;
+  const title = onThread
+    ? 'Keyboard shortcuts · Comments'
+    : 'Keyboard shortcuts';
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -92,9 +120,9 @@ export function KeyboardShortcutsOverlay() {
         tabIndex={-1}
         onClick={stop}
       >
-        <h2 className="kb-help__title">Keyboard shortcuts</h2>
+        <h2 className="kb-help__title">{title}</h2>
         <dl className="kb-help__list" data-testid="keyboard-shortcuts-list">
-          {KEYBOARD_SHORTCUTS.map((s) => (
+          {shortcuts.map((s) => (
             <div className="kb-help__row" key={s.description}>
               <dt className="kb-help__keys">
                 {s.keys.map((k, i) => (
