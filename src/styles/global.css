@@ -18,6 +18,19 @@
   --skeleton-highlight: #e4e4e4;
   --tap-min: 48px;
 
+  /* Outer height of the sticky <AppHeader>. The header has no
+     declared height — its size is implied by the 48px (`--tap-min`)
+     menu button plus 4+4px of vertical padding (and a 1px bottom
+     border in `mono`/`duo` chromes; classic chrome drops the border
+     and replaces it with a box-shadow that doesn't take layout
+     space, so the height is 56px there). Pinning a token at 56px
+     lets `.list-toolbar` stick at `top: var(--app-header-height)`
+     without re-deriving the arithmetic in two CSS files — and the
+     1px slack in `mono`/`duo` is hidden by the header's higher
+     z-index. If the header's intrinsic height ever changes, update
+     this token in one place. */
+  --app-header-height: 56px;
+
   /* Vertical gap between any two comment borders — the distance a
      reader sees between the last visible element of one comment and
      the border-top of the comment that follows. Used by .comment's
