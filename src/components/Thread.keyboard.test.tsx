@@ -409,6 +409,125 @@ describe('<Thread> keyboard shortcuts', () => {
     expect(screen.queryByText('reply body')).toBeNull();
   });
 
+  it('paints the keyboard-focus indicator on the active comment after j and moves it on the next press', async () => {
+    installHNFetchMock({
+      items: {
+        700: makeStory(700, { kids: [701, 702], descendants: 2 }),
+        701: { id: 701, type: 'comment', by: 'a', text: 'first', time: 1 },
+        702: { id: 702, type: 'comment', by: 'b', text: 'second', time: 2 },
+      },
+    });
+    makeHeader();
+    stubLayout([200, 400]);
+
+    renderWithProviders(<Thread id={700} />);
+    await waitFor(() => {
+      expect(screen.getByText('first')).toBeInTheDocument();
+      expect(screen.getByText('second')).toBeInTheDocument();
+    });
+
+    const cards = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '.thread__comments .comment:not(.comment--loading)',
+        ),
+      );
+
+    // Nothing focused before the first press.
+    expect(
+      document.querySelector('.thread__comments [data-keyboard-focused]'),
+    ).toBeNull();
+
+    await userEvent.keyboard('j');
+    expect(cards()[0].hasAttribute('data-keyboard-focused')).toBe(true);
+    expect(cards()[1].hasAttribute('data-keyboard-focused')).toBe(false);
+
+    await userEvent.keyboard('j');
+    expect(cards()[0].hasAttribute('data-keyboard-focused')).toBe(false);
+    expect(cards()[1].hasAttribute('data-keyboard-focused')).toBe(true);
+  });
+
+  it('moves the focus indicator back with k, and clears it at the top of the thread', async () => {
+    installHNFetchMock({
+      items: {
+        710: makeStory(710, { kids: [711, 712], descendants: 2 }),
+        711: { id: 711, type: 'comment', by: 'a', text: 'one', time: 1 },
+        712: { id: 712, type: 'comment', by: 'b', text: 'two', time: 2 },
+      },
+    });
+    makeHeader();
+    stubLayout([200, 400]);
+
+    renderWithProviders(<Thread id={710} />);
+    await waitFor(() => {
+      expect(screen.getByText('one')).toBeInTheDocument();
+      expect(screen.getByText('two')).toBeInTheDocument();
+    });
+
+    const cards = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '.thread__comments .comment:not(.comment--loading)',
+        ),
+      );
+
+    await userEvent.keyboard('jj');
+    expect(cards()[1].hasAttribute('data-keyboard-focused')).toBe(true);
+
+    await userEvent.keyboard('k');
+    expect(cards()[0].hasAttribute('data-keyboard-focused')).toBe(true);
+    expect(cards()[1].hasAttribute('data-keyboard-focused')).toBe(false);
+
+    // k from the first comment scrolls back to the page top, which
+    // should clear the indicator (no comment is "active" up in the
+    // story header).
+    await userEvent.keyboard('k');
+    expect(
+      document.querySelector('.thread__comments [data-keyboard-focused]'),
+    ).toBeNull();
+  });
+
+  it('Enter paints the focus indicator even with no prior j/k press', async () => {
+    installHNFetchMock({
+      items: {
+        720: makeStory(720, { kids: [721], descendants: 2 }),
+        721: {
+          id: 721,
+          type: 'comment',
+          by: 'a',
+          text: 'parent body',
+          kids: [722],
+          time: 1,
+        },
+        722: { id: 722, type: 'comment', by: 'b', text: 'reply body', time: 2 },
+      },
+    });
+    makeHeader();
+    stubLayout([60]);
+
+    renderWithProviders(<Thread id={720} />);
+    await waitFor(() => {
+      expect(screen.getByText('parent body')).toBeInTheDocument();
+    });
+
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    expect(
+      document.querySelector('.thread__comments [data-keyboard-focused]'),
+    ).toBeNull();
+
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.getByText('reply body')).toBeInTheDocument();
+    });
+
+    const first = document.querySelector<HTMLElement>(
+      '.thread__comments .comment:not(.comment--loading)',
+    );
+    expect(first?.hasAttribute('data-keyboard-focused')).toBe(true);
+  });
+
   it('does not fire o/p/d on the focused-comment view', async () => {
     installHNFetchMock({
       items: {
