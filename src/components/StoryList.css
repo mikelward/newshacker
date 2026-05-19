@@ -47,45 +47,101 @@
   }
 }
 
-/* Depth caption sitting just above the feed's bottom action bar:
-   "Loaded N top stories", muted meta-text, centered. Lets the reader
-   see how far into the feed they've paged before deciding whether to tap
-   More. The count reflects loaded feed depth (not the currently visible
-   rows), so hidden/done filters and score gating don't make this signal
-   jump around. Feed-only; library pages don't render this (no More button
-   to caption). Padded inline so it doesn't fight the footer's own 16px
-   padding below. */
-.story-list__count {
-  padding: 16px 16px 0;
-  color: var(--nh-meta);
-  font-size: 14px;
-  text-align: center;
-}
-
-/* End-of-list action bar, mirrors `.thread__actions` in Thread.css so the
-   bottom of the feed visually matches the bottom of a thread page (same
-   row height, padding, gap, wrap behavior). Only the container has the
-   outer padding — thread bars sit inside a padded `thread__header`
-   wrapper, lists don't. */
+/* Bottom action bar — visually mirrors `.list-toolbar` (compact 40×40
+   icon buttons, --nh-bg-card background). Sits at the end of the list
+   as if it were another row — no sticky/fixed positioning, so the
+   reader scrolls past it the same way they scroll past the last story.
+   The last `.story-list__item` already carries a `border-bottom`, so
+   that line serves as the divider — adding our own `border-top` would
+   double up. (Mirrors `.list-toolbar`, which has only its
+   `border-bottom` and relies on the first story's lack of border-top
+   to avoid the same doubling.) */
 .story-list__footer {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 16px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--nh-bg-card);
 }
 
-/* Text action buttons — neutral palette. `.load-more-btn` is the
-   center-stretched button: on the feed it's the primary action
-   ("reveal the next page of stories"), so it grows to absorb the
-   row's free space and ends up visually the biggest target.
-   `.back-to-top-btn` keeps `flex: 1` as a default because the
-   library footer's only child is Back to top, and a full-width
-   button there is the intended layout. When the feed footer wears
-   `--feed`, the override below shrinks Back to top back to its
-   natural size so More can be the one that stretches. Matches
-   `.thread__action` (without --primary, since the list footer has
-   no CTA equivalent to "Read article"). */
-.back-to-top-btn,
+/* Compact transparent icon button — same shape as `.list-toolbar__button`
+   (40×40, borderless, hover/pressed background, disabled fade). Back to
+   top sits on the left, Sweep on the right (pinned via margin-left:auto
+   on the wrapping `<div>`); both are icon-only. */
+.back-to-top-btn--icon,
+.list-footer__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--nh-text);
+  cursor: pointer;
+}
+
+.back-to-top-btn--icon:focus-visible,
+.list-footer__icon-btn:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) {
+  .back-to-top-btn--icon:not(:disabled):hover,
+  .list-footer__icon-btn:not(:disabled):hover {
+    background: var(--nh-bg);
+  }
+}
+
+.back-to-top-btn--icon:not(:disabled):active,
+.list-footer__icon-btn:not(:disabled):active {
+  background: var(--nh-bg);
+}
+
+.list-footer__icon-btn:disabled {
+  color: var(--nh-meta);
+  cursor: default;
+}
+
+/* Library/offline footer's labeled Back to top stays full-width (no
+   More or Sweep to share the row). Reuses the same compact bar
+   container but stretches a single labeled button across it. */
+.back-to-top-btn:not(.back-to-top-btn--icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--nh-border);
+  border-radius: 6px;
+  color: var(--nh-text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .back-to-top-btn:not(.back-to-top-btn--icon):hover {
+    background: var(--nh-bg);
+  }
+}
+
+.back-to-top-btn:not(.back-to-top-btn--icon):active {
+  background: var(--nh-bg);
+}
+
+/* More button — text label that stretches to fill the row's middle.
+   It's the primary action on a feed bar (reveal the next page), so
+   it gets the biggest target by absorbing free space between the
+   icon-only Back to top and Sweep buttons. */
 .load-more-btn {
   display: flex;
   align-items: center;
@@ -93,37 +149,25 @@
   gap: 8px;
   flex: 1;
   min-width: 0;
-  min-height: 56px;
-  padding: 12px 16px;
-  background: var(--nh-bg-card);
+  min-height: 40px;
+  padding: 8px 16px;
+  background: transparent;
   border: 1px solid var(--nh-border);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--nh-text);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
 
-/* Feed footer: rank More above Back to top and Sweep. More is the
-   action the reader came here for — "give me the next page" — so it
-   gets the biggest target by absorbing all free space. Back to top is
-   a nice-to-have escape hatch and Sweep is a one-tap utility; neither
-   needs to grow. Library footers don't carry this modifier (they only
-   hold Back to top, which stays full-width via the default rule). */
-.story-list__footer--feed .back-to-top-btn {
-  flex: initial;
-}
-
 @media (hover: hover) {
-  .back-to-top-btn:hover,
   .load-more-btn:hover:not(:disabled) {
-    background: var(--nh-pressed);
+    background: var(--nh-bg);
   }
 }
 
-.back-to-top-btn:active,
 .load-more-btn:active:not(:disabled) {
-  background: var(--nh-border);
+  background: var(--nh-bg);
 }
 
 .load-more-btn:disabled {
@@ -131,45 +175,11 @@
   cursor: default;
 }
 
-/* Icon-only action button — fixed 56×56 square, matches
-   `.thread__action--icon`. `margin-left: auto` pins it to the right
-   edge of the bar regardless of what sits to its left (Back to top
-   alone, or Back to top + More). SPEC § Bottom action bar (list views)
-   calls for this slot to be right-pinned; anchoring it here keeps
-   that guarantee independent of the text buttons' flex-grow, so
-   removing or resizing a neighbor can't accidentally pull the icon
-   back toward the center. Library footer has no icon button, so the
-   rule is inert there. */
-.list-footer__icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 56px;
-  min-height: 56px;
+/* Pin Sweep to the right edge of the bar so its position is stable
+   no matter what sits between it and Back to top (More present or
+   absent). */
+.story-list__footer--feed .list-footer__icon-btn {
   margin-left: auto;
-  padding: 12px;
-  background: var(--nh-bg-card);
-  border: 1px solid var(--nh-border);
-  border-radius: 8px;
-  color: var(--nh-text);
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .list-footer__icon-btn:hover:not(:disabled) {
-    background: var(--nh-pressed);
-  }
-}
-
-.list-footer__icon-btn:active:not(:disabled) {
-  background: var(--nh-border);
-}
-
-.list-footer__icon-btn:disabled {
-  color: var(--nh-meta);
-  opacity: 0.5;
-  cursor: default;
 }
 
 .list-footer__icon {
