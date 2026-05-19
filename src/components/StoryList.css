@@ -175,11 +175,15 @@
   cursor: default;
 }
 
-/* Pin Sweep to the right edge of the bar so its position is stable
-   no matter what sits between it and Back to top (More present or
-   absent). */
-.story-list__footer--feed .list-footer__icon-btn {
+/* Right-aligned action group: Undo + Sweep, mirroring the top
+   toolbar's `.list-toolbar__right` shape. Hugging the trailing edge
+   via `margin-left: auto` keeps the group stable no matter what sits
+   between it and Back to top (More present or absent). */
+.story-list__footer-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .list-footer__icon {

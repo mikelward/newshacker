@@ -159,9 +159,9 @@ function measureHeaderInset(): number {
   return Math.max(0, Math.ceil(rect.bottom));
 }
 
-// Material Symbols Outlined — Apache 2.0, Google. Same broom glyph as the
-// header's Hide unpinned button, repeated inline so the list footer doesn't
-// have to reach into AppHeader for an icon.
+// Material Symbols Outlined — Apache 2.0, Google. Same glyphs as the
+// list toolbar's Undo / Sweep buttons, repeated inline so the list
+// footer doesn't have to reach into ListToolbar for an icon.
 function SweepIcon() {
   return (
     <svg
@@ -174,6 +174,22 @@ function SweepIcon() {
       focusable="false"
     >
       <path d="M400-240v-80h240v80H400Zm-158 0L15-467l57-57 170 170 366-366 57 57-423 423Zm318-160v-80h240v80H560Zm160-160v-80h240v80H720Z" />
+    </svg>
+  );
+}
+
+function UndoIcon() {
+  return (
+    <svg
+      className="list-footer__icon"
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      width="24"
+      height="24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z" />
     </svg>
   );
 }
@@ -275,7 +291,7 @@ export function StoryListImpl({
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
-  const { setSweep, recordHide } = useFeedBar();
+  const { setSweep, recordHide, canUndo, undo } = useFeedBar();
   // `hotThresholds` is supplied by the parent (`<StoryList>` for
   // shipping feeds, `<HotStoryList>` for /hot, `ThresholdTuningPage`
   // for the Preview), so this component opens no `useHotThresholds`
@@ -839,21 +855,34 @@ export function StoryListImpl({
           </button>
         ) : null}
         {readOnly ? null : (
-          <TooltipButton
-            type="button"
-            className="list-footer__icon-btn"
-            data-testid="sweep-btn-bottom"
-            onClick={sweepableIds.length > 0 ? handleSweep : undefined}
-            disabled={sweepableIds.length === 0}
-            tooltip={
-              sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
-            }
-            aria-label={
-              sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
-            }
-          >
-            <SweepIcon />
-          </TooltipButton>
+          <div className="story-list__footer-right">
+            <TooltipButton
+              type="button"
+              className="list-footer__icon-btn"
+              data-testid="undo-btn-bottom"
+              onClick={canUndo ? undo : undefined}
+              disabled={!canUndo}
+              tooltip={canUndo ? 'Undo hide' : 'Nothing to undo'}
+              aria-label={canUndo ? 'Undo hide' : 'Nothing to undo'}
+            >
+              <UndoIcon />
+            </TooltipButton>
+            <TooltipButton
+              type="button"
+              className="list-footer__icon-btn"
+              data-testid="sweep-btn-bottom"
+              onClick={sweepableIds.length > 0 ? handleSweep : undefined}
+              disabled={sweepableIds.length === 0}
+              tooltip={
+                sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
+              }
+              aria-label={
+                sweepableIds.length > 0 ? 'Hide unpinned' : 'Nothing to hide'
+              }
+            >
+              <SweepIcon />
+            </TooltipButton>
+          </div>
         )}
       </div>
     </PullToRefresh>
