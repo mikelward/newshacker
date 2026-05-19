@@ -11,6 +11,7 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useShareStory } from '../hooks/useShareStory';
+import { useThreadKeyboardNav } from '../hooks/useThreadKeyboardNav';
 import { useVote } from '../hooks/useVote';
 import { SummaryError, useSummary } from '../hooks/useSummary';
 import {
@@ -743,6 +744,23 @@ export function Thread({ id }: Props) {
   const handleToggleVote = useCallback(() => {
     toggleVote(id);
   }, [id, toggleVote]);
+  const handleOpenArticle = useCallback(() => {
+    if (!item || !isSafeHttpUrl(item.url)) return;
+    markArticleOpenedId(item.id);
+    window.open(item.url, '_blank', 'noopener,noreferrer');
+  }, [item]);
+  // Keyboard shortcuts on the thread page. j/k scroll between rendered
+  // comments; o/p/d call out to the same handlers the action bar uses
+  // — but only when this view shows a story (the focused-comment view
+  // has no action bar, so p/d on a bare comment id would push it into
+  // the pinned/done store as if it were a story).
+  const isStoryView = item?.type === 'story';
+  useThreadKeyboardNav({
+    onOpenArticle:
+      isStoryView && isSafeHttpUrl(item?.url) ? handleOpenArticle : undefined,
+    onTogglePin: isStoryView ? handleTogglePinned : undefined,
+    onToggleDone: isStoryView ? handleToggleDone : undefined,
+  });
   const handleLinkClick = useInternalLinkClick();
   const shareStory = useShareStory();
   const [menuOpen, setMenuOpen] = useState(false);

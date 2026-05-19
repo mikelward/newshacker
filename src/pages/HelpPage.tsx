@@ -162,6 +162,13 @@ export function HelpPage() {
           <strong>Esc</strong> — close an open menu or this help.
         </li>
       </ul>
+      <p>
+        On a story&rsquo;s comments page the same letter keys carry
+        over: <strong>j</strong>/<strong>k</strong> scroll between
+        comments, <strong>o</strong> opens the article,{' '}
+        <strong>p</strong> toggles pin, and <strong>d</strong> marks
+        the story done and closes the thread.
+      </p>
 
       <h2 className="about-page__heading">Switching theme</h2>
       <p>
