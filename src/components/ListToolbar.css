@@ -28,6 +28,43 @@
   gap: 4px;
 }
 
+/* Inline home-promo link — stretches to fill the row between the
+   left-aligned controls and the right-aligned action group. The 4px
+   left padding lines up with `.story-row`'s 12px content gutter on
+   top of the row's own 8px left padding. min-height matches the row's
+   40×40 buttons so the bar stays a single 48px-tall strip. */
+.list-toolbar__promo-link {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--nh-text);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-toolbar__promo-link:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+@media (hover: hover) {
+  .list-toolbar__promo-link:hover {
+    color: var(--nh-orange-dark);
+  }
+}
+
+.list-toolbar__promo-link:active {
+  color: var(--nh-orange-dark);
+}
+
 /* Compact transparent icon button — relies on hover background,
    focus outline, and a pressed-state color shift to communicate
    interactivity, so the icon reads as a single glyph rather than

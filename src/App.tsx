@@ -5,7 +5,6 @@ import { AppUpdateWatcher } from './components/AppUpdateWatcher';
 import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
-import { HomePromoCard } from './components/HomePromoCard';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
 import { HotStoryList, StoryList } from './components/StoryList';
 import { ToastProvider } from './components/Toast';
@@ -44,16 +43,12 @@ function HnFavoritesSyncBridge() {
 function HomeRoute() {
   const { homeFeed } = useHomeFeed();
   if (homeFeed === 'hot') return <HotStoryList />;
-  // Default home: top feed with a one-row dismissible banner pointing
-  // readers at `/hot` (see SPEC.md *Story feeds → /hot* → home promo).
-  // Banner is gone once dismissed; on `/hot` itself the Hot customize panel
-  // already sits in this slot, so we don't double-stack.
-  return (
-    <>
-      <HomePromoCard />
-      <StoryList feed="top" />
-    </>
-  );
+  // Default home: top feed with the toolbar's one-row dismissible
+  // "Try the Hot view" promo on the left (see SPEC.md *Story feeds →
+  // /hot* → home promo). The promo lives inside `<ListToolbar>` so the
+  // bar stays single-row; on `/hot` itself the Hot customize panel
+  // already occupies the toolbar's left slot, so we don't double-stack.
+  return <StoryList feed="top" homePromo />;
 }
 
 export default function App() {

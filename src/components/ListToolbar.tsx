@@ -1,4 +1,5 @@
 import { useCallback, useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useFeedBar } from '../hooks/useFeedBar';
 import { useHotThresholds } from '../hooks/useHotThresholds';
 import {
@@ -8,15 +9,20 @@ import {
   hasAnyEnabledBranch,
   type HotThresholds,
 } from '../lib/hotThresholds';
+import {
+  dismissHomePromo,
+  isHomePromoDismissed,
+} from '../lib/homePromo';
 import { TooltipButton } from './TooltipButton';
 import './ListToolbar.css';
 
 // List-view toolbar — the bar pinned above every list view (feed and
 // library). Always shows the Undo and Sweep buttons on the right; on
 // `/hot` it also hosts the Hot rule customize button + expandable panel
-// on the left. Sits inside the same logical column as the story list
-// (full width, 12px gutter matching `.story-row`'s padding) so the
-// customize button aligns with every story row's content edge.
+// on the left. On `/` (home top feed) it instead hosts the one-row
+// dismissible promo link pointing readers at `/hot`. Sits inside the
+// same logical column as the story list (full width, 12px gutter
+// matching `.story-row`'s padding).
 //
 // Right-aligned controls (Sweep, Undo) hug the right edge via
 // `margin-left: auto`. Future per-source visibility toggles for
@@ -26,6 +32,10 @@ interface Props {
   /** When true, the bar renders the Hot rule customize button (with
    *  the expanded panel below it). Only `/hot` sets this. */
   showHotCustomize?: boolean;
+  /** When true, the bar renders the one-row "Try the Hot view" link
+   *  on the left + a dismiss button. Only `/` (home top feed) sets
+   *  this; suppressed once the reader has dismissed the promo. */
+  showHomePromo?: boolean;
 }
 
 interface BranchControlsProps {
@@ -168,6 +178,65 @@ function SweepIcon() {
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg
+      viewBox={MS_VIEWBOX}
+      width="20"
+      height="20"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"
+      />
+    </svg>
+  );
+}
+
+// One-row promo pointing readers at `/hot` from the default home view —
+// rendered inline in the toolbar so the bar stays single-row. The link
+// is the stretched left tap zone; the dismiss button sits between it
+// and the right-aligned Undo / Sweep group. Once dismissed, the flag
+// persists to localStorage (see `lib/homePromo`) and the link never
+// re-renders for that browser — but the rest of the toolbar
+// (Undo / Sweep) stays put.
+function HomePromoLink() {
+  const [dismissed, setDismissed] = useState<boolean>(() =>
+    isHomePromoDismissed(),
+  );
+
+  if (dismissed) return null;
+
+  const onDismiss = () => {
+    dismissHomePromo();
+    setDismissed(true);
+  };
+
+  return (
+    <>
+      <Link
+        to="/hot"
+        className="list-toolbar__promo-link"
+        data-testid="home-promo-link"
+      >
+        Try the Hot view
+      </Link>
+      <TooltipButton
+        type="button"
+        tooltip="Dismiss"
+        aria-label="Dismiss"
+        className="list-toolbar__button"
+        onClick={onDismiss}
+        data-testid="home-promo-dismiss"
+      >
+        <CloseIcon />
+      </TooltipButton>
+    </>
+  );
+}
+
 interface HotPanelProps {
   panelId: string;
 }
@@ -295,7 +364,10 @@ function HotCustomizeButton({
   );
 }
 
-export function ListToolbar({ showHotCustomize = false }: Props) {
+export function ListToolbar({
+  showHotCustomize = false,
+  showHomePromo = false,
+}: Props) {
   const { sweep, sweepCount, canUndo, undo } = useFeedBar();
   const [hotExpanded, setHotExpanded] = useState(false);
   const hotPanelId = useId();
@@ -313,6 +385,7 @@ export function ListToolbar({ showHotCustomize = false }: Props) {
             onToggle={() => setHotExpanded((e) => !e)}
           />
         ) : null}
+        {showHomePromo ? <HomePromoLink /> : null}
         <div className="list-toolbar__right">
           <TooltipButton
             type="button"

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { ListToolbar } from './ListToolbar';
 import { FeedBarProvider } from './FeedBarContext';
 import {
@@ -10,9 +11,17 @@ import {
   getStoredHotThresholds,
   setStoredHotThresholds,
 } from '../lib/hotThresholds';
+import {
+  HOME_PROMO_DISMISSED_STORAGE_KEY,
+  isHomePromoDismissed,
+} from '../lib/homePromo';
 
 function renderWithFeedBar(ui: ReactElement) {
-  return render(<FeedBarProvider>{ui}</FeedBarProvider>);
+  return render(
+    <MemoryRouter>
+      <FeedBarProvider>{ui}</FeedBarProvider>
+    </MemoryRouter>,
+  );
 }
 
 describe('<ListToolbar>', () => {
@@ -131,6 +140,51 @@ describe('<ListToolbar>', () => {
     expect(window.localStorage.getItem(HOT_THRESHOLDS_STORAGE_KEY)).toContain(
       '"topScoreMin":150',
     );
+  });
+
+  describe('with showHomePromo', () => {
+    afterEach(() => {
+      window.localStorage.removeItem(HOME_PROMO_DISMISSED_STORAGE_KEY);
+    });
+
+    it('renders the "Try the Hot view" link and a dismiss button', () => {
+      renderWithFeedBar(<ListToolbar showHomePromo />);
+      const link = screen.getByTestId('home-promo-link');
+      expect(link).toHaveAttribute('href', '/hot');
+      expect(link).toHaveTextContent(/^Try the Hot view$/);
+      expect(screen.getByTestId('home-promo-dismiss')).toBeInTheDocument();
+    });
+
+    it('clicking dismiss hides the link and persists the flag, leaving Undo and Sweep in place', async () => {
+      const user = userEvent.setup();
+      renderWithFeedBar(<ListToolbar showHomePromo />);
+      await user.click(screen.getByTestId('home-promo-dismiss'));
+      expect(screen.queryByTestId('home-promo-link')).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('home-promo-dismiss'),
+      ).not.toBeInTheDocument();
+      expect(isHomePromoDismissed()).toBe(true);
+      // The rest of the toolbar (Undo / Sweep) remains rendered.
+      expect(screen.getByTestId('undo-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('sweep-btn')).toBeInTheDocument();
+    });
+
+    it('does not render the promo when previously dismissed', () => {
+      window.localStorage.setItem(HOME_PROMO_DISMISSED_STORAGE_KEY, '1');
+      renderWithFeedBar(<ListToolbar showHomePromo />);
+      expect(screen.queryByTestId('home-promo-link')).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('home-promo-dismiss'),
+      ).not.toBeInTheDocument();
+      // Toolbar's right-side actions still render.
+      expect(screen.getByTestId('undo-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('sweep-btn')).toBeInTheDocument();
+    });
+
+    it('omits the promo link by default', () => {
+      renderWithFeedBar(<ListToolbar />);
+      expect(screen.queryByTestId('home-promo-link')).not.toBeInTheDocument();
+    });
   });
 
   it('back-to-back slider changes both stick (no stale-prefs clobber)', async () => {
