@@ -279,6 +279,62 @@ describe('<StoryList> pin and sweep', () => {
     }
   });
 
+  it('bottom-bar undo button mirrors the toolbar undo — same state, same action', async () => {
+    // Pin one story so the list isn't empty after the sweep — otherwise
+    // StoryListImpl's empty-state branch returns early and the footer
+    // (including the bottom Undo button) doesn't render.
+    const ids = [1, 2, 3];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+    addPinnedId(2);
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    // Pre-sweep: both undo entry points are disabled and labeled the same.
+    const bottomUndo = screen.getByTestId('undo-btn-bottom');
+    expect(bottomUndo).toBeDisabled();
+    expect(bottomUndo).toHaveAccessibleName(/nothing to undo/i);
+
+    // Sweep to record a hide-batch, then assert the bottom undo enables
+    // alongside the toolbar undo.
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    fireEvent.click(sweep);
+    await waitFor(() => {
+      expect(screen.queryByText('Story 1')).toBeNull();
+      expect(screen.queryByText('Story 3')).toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('undo-btn-bottom')).not.toBeDisabled();
+    });
+    expect(screen.getByTestId('undo-btn-bottom')).toHaveAccessibleName(
+      /undo hide/i,
+    );
+    expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
+
+    // The bottom button restores the same way the toolbar one does.
+    fireEvent.click(screen.getByTestId('undo-btn-bottom'));
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+    // Both undo entry points disable together once there's nothing left.
+    expect(screen.getByTestId('undo-btn-bottom')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+  });
+
   it('bottom-bar sweep button mirrors the header sweep — same state, same action', async () => {
     const ids = [1, 2, 3, 4];
     const items = Object.fromEntries(
