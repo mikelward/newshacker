@@ -101,9 +101,21 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/hacker-news\.firebaseio\.com\/v0\/item\/.*\.json$/,
-            handler: 'StaleWhileRevalidate',
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'hn-items',
+              // NetworkFirst, not StaleWhileRevalidate: under SWR the SW
+              // replays the cached response to the page and only updates
+              // its own cache in the background, so React Query's refetch
+              // (5 min staleTime) sees the same stale bytes every cycle —
+              // the thread root keeps painting the descendants/kids
+              // snapshot from when the user first opened the story, no
+              // matter how many comments have actually landed since. The
+              // sibling `/api/items` rule below chose NetworkFirst for the
+              // same reason. NetworkFirst still falls back to the cache
+              // when the user is genuinely offline, so `/pinned` reads
+              // keep working after the 10s timeout falls through.
+              networkTimeoutSeconds: 10,
               // No `expiration` — neither time-based nor LRU-count-based.
               // Pinned items are meant to be kept forever (CLAUDE.md rule 9,
               // SPEC.md *Retention today*), and the SW running in
