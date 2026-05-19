@@ -37,12 +37,15 @@ function stubLayout(commentYPositions: number[]) {
         return new DOMRect(0, 0, 800, 48);
       }
       if (this.classList.contains('comment')) {
-        const comments = Array.from(
+        // Match the hook's own visible-comments selector so the
+        // indexes line up with `commentYPositions` (including nested
+        // replies once they appear after expansion).
+        const visible = Array.from(
           document.querySelectorAll<HTMLElement>(
             '.thread__comments .comment:not(.comment--loading)',
           ),
         );
-        const idx = comments.indexOf(this as HTMLElement);
+        const idx = visible.indexOf(this as HTMLElement);
         if (idx >= 0 && idx < commentYPositions.length) {
           const top = commentYPositions[idx] - scrollY;
           return new DOMRect(0, top, 800, 60);
@@ -254,6 +257,156 @@ describe('<Thread> keyboard shortcuts', () => {
       'false',
     );
     input.remove();
+  });
+
+  it('j walks into a nested reply once its parent has been expanded', async () => {
+    installHNFetchMock({
+      items: {
+        580: makeStory(580, {
+          title: 'tree',
+          kids: [581, 583],
+          descendants: 3,
+        }),
+        581: {
+          id: 581,
+          type: 'comment',
+          by: 'a',
+          text: 'top one',
+          kids: [582],
+          time: 1,
+        },
+        582: {
+          id: 582,
+          type: 'comment',
+          by: 'b',
+          text: 'nested reply',
+          time: 2,
+        },
+        583: { id: 583, type: 'comment', by: 'c', text: 'top two', time: 3 },
+      },
+    });
+    makeHeader();
+    // Three rendered cards once the first is expanded:
+    // top-one at y=200, nested at y=350, top-two at y=600. j should
+    // visit them in DOM order, not skip past the nested reply.
+    const layout = stubLayout([200, 350, 600]);
+
+    renderWithProviders(<Thread id={580} />);
+    await waitFor(() => {
+      expect(screen.getByText('top one')).toBeInTheDocument();
+      expect(screen.getByText('top two')).toBeInTheDocument();
+    });
+
+    // Before expansion the nested reply isn't rendered, so j walks
+    // straight from the first top-level to the second.
+    expect(screen.queryByText('nested reply')).toBeNull();
+    await userEvent.keyboard('j');
+    expect(layout.scrollCalls.at(-1)).toBe(148); // top-one (200 - 48 - 4)
+
+    await userEvent.click(
+      screen.getAllByRole('button', { name: /expand comment/i })[0],
+    );
+    await waitFor(() => {
+      expect(screen.getByText('nested reply')).toBeInTheDocument();
+    });
+
+    // Now the nested reply is in the DOM and becomes the next j-stop
+    // (350 - 48 - 4 = 298), then the next press lands on top-two
+    // (600 - 48 - 4 = 548).
+    await userEvent.keyboard('j');
+    expect(layout.scrollCalls.at(-1)).toBe(298);
+    await userEvent.keyboard('j');
+    expect(layout.scrollCalls.at(-1)).toBe(548);
+  });
+
+  it('Enter toggles the active top-level comment', async () => {
+    installHNFetchMock({
+      items: {
+        590: makeStory(590, {
+          kids: [591],
+          descendants: 2,
+        }),
+        591: {
+          id: 591,
+          type: 'comment',
+          by: 'a',
+          text: 'parent',
+          kids: [592],
+          time: 1,
+        },
+        592: {
+          id: 592,
+          type: 'comment',
+          by: 'b',
+          text: 'kid body',
+          time: 2,
+        },
+      },
+    });
+    makeHeader();
+    stubLayout([60]); // first comment already sits at the trigger line
+
+    renderWithProviders(<Thread id={590} />);
+    await waitFor(() => {
+      expect(screen.getByText('parent')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('kid body')).toBeNull();
+
+    // Move focus off any interactive element so Enter falls into our
+    // handler (jsdom's initial activeElement is the body — fine).
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.getByText('kid body')).toBeInTheDocument();
+    });
+
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.queryByText('kid body')).toBeNull();
+    });
+  });
+
+  it('Enter is a no-op when focus is on a button (native click wins)', async () => {
+    installHNFetchMock({
+      items: {
+        600: makeStory(600, {
+          url: 'https://example.com/600',
+          kids: [601],
+          descendants: 2,
+        }),
+        601: {
+          id: 601,
+          type: 'comment',
+          by: 'a',
+          text: 'comment body',
+          kids: [602],
+          time: 1,
+        },
+        602: { id: 602, type: 'comment', by: 'b', text: 'reply body', time: 2 },
+      },
+    });
+    makeHeader();
+    stubLayout([60]);
+
+    renderWithProviders(<Thread id={600} />);
+    await waitFor(() => {
+      expect(screen.getByText('comment body')).toBeInTheDocument();
+    });
+
+    // Focus the Pin button — Enter on it should click it (toggling
+    // pin), NOT expand the comment.
+    screen.getByTestId('thread-pin').focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-pin')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    });
+    // Comment kids must not have been revealed.
+    expect(screen.queryByText('reply body')).toBeNull();
   });
 
   it('does not fire o/p/d on the focused-comment view', async () => {

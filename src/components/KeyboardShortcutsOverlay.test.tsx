@@ -74,10 +74,22 @@ describe('<KeyboardShortcutsOverlay>', () => {
     await userEvent.keyboard('?');
     const overlay = screen.getByTestId('keyboard-shortcuts-overlay');
     // Sanity-check a couple of the bindings; the full list is in the
-    // KEYBOARD_SHORTCUTS constant.
+    // LIST_SHORTCUTS constant.
     expect(overlay).toHaveTextContent(/Next story/);
     expect(overlay).toHaveTextContent(/Open comments/);
     expect(overlay).toHaveTextContent(/Pin or unpin/);
     expect(overlay).toHaveTextContent(/Dismiss/);
+  });
+
+  it('shows thread-scoped shortcuts on /item/:id', async () => {
+    renderWithProviders(<KeyboardShortcutsOverlay />, { route: '/item/42' });
+    await userEvent.keyboard('?');
+    const overlay = screen.getByTestId('keyboard-shortcuts-overlay');
+    expect(overlay).toHaveTextContent(/Next comment/);
+    expect(overlay).toHaveTextContent(/Expand or collapse/);
+    expect(overlay).toHaveTextContent(/Mark the story done/);
+    // List-only bindings should not appear here.
+    expect(overlay).not.toHaveTextContent(/Next story/);
+    expect(overlay).not.toHaveTextContent(/row actions menu/);
   });
 });

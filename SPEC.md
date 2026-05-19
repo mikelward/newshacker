@@ -895,16 +895,18 @@ The thread / comments page (`/item/:id`) reuses the same letter keys with a thre
 
 | Key | Action |
 |-----|--------|
-| `j` / `↓` | Scroll the next rendered comment up to just below the sticky header. No-op at the bottom of the thread. |
-| `k` / `↑` | Scroll the previous comment up to just below the sticky header. At the top of the thread, scrolls all the way to the page top. |
+| `j` / `↓` | Scroll the next visible comment up to just below the sticky header. No-op at the bottom of the thread. |
+| `k` / `↑` | Scroll the previous visible comment up to just below the sticky header. At the top of the thread, scrolls all the way to the page top. |
+| `Enter` | Expand or collapse the active (topmost-on-screen) comment. No-op when focus is already on a button or link — native activation wins there. |
 | `o` | Open the story's article URL in a new tab. Story view only; no-op on self-posts and on the focused-comment view (`/item/<commentId>`). |
 | `p` | Toggle pin for this story. Story view only. |
 | `d` | Mark this story done (closes the thread, navigating back). Story view only. |
 | `?` | Open the keyboard-shortcuts help overlay. |
 | `Esc` | Close the menu / overlay (existing behavior). |
 
-- Comments are not focusable rows the way list rows are — there's no `:focus-visible` "active comment" treatment. The "current" comment for `j`/`k` is whichever one is currently nearest the top of the viewport, recomputed on every press, so manual scrolling and keyboard scrolling compose without surprise.
-- The same bail-out conditions apply: typing in an input, an open dialog/menu, modifier keys, or a pre-defaulted event all skip the handler. Browser find (`Cmd-F`), HN's reply link, the help overlay, and the row-action menu remain reachable.
+- **Visible comments only.** `j`/`k` walk every rendered card — top-level cards on a fresh thread, *and* nested replies as soon as their parent is expanded. `<Comment>` only mounts its `comment__children` subtree when the parent is expanded, so "rendered" already means "visible"; a collapsed subtree doesn't show up as keyboard stops. Press `Enter` to expand a card and `j` immediately starts walking its replies.
+- Comments are not focusable rows the way list rows are — there's no `:focus-visible` "active comment" treatment. The "current" comment for `j`/`k`/`Enter` is whichever rendered card is currently nearest the top of the viewport, recomputed on every press, so manual scrolling and keyboard scrolling compose without surprise.
+- The same bail-out conditions apply: typing in an input, an open dialog/menu, modifier keys, or a pre-defaulted event all skip the handler. Browser find (`Cmd-F`), HN's reply link, the help overlay, and the row-action menu remain reachable. The `?` overlay itself is context-aware — opening it on `/item/:id` shows the thread shortcuts (Next comment / Expand or collapse / Mark done) instead of the list shortcuts.
 
 ## Performance Targets
 
