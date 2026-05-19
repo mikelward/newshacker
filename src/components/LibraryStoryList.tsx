@@ -13,6 +13,7 @@ import { useHotThresholds } from '../hooks/useHotThresholds';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { BackToTopButton } from './BackToTopButton';
+import { ListToolbar } from './ListToolbar';
 import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
@@ -58,7 +59,7 @@ export function LibraryStoryList({
   const isRestoring = useIsRestoring();
   const [cacheVersion, setCacheVersion] = useState(0);
   const shareStory = useShareStory();
-  // Hoist `useHotThresholds()` here so the user's `<HotRuleCard>`
+  // Hoist `useHotThresholds()` here so the user's Hot customize panel
   // overrides reach the row pill without per-row hook subscriptions
   // (Copilot review on PR #240). `now` is captured once per render
   // so all rows evaluate against the same wall-clock instant — saves
@@ -145,40 +146,65 @@ export function LibraryStoryList({
     [stories],
   );
 
+  // The bar sits above every render state (empty, loading, error,
+  // populated) so library views match the feed views — Undo always
+  // stays reachable even when this list is empty (e.g. a hide from a
+  // previous feed visit). Sweep stays disabled here since library
+  // views don't register a sweep handler.
+  const toolbar = <ListToolbar />;
+
   if (ids.length === 0) {
-    return <EmptyState message={emptyMessage} />;
+    return (
+      <>
+        {toolbar}
+        <EmptyState message={emptyMessage} />
+      </>
+    );
   }
 
   if ((items.isLoading || isRestoring) && stories.length === 0) {
     return (
-      <ol
-        className="story-list"
-        aria-busy="true"
-        aria-label="Loading stories"
-      >
-        {Array.from({ length: Math.min(ids.length, 6) }).map((_, i) => (
-          <li key={i} className="story-list__item">
-            <StoryRowSkeleton />
-          </li>
-        ))}
-      </ol>
+      <>
+        {toolbar}
+        <ol
+          className="story-list"
+          aria-busy="true"
+          aria-label="Loading stories"
+        >
+          {Array.from({ length: Math.min(ids.length, 6) }).map((_, i) => (
+            <li key={i} className="story-list__item">
+              <StoryRowSkeleton />
+            </li>
+          ))}
+        </ol>
+      </>
     );
   }
 
   if (items.isError && stories.length === 0) {
     return (
-      <ErrorState
-        message="Could not load stories."
-        onRetry={() => items.refetch()}
-      />
+      <>
+        {toolbar}
+        <ErrorState
+          message="Could not load stories."
+          onRetry={() => items.refetch()}
+        />
+      </>
     );
   }
 
   if (stories.length === 0) {
-    return <EmptyState message={emptyMessage} />;
+    return (
+      <>
+        {toolbar}
+        <EmptyState message={emptyMessage} />
+      </>
+    );
   }
 
   return (
+    <>
+    {toolbar}
     <PullToRefresh
       onRefresh={() =>
         // Library pages (/pinned, /favorites, /hidden, /opened) read
@@ -244,5 +270,6 @@ export function LibraryStoryList({
         <BackToTopButton />
       </div>
     </PullToRefresh>
+    </>
   );
 }

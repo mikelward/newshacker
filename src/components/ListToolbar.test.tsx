@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { HotRuleCard } from './HotRuleCard';
+import type { ReactElement } from 'react';
+import { ListToolbar } from './ListToolbar';
+import { FeedBarProvider } from './FeedBarContext';
 import {
   DEFAULT_HOT_THRESHOLDS,
   HOT_THRESHOLDS_STORAGE_KEY,
@@ -9,7 +11,11 @@ import {
   setStoredHotThresholds,
 } from '../lib/hotThresholds';
 
-describe('<HotRuleCard>', () => {
+function renderWithFeedBar(ui: ReactElement) {
+  return render(<FeedBarProvider>{ui}</FeedBarProvider>);
+}
+
+describe('<ListToolbar>', () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -17,17 +23,28 @@ describe('<HotRuleCard>', () => {
     window.localStorage.clear();
   });
 
-  it('renders the collapsed toolbar with just the customize button', () => {
-    render(<HotRuleCard />);
-    // Customize button is present and labeled (icon-only, so the
-    // accessible name comes from `aria-label`).
-    const button = screen.getByRole('button', {
-      name: 'Customize Hot rule',
-    });
+  it('renders Undo and Sweep buttons by default, both disabled when nothing to act on', () => {
+    renderWithFeedBar(<ListToolbar />);
+    const undo = screen.getByTestId('undo-btn');
+    const sweep = screen.getByTestId('sweep-btn');
+    expect(undo).toBeInTheDocument();
+    expect(sweep).toBeInTheDocument();
+    expect(undo).toBeDisabled();
+    expect(sweep).toBeDisabled();
+    expect(undo).toHaveAccessibleName(/nothing to undo/i);
+    expect(sweep).toHaveAccessibleName(/nothing to hide/i);
+  });
+
+  it('omits the Hot customize button unless showHotCustomize is set', () => {
+    renderWithFeedBar(<ListToolbar />);
+    expect(screen.queryByTestId('hot-rule-card-toggle')).toBeNull();
+  });
+
+  it('with showHotCustomize, renders the collapsed customize button', () => {
+    renderWithFeedBar(<ListToolbar showHotCustomize />);
+    const button = screen.getByRole('button', { name: 'Customize Hot rule' });
     expect(button).toBeInTheDocument();
     expect(button).toHaveAttribute('aria-expanded', 'false');
-    // Body controls and warning dot aren't present until expanded /
-    // both-off conditions are met.
     expect(screen.queryByLabelText('Min score')).not.toBeInTheDocument();
     expect(
       screen.queryByTestId('hot-rule-card-warning-dot'),
@@ -36,14 +53,13 @@ describe('<HotRuleCard>', () => {
 
   it('clicking the customize button reveals the panel and a Reset button', async () => {
     const user = userEvent.setup();
-    render(<HotRuleCard />);
+    renderWithFeedBar(<ListToolbar showHotCustomize />);
     await user.click(screen.getByTestId('hot-rule-card-toggle'));
     expect(screen.getByTestId('hot-rule-card-toggle')).toHaveAttribute(
       'aria-expanded',
       'true',
     );
     expect(screen.getByLabelText(/Min score/)).toBeInTheDocument();
-    // "Min comments" appears once in the Top branch and once in the New branch.
     expect(screen.getAllByLabelText(/Min comments/)).toHaveLength(2);
     expect(screen.getByLabelText(/Min points\/h/)).toBeInTheDocument();
     expect(screen.getByTestId('hot-rule-card-reset')).toBeInTheDocument();
@@ -51,9 +67,8 @@ describe('<HotRuleCard>', () => {
 
   it('toggling Top off persists the change to localStorage', async () => {
     const user = userEvent.setup();
-    render(<HotRuleCard />);
+    renderWithFeedBar(<ListToolbar showHotCustomize />);
     await user.click(screen.getByTestId('hot-rule-card-toggle'));
-    // Each branch fieldset has a "Top"/"New" checkbox; click the Top one.
     await user.click(screen.getByLabelText('Top'));
     expect(getStoredHotThresholds().topEnabled).toBe(false);
   });
@@ -68,13 +83,10 @@ describe('<HotRuleCard>', () => {
       },
       1,
     );
-    render(<HotRuleCard />);
-    // Visual cue on the collapsed button — the user shouldn't have to
-    // open the panel to learn that the rule is off.
+    renderWithFeedBar(<ListToolbar showHotCustomize />);
     expect(
       screen.getByTestId('hot-rule-card-warning-dot'),
     ).toBeInTheDocument();
-    // The in-panel hint still renders inside the body when expanded.
     await user.click(screen.getByTestId('hot-rule-card-toggle'));
     expect(
       screen.getByText(/turn one on to see stories/),
@@ -91,7 +103,7 @@ describe('<HotRuleCard>', () => {
       },
       1,
     );
-    render(<HotRuleCard />);
+    renderWithFeedBar(<ListToolbar showHotCustomize />);
     await user.click(screen.getByTestId('hot-rule-card-toggle'));
     await user.click(screen.getByTestId('hot-rule-card-reset'));
     const out = getStoredHotThresholds();
@@ -101,9 +113,11 @@ describe('<HotRuleCard>', () => {
 
   it('disabling a branch dims its rows but keeps the slider readable', async () => {
     const user = userEvent.setup();
-    render(<HotRuleCard />);
+    renderWithFeedBar(<ListToolbar showHotCustomize />);
     await user.click(screen.getByTestId('hot-rule-card-toggle'));
-    const minScoreSlider = screen.getByLabelText(/Min score/) as HTMLInputElement;
+    const minScoreSlider = screen.getByLabelText(
+      /Min score/,
+    ) as HTMLInputElement;
     expect(minScoreSlider.disabled).toBe(false);
     await user.click(screen.getByLabelText('Top'));
     expect(minScoreSlider.disabled).toBe(true);
@@ -120,15 +134,9 @@ describe('<HotRuleCard>', () => {
   });
 
   it('back-to-back slider changes both stick (no stale-prefs clobber)', async () => {
-    // Regression for the race Copilot flagged on PR #240: when two
-    // patches fire between renders, the second must not merge against
-    // the captured render-time `prefs` and clobber the first. We
-    // simulate the race with two synchronous `fireEvent.change` calls
-    // — between them React hasn't committed a re-render, so without
-    // the fix the second `update()` would read stale `prefs` and drop
-    // the first patch.
+    // Regression for the race Copilot flagged on PR #240.
     const user = userEvent.setup();
-    render(<HotRuleCard />);
+    renderWithFeedBar(<ListToolbar showHotCustomize />);
     await user.click(screen.getByTestId('hot-rule-card-toggle'));
 
     const minScore = screen.getByLabelText(/Min score/) as HTMLInputElement;

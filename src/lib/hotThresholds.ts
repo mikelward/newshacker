@@ -55,7 +55,7 @@ export const DEFAULT_HOT_THRESHOLDS: HotThresholds = {
 
 // Slider bounds. Tight enough to keep the UI usable but loose enough
 // that a power user can ratchet either branch hard. Read by
-// `<HotRuleCard>` (the `/hot` inline editor) to set `min`/`max` on
+// Hot customize panel (the `/hot` inline editor) to set `min`/`max` on
 // the four `<input type="range">` controls.
 export const HOT_THRESHOLD_BOUNDS = {
   topScoreMin: { min: 0, max: 2000, step: 10 },
@@ -233,7 +233,7 @@ export function evalHot(
 }
 
 // Convenience for callers that want a yes/no on whether the user has
-// turned BOTH branches off — `<HotRuleCard>`'s empty-feed hint reads
+// turned BOTH branches off — Hot customize panel's empty-feed hint reads
 // this so it knows when to render.
 export function hasAnyEnabledBranch(t: HotThresholds): boolean {
   return t.topEnabled || t.newEnabled;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { BackToTopButton } from '../components/BackToTopButton';
 import { EmptyState } from '../components/States';
+import { ListToolbar } from '../components/ListToolbar';
 import { StoryListItem } from '../components/StoryListItem';
 import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
@@ -92,12 +93,16 @@ export function OfflinePage() {
 
   if (entries.length === 0) {
     return (
-      <EmptyState message="No offline stories yet. Pin or open stories while online to keep them available here." />
+      <>
+        <ListToolbar />
+        <EmptyState message="No offline stories yet. Pin or open stories while online to keep them available here." />
+      </>
     );
   }
 
   return (
     <>
+      <ListToolbar />
       <div className="offline-page__intro" role="note">
         Stories cached on this device, newest cache first.
       </div>

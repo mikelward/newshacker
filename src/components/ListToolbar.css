@@ -2,23 +2,30 @@
    no horizontal margin (list rows go edge-to-edge), only an inner
    padding that matches `.story-row`'s 12px so the customize button
    aligns to the same content gutter as every story row's title. */
-.hot-toolbar {
+.list-toolbar {
   margin: 0;
   border-bottom: 1px solid var(--nh-border);
   background: var(--nh-bg-card);
 }
 
-.hot-toolbar__row {
+.list-toolbar__row {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  /* Customize button (and any other rule-related controls) stay
-     left-aligned. Right-aligned controls — Sweep, Undo, per-source
-     visibility toggles for /top, /new, pinned overlay, etc. — should
-     wrap in their own container with `margin-left: auto` so they
-     hug the right edge regardless of how many left-aligned items
-     are present. */
+  /* Left-aligned items (the Hot customize button when present) sit
+     at the start of the row; the right-aligned action group below
+     hugs the trailing edge via margin-left: auto. */
+}
+
+/* Right-aligned action group: Undo + Sweep (and any future per-list
+   controls). Hugs the right edge regardless of how many left-aligned
+   items the row carries. */
+.list-toolbar__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* Compact transparent icon button — relies on hover background,
@@ -26,10 +33,9 @@
    interactivity, so the icon reads as a single glyph rather than
    a bounded UI chip. 40×40 trades the 48px row-tap-target minimum
    (which is a story-row rule, not a general one) for a denser
-   toolbar that scales when more buttons land here (Sweep, Undo,
-   etc.). The 24×24 icon centered in 40×40 still leaves 8px around
+   toolbar. The 24×24 icon centered in 40×40 still leaves 8px around
    each side for finger reach. */
-.hot-toolbar__button {
+.list-toolbar__button {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -44,29 +50,34 @@
   cursor: pointer;
 }
 
-.hot-toolbar__button:focus-visible {
+.list-toolbar__button:disabled {
+  color: var(--nh-meta);
+  cursor: default;
+}
+
+.list-toolbar__button:focus-visible {
   outline: 2px solid var(--nh-orange);
   outline-offset: 1px;
 }
 
 @media (hover: hover) {
-  .hot-toolbar__button:hover {
+  .list-toolbar__button:not(:disabled):hover {
     background: var(--nh-bg);
   }
 }
 
-.hot-toolbar__button:active {
+.list-toolbar__button:not(:disabled):active {
   background: var(--nh-bg);
 }
 
 /* Pressed/expanded state: the icon picks up HN orange while the
    panel is open, so the user has a clear visual cue for "this is
    what's showing the panel" without re-introducing a border. */
-.hot-toolbar__button[data-pressed] {
+.list-toolbar__button[data-pressed] {
   color: var(--nh-orange-dark);
 }
 
-.hot-rule-card__icon {
+.list-toolbar__icon {
   flex-shrink: 0;
 }
 
@@ -74,7 +85,7 @@
    when both rule branches are off — gives the user a non-disruptive
    "your rule is off" cue without forcing them to open the panel.
    Tightened for the 40×40 button. */
-.hot-toolbar__warning-dot {
+.list-toolbar__warning-dot {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -93,7 +104,7 @@
   flex-direction: column;
   gap: 12px;
   padding: 10px 12px 12px;
-  border-bottom: 1px solid var(--nh-border);
+  border-top: 1px solid var(--nh-border);
   background: var(--nh-bg-card);
 }
 
@@ -242,4 +253,3 @@
 .hot-rule-card__reset:active {
   background: var(--nh-bg);
 }
-

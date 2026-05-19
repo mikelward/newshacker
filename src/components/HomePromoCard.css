@@ -1,5 +1,5 @@
 /* Edge-to-edge banner — same logical column as `.story-list__item`
-   and `.hot-toolbar` (no horizontal margin, hairline bottom border,
+   and `.list-toolbar` (no horizontal margin, hairline bottom border,
    `--nh-bg-card` background). No container padding: each child owns
    its own inset so the link's hit area stretches all the way to
    the dismiss button without leaving a non-clickable gutter. */
@@ -46,9 +46,9 @@
 }
 
 /* Compact transparent dismiss button — same 40×40 borderless shape
-   as `.hot-toolbar__button`, so the visual language stays consistent
+   as `.list-toolbar__button`, so the visual language stays consistent
    between the two banners that can sit at the top of `/`. The 4px
-   right margin matches `.hot-toolbar__row`'s 8px right padding minus
+   right margin matches `.list-toolbar__row`'s 8px right padding minus
    the 4px the button visually centers itself in, so the icon's
    optical edge lines up with the toolbar above when both render. */
 .home-promo__dismiss {

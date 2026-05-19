@@ -47,7 +47,7 @@ export interface HotFeedItemsState extends FeedItemsState {
 // rendered set. `predicate` is required: `/hot`'s `<HotStoryList>`
 // supplies a closure over `isHotStory(item, hotNow, hotThresholds)`
 // (where `hotNow` is captured per render) so the user's
-// `<HotRuleCard>` overrides drive which fetched candidates render,
+// Hot customize panel overrides drive which fetched candidates render,
 // while `/tuning`'s Preview supplies a compiled expression directly.
 // Adjusting a slider re-filters without re-fetching HN (the React
 // Query cache key is `['feedItems', 'hot']`, predicate-independent —
@@ -71,7 +71,7 @@ export interface HotFeedItemsState extends FeedItemsState {
 // page degrades to whichever survived rather than blanking.
 // `predicate` is required — every caller has its own source of truth
 // for what "hot" means. `<HotStoryList>` binds it to `useHotThresholds()`
-// at the call site so the user's `<HotRuleCard>` overrides drive `/hot`;
+// at the call site so the user's Hot customize panel overrides drive `/hot`;
 // `/tuning`'s Preview supplies a compiled expression directly. Keeping
 // the subscription out of this hook means `/tuning` doesn't pay for a
 // hot-threshold listener it would never use (Copilot review on PR #240).
@@ -145,7 +145,7 @@ export function useHotFeedItems(
   // this layer drops anything that re-surfaces in a later page
   // after climbing between feeds. The dedup is predicate-agnostic:
   // `/hot` keeps whichever ids first qualified under the
-  // caller-provided, user-tuned predicate from `<HotRuleCard>`,
+  // caller-provided, user-tuned predicate from Hot customize panel,
   // while `/tuning` applies the Preview's compiled expression to
   // the same fetched candidates without re-fetching.
   // StoryListImpl still applies its visibility filter (`score > 1`,

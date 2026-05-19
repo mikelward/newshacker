@@ -46,7 +46,7 @@ function HomeRoute() {
   if (homeFeed === 'hot') return <HotStoryList />;
   // Default home: top feed with a one-row dismissible banner pointing
   // readers at `/hot` (see SPEC.md *Story feeds → /hot* → home promo).
-  // Banner is gone once dismissed; on `/hot` itself the `<HotRuleCard>`
+  // Banner is gone once dismissed; on `/hot` itself the Hot customize panel
   // already sits in this slot, so we don't double-stack.
   return (
     <>

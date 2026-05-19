@@ -72,21 +72,10 @@ describe('<AppHeader>', () => {
     expect(screen.getByTestId('offline-indicator')).toBeInTheDocument();
   });
 
-  it('does not render any feed-scoped actions on non-feed pages', () => {
-    renderWithProviders(<AppHeader />, { route: '/pinned' });
+  it('does not render Undo or Sweep buttons in the header — they live on the list toolbar', () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
     expect(screen.queryByTestId('undo-btn')).toBeNull();
     expect(screen.queryByTestId('sweep-btn')).toBeNull();
-  });
-
-  it('treats the home path (/) as a feed page so Undo/Sweep show there too', () => {
-    renderWithProviders(<AppHeader />, { route: '/' });
-    expect(screen.getByTestId('undo-btn')).toBeInTheDocument();
-  });
-
-  it('renders Undo/Sweep on /hot (it is a feed page even though "hot" is not an HN endpoint)', () => {
-    renderWithProviders(<AppHeader />, { route: '/hot' });
-    expect(screen.getByTestId('undo-btn')).toBeInTheDocument();
-    expect(screen.getByTestId('sweep-btn')).toBeInTheDocument();
   });
 
   it('does not render a Refresh button anywhere', () => {
