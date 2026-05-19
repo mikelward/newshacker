@@ -891,6 +891,21 @@ newshacker is keyboard-navigable on every list page (`/`, `/:feed`, `/hot`, and 
 - **No auto-focus on initial load.** The page renders with focus untouched. The first press of `j`, `k`, `↑`, or `↓` focuses the first visible row. Route changes between feeds reset to the same behavior — landing on `/new` from `/top` leaves the page at scroll top with nothing focused until a key is pressed. This avoids stealing focus from screen readers and avoids viewport jumps for readers who arrived via a deep link expecting to read the page header first.
 - **Bail-out conditions** (every handler exits early): focus is in an `<input>` / `<textarea>` / `<select>` / `[contenteditable]`; any dialog or menu is already open (`StoryRowMenu`, `LoginDialog`, `AppDrawer`, `HeaderAccountMenu`, the shortcuts overlay — they all set `role="dialog"` or `role="menu"`); a modifier key (Cmd/Ctrl/Alt) is held; or the event has already been `defaultPrevented`. So Cmd-click on a row link, browser find, form typing, and "open another modal first" all keep working unchanged.
 
+The thread / comments page (`/item/:id`) reuses the same letter keys with a thread-scoped meaning so muscle memory carries over from the list pages.
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Scroll the next rendered comment up to just below the sticky header. No-op at the bottom of the thread. |
+| `k` / `↑` | Scroll the previous comment up to just below the sticky header. At the top of the thread, scrolls all the way to the page top. |
+| `o` | Open the story's article URL in a new tab. Story view only; no-op on self-posts and on the focused-comment view (`/item/<commentId>`). |
+| `p` | Toggle pin for this story. Story view only. |
+| `d` | Mark this story done (closes the thread, navigating back). Story view only. |
+| `?` | Open the keyboard-shortcuts help overlay. |
+| `Esc` | Close the menu / overlay (existing behavior). |
+
+- Comments are not focusable rows the way list rows are — there's no `:focus-visible` "active comment" treatment. The "current" comment for `j`/`k` is whichever one is currently nearest the top of the viewport, recomputed on every press, so manual scrolling and keyboard scrolling compose without surprise.
+- The same bail-out conditions apply: typing in an input, an open dialog/menu, modifier keys, or a pre-defaulted event all skip the handler. Browser find (`Cmd-F`), HN's reply link, the help overlay, and the row-action menu remain reachable.
+
 ## Performance Targets
 
 - First Contentful Paint < 1.5s on a 4G mobile profile.
