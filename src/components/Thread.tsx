@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useDoneStories } from '../hooks/useDoneStories';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useFavorites } from '../hooks/useFavorites';
 import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -839,6 +840,14 @@ export function Thread({ id }: Props) {
     },
     enabled: item?.type === 'comment' && item?.parent !== undefined,
   });
+
+  // Browser tab + Web Share API title. Story pages use the story's own
+  // title; comment focus pages use the parent story's title (so a
+  // shared deep-link to a comment still surfaces the article context).
+  // The brand suffix is intentionally lowercase to match the rest of
+  // the UI vocabulary.
+  const storyTitle = item?.title ?? rootStory?.title ?? undefined;
+  useDocumentTitle(storyTitle ? `${storyTitle} - newshacker` : null);
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);

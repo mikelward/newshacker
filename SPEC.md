@@ -737,6 +737,8 @@ The sticky header carries the menu button (left), the newshacker brand link, and
 
 A **Share page** button (Material Symbols `share`) sits to the right of Search on every route — feed and non-feed alike — so a reader can hand the current URL to a friend without copying it out of the address bar. Tap opens the OS share sheet via `navigator.share` (Web Share API) with the page title and current URL; on browsers without share support it falls back to copying the URL to the clipboard and showing a `Link copied` toast. The shared link's iMessage/Slack/Twitter preview comes from server-side Open Graph tags — see *Link preview metadata*.
 
+The page title the share sheet picks up is `document.title`. Routes set it via the `useDocumentTitle` hook so the share sheet (and the browser tab) read the actual content rather than the static fallback. On `/item/:id` the format is `<story title> - newshacker` (lowercase brand to match the rest of the UI vocabulary; for comment-focus deep links, the parent story title is used). Routes without an opinion (`/pinned`, `/about`, etc.) keep the static `newshacker — a reader for Hacker News` from `index.html`.
+
 - **Offline chip** — appears in the header whenever the app's combined
   browser/fetch network tracker reports offline. The chip links to
   `/offline`, so tapping it opens stories already cached on this device
