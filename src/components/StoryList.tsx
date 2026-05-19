@@ -17,7 +17,7 @@ import { isHotStory } from '../lib/format';
 import type { HNItem } from '../lib/hn';
 import type { HotThresholds } from '../lib/hotThresholds';
 import { BackToTopButton } from './BackToTopButton';
-import { HotRuleCard } from './HotRuleCard';
+import { ListToolbar } from './ListToolbar';
 import { PullToRefresh } from './PullToRefresh';
 import { StoryListItem, type RowFlag } from './StoryListItem';
 import { StoryRowSkeleton } from './Skeletons';
@@ -120,7 +120,7 @@ interface ImplProps {
   // /tuning Preview where the operator should never mutate
   // reader state from inside a tuning experiment.
   readOnly?: boolean;
-  // The user's `<HotRuleCard>` overrides, threaded in by the parent
+  // The user's Hot customize panel overrides, threaded in by the parent
   // so this component doesn't open its own `useHotThresholds`
   // subscription. On `/hot` and the `/tuning` Preview, `flagFor`
   // already returns a concrete value for every row (so the auto-
@@ -133,6 +133,9 @@ interface ImplProps {
   // production constants here, since a forgotten prop would mean
   // every shipping feed quietly stops honoring user customization.
   hotThresholds: HotThresholds;
+  // When true, the toolbar bar above the list renders the Hot rule
+  // customize button + expandable panel. Only `/hot` sets it.
+  showHotCustomize?: boolean;
 }
 
 interface StoryListItemRightAction {
@@ -177,7 +180,7 @@ function SweepIcon() {
 
 export function StoryList({ feed }: Props) {
   const feedItems = useFeedItems(feed);
-  // Subscribe to the user's `<HotRuleCard>` overrides once per route
+  // Subscribe to the user's Hot customize panel overrides once per route
   // mount and pass them down so `<StoryListImpl>` doesn't open its
   // own subscription (Copilot review on PR #240).
   const { prefs: hotThresholds } = useHotThresholds();
@@ -196,7 +199,7 @@ export function StoryList({ feed }: Props) {
 // other row would otherwise render — see SPEC.md *Hot flag*). The
 // empty state copy matches SPEC.md *Story feeds → /hot*.
 //
-// The `<HotRuleCard>` sits above the list as the inline editor for
+// The Hot customize panel sits above the list as the inline editor for
 // the user's `/hot` rule (per-branch on/off + four slider numbers).
 // It's a sibling rather than a wrapper so the empty state, error
 // state, and load skeletons render below it and the editor stays
@@ -204,7 +207,7 @@ export function StoryList({ feed }: Props) {
 // list is empty as a result.
 export function HotStoryList() {
   // `useHotFeedItems` requires an explicit predicate; bind it to the
-  // user's `<HotRuleCard>` overrides here so the threshold subscription
+  // user's Hot customize panel overrides here so the threshold subscription
   // only lives on `/hot` (and not on `/tuning`, which passes its own
   // compiled expression instead).
   //
@@ -231,16 +234,14 @@ export function HotStoryList() {
     [newSourceIds],
   );
   return (
-    <>
-      <HotRuleCard />
-      <StoryListImpl
-        feedItems={feedItems}
-        flagFor={flagFor}
-        emptyMessage="Nothing hot right now."
-        sourceFeed="hot"
-        hotThresholds={hotThresholds}
-      />
-    </>
+    <StoryListImpl
+      feedItems={feedItems}
+      flagFor={flagFor}
+      emptyMessage="Nothing hot right now."
+      sourceFeed="hot"
+      hotThresholds={hotThresholds}
+      showHotCustomize
+    />
   );
 }
 
@@ -262,6 +263,7 @@ export function StoryListImpl({
   includeHidden = false,
   readOnly = false,
   hotThresholds,
+  showHotCustomize = false,
 }: ImplProps) {
   useListKeyboardNav();
   const queryClient = useQueryClient();
@@ -691,22 +693,36 @@ export function StoryListImpl({
   // immediately returns to the unread visual state (and drops from /opened).
   const handleMarkUnread = useCallback((id: number) => unopen(id), [unopen]);
 
+  // The bar sits above every render state (loading skeletons, error,
+  // empty, populated) so the toolbar controls stay reachable in every
+  // case — readOnly (the /tuning Preview) opts out since the page has
+  // its own controls and no sweep affordance applies there.
+  const toolbar = readOnly ? null : (
+    <ListToolbar showHotCustomize={showHotCustomize} />
+  );
+
   const hasAnyItems = items.length > 0;
   if (!hasAnyItems && feedItems.isLoading) {
     return (
-      <ol className="story-list" aria-busy="true" aria-label="Loading stories">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <li key={i} className="story-list__item">
-            <StoryRowSkeleton />
-          </li>
-        ))}
-      </ol>
+      <>
+        {toolbar}
+        <ol className="story-list" aria-busy="true" aria-label="Loading stories">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <li key={i} className="story-list__item">
+              <StoryRowSkeleton />
+            </li>
+          ))}
+        </ol>
+      </>
     );
   }
 
   if (isError) {
     return (
-      <ErrorState message="Could not load stories." onRetry={refetch} />
+      <>
+        {toolbar}
+        <ErrorState message="Could not load stories." onRetry={refetch} />
+      </>
     );
   }
 
@@ -715,10 +731,17 @@ export function StoryListImpl({
     offFeedPinnedStories.length === 0 &&
     !hasMore
   ) {
-    return <EmptyState message={emptyMessage} />;
+    return (
+      <>
+        {toolbar}
+        <EmptyState message={emptyMessage} />
+      </>
+    );
   }
 
   return (
+    <>
+    {toolbar}
     <PullToRefresh
       // Pull cross-device sync state alongside the HN feed — PTR is
       // the user's "show me the latest" gesture and they'd expect
@@ -843,6 +866,7 @@ export function StoryListImpl({
         )}
       </div>
     </PullToRefresh>
+    </>
   );
 }
 

@@ -185,11 +185,11 @@ export interface StoryMetaInput {
 // haven't accumulated huge totals yet but are climbing the front
 // page; the big-story branch keeps the Hot flag on stories whose
 // velocity has cooled but whose total engagement still stands out.
-// Comparisons are `≥` (not `>`), so dragging a `<HotRuleCard>` slider
+// Comparisons are `≥` (not `>`), so dragging a Hot customize panel slider
 // to 0 effectively removes that gate from its branch.
 //
 // The two branches and the four numbers are user-tunable in the
-// `<HotRuleCard>` inline editor on `/hot`, which writes a
+// Hot customize panel inline editor on `/hot`, which writes a
 // `HotThresholds` record to localStorage (and syncs it via
 // `/api/sync` for signed-in users). Each branch can be disabled
 // individually; off means that disjunct evaluates to false. The

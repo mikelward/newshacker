@@ -123,7 +123,7 @@ interface SyncRuntime {
   // idea as lastPushed for the lists, but for a single record.
   lastPushedAvatar: number;
   // Same idea for the per-user Hot-threshold overrides configured by
-  // `<HotRuleCard>` on `/hot`.
+  // Hot customize panel on `/hot`.
   lastPushedHotThresholds: number;
   pushTimer: ReturnType<typeof setTimeout> | null;
   pushInFlight: boolean;

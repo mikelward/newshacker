@@ -148,7 +148,7 @@ export function StoryListItem({
   // text. When the prop is omitted, fall back to `isHotStory(story)`
   // with the production defaults — but every list-rendering parent
   // (`StoryListImpl`, `LibraryStoryList`) computes the flag once
-  // against the user's `<HotRuleCard>` overrides and passes it in,
+  // against the user's Hot customize panel overrides and passes it in,
   // so the auto-compute path is only a defensive fallback for direct
   // / test usage. Reading the per-user thresholds *here* would mean
   // every rendered row registers its own `useHotThresholds` window

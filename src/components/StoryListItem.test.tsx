@@ -473,7 +473,7 @@ describe('StoryListItem', () => {
       expect(screen.queryByTestId('story-hot')).toBeNull();
     });
 
-    // The "user `<HotRuleCard>` overrides flow into the row pill"
+    // The "user Hot customize panel overrides flow into the row pill"
     // regression lives in `StoryList.test.tsx` — `useHotThresholds`
     // is hoisted to `StoryListImpl` (per Copilot review on PR #240),
     // so a direct `<StoryListItem>` render bypasses the user-thresholds

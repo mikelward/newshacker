@@ -210,7 +210,7 @@ describe('<StoryList>', () => {
     expect(screen.getByText('Good')).toBeInTheDocument();
   });
 
-  it('the row Hot pill honors the user\'s <HotRuleCard> overrides via StoryListImpl\'s hoisted useHotThresholds', async () => {
+  it('the row Hot pill honors the user\'s Hot customize panel overrides via StoryListImpl\'s hoisted useHotThresholds', async () => {
     // Big-story-only row: score 250, descendants 150, 30h old so the
     // velocity branch (250 / 30h ≈ 8.3/h) misses the 15/h default.
     // Under default thresholds the Top branch flags it, under
