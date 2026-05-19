@@ -16,6 +16,13 @@ import { useEffect } from 'react';
 // press so manual scrolling and keyboard scrolling compose without
 // a parallel selection state.
 //
+// After each successful j/k/Enter we tag the active card with
+// `.is-keyboard-focused` so the reader can see which one Enter
+// will toggle. The class is a pure visual marker — the active-
+// comment computation still runs against the viewport on the next
+// press, so mouse scrolling can temporarily leave the indicator
+// out of sync, and the next j/k realigns it. Cleared on unmount.
+//
 // Enter toggles the active comment's expand/collapse so the reader
 // can fan out a thread's replies without leaving the keyboard. We
 // bail when focus is on a button or link, so Enter's native click
@@ -41,6 +48,26 @@ interface Args {
 // is excluded so j doesn't park on something the reader can't read.
 const VISIBLE_COMMENT_SELECTOR =
   '.thread__comments .comment:not(.comment--loading)';
+
+// Marker attribute set by the keyboard handler on the active card.
+// A data attribute (rather than a className) is deliberate: <Comment>
+// re-renders on expand/collapse and React would overwrite an
+// imperatively-added class on the next reconcile. React doesn't
+// reconcile attributes it didn't render itself, so this survives.
+const KEYBOARD_FOCUS_ATTR = 'data-keyboard-focused';
+
+// Move the visual focus marker. Strips the attribute from any element
+// currently carrying it inside the thread (defensive — there should
+// only ever be one), then adds it to `el` if non-null. Passing null
+// clears the indicator (e.g. k from the top of the thread, or hook
+// teardown on route change).
+function markKeyboardFocused(el: HTMLElement | null): void {
+  const previous = document.querySelectorAll<HTMLElement>(
+    `.thread__comments [${KEYBOARD_FOCUS_ATTR}]`,
+  );
+  previous.forEach((p) => p.removeAttribute(KEYBOARD_FOCUS_ATTR));
+  if (el) el.setAttribute(KEYBOARD_FOCUS_ATTR, '');
+}
 
 function shouldIgnoreKeyEvent(e: KeyboardEvent): boolean {
   if (e.defaultPrevented) return true;
@@ -96,6 +123,7 @@ function toggleActiveComment(): boolean {
     ':scope > .comment__footer > .comment__toggle',
   );
   if (!toggle) return false;
+  markKeyboardFocused(active);
   toggle.click();
   return true;
 }
@@ -119,14 +147,17 @@ function jumpComment(direction: 'next' | 'prev'): boolean {
     const targetIdx = currentIdx + 1;
     if (targetIdx >= comments.length) return false;
     scrollToComment(comments[targetIdx]);
+    markKeyboardFocused(comments[targetIdx]);
     return true;
   }
   if (currentIdx <= 0) {
     if (window.scrollY === 0) return false;
     window.scrollTo({ top: 0, behavior: 'auto' });
+    markKeyboardFocused(null);
     return true;
   }
   scrollToComment(comments[currentIdx - 1]);
+  markKeyboardFocused(comments[currentIdx - 1]);
   return true;
 }
 
@@ -181,6 +212,9 @@ export function useThreadKeyboardNav({
       }
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      markKeyboardFocused(null);
+    };
   }, [onOpenArticle, onTogglePin, onToggleDone]);
 }

@@ -23,6 +23,25 @@
   cursor: default;
 }
 
+/* Keyboard-focus marker — set by useThreadKeyboardNav after every
+   j/k/Enter so the reader can see which card Enter will toggle.
+   Layered on top of the collapsed/expanded left stripe via stacked
+   inset box-shadows; no layout shift. Driven by a data attribute
+   rather than a class so React's expand/collapse re-render doesn't
+   clobber it (className would be reconciled away on the next
+   render — see KEYBOARD_FOCUS_ATTR in useThreadKeyboardNav.ts). */
+.comment[data-keyboard-focused] {
+  box-shadow:
+    inset 0 3px 0 0 var(--nh-orange),
+    inset 3px 0 0 0 var(--nh-border);
+}
+
+.comment[data-keyboard-focused].is-expanded {
+  box-shadow:
+    inset 0 3px 0 0 var(--nh-orange),
+    inset 3px 0 0 0 var(--nh-orange);
+}
+
 /* Bottom action row of the card: meta comes first and flexes to
    fill the left side, the optional toolbar (upvote/downvote/reply,
    expanded only) sits to the right of the meta, and the expand/
