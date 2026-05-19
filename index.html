@@ -22,6 +22,24 @@
     <meta name="apple-mobile-web-app-title" content="newshacker" />
     <title>newshacker — a reader for Hacker News</title>
     <meta name="description" content="A mobile-friendly, unofficial reader for Hacker News." />
+    <!-- Open Graph / Twitter Card defaults. Crawlers don't execute the
+         SPA's JS, so per-route previews can't come from React. For
+         /item/:id we route bot user-agents to /api/og (see vercel.json)
+         which renders item-specific tags (title, age). Everything else
+         falls back to these defaults. og:image is the static brand
+         icon paired with twitter:card="summary" (small square card). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="newshacker" />
+    <meta property="og:title" content="newshacker — a reader for Hacker News" />
+    <meta property="og:description" content="A mobile-friendly, unofficial reader for Hacker News." />
+    <meta property="og:url" content="https://newshacker.app/" />
+    <meta property="og:image" content="https://newshacker.app/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="newshacker — a reader for Hacker News" />
+    <meta name="twitter:description" content="A mobile-friendly, unofficial reader for Hacker News." />
+    <meta name="twitter:image" content="https://newshacker.app/icon-512.png" />
     <script>
       // Apply stored mode + app-bar theme before first paint to avoid a
       // flash. The chrome whitelist is explicit (mono-a / mono-b) rather
