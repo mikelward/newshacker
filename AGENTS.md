@@ -198,6 +198,13 @@ If any of the above fails, fix it — don't disable the check.
 ## Pull requests and reviews
 
 - Open PRs ready for review (not draft) unless asked otherwise.
+- **Keep the PR title and body in sync with what's on the branch.** When a
+  push meaningfully changes the PR — new user-visible behavior, a different
+  approach, added/removed scope, a new tap target or storage key, etc. —
+  update the PR title and/or body in the same turn via
+  `mcp__github__update_pull_request` so they describe the current diff, not
+  the original intent. Skip the update for cosmetic pushes (typo fixes,
+  lint, review-comment nits) where the existing title and body still hold.
 - When a feature has multiple open PRs, list **every** open PR by URL,
   one per line — the "View PR" chip sticks to the first link and hides
   the rest (anthropics/claude-code#46625).
