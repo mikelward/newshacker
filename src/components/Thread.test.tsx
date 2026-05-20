@@ -562,7 +562,7 @@ describe('<Thread>', () => {
         });
         expect(shareSpy.mock.calls[0]?.[0]).toMatchObject({
           title: 'Shareable',
-          url: 'https://example.com/780',
+          url: 'http://localhost:3000/item/780',
         });
       } finally {
         if (hadShare) {
@@ -1050,7 +1050,7 @@ describe('<Thread>', () => {
       });
       expect(shareSpy.mock.calls[0]?.[0]).toMatchObject({
         title: 'Mystery',
-        url: 'https://example.com/730',
+        url: 'http://localhost:3000/item/730',
       });
     } finally {
       if (hadShare) {
