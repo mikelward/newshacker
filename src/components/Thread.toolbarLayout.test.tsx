@@ -201,7 +201,7 @@ describe('<Thread> action bar CSS invariants', () => {
   // The mobile 56px button height is tuned for fingertips; on a
   // mouse/trackpad it reads as oversized at any window width. The
   // pointer-gated block in Thread.css shrinks the icon buttons and
-  // their glyphs (to 42px boxes / 22px glyphs). It is deliberately
+  // their glyphs (to 40px boxes / 22px glyphs). It is deliberately
   // gated on `(hover: hover)` — pointer type, NOT viewport width — so a
   // mouse user gets the denser bar even in a narrow window while touch
   // devices keep the 56px (≥48 tap-target floor) at every width. The
@@ -216,13 +216,13 @@ describe('<Thread> action bar CSS invariants', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const css = readFileSync(resolve(here, 'Thread.css'), 'utf8');
 
-    // Locate the sizing block by its unique `min-height: 42px`
+    // Locate the sizing block by its unique `min-height: 40px`
     // declaration, then walk back to the enclosing `@media` prelude.
     // (Anchoring on the declaration rather than the media text keeps the
     // test robust even though the file has several `@media (hover: hover)`
     // blocks — only the sizing one carries this declaration.)
-    const sizeDecl = css.indexOf('min-height: 42px');
-    expect(sizeDecl, 'expected a min-height: 42px sizing rule').toBeGreaterThanOrEqual(0);
+    const sizeDecl = css.indexOf('min-height: 40px');
+    expect(sizeDecl, 'expected a min-height: 40px sizing rule').toBeGreaterThanOrEqual(0);
     const start = css.lastIndexOf('@media', sizeDecl);
     expect(start).toBeGreaterThanOrEqual(0);
     const braceStart = css.indexOf('{', start);
