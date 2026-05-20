@@ -45,9 +45,11 @@ interface Args {
 // parent is expanded, so this selector naturally excludes hidden
 // replies — "rendered" already means "visible". The loading-card
 // variant (the placeholder while a comment item is being fetched)
-// is excluded so j doesn't park on something the reader can't read.
+// and the height-reserving `.comment--placeholder` (the not-yet-loaded
+// top-level rows below the sentinel) are excluded so j doesn't park on
+// something the reader can't read.
 const VISIBLE_COMMENT_SELECTOR =
-  '.thread__comments .comment:not(.comment--loading)';
+  '.thread__comments .comment:not(.comment--loading):not(.comment--placeholder)';
 
 // Marker attribute set by the keyboard handler on the active card.
 // A data attribute (rather than a className) is deliberate: <Comment>

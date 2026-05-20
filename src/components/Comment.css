@@ -287,3 +287,37 @@
 .comment--loading .comment__footer {
   opacity: 0.6;
 }
+
+/* Reserved-height stand-in for an unloaded top-level comment. min-height
+   tracks a typical collapsed comment (clamped body + 44px footer) so the
+   thread's scroll height is set up front and the real card swapping in
+   only nudges layout below the fold rather than appending at the bottom.
+   Non-interactive — it's a skeleton, not a card the reader can toggle. */
+.comment--placeholder {
+  cursor: default;
+  min-height: 100px;
+}
+
+.comment__placeholder-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 6px;
+}
+
+.comment__placeholder-line,
+.comment__placeholder-meta {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--nh-border);
+  opacity: 0.6;
+}
+
+.comment__placeholder-line:last-child {
+  width: 55%;
+}
+
+.comment__placeholder-meta {
+  display: inline-block;
+  width: 80px;
+}

@@ -7,6 +7,10 @@ import { Thread, TOP_LEVEL_PAGE_SIZE } from './Thread';
 import { FeedBarProvider } from './FeedBarContext';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+import {
+  installIntersectionObserverMock,
+  uninstallIntersectionObserverMock,
+} from '../test/intersectionObserver';
 import type { HNItem } from '../lib/hn';
 
 function LocationProbe() {
@@ -1587,6 +1591,74 @@ describe('<Thread>', () => {
     ).toBeNull();
     // Sentinel exists so IntersectionObserver can trigger next page
     expect(screen.getByTestId('comments-sentinel')).toBeInTheDocument();
+  });
+
+  it('reserves scroll height with a placeholder per unloaded top-level comment', async () => {
+    const totalKids = TOP_LEVEL_PAGE_SIZE + 5;
+    const kidIds = Array.from({ length: totalKids }, (_, i) => 1000 + i);
+    const items: Record<number, HNItem | null> = {
+      500: makeStory(500, { kids: kidIds, descendants: totalKids }),
+    };
+    for (const kid of kidIds) {
+      items[kid] = {
+        id: kid,
+        type: 'comment',
+        by: `u${kid}`,
+        text: `comment ${kid}`,
+        time: 1,
+      };
+    }
+    installHNFetchMock({ items });
+
+    renderWithProviders(<Thread id={500} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('comment 1000')).toBeInTheDocument();
+    });
+    // The 5 top-level kids past the first page render as height-reserving
+    // placeholders rather than being absent, so the full row count — and
+    // therefore the scroll height — is established at load time instead of
+    // growing page-by-page as the reader scrolls.
+    const placeholders = screen.getByTestId('comments-placeholders');
+    expect(placeholders.querySelectorAll('.comment--placeholder')).toHaveLength(
+      5,
+    );
+  });
+
+  it('converts placeholders to real comments as the sentinel loads more', async () => {
+    installIntersectionObserverMock();
+    try {
+      const totalKids = TOP_LEVEL_PAGE_SIZE + 5;
+      const kidIds = Array.from({ length: totalKids }, (_, i) => 1000 + i);
+      const items: Record<number, HNItem | null> = {
+        500: makeStory(500, { kids: kidIds, descendants: totalKids }),
+      };
+      for (const kid of kidIds) {
+        items[kid] = {
+          id: kid,
+          type: 'comment',
+          by: `u${kid}`,
+          text: `comment ${kid}`,
+          time: 1,
+        };
+      }
+      installHNFetchMock({ items });
+
+      renderWithProviders(<Thread id={500} />);
+
+      // The mock observer reports the sentinel as intersecting, so the next
+      // page loads and the trailing placeholders become real comments.
+      await waitFor(() => {
+        expect(
+          screen.getByText(`comment ${1000 + totalKids - 1}`),
+        ).toBeInTheDocument();
+      });
+      // Everything is loaded now: no reserved placeholders, no sentinel.
+      expect(screen.queryByTestId('comments-placeholders')).toBeNull();
+      expect(screen.queryByTestId('comments-sentinel')).toBeNull();
+    } finally {
+      uninstallIntersectionObserverMock();
+    }
   });
 
   describe('when the item is a comment', () => {

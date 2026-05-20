@@ -107,6 +107,49 @@ describe('<Thread> keyboard shortcuts', () => {
     expect(layout.scrollCalls.at(-1)).toBe(348);
   });
 
+  it('j walks real comments and never parks on a reserved placeholder', async () => {
+    // 22 kids with the default 20-comment first page leaves 2 height-
+    // reserving placeholders below the sentinel. They carry the .comment
+    // class, so this guards that keyboard nav still excludes them.
+    const kidIds = Array.from({ length: 22 }, (_, i) => 600 + i);
+    const items: Record<number, ReturnType<typeof makeStory> | unknown> = {
+      590: makeStory(590, { kids: kidIds, descendants: kidIds.length }),
+    };
+    for (const kid of kidIds) {
+      items[kid] = {
+        id: kid,
+        type: 'comment',
+        by: `u${kid}`,
+        text: `comment ${kid}`,
+        time: 1,
+      };
+    }
+    installHNFetchMock({ items: items as Record<number, never> });
+    makeHeader();
+    stubLayout(kidIds.slice(0, 20).map((_, i) => 200 + i * 100));
+
+    renderWithProviders(<Thread id={590} />);
+    await waitFor(() => {
+      expect(screen.getByText('comment 600')).toBeInTheDocument();
+    });
+    // Placeholders exist for the 2 unloaded kids.
+    expect(
+      document.querySelectorAll('.comment--placeholder').length,
+    ).toBeGreaterThan(0);
+
+    // Walk well past the last real comment; the focus marker must always
+    // land on a readable comment, never on a placeholder skeleton.
+    for (let i = 0; i < 22; i++) {
+      await userEvent.keyboard('j');
+      expect(
+        document.querySelector('.comment--placeholder[data-keyboard-focused]'),
+      ).toBeNull();
+    }
+    const focused = document.querySelector('.comment[data-keyboard-focused]');
+    expect(focused).not.toBeNull();
+    expect(focused).not.toHaveClass('comment--placeholder');
+  });
+
   it('j at the bottom of the thread is a no-op', async () => {
     installHNFetchMock({
       items: {

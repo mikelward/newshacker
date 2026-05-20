@@ -58,6 +58,29 @@ function ToolbarReplyIcon() {
   );
 }
 
+// Height-reserving stand-in for a top-level comment whose body hasn't
+// been fetched yet. The thread renders one of these for every
+// not-yet-loaded top-level kid so the full row count — and therefore
+// the scroll height — is established at load time instead of growing
+// as the reader scrolls and successive pages mount. `min-height`
+// approximates a typical collapsed comment (body + 44px footer) so the
+// real card swapping in causes only a small, off-screen reflow rather
+// than appending fresh height at the bottom. aria-hidden because it
+// carries no content for assistive tech to announce.
+export function CommentPlaceholder() {
+  return (
+    <div className="comment comment--placeholder" aria-hidden="true">
+      <div className="comment__placeholder-body">
+        <span className="comment__placeholder-line" />
+        <span className="comment__placeholder-line" />
+      </div>
+      <div className="comment__footer">
+        <span className="comment__placeholder-meta" />
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   id: number;
   // Start the comment in its expanded state instead of the default
