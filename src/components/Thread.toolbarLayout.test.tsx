@@ -197,4 +197,56 @@ describe('<Thread> action bar CSS invariants', () => {
       /@media[^{]*\{\s*\.thread__action--(?:primary|stretch)\s*\{[^}]*flex-basis:\s*100%/s,
     );
   });
+
+  // The mobile 56px button height is tuned for fingertips; on desktop
+  // with a mouse + wider 860px reading column it reads as oversized.
+  // The desktop media query in Thread.css shrinks the icon buttons and
+  // their glyphs, and is gated `(hover: hover)` so touch-primary
+  // devices keep the 48-min tap targets. The primary/stretch slot is
+  // deliberately left UNCAPPED so the bar stays full-width edge to
+  // edge. Pin all of that down here so a refactor can't silently drop
+  // the shrink, drop the hover gate, or re-introduce a width cap.
+  it('shrinks the desktop icon buttons, hover-gated and uncapped (≥960px)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(resolve(here, 'Thread.css'), 'utf8');
+
+    // Extract the desktop media query's *body* via balanced-brace
+    // walking so the assertions below are scoped to a single rule
+    // block. A laxer "does the file contain X and Y anywhere" check
+    // would pass even if X and Y had been split into unrelated blocks
+    // — exactly the regression we're guarding against.
+    const start = css.indexOf('@media (min-width: 960px)');
+    expect(start, 'expected an @media (min-width: 960px) block in Thread.css').toBeGreaterThanOrEqual(0);
+    // Capture the media query's prelude (`@media ... {`) so we can
+    // also pin down the hover-capable gating that protects touch
+    // tablets at wide widths.
+    const braceStart = css.indexOf('{', start);
+    expect(braceStart).toBeGreaterThan(start);
+    const prelude = css.slice(start, braceStart);
+    expect(prelude).toMatch(/\(hover:\s*hover\)/);
+
+    let depth = 1;
+    let i = braceStart + 1;
+    while (i < css.length && depth > 0) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') depth -= 1;
+      i += 1;
+    }
+    expect(depth).toBe(0);
+    // Strip CSS comments before the declaration checks — a comment in
+    // the block references `svg { max-width: 100% }`, which is prose,
+    // not a rule we're asserting against.
+    const body = css
+      .slice(braceStart + 1, i - 1)
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+
+    // The icon buttons shrink, and the inline glyphs shrink with them.
+    expect(body).toMatch(/\.thread__action--icon[\s\S]{0,200}width\s*:/);
+    expect(body).toMatch(/\.thread__action-icon[\s\S]{0,200}width\s*:/);
+    // No width cap on the primary/stretch slot — the bar fills the row.
+    expect(body).not.toMatch(/max-width/);
+  });
 });

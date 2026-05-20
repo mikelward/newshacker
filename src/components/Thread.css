@@ -153,6 +153,47 @@
   padding: 12px;
 }
 
+/* Desktop: shrink the action bar so the buttons don't dominate the
+   wider reading column. The 56px mobile sizing is tuned for fingertips;
+   on a mouse-driven desktop it reads as oversized, especially after the
+   column expands to 860px at ≥960px. Min-height drops to 36px (standard
+   desktop button height — mouse pointers don't need touch-target
+   sizing) and the inline icons shrink in lock-step (28 → 20px) so the
+   icon/button ratio stays close to the mobile 50%. The primary/stretch
+   slot is left uncapped on purpose: "Read article" / "Back to top"
+   stretches to fill the row so the bar stays full-width edge to edge.
+
+   Gated on `(hover: hover)` so touch-primary devices that happen to
+   match the width cutoff — landscape tablets, Surface-style 2-in-1s in
+   tablet mode, touch laptops with no mouse — keep the 56px tap targets.
+   A pure width media query would silently drop those users below the
+   documented 48×48 floor. (The *layout* change — surfacing Favorite and
+   Share as inline icons — is width-only via the useWideViewport hook,
+   not this hover-gated sizing block; the two concerns are independent.) */
+@media (min-width: 960px) and (hover: hover) {
+  .thread__action {
+    min-height: 36px;
+    padding: 6px 14px;
+    gap: 6px;
+    font-size: 14px;
+  }
+
+  .thread__action-icon {
+    /* Override the inline width/height on the Material SVGs (set to
+       28px for the mobile button) so they shrink with the button. */
+    width: 20px;
+    height: 20px;
+  }
+
+  .thread__action--icon {
+    width: 36px;
+    /* 6px each side keeps the 20px icon inside a 22px content box
+       (36 − 2px border − 12px padding) so the global
+       `svg { max-width: 100% }` reset doesn't downscale it. */
+    padding: 6px;
+  }
+}
+
 .thread__action--active {
   color: var(--nh-orange);
   border-color: var(--nh-orange);
