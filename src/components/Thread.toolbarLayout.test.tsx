@@ -198,15 +198,17 @@ describe('<Thread> action bar CSS invariants', () => {
     );
   });
 
-  // The mobile 56px button height is tuned for fingertips; on desktop
-  // with a mouse + wider 860px reading column it reads as oversized.
+  // The mobile 56px button height is tuned for fingertips; once the
+  // reading column widens to 860px at ≥960px it reads as oversized.
   // The desktop media query in Thread.css shrinks the icon buttons and
-  // their glyphs, and is gated `(hover: hover)` so touch-primary
-  // devices keep the 48-min tap targets. The primary/stretch slot is
-  // deliberately left UNCAPPED so the bar stays full-width edge to
-  // edge. Pin all of that down here so a refactor can't silently drop
-  // the shrink, drop the hover gate, or re-introduce a width cap.
-  it('shrinks the desktop icon buttons, hover-gated and uncapped (≥960px)', async () => {
+  // their glyphs to the 48px tap-target floor. It is deliberately
+  // width-only — NOT `(hover: hover)` gated — so a touch device and a
+  // mouse at the same width render identically (48px still meets the
+  // 48×48 floor). The primary/stretch slot is left UNCAPPED so the bar
+  // stays full-width edge to edge. Pin all of that down here so a
+  // refactor can't silently drop the shrink, re-introduce a pointer
+  // gate, or re-introduce a width cap.
+  it('shrinks the desktop icon buttons, width-only (no hover gate) and uncapped (≥960px)', async () => {
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const { dirname, resolve } = await import('node:path');
@@ -221,12 +223,14 @@ describe('<Thread> action bar CSS invariants', () => {
     const start = css.indexOf('@media (min-width: 960px)');
     expect(start, 'expected an @media (min-width: 960px) block in Thread.css').toBeGreaterThanOrEqual(0);
     // Capture the media query's prelude (`@media ... {`) so we can
-    // also pin down the hover-capable gating that protects touch
-    // tablets at wide widths.
+    // assert the sizing block is width-only and not re-gated on a
+    // pointer/hover condition (which would re-introduce a touch vs.
+    // non-touch difference).
     const braceStart = css.indexOf('{', start);
     expect(braceStart).toBeGreaterThan(start);
     const prelude = css.slice(start, braceStart);
-    expect(prelude).toMatch(/\(hover:\s*hover\)/);
+    expect(prelude).not.toMatch(/hover/);
+    expect(prelude).not.toMatch(/pointer/);
 
     let depth = 1;
     let i = braceStart + 1;
