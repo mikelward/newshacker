@@ -76,8 +76,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 56px;
-  padding: 12px 16px;
+  min-height: 48px;
+  padding: 10px 16px;
   background: var(--nh-bg-card);
   border: 1px solid var(--nh-border);
   border-radius: 8px;
@@ -149,31 +149,35 @@
 
 .thread__action--icon {
   flex: 0 0 auto;
-  width: 56px;
-  padding: 12px;
+  width: 48px;
+  /* 11px each side keeps the 24px glyph in a 24px content box
+     (48 − 2px border − 22px padding) so the global
+     `svg { max-width: 100% }` reset doesn't downscale it. */
+  padding: 11px;
 }
 
-/* Desktop: shrink the action bar so the buttons don't dominate the
-   wider reading column. The 56px mobile sizing is tuned for fingertips;
-   once the column expands to 860px at ≥960px it reads as oversized next
-   to the rest of the page. Min-height drops to 42px and the inline
-   icons shrink in lock-step (28 → 22px). The primary/stretch slot is
-   left uncapped on purpose: "Read article" / "Back to top" stretches to
-   fill the row so the bar stays full-width edge to edge.
+/* Pointer-capable devices: shrink the action bar a touch more. The 48px
+   base is the touch tap-target sweet spot (Material 48dp / WCAG-AAA);
+   under a precise pointer it can go a little denser. Min-height drops to
+   42px and the glyphs shrink in lock-step (24 → 22px). The primary/
+   stretch slot is left uncapped on purpose: "Read article" / "Back to
+   top" stretches to fill the row so the bar stays full-width edge to
+   edge.
 
-   Width-only — NOT gated on `(hover: hover)` — so a phone and a mouse
-   at the same width render identically; there's no touch/non-touch
-   divergence. This matches the *layout* change (Favorite/Share inline)
-   which is also width-only, via the useWideViewport hook. */
-@media (min-width: 960px) {
+   Gated on `(hover: hover)` — pointer type, NOT viewport width — so a
+   mouse user gets the denser bar even in a narrow window, while
+   touch-primary devices keep the 48px tap-target floor at every width.
+   The *layout* change (Favorite/Share inline) stays width-gated via the
+   useWideViewport hook, since surfacing extra buttons is about
+   horizontal room, not pointer precision; the two concerns are
+   independent. */
+@media (hover: hover) {
   .thread__action {
     min-height: 42px;
     padding: 8px 16px;
   }
 
   .thread__action-icon {
-    /* Override the inline width/height on the Material SVGs (set to
-       28px for the mobile button) so they shrink with the button. */
     width: 22px;
     height: 22px;
   }
@@ -194,6 +198,12 @@
 
 .thread__action-icon {
   display: block;
+  /* Override the inline width/height on the Material SVGs (set to 28px
+     in the JSX) so the touch glyph is 24px in the 48px button (50%,
+     matching the icon/button ratio). The pointer-gated block shrinks
+     both button and glyph together. */
+  width: 24px;
+  height: 24px;
 }
 
 .thread__summary-card {
