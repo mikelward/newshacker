@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { HotStoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+import { addDoneId } from '../lib/doneStories';
 
 // Build a "fast riser" story: 50 points in 30 min = 100/h velocity,
 // well above the >15/h floor, with 25 comments to clear the
@@ -199,6 +200,55 @@ describe('<HotStoryList>', () => {
       expect(screen.getByText('page-1-hot-from-top')).toBeInTheDocument();
     });
     // The page-0 hot row remains on screen — pages accumulate.
+    expect(screen.getByText('page-0-hot')).toBeInTheDocument();
+  });
+
+  it('a More tap chases past a page whose only hot row is marked done', async () => {
+    // Regression: the chase decided "this tap revealed a row" off the
+    // bare isHotStory predicate, ignoring the reader's done/hidden
+    // filter that StoryListImpl applies on render. So a page whose only
+    // hot story was one the reader had marked done would stop the chase,
+    // get filtered out on render, and leave the More button visible but
+    // doing nothing. Page 1's only hot row (200) is done; the chase must
+    // skip past it to page 2's hot row (300).
+    const top: number[] = [];
+    const items: Record<number, ReturnType<typeof makeStory>> = {};
+    items[100] = makeBigStory(100, { title: 'page-0-hot' });
+    top.push(100);
+    for (let i = 1; i < 30; i++) {
+      items[100 + i] = makeCold(100 + i);
+      top.push(100 + i);
+    }
+    items[200] = makeBigStory(200, { title: 'page-1-hot-but-done' });
+    top.push(200);
+    for (let i = 1; i < 30; i++) {
+      items[200 + i] = makeCold(200 + i);
+      top.push(200 + i);
+    }
+    items[300] = makeBigStory(300, { title: 'page-2-hot' });
+    top.push(300);
+
+    addDoneId(200);
+
+    installHNFetchMock({
+      feeds: { topstories: top, newstories: [] },
+      items,
+    });
+
+    renderWithProviders(<HotStoryList />);
+
+    await waitFor(() => {
+      expect(screen.getByText('page-0-hot')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('page-2-hot')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /^More$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('page-2-hot')).toBeInTheDocument();
+    });
+    // The done row never surfaces, and the page-0 row stays put.
+    expect(screen.queryByText('page-1-hot-but-done')).toBeNull();
     expect(screen.getByText('page-0-hot')).toBeInTheDocument();
   });
 
