@@ -1,5 +1,5 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, it, expect } from 'vitest';
+import { act, fireEvent, screen } from '@testing-library/react';
 import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 
@@ -8,20 +8,6 @@ function setOnline(value: boolean) {
     configurable: true,
     value,
   });
-}
-
-function stubNavigatorShare(impl: (data: ShareData) => Promise<void>) {
-  const original = window.navigator;
-  Object.defineProperty(window, 'navigator', {
-    configurable: true,
-    value: { ...original, share: impl },
-  });
-  return () => {
-    Object.defineProperty(window, 'navigator', {
-      configurable: true,
-      value: original,
-    });
-  };
 }
 
 describe('<AppHeader>', () => {
@@ -124,32 +110,8 @@ describe('<AppHeader>', () => {
     expect(screen.queryByTestId('search-btn')).toBeNull();
   });
 
-  it('renders a share-page button on feed pages', () => {
+  it('does not render a share button in the header (sharing lives on the thread bar / row menu)', () => {
     renderWithProviders(<AppHeader />, { route: '/top' });
-    const btn = screen.getByTestId('share-page-btn');
-    expect(btn).toHaveAccessibleName(/share this page/i);
-  });
-
-  it('renders a share-page button on non-feed pages too', () => {
-    renderWithProviders(<AppHeader />, { route: '/pinned' });
-    expect(screen.getByTestId('share-page-btn')).toBeInTheDocument();
-  });
-
-  it('calls navigator.share with the document title and current URL', async () => {
-    const share = vi.fn<(data: ShareData) => Promise<void>>(
-      async () => undefined,
-    );
-    const restore = stubNavigatorShare(share);
-    document.title = 'pinned · newshacker';
-    try {
-      renderWithProviders(<AppHeader />, { route: '/pinned' });
-      fireEvent.click(screen.getByTestId('share-page-btn'));
-      await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
-      const payload = share.mock.calls[0]?.[0];
-      expect(payload?.title).toBe('pinned · newshacker');
-      expect(payload?.url).toBe(window.location.href);
-    } finally {
-      restore();
-    }
+    expect(screen.queryByTestId('share-page-btn')).toBeNull();
   });
 });
