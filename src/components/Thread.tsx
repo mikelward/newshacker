@@ -38,7 +38,7 @@ import { getItem, getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
 import { hasSelfPostBody } from '../lib/selfPostBody';
 import { trackSummaryLayout } from '../lib/analytics';
-import { Comment } from './Comment';
+import { Comment, CommentPlaceholder } from './Comment';
 import { MarkdownText } from './MarkdownText';
 import { ThreadSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
@@ -946,7 +946,13 @@ export function Thread({ id }: Props) {
 
   const kidIds = data?.kidIds ?? [];
   const shown = kidIds.slice(0, visibleCount);
-  const hasMore = visibleCount < kidIds.length;
+  // Every top-level kid past the loaded page renders as a fixed-height
+  // placeholder, so the thread's scroll height is established up front
+  // from the full kid count rather than growing page-by-page as the
+  // reader scrolls. The sentinel still drives loading the next page;
+  // when it does, placeholders convert to real comments in place.
+  const placeholderIds = kidIds.slice(visibleCount);
+  const hasMore = placeholderIds.length > 0;
 
   const loadingMoreRef = useRef(false);
 
@@ -1167,12 +1173,25 @@ export function Thread({ id }: Props) {
         ))}
       </ol>
       {hasMore ? (
-        <div
-          ref={sentinelRef}
-          className="thread__sentinel"
-          data-testid="comments-sentinel"
-          aria-hidden="true"
-        />
+        <>
+          <div
+            ref={sentinelRef}
+            className="thread__sentinel"
+            data-testid="comments-sentinel"
+            aria-hidden="true"
+          />
+          <ol
+            className="thread__comments thread__comments--placeholders"
+            data-testid="comments-placeholders"
+            aria-hidden="true"
+          >
+            {placeholderIds.map((kidId) => (
+              <li key={kidId}>
+                <CommentPlaceholder />
+              </li>
+            ))}
+          </ol>
+        </>
       ) : null}
       <footer className="thread__footer">
         <ThreadActionBar
