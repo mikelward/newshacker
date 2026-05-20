@@ -81,7 +81,37 @@ describe('<StoryList>', () => {
     expect(footer!.classList.contains('story-list__footer--feed')).toBe(true);
   });
 
-  it('hides the More button when the feed has 30 or fewer stories', async () => {
+  it('grays out the footer button after the last page is revealed', async () => {
+    // 45 ids: page 0 shows 30 with an enabled More; one tap reveals the
+    // remaining 15 and exhausts the feed, so the button flips to the
+    // disabled end-of-feed state.
+    const ids = Array.from({ length: 45 }, (_, i) => i + 1);
+    const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(30);
+    });
+    const more = screen.getByRole('button', { name: /^more$/i });
+    expect(more).toBeEnabled();
+    await userEvent.click(more);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(45);
+    });
+    expect(
+      screen.queryByRole('button', { name: /^more$/i }),
+    ).not.toBeInTheDocument();
+    const endBtn = screen.getByRole('button', { name: /no more stories/i });
+    expect(endBtn).toBeDisabled();
+  });
+
+  it('grays out the footer button when the feed is exhausted instead of hiding it', async () => {
+    // A short feed has nothing more to load, but the footer button stays
+    // visible as a disabled "No more stories" affordance so reaching the
+    // end is explicit feedback rather than a vanished control.
     const ids = Array.from({ length: 12 }, (_, i) => i + 1);
     const items = Object.fromEntries(ids.map((id) => [id, makeStory(id)]));
     installHNFetchMock({ feeds: { topstories: ids }, items });
@@ -91,7 +121,13 @@ describe('<StoryList>', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(12);
     });
-    expect(screen.queryByRole('button', { name: /^more$/i })).not.toBeInTheDocument();
+    // No tappable "More" — the next-page action isn't available.
+    expect(
+      screen.queryByRole('button', { name: /^more$/i }),
+    ).not.toBeInTheDocument();
+    // …but the grayed end-of-feed button is present and disabled.
+    const endBtn = screen.getByRole('button', { name: /no more stories/i });
+    expect(endBtn).toBeDisabled();
   });
 
   it('refetches the feed on mount when a populated cache would otherwise be considered fresh', async () => {
