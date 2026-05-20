@@ -16,7 +16,7 @@ import { installHNFetchMock, makeStory } from '../test/mockFetch';
 // `text-overflow: ellipsis` to absorb the width pressure.
 
 // ---- CSS-layer constants. Keep in sync with Thread.css. ----
-const ICON_BUTTON_WIDTH = 56; // .thread__action--icon width
+const ICON_BUTTON_WIDTH = 48; // .thread__action--icon width (touch base)
 const STRETCH_MIN_WIDTH = 0; // flex: 1; min-width: 0 → shrinks to 0
 const GAP = 12; // .thread__actions gap
 const HEADER_PADDING_X = 16; // .thread__header / .thread__footer padding
@@ -198,38 +198,40 @@ describe('<Thread> action bar CSS invariants', () => {
     );
   });
 
-  // The mobile 56px button height is tuned for fingertips; once the
-  // reading column widens to 860px at ≥960px it reads as oversized.
-  // The desktop media query in Thread.css shrinks the icon buttons and
+  // The mobile 56px button height is tuned for fingertips; on a
+  // mouse/trackpad it reads as oversized at any window width. The
+  // pointer-gated block in Thread.css shrinks the icon buttons and
   // their glyphs (to 42px boxes / 22px glyphs). It is deliberately
-  // width-only — NOT `(hover: hover)` gated — so a touch device and a
-  // mouse at the same width render identically. The primary/stretch
-  // slot is left UNCAPPED so the bar stays full-width edge to edge. Pin
-  // all of that down here so a refactor can't silently drop the shrink,
-  // re-introduce a pointer gate, or re-introduce a width cap.
-  it('shrinks the desktop icon buttons, width-only (no hover gate) and uncapped (≥960px)', async () => {
+  // gated on `(hover: hover)` — pointer type, NOT viewport width — so a
+  // mouse user gets the denser bar even in a narrow window while touch
+  // devices keep the 56px (≥48 tap-target floor) at every width. The
+  // primary/stretch slot is left UNCAPPED so the bar stays full-width
+  // edge to edge. Pin all of that down here so a refactor can't
+  // silently drop the shrink, swap it back to a width gate, or
+  // re-introduce a width cap.
+  it('shrinks the icon buttons for pointer devices (hover-gated, not width) and leaves them uncapped', async () => {
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const { dirname, resolve } = await import('node:path');
     const here = dirname(fileURLToPath(import.meta.url));
     const css = readFileSync(resolve(here, 'Thread.css'), 'utf8');
 
-    // Extract the desktop media query's *body* via balanced-brace
-    // walking so the assertions below are scoped to a single rule
-    // block. A laxer "does the file contain X and Y anywhere" check
-    // would pass even if X and Y had been split into unrelated blocks
-    // — exactly the regression we're guarding against.
-    const start = css.indexOf('@media (min-width: 960px)');
-    expect(start, 'expected an @media (min-width: 960px) block in Thread.css').toBeGreaterThanOrEqual(0);
-    // Capture the media query's prelude (`@media ... {`) so we can
-    // assert the sizing block is width-only and not re-gated on a
-    // pointer/hover condition (which would re-introduce a touch vs.
-    // non-touch difference).
+    // Locate the sizing block by its unique `min-height: 42px`
+    // declaration, then walk back to the enclosing `@media` prelude.
+    // (Anchoring on the declaration rather than the media text keeps the
+    // test robust even though the file has several `@media (hover: hover)`
+    // blocks — only the sizing one carries this declaration.)
+    const sizeDecl = css.indexOf('min-height: 42px');
+    expect(sizeDecl, 'expected a min-height: 42px sizing rule').toBeGreaterThanOrEqual(0);
+    const start = css.lastIndexOf('@media', sizeDecl);
+    expect(start).toBeGreaterThanOrEqual(0);
     const braceStart = css.indexOf('{', start);
     expect(braceStart).toBeGreaterThan(start);
+    expect(braceStart).toBeLessThan(sizeDecl);
     const prelude = css.slice(start, braceStart);
-    expect(prelude).not.toMatch(/hover/);
-    expect(prelude).not.toMatch(/pointer/);
+    // Pointer-gated, not width-gated.
+    expect(prelude).toMatch(/hover:\s*hover/);
+    expect(prelude).not.toMatch(/min-width/);
 
     let depth = 1;
     let i = braceStart + 1;
