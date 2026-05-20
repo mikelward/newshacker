@@ -14,6 +14,25 @@ function LocationProbe() {
   return <div data-testid="location-pathname">{loc.pathname}</div>;
 }
 
+// happy-dom's default viewport is 1024px wide, so `(min-width: 960px)`
+// matches out of the box and Thread renders the *wide* action bar
+// (inline Favorite/Share) by default. Tests that exercise the narrow
+// layout — where those actions live in the overflow menu — stub the
+// viewport to narrow. The top-level afterEach restores the original.
+const ORIGINAL_MATCH_MEDIA = window.matchMedia;
+function setViewportWide(wide: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes('min-width: 960px') ? wide : false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
 // Wraps the existing HN fetch mock so a specific URL substring is held open
 // until the test releases it. The skeleton tests need a guaranteed loading
 // state — without this, the immediate-resolve mock races React's commit
@@ -84,6 +103,7 @@ describe('<Thread>', () => {
   afterEach(() => {
     window.localStorage.clear();
     vi.unstubAllGlobals();
+    window.matchMedia = ORIGINAL_MATCH_MEDIA;
   });
 
   it('renders story header + top-level comments, with replies collapsed by default', async () => {
@@ -417,6 +437,7 @@ describe('<Thread>', () => {
   });
 
   it('toggles favorite state via the Favorite entry in the overflow menu, independently of Pin', async () => {
+    setViewportWide(false);
     installHNFetchMock({
       items: { 710: makeStory(710, { title: 'Lovable' }) },
     });
@@ -426,8 +447,8 @@ describe('<Thread>', () => {
       expect(screen.getByText('Lovable')).toBeInTheDocument();
     });
 
-    // Favorite lives in the overflow menu — it's a keepsake action,
-    // less frequent than Done on the comments view.
+    // On narrow viewports Favorite lives in the overflow menu — it's a
+    // keepsake action, less frequent than Done on the comments view.
     expect(screen.queryByTestId('thread-favorite')).toBeNull();
 
     await userEvent.click(screen.getByTestId('thread-more'));
@@ -454,6 +475,107 @@ describe('<Thread>', () => {
       ? (JSON.parse(storedFav) as Array<{ id: number; deleted?: true }>)
       : [];
     expect(parsedFav.filter((e) => !e.deleted)).toEqual([]);
+  });
+
+  describe('wide-screen action bar (≥960px)', () => {
+    // happy-dom defaults to a 1024px viewport, so `wide` is already true
+    // here; the explicit stub documents intent and guards against a
+    // future default change. The top-level afterEach restores matchMedia.
+    it('surfaces Favorite and Share as inline icon buttons and drops them from the menu', async () => {
+      setViewportWide(true);
+      installHNFetchMock({
+        items: {
+          760: makeStory(760, {
+            title: 'Wide',
+            url: 'https://example.com/760',
+          }),
+        },
+      });
+      renderWithProviders(<Thread id={760} />);
+      await waitFor(() => {
+        expect(screen.getByText('Wide')).toBeInTheDocument();
+      });
+
+      // Inline icons present on both bars.
+      expect(screen.getByTestId('thread-favorite')).toBeInTheDocument();
+      expect(screen.getByTestId('thread-share')).toBeInTheDocument();
+      expect(screen.getByTestId('thread-favorite-bottom')).toBeInTheDocument();
+      expect(screen.getByTestId('thread-share-bottom')).toBeInTheDocument();
+
+      // Open on Hacker News still lives in the overflow menu...
+      await userEvent.click(screen.getByTestId('thread-more'));
+      expect(
+        screen.getByTestId('story-row-menu-open-on-hn'),
+      ).toBeInTheDocument();
+      // ...but Favorite and Share have moved out of it.
+      expect(screen.queryByTestId('story-row-menu-favorite')).toBeNull();
+      expect(screen.queryByTestId('story-row-menu-share')).toBeNull();
+    });
+
+    it('toggles favorite via the inline heart button on wide screens', async () => {
+      setViewportWide(true);
+      installHNFetchMock({
+        items: { 770: makeStory(770, { title: 'Heartable' }) },
+      });
+      renderWithProviders(<Thread id={770} />);
+      await waitFor(() => {
+        expect(screen.getByText('Heartable')).toBeInTheDocument();
+      });
+
+      const fav = screen.getByTestId('thread-favorite');
+      expect(fav).toHaveAttribute('aria-pressed', 'false');
+      await userEvent.click(fav);
+      expect(
+        window.localStorage.getItem('newshacker:favoriteStoryIds'),
+      ).toContain('"id":770');
+      expect(screen.getByTestId('thread-favorite')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    });
+
+    it('shares via the inline Share button on wide screens', async () => {
+      setViewportWide(true);
+      const shareSpy = vi.fn().mockResolvedValue(undefined);
+      const hadShare = 'share' in window.navigator;
+      Object.defineProperty(window.navigator, 'share', {
+        value: shareSpy,
+        configurable: true,
+      });
+      try {
+        installHNFetchMock({
+          items: {
+            780: makeStory(780, {
+              title: 'Shareable',
+              url: 'https://example.com/780',
+            }),
+          },
+        });
+        renderWithProviders(<Thread id={780} />);
+        await waitFor(() => {
+          expect(screen.getByText('Shareable')).toBeInTheDocument();
+        });
+
+        await userEvent.click(screen.getByTestId('thread-share'));
+        await waitFor(() => {
+          expect(shareSpy).toHaveBeenCalledTimes(1);
+        });
+        expect(shareSpy.mock.calls[0]?.[0]).toMatchObject({
+          title: 'Shareable',
+          url: 'https://example.com/780',
+        });
+      } finally {
+        if (hadShare) {
+          Object.defineProperty(window.navigator, 'share', {
+            value: undefined,
+            configurable: true,
+          });
+        } else {
+          // @ts-expect-error — clean up the stub we added.
+          delete (window.navigator as Navigator & { share?: unknown }).share;
+        }
+      }
+    });
   });
 
   it('toggles pinned state via the Pin button on the bar', async () => {
@@ -872,7 +994,8 @@ describe('<Thread>', () => {
     ).toBeNull();
   });
 
-  it('opens an overflow menu with "Open on Hacker News" and "Share article" entries', async () => {
+  it('opens an overflow menu with "Favorite", "Share" and "Open on Hacker News" entries (narrow)', async () => {
+    setViewportWide(false);
     installHNFetchMock({
       items: { 730: makeStory(730, { title: 'Mystery' }) },
     });
@@ -893,6 +1016,10 @@ describe('<Thread>', () => {
       });
 
       expect(screen.queryByTestId('story-row-menu')).toBeNull();
+      // Below 960px the inline Favorite/Share icons are not rendered;
+      // those actions live in the overflow menu instead.
+      expect(screen.queryByTestId('thread-favorite')).toBeNull();
+      expect(screen.queryByTestId('thread-share')).toBeNull();
 
       const more = screen.getByTestId('thread-more');
       expect(more).toHaveAttribute('aria-haspopup', 'menu');
@@ -901,6 +1028,9 @@ describe('<Thread>', () => {
       await userEvent.click(more);
       expect(more).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByTestId('story-row-menu')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('story-row-menu-favorite'),
+      ).toBeInTheDocument();
 
       await userEvent.click(screen.getByTestId('story-row-menu-open-on-hn'));
       expect(openSpy).toHaveBeenCalledWith(
@@ -914,7 +1044,7 @@ describe('<Thread>', () => {
       });
 
       await userEvent.click(more);
-      await userEvent.click(screen.getByTestId('story-row-menu-share-article'));
+      await userEvent.click(screen.getByTestId('story-row-menu-share'));
       await waitFor(() => {
         expect(shareSpy).toHaveBeenCalledTimes(1);
       });
@@ -935,7 +1065,8 @@ describe('<Thread>', () => {
     }
   });
 
-  it('hides the "Share article" entry on self-posts (no external url)', async () => {
+  it('keeps a working "Share" entry on self-posts (shares the thread URL)', async () => {
+    setViewportWide(false);
     installHNFetchMock({
       items: {
         740: makeStory(740, { title: 'Ask HN: anything?', url: undefined }),
@@ -949,7 +1080,8 @@ describe('<Thread>', () => {
 
     await userEvent.click(screen.getByTestId('thread-more'));
     expect(screen.getByTestId('story-row-menu-open-on-hn')).toBeInTheDocument();
-    expect(screen.queryByTestId('story-row-menu-share-article')).toBeNull();
+    // Share is always available now — self-posts share the /item URL.
+    expect(screen.getByTestId('story-row-menu-share')).toBeInTheDocument();
   });
 
   it('auto-fetches and displays the summary card on mount', async () => {

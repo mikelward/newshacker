@@ -14,6 +14,7 @@ import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useShareStory } from '../hooks/useShareStory';
 import { useThreadKeyboardNav } from '../hooks/useThreadKeyboardNav';
 import { useVote } from '../hooks/useVote';
+import { useWideViewport } from '../hooks/useWideViewport';
 import { SummaryError, useSummary } from '../hooks/useSummary';
 import {
   CommentsSummaryError,
@@ -184,6 +185,54 @@ function VerticalAlignTopIcon() {
       focusable="false"
     >
       <path d="M240-760v-80h480v80H240Zm200 640v-446L336-462l-56-58 200-200 200 200-56 58-104-104v446h-80Z" />
+    </svg>
+  );
+}
+
+function HeartIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Zm0-108q96-86 158-147.5t98-107q36-45.5 50-81t14-70.5q0-60-40-100t-100-40q-47 0-87 26.5T518-680h-76q-15-41-55-67.5T300-774q-60 0-100 40t-40 100q0 35 14 70.5t50 81q36 45.5 98 107T480-228Zm0-273Z" />
+    </svg>
+  );
+}
+
+function HeartFilledIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z" />
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg
+      className="thread__action-icon"
+      viewBox={MS_VIEWBOX}
+      fill="currentColor"
+      width="28"
+      height="28"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z" />
     </svg>
   );
 }
@@ -515,10 +564,17 @@ interface ThreadActionBarProps {
   voted: boolean;
   pinned: boolean;
   done: boolean;
+  favorited: boolean;
   menuOpen: boolean;
+  // On wide viewports (≥960px) Favorite and Share are surfaced as
+  // inline icon buttons in the strip; below that they live in the
+  // overflow menu. Open on Hacker News stays in the menu either way.
+  wide: boolean;
   onToggleVote: () => void;
   onTogglePinned: () => void;
   onToggleDone: () => void;
+  onToggleFavorite: () => void;
+  onShare: () => void;
   onOpenMenu: (anchor: HTMLElement | null) => void;
   // 'top' (default) renders Read article (when the story has a url) as
   // the primary button. 'bottom' renders Back to top instead — the reader
@@ -541,10 +597,14 @@ function ThreadActionBar({
   voted,
   pinned,
   done,
+  favorited,
   menuOpen,
+  wide,
   onToggleVote,
   onTogglePinned,
   onToggleDone,
+  onToggleFavorite,
+  onShare,
   onOpenMenu,
   variant = 'top',
   testIdSuffix = '',
@@ -634,6 +694,36 @@ function ThreadActionBar({
           {done ? 'Unmark done' : 'Mark done'}
         </span>
       </TooltipButton>
+      {wide ? (
+        <>
+          <TooltipButton
+            type="button"
+            className={
+              'thread__action thread__action--icon' +
+              (favorited ? ' thread__action--active' : '')
+            }
+            data-testid={`thread-favorite${testIdSuffix}`}
+            aria-pressed={favorited}
+            tooltip={favorited ? 'Unfavorite' : 'Favorite'}
+            onClick={onToggleFavorite}
+          >
+            {favorited ? <HeartFilledIcon /> : <HeartIcon />}
+            <span className="visually-hidden">
+              {favorited ? 'Unfavorite' : 'Favorite'}
+            </span>
+          </TooltipButton>
+          <TooltipButton
+            type="button"
+            className="thread__action thread__action--icon"
+            data-testid={`thread-share${testIdSuffix}`}
+            tooltip="Share"
+            aria-label="Share"
+            onClick={onShare}
+          >
+            <ShareIcon />
+          </TooltipButton>
+        </>
+      ) : null}
       <TooltipButton
         ref={moreBtnRef}
         type="button"
@@ -764,6 +854,10 @@ export function Thread({ id }: Props) {
   });
   const handleLinkClick = useInternalLinkClick();
   const shareStory = useShareStory();
+  const wide = useWideViewport();
+  const handleShare = useCallback(() => {
+    if (item) void shareStory(item);
+  }, [item, shareStory]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const openMenu = useCallback((anchor: HTMLElement | null) => {
@@ -784,38 +878,39 @@ export function Thread({ id }: Props) {
     setMenuAnchor(null);
   }, []);
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
-    // Bar carries the high-frequency toggles (Pin/Unpin and Done);
-    // Favorite is the "keepsake" action and lives in overflow because
-    // it's less frequent on the comments view than the queue/exit pair.
-    const items: StoryRowMenuItem[] = [
-      {
+    // The bar carries the high-frequency toggles (Pin/Unpin, Done). On
+    // wide screens Favorite and Share are surfaced as inline icons too,
+    // so they drop out of the menu to avoid duplicate entry points;
+    // below 960px they stay here. Open on Hacker News always lives in
+    // the menu — it's a low-frequency "go to the source" escape hatch.
+    const items: StoryRowMenuItem[] = [];
+    if (!wide) {
+      items.push({
         key: 'favorite',
         label: favorited ? 'Unfavorite' : 'Favorite',
         onSelect: handleToggleFavorite,
-      },
-      {
-        key: 'open-on-hn',
-        label: 'Open on Hacker News',
-        onSelect: () => {
-          window.open(
-            `https://news.ycombinator.com/item?id=${id}`,
-            '_blank',
-            'noopener,noreferrer',
-          );
-        },
-      },
-    ];
-    if (item?.url) {
+      });
       items.push({
-        key: 'share-article',
-        label: 'Share article',
+        key: 'share',
+        label: 'Share',
         onSelect: () => {
-          void shareStory(item);
+          if (item) void shareStory(item);
         },
       });
     }
+    items.push({
+      key: 'open-on-hn',
+      label: 'Open on Hacker News',
+      onSelect: () => {
+        window.open(
+          `https://news.ycombinator.com/item?id=${id}`,
+          '_blank',
+          'noopener,noreferrer',
+        );
+      },
+    });
     return items;
-  }, [id, item, favorited, handleToggleFavorite, shareStory]);
+  }, [id, item, wide, favorited, handleToggleFavorite, shareStory]);
 
   // When /item/:id resolves to a comment (HN's API treats every node
   // uniformly, so it can — links from /threads, /user, and /from
@@ -1013,10 +1108,14 @@ export function Thread({ id }: Props) {
           voted={voted}
           pinned={pinned}
           done={done}
+          favorited={favorited}
           menuOpen={menuOpen}
+          wide={wide}
           onToggleVote={handleToggleVote}
           onTogglePinned={handleTogglePinned}
           onToggleDone={handleToggleDone}
+          onToggleFavorite={handleToggleFavorite}
+          onShare={handleShare}
           onOpenMenu={openMenu}
         />
         <StoryRowMenu
@@ -1083,10 +1182,14 @@ export function Thread({ id }: Props) {
           voted={voted}
           pinned={pinned}
           done={done}
+          favorited={favorited}
           menuOpen={menuOpen}
+          wide={wide}
           onToggleVote={handleToggleVote}
           onTogglePinned={handleTogglePinned}
           onToggleDone={handleToggleDone}
+          onToggleFavorite={handleToggleFavorite}
+          onShare={handleShare}
           onOpenMenu={openMenu}
           variant="bottom"
           testIdSuffix="-bottom"
