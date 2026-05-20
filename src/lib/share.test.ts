@@ -14,13 +14,13 @@ const story: HNItem = {
 };
 
 describe('buildSharePayload', () => {
-  it('uses the article url when present', () => {
+  it('shares the on-site thread url even when the story has an article url', () => {
     const p = buildSharePayload(story, 'https://newshacker.app/');
-    expect(p.url).toBe('https://example.com/post');
+    expect(p.url).toBe('https://newshacker.app/item/42');
     expect(p.title).toBe('A story');
   });
 
-  it('falls back to the thread url for self-posts', () => {
+  it('shares the thread url for self-posts too', () => {
     const p = buildSharePayload(
       { ...story, url: undefined },
       'https://newshacker.app',

@@ -11,8 +11,10 @@ export function buildSharePayload(
   origin: string,
 ): SharePayload {
   const title = story.title ?? 'Hacker News story';
-  const threadUrl = `${origin.replace(/\/$/, '')}/item/${story.id}`;
-  const url = story.url ?? threadUrl;
+  // Always share the on-site thread URL, never the external article source:
+  // it routes recipients to newshacker and gives the rich /item/:id Open
+  // Graph preview (see api/og.ts), which the raw article URL would bypass.
+  const url = `${origin.replace(/\/$/, '')}/item/${story.id}`;
   return { title, text: title, url };
 }
 
