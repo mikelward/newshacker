@@ -201,13 +201,12 @@ describe('<Thread> action bar CSS invariants', () => {
   // The mobile 56px button height is tuned for fingertips; once the
   // reading column widens to 860px at ≥960px it reads as oversized.
   // The desktop media query in Thread.css shrinks the icon buttons and
-  // their glyphs to the 48px tap-target floor. It is deliberately
+  // their glyphs (to 42px boxes / 22px glyphs). It is deliberately
   // width-only — NOT `(hover: hover)` gated — so a touch device and a
-  // mouse at the same width render identically (48px still meets the
-  // 48×48 floor). The primary/stretch slot is left UNCAPPED so the bar
-  // stays full-width edge to edge. Pin all of that down here so a
-  // refactor can't silently drop the shrink, re-introduce a pointer
-  // gate, or re-introduce a width cap.
+  // mouse at the same width render identically. The primary/stretch
+  // slot is left UNCAPPED so the bar stays full-width edge to edge. Pin
+  // all of that down here so a refactor can't silently drop the shrink,
+  // re-introduce a pointer gate, or re-introduce a width cap.
   it('shrinks the desktop icon buttons, width-only (no hover gate) and uncapped (≥960px)', async () => {
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
