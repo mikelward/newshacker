@@ -211,30 +211,43 @@ export function useHotFeedItems(
   // same total fetches a reader would trigger tapping More repeatedly,
   // just batched, all on the existing items proxy, no new infra or
   // failure mode.
-  const loadMore = useCallback(async () => {
-    if (!hasNextPage || isFetchingNextPage) return;
-    const pagesBefore = pages.data?.pages ?? [];
-    const visibleBefore = projectHotPages(pagesBefore, predicate).items.length;
-    let loadedPages = pagesBefore.length;
-    let result = await fetchNextPage();
-    while (result.hasNextPage) {
-      const nextPages = result.data?.pages ?? [];
-      // A failed page fetch resolves without adding a page (TanStack
-      // Query's default `throwOnError: false`), so the projected count
-      // never moves — bail instead of hammering a failing upstream in a
-      // tight loop. The feed's own `isError` then surfaces the error
-      // state. `hasNextPage` going false (feeds exhausted) ends the loop
-      // via the `while` guard.
-      if (nextPages.length <= loadedPages) break;
-      loadedPages = nextPages.length;
-      if (
-        projectHotPages(nextPages, predicate).items.length > visibleBefore
-      ) {
-        break;
+  const loadMore = useCallback(
+    async (isRowVisible?: (item: HNItem) => boolean) => {
+      if (!hasNextPage || isFetchingNextPage) return;
+      // Count the rows that will actually *render*: the `isHotStory`
+      // predicate decides candidacy, then `isRowVisible` (supplied by
+      // StoryListImpl) drops the ones its own `score > 1` / hidden /
+      // done filter would remove. Counting only `projectHotPages`
+      // here would let the chase stop on a hot row the reader has
+      // hidden or marked done — the renderer filters it out, so the
+      // tap surfaces nothing and reads as a dead button.
+      const countVisible = (pgs: HotPageEntry[][]): number => {
+        const projected = projectHotPages(pgs, predicate).items;
+        if (!isRowVisible) return projected.length;
+        return projected.filter((it) => !!it && isRowVisible(it)).length;
+      };
+      const pagesBefore = pages.data?.pages ?? [];
+      const visibleBefore = countVisible(pagesBefore);
+      let loadedPages = pagesBefore.length;
+      let result = await fetchNextPage();
+      while (result.hasNextPage) {
+        const nextPages = result.data?.pages ?? [];
+        // A failed page fetch resolves without adding a page (TanStack
+        // Query's default `throwOnError: false`), so the projected count
+        // never moves — bail instead of hammering a failing upstream in a
+        // tight loop. The feed's own `isError` then surfaces the error
+        // state. `hasNextPage` going false (feeds exhausted) ends the loop
+        // via the `while` guard.
+        if (nextPages.length <= loadedPages) break;
+        loadedPages = nextPages.length;
+        if (countVisible(nextPages) > visibleBefore) {
+          break;
+        }
+        result = await fetchNextPage();
       }
-      result = await fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, pages.data, predicate]);
+    },
+    [hasNextPage, isFetchingNextPage, fetchNextPage, pages.data, predicate],
+  );
 
   const refetch = useCallback(
     () => Promise.all([topRefetch(), newRefetch(), pagesRefetch()]),

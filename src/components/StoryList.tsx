@@ -414,18 +414,28 @@ export function StoryListImpl({
   // rule surface" (so done rows stay in to show full rule output)
   // and "is the rule promoting something I rejected" (so hidden
   // rows light up the yellow question mark as a false-positive cue).
+  // The single source of truth for "will this fetched item render?".
+  // `visibleStories` filters the rendered list with it, and it's also
+  // handed to `loadMore` so `/hot`'s page chase counts the same rows
+  // the list will show — otherwise the chase could stop on a hot story
+  // the reader has hidden or marked done, the renderer would drop it,
+  // and the More tap would reveal nothing (a dead button).
+  const isRowVisible = useCallback(
+    (it: HNItem): boolean =>
+      !it.deleted &&
+      !it.dead &&
+      (it.score ?? 0) > 1 &&
+      (includeHidden || !hiddenIds.has(it.id)) &&
+      (includeDone || !doneIds.has(it.id)),
+    [hiddenIds, doneIds, includeHidden, includeDone],
+  );
+
   const visibleStories = useMemo(
     () =>
       items.filter(
-        (it): it is NonNullable<typeof it> =>
-          it != null &&
-          !it.deleted &&
-          !it.dead &&
-          (it.score ?? 0) > 1 &&
-          (includeHidden || !hiddenIds.has(it.id)) &&
-          (includeDone || !doneIds.has(it.id)),
+        (it): it is NonNullable<typeof it> => it != null && isRowVisible(it),
       ),
-    [items, hiddenIds, doneIds, includeDone, includeHidden],
+    [items, isRowVisible],
   );
 
   // Opportunistically warm the thread/comment cache for currently-trending
@@ -853,7 +863,7 @@ export function StoryListImpl({
         <button
           type="button"
           className="load-more-btn"
-          onClick={hasMore ? loadMore : undefined}
+          onClick={hasMore ? () => loadMore(isRowVisible) : undefined}
           disabled={!hasMore || isFetchingMore}
           aria-disabled={!hasMore || undefined}
         >

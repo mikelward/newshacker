@@ -42,7 +42,15 @@ export interface FeedItemsState {
   isError: boolean;
   isFetchingMore: boolean;
   hasMore: boolean;
-  loadMore: () => void;
+  // `isRowVisible` lets the caller (StoryListImpl) tell a paginating
+  // feed which fetched items will actually render after its own
+  // `score > 1` / hidden / done filtering. `/hot`'s chase uses it to
+  // keep advancing past pages whose only hot rows are ones the reader
+  // has already hidden or marked done — without it the chase would
+  // stop on such a row, the renderer would filter it out, and the
+  // tap would read as a dead button. Plain (non-`/hot`) feeds load a
+  // single page per tap and ignore the predicate.
+  loadMore: (isRowVisible?: (item: HNItem) => boolean) => void;
   refetch: () => Promise<unknown>;
 }
 
