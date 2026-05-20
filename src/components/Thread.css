@@ -76,8 +76,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 10px 16px;
+  min-height: 44px;
+  padding: 8px 16px;
   background: var(--nh-bg-card);
   border: 1px solid var(--nh-border);
   border-radius: 8px;
@@ -149,15 +149,15 @@
 
 .thread__action--icon {
   flex: 0 0 auto;
-  width: 48px;
-  /* 11px each side keeps the 24px glyph in a 24px content box
-     (48 − 2px border − 22px padding) so the global
+  width: 44px;
+  /* 10px each side keeps the 22px glyph in a 22px content box
+     (44 − 2px border − 20px padding) so the global
      `svg { max-width: 100% }` reset doesn't downscale it. */
-  padding: 11px;
+  padding: 10px;
 }
 
-/* Pointer-capable devices: shrink the action bar a touch more. The 48px
-   base is the touch tap-target sweet spot (Material 48dp / WCAG-AAA);
+/* Pointer-capable devices: shrink the action bar a touch more. The 44px
+   base is the touch tap-target floor (Apple HIG 44pt / WCAG 2.5.5 AAA);
    under a precise pointer it can go a little denser. Min-height drops to
    36px; the glyphs scale to 20px (~55% of the button, a touch above 50%
    so they don't read as undersized). The primary/stretch slot is left
@@ -166,7 +166,7 @@
 
    Gated on `(hover: hover)` — pointer type, NOT viewport width — so a
    mouse user gets the denser bar even in a narrow window, while
-   touch-primary devices keep the 48px tap-target floor at every width.
+   touch-primary devices keep the 44px tap-target floor at every width.
    The *layout* change (Favorite/Share inline) stays width-gated via the
    useWideViewport hook, since surfacing extra buttons is about
    horizontal room, not pointer precision; the two concerns are
@@ -199,11 +199,11 @@
 .thread__action-icon {
   display: block;
   /* Override the inline width/height on the Material SVGs (set to 28px
-     in the JSX) so the touch glyph is 24px in the 48px button (50%,
+     in the JSX) so the touch glyph is 22px in the 44px button (50%,
      matching the icon/button ratio). The pointer-gated block shrinks
      both button and glyph together. */
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
 }
 
 .thread__summary-card {
