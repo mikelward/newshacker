@@ -16,7 +16,7 @@ import { installHNFetchMock, makeStory } from '../test/mockFetch';
 // `text-overflow: ellipsis` to absorb the width pressure.
 
 // ---- CSS-layer constants. Keep in sync with Thread.css. ----
-const ICON_BUTTON_WIDTH = 48; // .thread__action--icon width (touch base)
+const ICON_BUTTON_WIDTH = 44; // .thread__action--icon width (touch base)
 const STRETCH_MIN_WIDTH = 0; // flex: 1; min-width: 0 → shrinks to 0
 const GAP = 12; // .thread__actions gap
 const HEADER_PADDING_X = 16; // .thread__header / .thread__footer padding
