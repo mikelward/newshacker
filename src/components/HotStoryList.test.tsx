@@ -202,6 +202,142 @@ describe('<HotStoryList>', () => {
     expect(screen.getByText('page-0-hot')).toBeInTheDocument();
   });
 
+  it('a single More tap chases past a fully-filtered page to the next hot row', async () => {
+    // Regression: on /hot the isHotStory predicate can reject an entire
+    // page of candidates, so one More tap that paged in a fully-cold
+    // page used to reveal nothing and read as a dead button. A tap now
+    // keeps advancing until a hot row surfaces (or the feeds run out).
+    // Page 0: one hot row (100). Page 1 (ids 200..229): all cold.
+    // Page 2 (starts at id 300): a hot row. /new is cold throughout.
+    const top: number[] = [];
+    const items: Record<number, ReturnType<typeof makeStory>> = {};
+    items[100] = makeBigStory(100, { title: 'page-0-hot' });
+    top.push(100);
+    for (let i = 1; i < 30; i++) {
+      items[100 + i] = makeCold(100 + i);
+      top.push(100 + i);
+    }
+    for (let i = 0; i < 30; i++) {
+      items[200 + i] = makeCold(200 + i);
+      top.push(200 + i);
+    }
+    items[300] = makeBigStory(300, { title: 'page-2-hot' });
+    top.push(300);
+    for (let i = 1; i < 30; i++) {
+      items[300 + i] = makeCold(300 + i);
+      top.push(300 + i);
+    }
+    const newIds = Array.from({ length: 90 }, (_, i) => 900 + i);
+    for (const id of newIds) items[id] = makeCold(id);
+
+    installHNFetchMock({
+      feeds: { topstories: top, newstories: newIds },
+      items,
+    });
+
+    renderWithProviders(<HotStoryList />);
+
+    await waitFor(() => {
+      expect(screen.getByText('page-0-hot')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('page-2-hot')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /^More$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('page-2-hot')).toBeInTheDocument();
+    });
+    // The page-0 hot row stays — pages accumulate, the chase doesn't drop them.
+    expect(screen.getByText('page-0-hot')).toBeInTheDocument();
+  });
+
+  it('stops the More chase when a page fetch fails instead of looping forever', async () => {
+    // Regression: a failed page fetch resolves without adding a page
+    // (TanStack Query's default throwOnError: false), so the chase's
+    // projected-count guard would never advance and one tap could spin
+    // failing requests forever. The chase must bail when no new page
+    // lands. Page 0 (id 100) is hot; page 1's items request (ids
+    // 200..229) fails. We gate that failing request so the loading state
+    // is observable deterministically, then assert exactly one page-1
+    // attempt — a runaway loop would re-fetch and keep the button stuck.
+    const top: number[] = [];
+    const items: Record<number, ReturnType<typeof makeStory>> = {};
+    items[100] = makeBigStory(100, { title: 'page-0-hot' });
+    top.push(100);
+    for (let i = 1; i < 30; i++) {
+      items[100 + i] = makeCold(100 + i);
+      top.push(100 + i);
+    }
+    for (let i = 0; i < 30; i++) top.push(200 + i); // page 1 — fetch fails
+    items[300] = makeBigStory(300, { title: 'page-2-hot' });
+    top.push(300);
+
+    let page1ItemFetches = 0;
+    let releasePage1: () => void = () => {};
+    const page1Gate = new Promise<void>((resolve) => {
+      releasePage1 = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/api/items')) {
+        const ids = (
+          new URL(url, 'http://localhost').searchParams.get('ids') ?? ''
+        )
+          .split(',')
+          .map(Number);
+        if (ids.some((id) => id >= 200 && id < 230)) {
+          page1ItemFetches += 1;
+          await page1Gate; // hold the failing fetch open until released
+          return new Response('upstream boom', { status: 502 });
+        }
+        return new Response(JSON.stringify(ids.map((id) => items[id] ?? null)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      const path = url.replace('https://hacker-news.firebaseio.com/v0/', '');
+      if (path === 'topstories.json') {
+        return new Response(JSON.stringify(top), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path === 'newstories.json') {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderWithProviders(<HotStoryList />);
+
+    await waitFor(() => {
+      expect(screen.getByText('page-0-hot')).toBeInTheDocument();
+    });
+
+    const moreBtn = screen.getByRole('button', { name: /^More$/i });
+    await userEvent.click(moreBtn);
+
+    // Page 1's fetch is in flight (gated) — the button shows the loading
+    // state, and exactly one page-1 attempt has been made.
+    await waitFor(() => expect(moreBtn).toBeDisabled());
+    expect(page1ItemFetches).toBe(1);
+
+    // Let it fail. The chase must bail and surface the feed's error state
+    // — not re-issue the page-1 fetch in a loop (which would never
+    // settle, since the projected count can't advance past a failed
+    // page).
+    releasePage1();
+    await waitFor(() => {
+      expect(screen.getByText(/could not load stories/i)).toBeInTheDocument();
+    });
+    expect(page1ItemFetches).toBe(1);
+    expect(screen.queryByText('page-2-hot')).toBeNull();
+  });
+
   it('does not render the velocity segment in the meta line', async () => {
     // /hot used to surface a "(N/h)" inline rate next to points;
     // it was pulled to keep the row meta tight on phones, leaving

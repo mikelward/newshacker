@@ -34,6 +34,35 @@ export interface HotFeedItemsState extends FeedItemsState {
   newSourceIds: Set<number>;
 }
 
+// Cross-page projection of the fetched candidates into the rendered set:
+// dedup across pages (keeping the earliest source label), drop misses,
+// then apply `predicate`. Shared by the render-time `useMemo` and the
+// `loadMore` chase so both compute "what survives the filter" identically
+// — the chase reads it straight off `fetchNextPage`'s resolved data, which
+// avoids any dependence on a React re-render landing first.
+function projectHotPages(
+  pages: HotPageEntry[][],
+  predicate: (item: HNItem) => boolean,
+): { items: Array<HNItem | null>; newSourceIds: Set<number>; allIds: number[] } {
+  const seen = new Set<number>();
+  const items: Array<HNItem | null> = [];
+  const newSourceIds = new Set<number>();
+  const allIds: number[] = [];
+  for (const page of pages) {
+    for (const entry of page) {
+      if (seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      allIds.push(entry.id);
+      const it = entry.item;
+      if (!it) continue;
+      if (!predicate(it)) continue;
+      if (entry.source === 'new') newSourceIds.add(entry.id);
+      items.push(it);
+    }
+  }
+  return { items, newSourceIds, allIds };
+}
+
 // `/hot` candidate window per page. `PAGE_SIZE` from `useStoryList`
 // is the standard feed page size (30); `/hot` slices that many ids
 // from each source feed per page (so up to 60 candidates / page),
@@ -157,34 +186,55 @@ export function useHotFeedItems(
   // `includeHidden` so done rows show full rule output and hidden
   // rows surface as a tightening cue when the rule wrongly
   // promotes them.
-  const { items, newSourceIds, allIds } = useMemo(() => {
-    const seen = new Set<number>();
-    const out: Array<HNItem | null> = [];
-    const newSrc = new Set<number>();
-    const idsCombined: number[] = [];
-    for (const page of pages.data?.pages ?? []) {
-      for (const entry of page) {
-        if (seen.has(entry.id)) continue;
-        seen.add(entry.id);
-        idsCombined.push(entry.id);
-        const it = entry.item;
-        if (!it) continue;
-        if (!predicate(it)) continue;
-        if (entry.source === 'new') newSrc.add(entry.id);
-        out.push(it);
-      }
-    }
-    return { items: out, newSourceIds: newSrc, allIds: idsCombined };
-  }, [pages.data, predicate]);
+  const { items, newSourceIds, allIds } = useMemo(
+    () => projectHotPages(pages.data?.pages ?? [], predicate),
+    [pages.data, predicate],
+  );
 
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = pages;
   const topRefetch = topQuery.refetch;
   const newRefetch = newQuery.refetch;
   const pagesRefetch = pages.refetch;
 
-  const loadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // A "More" tap has to reveal something or correctly run out. Because
+  // the `isHotStory` predicate can reject an entire page of candidates,
+  // a single page advance can survive the filter to zero new rows — which
+  // reads as a dead button. So the tap keeps advancing pages until at
+  // least one new row surfaces or both source feeds are exhausted. We
+  // decide off `fetchNextPage`'s resolved data (deterministic) rather
+  // than waiting for a React re-render of the filtered `items`, so there
+  // is no render-timing race. This reveals *something* per tap, not a
+  // fixed row count — a tap still stops at the first non-empty page.
+  //
+  // Cost (rule 11): worst case a tap fans out to every remaining page's
+  // `/api/items` lookups when a long run of pages is fully filtered — the
+  // same total fetches a reader would trigger tapping More repeatedly,
+  // just batched, all on the existing items proxy, no new infra or
+  // failure mode.
+  const loadMore = useCallback(async () => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    const pagesBefore = pages.data?.pages ?? [];
+    const visibleBefore = projectHotPages(pagesBefore, predicate).items.length;
+    let loadedPages = pagesBefore.length;
+    let result = await fetchNextPage();
+    while (result.hasNextPage) {
+      const nextPages = result.data?.pages ?? [];
+      // A failed page fetch resolves without adding a page (TanStack
+      // Query's default `throwOnError: false`), so the projected count
+      // never moves — bail instead of hammering a failing upstream in a
+      // tight loop. The feed's own `isError` then surfaces the error
+      // state. `hasNextPage` going false (feeds exhausted) ends the loop
+      // via the `while` guard.
+      if (nextPages.length <= loadedPages) break;
+      loadedPages = nextPages.length;
+      if (
+        projectHotPages(nextPages, predicate).items.length > visibleBefore
+      ) {
+        break;
+      }
+      result = await fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, pages.data, predicate]);
 
   const refetch = useCallback(
     () => Promise.all([topRefetch(), newRefetch(), pagesRefetch()]),
