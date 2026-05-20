@@ -843,16 +843,22 @@ export function StoryListImpl({
       </ol>
       <div className="story-list__footer story-list__footer--feed">
         <BackToTopButton iconOnly />
-        {hasMore ? (
-          <button
-            type="button"
-            className="load-more-btn"
-            onClick={loadMore}
-            disabled={isFetchingMore}
-          >
-            {isFetchingMore ? 'Loading…' : 'More'}
-          </button>
-        ) : null}
+        {/* Always rendered on a populated feed so reaching the end is
+            explicit feedback, not a vanished control: enabled "More"
+            while another page is available, then a grayed, disabled
+            "No more stories" once the id list is exhausted (rather than
+            removing the button, which read as "the button did
+            nothing"). Library pages render their own footer and never
+            reach here. */}
+        <button
+          type="button"
+          className="load-more-btn"
+          onClick={hasMore ? loadMore : undefined}
+          disabled={!hasMore || isFetchingMore}
+          aria-disabled={!hasMore || undefined}
+        >
+          {isFetchingMore ? 'Loading…' : hasMore ? 'More' : 'No more stories'}
+        </button>
         {readOnly ? null : (
           <div className="story-list__footer-right">
             <TooltipButton

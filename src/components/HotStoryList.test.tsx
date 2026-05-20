@@ -202,6 +202,29 @@ describe('<HotStoryList>', () => {
     expect(screen.getByText('page-0-hot')).toBeInTheDocument();
   });
 
+  it('grays out the footer button when both source feeds are exhausted', async () => {
+    // Both source feeds fit inside page 0 (≤30 ids each) with one hot
+    // row, so there is no next page. The footer button stays visible as
+    // a disabled "No more stories" affordance rather than vanishing.
+    installHNFetchMock({
+      feeds: { topstories: [100, 101], newstories: [200] },
+      items: {
+        100: makeBigStory(100, { title: 'the-hot-row' }),
+        101: makeCold(101),
+        200: makeCold(200),
+      },
+    });
+
+    renderWithProviders(<HotStoryList />);
+
+    await waitFor(() => {
+      expect(screen.getByText('the-hot-row')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /^More$/i })).toBeNull();
+    const endBtn = screen.getByRole('button', { name: /no more stories/i });
+    expect(endBtn).toBeDisabled();
+  });
+
   it('a single More tap chases past a fully-filtered page to the next hot row', async () => {
     // Regression: on /hot the isHotStory predicate can reject an entire
     // page of candidates, so one More tap that paged in a fully-cold
