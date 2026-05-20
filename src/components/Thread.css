@@ -159,10 +159,10 @@
 /* Pointer-capable devices: shrink the action bar a touch more. The 48px
    base is the touch tap-target sweet spot (Material 48dp / WCAG-AAA);
    under a precise pointer it can go a little denser. Min-height drops to
-   42px and the glyphs shrink in lock-step (24 → 22px). The primary/
-   stretch slot is left uncapped on purpose: "Read article" / "Back to
-   top" stretches to fill the row so the bar stays full-width edge to
-   edge.
+   40px; the glyphs stay 22px (a touch above 50% of the button so they
+   don't read as undersized). The primary/stretch slot is left uncapped
+   on purpose: "Read article" / "Back to top" stretches to fill the row
+   so the bar stays full-width edge to edge.
 
    Gated on `(hover: hover)` — pointer type, NOT viewport width — so a
    mouse user gets the denser bar even in a narrow window, while
@@ -173,7 +173,7 @@
    independent. */
 @media (hover: hover) {
   .thread__action {
-    min-height: 42px;
+    min-height: 40px;
     padding: 8px 16px;
   }
 
@@ -183,11 +183,11 @@
   }
 
   .thread__action--icon {
-    width: 42px;
-    /* 9px each side keeps the 22px icon inside a 22px content box
-       (42 − 2px border − 18px padding) so the global
+    width: 40px;
+    /* 8px each side keeps the 22px icon inside a 22px content box
+       (40 − 2px border − 16px padding) so the global
        `svg { max-width: 100% }` reset doesn't downscale it. */
-    padding: 9px;
+    padding: 8px;
   }
 }
 
