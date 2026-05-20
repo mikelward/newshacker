@@ -156,38 +156,34 @@
 /* Desktop: shrink the action bar so the buttons don't dominate the
    wider reading column. The 56px mobile sizing is tuned for fingertips;
    once the column expands to 860px at ≥960px it reads as oversized next
-   to the rest of the page. Min-height drops to 48px (the documented
-   tap-target floor, var(--tap-min)) and the inline icons shrink in
-   lock-step (28 → 24px). The primary/stretch slot is left uncapped on
-   purpose: "Read article" / "Back to top" stretches to fill the row so
-   the bar stays full-width edge to edge.
+   to the rest of the page. Min-height drops to 42px and the inline
+   icons shrink in lock-step (28 → 22px). The primary/stretch slot is
+   left uncapped on purpose: "Read article" / "Back to top" stretches to
+   fill the row so the bar stays full-width edge to edge.
 
-   Width-only — NOT gated on `(hover: hover)`. 48px still meets the
-   48×48 floor, so a touch-primary device that matches the width cutoff
-   (landscape tablet, 2-in-1 in tablet mode, touch laptop) is fine at
-   this size. Keeping it pointer-agnostic means a phone and a mouse at
-   the same width render identically — no touch/non-touch divergence.
-   This matches the *layout* change (Favorite/Share inline) which is
-   also width-only, via the useWideViewport hook. */
+   Width-only — NOT gated on `(hover: hover)` — so a phone and a mouse
+   at the same width render identically; there's no touch/non-touch
+   divergence. This matches the *layout* change (Favorite/Share inline)
+   which is also width-only, via the useWideViewport hook. */
 @media (min-width: 960px) {
   .thread__action {
-    min-height: 48px;
-    padding: 10px 16px;
+    min-height: 42px;
+    padding: 8px 16px;
   }
 
   .thread__action-icon {
     /* Override the inline width/height on the Material SVGs (set to
        28px for the mobile button) so they shrink with the button. */
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
   }
 
   .thread__action--icon {
-    width: 48px;
-    /* 11px each side keeps the 24px icon inside a 24px content box
-       (48 − 2px border − 22px padding) so the global
+    width: 42px;
+    /* 9px each side keeps the 22px icon inside a 22px content box
+       (42 − 2px border − 18px padding) so the global
        `svg { max-width: 100% }` reset doesn't downscale it. */
-    padding: 11px;
+    padding: 9px;
   }
 }
 
