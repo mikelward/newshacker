@@ -6,8 +6,10 @@
   /* Read / already-opened story color. Sits between --nh-meta and
      --nh-text so an opened title is clearly less prominent than an
      unread one but still readable — the previous shared --nh-meta
-     was too faded against the meta row below it. */
-  --nh-read: #5a5a5a;
+     was too faded against the meta row below it. Nudged darker from
+     #5a5a5a so read-but-pinned rows read comfortably; unread stays
+     pure --nh-text and the weight gap keeps the two distinguishable. */
+  --nh-read: #4a4a4a;
   --nh-border: #e0e0d9;
   --nh-text: #000;
   --nh-link: #000;
@@ -63,7 +65,7 @@
   :root:not([data-theme='light']) {
     --nh-bg: #1b1b17;
     --nh-meta: #9a9a8c;
-    --nh-read: #c4c4b5;
+    --nh-read: #d2d2c4;
     --nh-border: #2f2f2a;
     --nh-text: #ececea;
     --nh-link: #ececea;
@@ -79,7 +81,7 @@
 :root[data-theme='dark'] {
   --nh-bg: #1b1b17;
   --nh-meta: #9a9a8c;
-  --nh-read: #c4c4b5;
+  --nh-read: #d2d2c4;
   --nh-border: #2f2f2a;
   --nh-text: #ececea;
   --nh-link: #ececea;
