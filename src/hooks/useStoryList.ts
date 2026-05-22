@@ -17,6 +17,38 @@ function thinForFeed(item: HNItem | null): HNItem | null {
 // pages are only fetched when the reader explicitly asks for them.
 export const PAGE_SIZE = 30;
 
+// Feed reads are the app's core content, so a single transient failure on
+// open (a flaky mobile radio, a momentarily blocked or slow Firebase
+// request) shouldn't immediately strand the reader on the persisted
+// snapshot. Retry a few times with exponential backoff before we give up
+// and surface the refresh-failed state. This overrides the app-wide
+// `retry: 1` default (see main.tsx) for the feed list/item queries only.
+export const FEED_QUERY_RETRY = 3;
+export const feedQueryRetryDelay = (attempt: number) =>
+  Math.min(1000 * 2 ** attempt, 8000);
+
+// Derives the two refresh signals the feed UI renders from the underlying
+// React Query state. Pulled out as a pure function so it can be unit
+// tested directly, without driving React Query's retry/backoff timers.
+//
+// `refreshFailed` exists because React Query keeps a query's `status` at
+// `'success'` (so `isError` stays false) when it already has data and only
+// a *background* refetch fails — which is exactly the "opened the app after
+// a while, the refresh silently failed, and I'm staring at a stale
+// snapshot" report. The caller detects that by comparing the success/error
+// timestamps (most recent attempt errored after the last good load) and
+// passes it in as `latestAttemptFailed`.
+export function deriveRefreshState(args: {
+  hasData: boolean;
+  refetching: boolean;
+  latestAttemptFailed: boolean;
+}): { isRefreshing: boolean; refreshFailed: boolean } {
+  const isRefreshing = args.hasData && args.refetching;
+  const refreshFailed =
+    args.hasData && !isRefreshing && args.latestAttemptFailed;
+  return { isRefreshing, refreshFailed };
+}
+
 // The feed queries override the app-wide `staleTime`/`refetchOnWindowFocus`
 // defaults: for a news feed, "last time the component mounted" is the only
 // freshness signal that matches user intent. Without this, a browser reload
@@ -29,8 +61,13 @@ export function useStoryIds(feed: Feed) {
   return useQuery({
     queryKey: ['storyIds', feed],
     queryFn: ({ signal }) => getStoryIds(feed, signal),
+    // The retry/backoff for the id-list query is configured app-wide via
+    // `setQueryDefaults(['storyIds'], …)` in main.tsx (see FEED_QUERY_RETRY
+    // / feedQueryRetryDelay) rather than inline here, so tests that want a
+    // fast, deterministic error path can opt out with their own client.
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }
 
@@ -42,6 +79,14 @@ export interface FeedItemsState {
   isError: boolean;
   isFetchingMore: boolean;
   hasMore: boolean;
+  // A background refresh of the visible list is in flight while we already
+  // have rows on screen (on-open refetch, window-focus refetch, or a
+  // Retry). Drives the "Checking for new stories…" indicator.
+  isRefreshing: boolean;
+  // The most recent refresh attempt failed but we still have cached rows to
+  // show — so the list on screen is stale and we say so instead of
+  // silently sitting on it. See `deriveRefreshState`.
+  refreshFailed: boolean;
   // `isRowVisible` lets the caller (StoryListImpl) tell a paginating
   // feed which fetched items will actually render after its own
   // `score > 1` / hidden / done filtering. `/hot`'s chase uses it to
@@ -86,8 +131,13 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     },
     // See the comment on useStoryIds — score/comment counts in the feed
     // need to refresh on reload/refocus, not only after a 5-minute timer.
+    // No `retry` override here on purpose: the id-list query (useStoryIds)
+    // carries the retry, and the "More" chase (loadMore) deliberately
+    // bails on a failed page rather than hammering the upstream — see the
+    // loadMore comments and HotStoryList's "stops the More chase" test.
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const items = useMemo<Array<HNItem | null>>(
@@ -131,6 +181,20 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     pagesRefetch();
   }, [idsSignature, pagesRefetch]);
 
+  // A refresh is in flight when either query is fetching but not doing its
+  // first load and not paging in "More" (those have their own indicators).
+  const refetching =
+    (ids.isFetching && !ids.isLoading) ||
+    (pages.isFetching && !pages.isLoading && !isFetchingNextPage);
+  // The id list is the freshness signal for "are these the current top
+  // stories?", so we key staleness off it: if its latest attempt errored
+  // after its last good load, the ranking on screen is stale.
+  const { isRefreshing, refreshFailed } = deriveRefreshState({
+    hasData: items.length > 0,
+    refetching,
+    latestAttemptFailed: ids.errorUpdatedAt > ids.dataUpdatedAt,
+  });
+
   return {
     items,
     allIds,
@@ -139,6 +203,8 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     isError: ids.isError || pages.isError,
     isFetchingMore: isFetchingNextPage,
     hasMore: !!hasNextPage,
+    isRefreshing,
+    refreshFailed,
     loadMore,
     refetch,
   };
