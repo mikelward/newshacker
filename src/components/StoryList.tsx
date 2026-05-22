@@ -736,8 +736,10 @@ export function StoryListImpl({
   // it after a while: a quiet "Checking for new stories…" while a refresh
   // is in flight over the persisted snapshot, or a "Couldn't load new
   // stories — Retry" when that refresh failed (so we don't silently leave
-  // them on a stale feed). The /tuning Preview (readOnly) opts out — it has
-  // its own chrome and isn't a reading surface.
+  // them on a stale feed). Rendered at the foot of the list, just above the
+  // More / Back-to-top row, so all the load-related affordances sit
+  // together. The /tuning Preview (readOnly) opts out — it has its own
+  // chrome and isn't a reading surface.
   const refreshStatus =
     readOnly || !(isRefreshing || refreshFailed) ? null : (
       <div
@@ -807,7 +809,6 @@ export function StoryListImpl({
   return (
     <>
     {toolbar}
-    {refreshStatus}
     <PullToRefresh
       // Pull cross-device sync state alongside the HN feed — PTR is
       // the user's "show me the latest" gesture and they'd expect
@@ -895,6 +896,7 @@ export function StoryListImpl({
           </li>
         ))}
       </ol>
+      {refreshStatus}
       <div className="story-list__footer story-list__footer--feed">
         <BackToTopButton iconOnly />
         {/* Always rendered on a populated feed so reaching the end is
