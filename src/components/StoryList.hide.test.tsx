@@ -189,7 +189,11 @@ describe('<StoryList> hidden-story handling', () => {
     expect(getPinnedIds().has(20)).toBe(true);
     expect(screen.getByTestId('undo-btn')).toBeDisabled();
 
-    const target = screen.getAllByTestId('story-row')[1]; // Story 20 (pinned)
+    // Story 20 is pinned, so it sits in the top block, not at its
+    // natural feed index — target it by content.
+    const target = screen
+      .getByText('Story 20')
+      .closest('[data-testid="story-row"]') as HTMLElement;
     dispatchPointer(target, 'pointerdown', 20, 50);
     dispatchPointer(target, 'pointermove', 180, 50);
     dispatchPointer(target, 'pointerup', 180, 50);

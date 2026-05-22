@@ -305,11 +305,11 @@ export function useHotFeedItems(
 
   return {
     items,
-    // `allIds` is consumed by `useOffFeedPinnedStories` to decide
-    // which pinned rows are off-feed. For `/hot` it's the union of
-    // all candidates seen across pages so far, deduped — pinned
-    // rows that aren't currently in either source feed prepend at
-    // the top.
+    // `allIds` is the union of all candidates seen across pages so far,
+    // deduped. Retained on the state shape (and used for `totalIds`);
+    // the pinned-top overlay no longer reads it — `usePinnedFeedStories`
+    // works off the loaded `items` window plus a batch fetch of any pins
+    // not present there.
     allIds,
     totalIds,
     isLoading:

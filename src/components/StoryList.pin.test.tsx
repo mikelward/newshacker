@@ -36,14 +36,25 @@ describe('<StoryList> pin and sweep', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(2);
     });
 
-    const rows = screen.getAllByTestId('story-row');
-    const target = rows[0];
-    const pin = within(target).getByTestId('pin-btn');
+    // Story 10 starts in the feed body (rows are id-ordered by the mock).
+    const story10Row = () => screen.getByText('Story 10').closest('li')!;
+    const pin = within(story10Row()).getByTestId('pin-btn');
     expect(pin).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(pin);
 
-    expect(pin).toHaveAttribute('aria-pressed', 'true');
+    // Pinning lifts the row into the top block; re-query it there and
+    // confirm the pin reads as pressed.
+    await waitFor(() => {
+      expect(
+        within(story10Row()).getByTestId('pin-btn'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+    // It now sits at the very top, ahead of the unpinned Story 20.
+    const rows = screen.getAllByTestId('story-row');
+    expect(within(rows[0]).getByTestId('story-title')).toHaveTextContent(
+      'Story 10',
+    );
     const stored = window.localStorage.getItem('newshacker:pinnedStoryIds');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored as string) as Array<{ id: number }>;
@@ -57,8 +68,12 @@ describe('<StoryList> pin and sweep', () => {
     }
 
     // Tapping again unpins, still no toast, persistence matches.
-    fireEvent.click(pin);
-    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(within(story10Row()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(
+        within(story10Row()).getByTestId('pin-btn'),
+      ).toHaveAttribute('aria-pressed', 'false');
+    });
     const after = window.localStorage.getItem('newshacker:pinnedStoryIds');
     const afterParsed = after
       ? (JSON.parse(after) as Array<{ id: number; deleted?: true }>)
@@ -100,7 +115,11 @@ describe('<StoryList> pin and sweep', () => {
     });
     expect(screen.getByText('Story 2')).toBeInTheDocument();
     // Once nothing is left to sweep, the button stays put but disables.
-    expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+    // The disabled state propagates through the feed-bar context, so it
+    // can settle a tick after the swept rows leave the DOM.
+    await waitFor(() => {
+      expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+    });
   });
 
   it('sweep plays a single slide+fade on every unpinned row before removing them', async () => {

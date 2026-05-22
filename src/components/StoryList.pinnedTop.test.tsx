@@ -9,7 +9,7 @@ import {
   uninstallIntersectionObserverMock,
 } from '../test/intersectionObserver';
 
-describe('<StoryList> off-feed pinned prepending', () => {
+describe('<StoryList> pinned-to-top block', () => {
   beforeEach(() => {
     window.localStorage.clear();
     installIntersectionObserverMock();
@@ -20,7 +20,7 @@ describe('<StoryList> off-feed pinned prepending', () => {
     uninstallIntersectionObserverMock();
   });
 
-  it('prepends pinned stories that dropped off HN\'s top list', async () => {
+  it("prepends pinned stories that dropped off HN's top list", async () => {
     const topIds = [1, 2, 3];
     // Pin a story that is no longer in the feed id list (e.g. dropped off
     // the HN front page). It should appear at the top of the list so the
@@ -55,7 +55,7 @@ describe('<StoryList> off-feed pinned prepending', () => {
     );
   });
 
-  it('does not duplicate a pinned story that is already in the feed', async () => {
+  it('moves an in-feed pinned story to the top instead of duplicating it', async () => {
     const topIds = [7, 8, 9];
     addPinnedId(8);
     installHNFetchMock({
@@ -72,7 +72,44 @@ describe('<StoryList> off-feed pinned prepending', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
+    // Rendered once, not duplicated...
     expect(screen.getAllByText('Eight')).toHaveLength(1);
+    // ...and at the top, not at its natural feed position.
+    const rows = screen.getAllByTestId('story-row');
+    expect(within(rows[0]).getByTestId('story-title')).toHaveTextContent(
+      'Eight',
+    );
+  });
+
+  it('shows a pinned story on a not-yet-loaded page at the top before More', async () => {
+    // The reported bug: a pinned story still in HN's id list but on the
+    // second page (index >= PAGE_SIZE) used to stay hidden until the
+    // reader tapped More. It should be reachable at the top immediately.
+    const topIds = Array.from({ length: 31 }, (_, i) => i + 1); // ids 1..31
+    const pageTwoId = 31; // index 30 — first item of page two
+    addPinnedId(pageTwoId);
+    const items: Record<number, ReturnType<typeof makeStory>> = {};
+    for (const id of topIds) {
+      items[id] = makeStory(id, {
+        title: id === pageTwoId ? 'Page Two Pin' : `Story ${id}`,
+      });
+    }
+    installHNFetchMock({ feeds: { topstories: topIds }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    // Without tapping More, the pinned page-two story is at the top.
+    await waitFor(() => {
+      expect(screen.getByText('Page Two Pin')).toBeInTheDocument();
+    });
+    const rows = screen.getAllByTestId('story-row');
+    expect(within(rows[0]).getByTestId('story-title')).toHaveTextContent(
+      'Page Two Pin',
+    );
+    // Page one (30 stories) plus the pinned page-two story = 31 rows,
+    // and the pin is not duplicated lower down.
+    expect(rows).toHaveLength(31);
+    expect(screen.getAllByText('Page Two Pin')).toHaveLength(1);
   });
 
   it('orders multiple off-feed pins newest-pinned first', async () => {
@@ -110,7 +147,7 @@ describe('<StoryList> off-feed pinned prepending', () => {
     ]);
   });
 
-  it('does not prepend when there are no off-feed pins', async () => {
+  it('does not prepend when there are no pins', async () => {
     installHNFetchMock({
       feeds: { topstories: [1, 2] },
       items: {
@@ -126,7 +163,7 @@ describe('<StoryList> off-feed pinned prepending', () => {
     });
   });
 
-  it('renders off-feed pins even when the feed has no visible stories', async () => {
+  it('renders pins even when the feed has no visible stories', async () => {
     addPinnedId(555);
     installHNFetchMock({
       feeds: { topstories: [] },

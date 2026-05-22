@@ -10,7 +10,7 @@ import { useHotFeedItems } from '../hooks/useHotFeedItems';
 import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useHotThresholds } from '../hooks/useHotThresholds';
-import { useOffFeedPinnedStories } from '../hooks/useOffFeedPinnedStories';
+import { usePinnedFeedStories } from '../hooks/usePinnedFeedStories';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { isHotStory } from '../lib/format';
@@ -317,7 +317,6 @@ export function StoryListImpl({
 
   const {
     items,
-    allIds,
     hasMore,
     isFetchingMore,
     loadMore,
@@ -326,8 +325,10 @@ export function StoryListImpl({
     isRefreshing,
     refreshFailed,
   } = feedItems;
-  const { stories: rawOffFeedPinnedStories } =
-    useOffFeedPinnedStories(allIds);
+  const { stories: rawPinnedStories } = usePinnedFeedStories(
+    items,
+    includeOffFeedPinned,
+  );
   useEffect(() => {
     if (!includeOffFeedPinned) return;
     if (isRestoring) return;
@@ -343,26 +344,24 @@ export function StoryListImpl({
   // cross-device-sync windows where the two stores could disagree —
   // without it, a surviving collision would render the pinned row on
   // the home feed while `hiddenIds` said it should be gone.
-  const offFeedPinnedStories = useMemo(() => {
-    // The /tuning Preview opts out — see ImplProps comment. We
-    // still call `useOffFeedPinnedStories` above so React's hook
-    // order stays stable across renders, but discard its result
-    // when the consumer doesn't want the overlay.
+  const pinnedTopStories = useMemo(() => {
+    // The /tuning Preview opts out — the hook itself short-circuits to
+    // an empty list when disabled, so this filter just adds the
+    // defense-in-depth hidden-collision guard below.
     if (!includeOffFeedPinned) return [];
-    return rawOffFeedPinnedStories.filter((s) => !hiddenIds.has(s.id));
-  }, [rawOffFeedPinnedStories, hiddenIds, includeOffFeedPinned]);
+    return rawPinnedStories.filter((s) => !hiddenIds.has(s.id));
+  }, [rawPinnedStories, hiddenIds, includeOffFeedPinned]);
 
-  // Pin/hide can target either an in-feed row or one of the
-  // off-feed pinned rows that prepend the list (the user re-pinning
-  // or hiding a story whose feed slot has rolled off). Look in both
-  // collections so the telemetry call doesn't silently miss the
-  // off-feed-pinned case.
+  // Pin/hide can target either an in-feed row or one of the pinned rows
+  // that prepend the list. Look in both collections so the telemetry
+  // call doesn't silently miss a story that's only in the top block
+  // (e.g. a pin whose feed page hasn't been loaded).
   const lookupStory = useCallback(
     (id: number) =>
       items.find((it): it is NonNullable<typeof it> => it?.id === id) ??
-      offFeedPinnedStories.find((s) => s.id === id) ??
+      pinnedTopStories.find((s) => s.id === id) ??
       null,
-    [items, offFeedPinnedStories],
+    [items, pinnedTopStories],
   );
 
   const handlePin = useCallback(
@@ -435,8 +434,12 @@ export function StoryListImpl({
       !it.dead &&
       (it.score ?? 0) > 1 &&
       (includeHidden || !hiddenIds.has(it.id)) &&
-      (includeDone || !doneIds.has(it.id)),
-    [hiddenIds, doneIds, includeHidden, includeDone],
+      (includeDone || !doneIds.has(it.id)) &&
+      // Pinned rows render once, in the top block — keep them out of
+      // the body so they're not duplicated. The /tuning Preview opts
+      // out of the top block, so it leaves pinned rows in place.
+      (!includeOffFeedPinned || !pinnedIds.has(it.id)),
+    [hiddenIds, doneIds, includeHidden, includeDone, includeOffFeedPinned, pinnedIds],
   );
 
   const visibleStories = useMemo(
@@ -711,10 +714,10 @@ export function StoryListImpl({
     (id: number) => {
       const story =
         items.find((it): it is NonNullable<typeof it> => it?.id === id) ??
-        offFeedPinnedStories.find((s) => s.id === id);
+        pinnedTopStories.find((s) => s.id === id);
       markCommentsOpenedId(id, Date.now(), story?.descendants ?? 0);
     },
-    [items, offFeedPinnedStories],
+    [items, pinnedTopStories],
   );
 
   // Long-press "Mark unread" should clear both opened halves so the row
@@ -795,7 +798,7 @@ export function StoryListImpl({
 
   if (
     visibleStories.length === 0 &&
-    offFeedPinnedStories.length === 0 &&
+    pinnedTopStories.length === 0 &&
     !hasMore
   ) {
     return (
@@ -819,13 +822,13 @@ export function StoryListImpl({
     >
       <ol className="story-list" onAnimationEnd={handleListAnimationEnd}>
         {/* eslint-disable-next-line react-hooks/refs -- getRowRef caches per-id callback refs, see rowRefCache note above */}
-        {offFeedPinnedStories.map((story) => (
+        {pinnedTopStories.map((story) => (
           <li
             key={`pinned-${story.id}`}
             ref={getRowRef(story.id)}
             className="story-list__item"
             data-story-id={story.id}
-            data-off-feed-pinned="true"
+            data-pinned-top="true"
           >
             <StoryListItem
               story={story}
