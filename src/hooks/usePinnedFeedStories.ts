@@ -10,7 +10,7 @@ export interface PinnedFeedState {
 }
 
 // All of the reader's pinned stories, surfaced in a block at the top of
-// the home feed (newest-pin-first, matching the dedicated /pinned route).
+// the home feed (oldest-pin-first, matching the dedicated /pinned route).
 // The feed body excludes pinned ids, so a pin lives in exactly one place
 // on the home view — whether HN still ranks it on a later, not-yet-loaded
 // page or it has dropped off the front page entirely. This replaces the
@@ -76,10 +76,10 @@ export function usePinnedFeedStories(
       if (item.deleted || item.dead) continue;
       byId.set(item.id, item);
     }
-    // Newest-pin-first, matching the /pinned route.
+    // Oldest-pin-first, matching the /pinned route.
     return getPinnedEntries()
       .slice()
-      .sort((a, b) => b.at - a.at)
+      .sort((a, b) => a.at - b.at)
       .map((entry) => byId.get(entry.id))
       .filter((x): x is HNItem => x != null);
   }, [enabled, pinnedIds, loadedById, query.data]);

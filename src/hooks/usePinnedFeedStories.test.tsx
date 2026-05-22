@@ -99,7 +99,7 @@ describe('usePinnedFeedStories', () => {
     expect(result.current.stories[0].id).toBe(300);
   });
 
-  it('orders pins newest-pinned first', async () => {
+  it('orders pins oldest-pinned first', async () => {
     addPinnedId(1, 1_000);
     addPinnedId(2, 3_000);
     addPinnedId(3, 2_000);
@@ -117,7 +117,7 @@ describe('usePinnedFeedStories', () => {
     await waitFor(() => {
       expect(result.current.stories).toHaveLength(3);
     });
-    expect(result.current.stories.map((s) => s.id)).toEqual([2, 3, 1]);
+    expect(result.current.stories.map((s) => s.id)).toEqual([1, 3, 2]);
   });
 
   it('returns empty when disabled (e.g. the /tuning Preview)', () => {

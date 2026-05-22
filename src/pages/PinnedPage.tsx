@@ -5,17 +5,17 @@ import {
 } from '../lib/pinnedStories';
 import { LibraryStoryList } from '../components/LibraryStoryList';
 
-function readPinnedIdsNewestFirst(): number[] {
+function readPinnedIdsOldestFirst(): number[] {
   return getPinnedEntries()
-    .sort((a, b) => b.at - a.at)
+    .sort((a, b) => a.at - b.at)
     .map((e) => e.id);
 }
 
 export function PinnedPage() {
-  const [ids, setIds] = useState<number[]>(() => readPinnedIdsNewestFirst());
+  const [ids, setIds] = useState<number[]>(() => readPinnedIdsOldestFirst());
 
   useEffect(() => {
-    const sync = () => setIds(readPinnedIdsNewestFirst());
+    const sync = () => setIds(readPinnedIdsOldestFirst());
     window.addEventListener(PINNED_STORIES_CHANGE_EVENT, sync);
     window.addEventListener('storage', sync);
     return () => {

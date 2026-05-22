@@ -112,7 +112,7 @@ describe('<StoryList> pinned-to-top block', () => {
     expect(screen.getAllByText('Page Two Pin')).toHaveLength(1);
   });
 
-  it('orders multiple off-feed pins newest-pinned first', async () => {
+  it('orders multiple off-feed pins oldest-pinned first', async () => {
     addPinnedId(101, 1_000);
     addPinnedId(102, 3_000);
     addPinnedId(103, 2_000);
@@ -139,9 +139,9 @@ describe('<StoryList> pinned-to-top block', () => {
         (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
       );
     expect(titles).toEqual([
-      'Pin B',
-      'Pin C',
       'Pin A',
+      'Pin C',
+      'Pin B',
       'Feed One',
       'Feed Two',
     ]);
