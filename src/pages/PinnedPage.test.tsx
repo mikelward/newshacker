@@ -78,7 +78,7 @@ describe('<PinnedPage>', () => {
     expect(parsed.filter((e) => !e.deleted)).toEqual([]);
   });
 
-  it('orders pinned stories newest first by pin time', async () => {
+  it('orders pinned stories oldest first by pin time', async () => {
     installHNFetchMock({
       items: {
         1: makeStory(1, { title: 'One' }),
@@ -94,8 +94,8 @@ describe('<PinnedPage>', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(2);
     });
     const rows = screen.getAllByTestId('story-row');
-    expect(rows[0]).toHaveTextContent('Two');
-    expect(rows[1]).toHaveTextContent('One');
+    expect(rows[0]).toHaveTextContent('One');
+    expect(rows[1]).toHaveTextContent('Two');
   });
 
   it('hydrates the thread from the pinned-list cache while the full warm is still in flight', async () => {
