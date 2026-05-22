@@ -190,9 +190,10 @@
   display: block;
 }
 
-/* Feed refresh status strip — sits above the list when a background
-   refresh is in flight or has failed, so opening the app after a while
-   doesn't silently leave the reader on a stale snapshot. */
+/* Feed refresh status strip — sits at the foot of the list, just above
+   the More / Back-to-top row, when a background refresh is in flight or has
+   failed, so opening the app after a while doesn't silently leave the
+   reader on a stale snapshot. */
 .feed-refresh {
   display: flex;
   align-items: center;
@@ -203,13 +204,13 @@
   font-size: 0.85rem;
   color: #6b6b6b;
   background: #f0f0e8;
-  border-bottom: 1px solid #e3e3d9;
+  border-top: 1px solid #e3e3d9;
 }
 
 .feed-refresh--failed {
   color: #8a3b00;
   background: #fbe9dd;
-  border-bottom-color: #f0cdb6;
+  border-top-color: #f0cdb6;
 }
 
 .feed-refresh__msg {
