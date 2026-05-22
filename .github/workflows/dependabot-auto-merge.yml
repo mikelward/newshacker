@@ -1,0 +1,34 @@
+name: Dependabot auto-merge
+
+# Dependabot opens PRs but never merges them itself. This workflow turns on
+# GitHub's auto-merge for low-risk Dependabot PRs (patch + minor bumps,
+# including security patches) so they land once the required checks pass.
+# Major version bumps are intentionally left for manual review.
+#
+# Requires, on the repo side (Settings, not code):
+#   - "Allow auto-merge" enabled (Settings -> General -> Pull Requests).
+#   - Branch protection on `main` with the Vercel check marked as a required
+#     status check. Without a required check, auto-merge merges immediately.
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for patch and minor updates
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --rebase "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
