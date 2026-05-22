@@ -5,6 +5,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
+import { FEED_QUERY_RETRY, feedQueryRetryDelay } from './hooks/useStoryList';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import {
   lockAllPinnedQueriesGcTime,
@@ -50,6 +51,21 @@ const queryClient = new QueryClient({
       networkMode: 'offlineFirst',
     },
   },
+});
+
+// The feed id-list (`['storyIds', feed]`) is the freshness signal behind
+// "are these the current top stories?" and is the most fragile read in the
+// app: it's the one request that goes straight to Firebase from the client
+// (items are proxied via /api/items), so a flaky radio or a momentarily
+// blocked/slow request on open is exactly what leaves a returning reader
+// staring at the persisted snapshot. Give just that query a few retries
+// with exponential backoff — scoped here by key rather than on the global
+// default so we don't multiply retries (and cost) on the LLM-backed
+// summary queries. The "More" page fetch deliberately keeps the default
+// (no extra retries) so its bail-on-failure chase behavior is preserved.
+queryClient.setQueryDefaults(['storyIds'], {
+  retry: FEED_QUERY_RETRY,
+  retryDelay: feedQueryRetryDelay,
 });
 
 const persister = createSyncStoragePersister({

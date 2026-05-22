@@ -189,3 +189,76 @@
 .list-footer__icon {
   display: block;
 }
+
+/* Feed refresh status strip — sits above the list when a background
+   refresh is in flight or has failed, so opening the app after a while
+   doesn't silently leave the reader on a stale snapshot. */
+.feed-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: #6b6b6b;
+  background: #f0f0e8;
+  border-bottom: 1px solid #e3e3d9;
+}
+
+.feed-refresh--failed {
+  color: #8a3b00;
+  background: #fbe9dd;
+  border-bottom-color: #f0cdb6;
+}
+
+.feed-refresh__msg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feed-refresh__spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid rgba(239, 95, 0, 0.25);
+  border-top-color: #ef5f00;
+  border-radius: 50%;
+  animation: feed-refresh-spin 0.7s linear infinite;
+}
+
+@keyframes feed-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-refresh__spinner {
+    animation: none;
+  }
+}
+
+.feed-refresh__retry {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .feed-refresh__retry:hover {
+    background: rgba(138, 59, 0, 0.08);
+  }
+}
+
+.feed-refresh__retry:active {
+  background: rgba(138, 59, 0, 0.16);
+}

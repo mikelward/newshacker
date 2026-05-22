@@ -2,6 +2,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { getItems, type HNItem } from '../lib/hn';
 import {
+  deriveRefreshState,
   PAGE_SIZE,
   useStoryIds,
   type FeedItemsState,
@@ -166,8 +167,13 @@ export function useHotFeedItems(
     // Match the same freshness contract as `useFeedItems`: bypass
     // the app-wide staleTime on mount/focus so a reload renders the
     // current ranking, not yesterday's.
+    // No `retry` override here on purpose — the source id-list queries
+    // (useStoryIds for top/new) carry the retry, while the "More" chase
+    // must bail on a failed page rather than re-issue it in a loop (see
+    // loadMore below and the "stops the More chase" test).
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   // Cross-page dedup. The queryFn already dedupes within a page;
@@ -281,6 +287,22 @@ export function useHotFeedItems(
   const totalIds =
     Math.max(topIds?.length ?? 0, newIds?.length ?? 0);
 
+  const refetching =
+    (topQuery.isFetching && !topQuery.isLoading) ||
+    (newQuery.isFetching && !newQuery.isLoading) ||
+    (pages.isFetching && !pages.isLoading && !isFetchingNextPage);
+  // Mirror the isError "degrade to whichever source survived" rule: `/hot`
+  // is fresh as long as *either* source ranking refreshed, so only call it
+  // stale when the latest attempt on *both* sources errored after their
+  // last good load.
+  const topFailed = topQuery.errorUpdatedAt > topQuery.dataUpdatedAt;
+  const newFailed = newQuery.errorUpdatedAt > newQuery.dataUpdatedAt;
+  const { isRefreshing, refreshFailed } = deriveRefreshState({
+    hasData: items.length > 0,
+    refetching,
+    latestAttemptFailed: topFailed && newFailed,
+  });
+
   return {
     items,
     // `allIds` is consumed by `useOffFeedPinnedStories` to decide
@@ -302,6 +324,8 @@ export function useHotFeedItems(
     isError: (topQuery.isError && newQuery.isError) || pages.isError,
     isFetchingMore: isFetchingNextPage,
     hasMore: !!hasNextPage,
+    isRefreshing,
+    refreshFailed,
     loadMore,
     refetch,
     newSourceIds,

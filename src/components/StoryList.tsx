@@ -315,8 +315,17 @@ export function StoryListImpl({
     return isHotStory(story, now, hotThresholds) ? 'hot' : null;
   };
 
-  const { items, allIds, hasMore, isFetchingMore, loadMore, refetch, isError } =
-    feedItems;
+  const {
+    items,
+    allIds,
+    hasMore,
+    isFetchingMore,
+    loadMore,
+    refetch,
+    isError,
+    isRefreshing,
+    refreshFailed,
+  } = feedItems;
   const { stories: rawOffFeedPinnedStories } =
     useOffFeedPinnedStories(allIds);
   useEffect(() => {
@@ -723,6 +732,40 @@ export function StoryListImpl({
     />
   );
 
+  // Tells the reader what's happening to the *visible* list when they open
+  // it after a while: a quiet "Checking for new stories…" while a refresh
+  // is in flight over the persisted snapshot, or a "Couldn't load new
+  // stories — Retry" when that refresh failed (so we don't silently leave
+  // them on a stale feed). The /tuning Preview (readOnly) opts out — it has
+  // its own chrome and isn't a reading surface.
+  const refreshStatus =
+    readOnly || !(isRefreshing || refreshFailed) ? null : (
+      <div
+        className={'feed-refresh' + (refreshFailed ? ' feed-refresh--failed' : '')}
+        role="status"
+        aria-live="polite"
+        data-testid="feed-refresh"
+      >
+        {refreshFailed ? (
+          <>
+            <span className="feed-refresh__msg">Couldn’t load new stories.</span>
+            <button
+              type="button"
+              className="feed-refresh__retry"
+              onClick={() => refetch()}
+            >
+              Retry
+            </button>
+          </>
+        ) : (
+          <span className="feed-refresh__msg">
+            <span className="feed-refresh__spinner" aria-hidden="true" />
+            Checking for new stories…
+          </span>
+        )}
+      </div>
+    );
+
   const hasAnyItems = items.length > 0;
   if (!hasAnyItems && feedItems.isLoading) {
     return (
@@ -764,6 +807,7 @@ export function StoryListImpl({
   return (
     <>
     {toolbar}
+    {refreshStatus}
     <PullToRefresh
       // Pull cross-device sync state alongside the HN feed — PTR is
       // the user's "show me the latest" gesture and they'd expect

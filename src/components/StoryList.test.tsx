@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient } from '@tanstack/react-query';
-import { StoryList } from './StoryList';
+import { StoryList, StoryListImpl } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+import type { FeedItemsState } from '../hooks/useStoryList';
 import {
   DEFAULT_HOT_THRESHOLDS,
   setStoredHotThresholds,
@@ -259,5 +260,84 @@ describe('<StoryList>', () => {
     const stored = window.localStorage.getItem('newshacker:openedStoryIds');
     expect(stored).toBe('[]');
     vi.useRealTimers();
+  });
+});
+
+describe('<StoryListImpl> feed refresh status', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    // StoryListImpl pulls in useAuth (/api/me) and the off-feed pinned
+    // refresh; a stub fetch keeps those from hitting the network.
+    installHNFetchMock({});
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  function makeFeedItems(
+    overrides: Partial<FeedItemsState> = {},
+  ): FeedItemsState {
+    return {
+      items: [makeStory(1)],
+      allIds: [1],
+      totalIds: 1,
+      isLoading: false,
+      isError: false,
+      isFetchingMore: false,
+      hasMore: false,
+      isRefreshing: false,
+      refreshFailed: false,
+      loadMore: () => {},
+      refetch: async () => undefined,
+      ...overrides,
+    };
+  }
+
+  it('shows a checking indicator while a background refresh is in flight', async () => {
+    renderWithProviders(
+      <StoryListImpl
+        feedItems={makeFeedItems({ isRefreshing: true })}
+        sourceFeed="top"
+        hotThresholds={DEFAULT_HOT_THRESHOLDS}
+      />,
+    );
+    const status = await screen.findByTestId('feed-refresh');
+    expect(status).toHaveTextContent(/checking for new stories/i);
+    expect(
+      screen.queryByRole('button', { name: /retry/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('surfaces a retry affordance when the refresh failed over cached data', async () => {
+    // Regression for the silent-staleness bug: opening the app after a
+    // while showed weeks-old rows with no hint the refresh had failed.
+    const refetch = vi.fn(async () => undefined);
+    renderWithProviders(
+      <StoryListImpl
+        feedItems={makeFeedItems({ refreshFailed: true, refetch })}
+        sourceFeed="top"
+        hotThresholds={DEFAULT_HOT_THRESHOLDS}
+      />,
+    );
+    const status = await screen.findByTestId('feed-refresh');
+    expect(status).toHaveTextContent(/couldn’t load new stories/i);
+    // The stale rows are still on screen — we don't blank the feed.
+    expect(screen.getByTestId('story-row')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no status strip when the feed is fresh', async () => {
+    renderWithProviders(
+      <StoryListImpl
+        feedItems={makeFeedItems()}
+        sourceFeed="top"
+        hotThresholds={DEFAULT_HOT_THRESHOLDS}
+      />,
+    );
+    await screen.findByTestId('story-row');
+    expect(screen.queryByTestId('feed-refresh')).not.toBeInTheDocument();
   });
 });
