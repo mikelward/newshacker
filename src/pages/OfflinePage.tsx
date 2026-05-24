@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsRestoring, useQueryClient } from '@tanstack/react-query';
 import { BackToTopButton } from '../components/BackToTopButton';
 import { EmptyState } from '../components/States';
 import { ListToolbar } from '../components/ListToolbar';
+import { StoryRowSkeleton } from '../components/Skeletons';
 import { StoryListItem } from '../components/StoryListItem';
 import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
@@ -29,6 +30,12 @@ function isOfflineStory(item: HNItem): boolean {
 
 export function OfflinePage() {
   const queryClient = useQueryClient();
+  // The list is derived from itemRoot entries already in the query cache,
+  // which `PersistQueryClientProvider` populates from localStorage on
+  // first paint. Before rehydrate completes, the cache looks empty —
+  // without this guard the "No offline stories yet." copy below flashes
+  // for users who actually have pinned stories cached.
+  const isRestoring = useIsRestoring();
   const [cacheVersion, setCacheVersion] = useState(0);
   const { hiddenIds, hide } = useHiddenStories();
   const { doneIds } = useDoneStories();
@@ -91,6 +98,24 @@ export function OfflinePage() {
   const computeFlag = (story: HNItem) =>
     isHotStory(story, new Date(), hotThresholds) ? ('hot' as const) : null;
 
+  if (isRestoring && entries.length === 0) {
+    return (
+      <>
+        <ListToolbar />
+        <ol
+          className="story-list"
+          aria-busy="true"
+          aria-label="Loading offline stories"
+        >
+          {Array.from({ length: 3 }).map((_, i) => (
+            <li key={i} className="story-list__item">
+              <StoryRowSkeleton />
+            </li>
+          ))}
+        </ol>
+      </>
+    );
+  }
   if (entries.length === 0) {
     return (
       <>

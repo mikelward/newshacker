@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useIsRestoring, useQuery } from '@tanstack/react-query';
 import { getUser, getItems, type HNItem } from '../lib/hn';
 import { formatTimeAgo } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
@@ -134,6 +134,13 @@ export function UserPage() {
     queryFn: ({ signal }) => getUser(id ?? '', signal),
     enabled: !!id,
   });
+  // `PersistQueryClientProvider` parks queries with `fetchStatus: 'idle'`
+  // while it rehydrates from localStorage on first paint. React Query's
+  // `isLoading` (= `isPending && isFetching`) is therefore false during
+  // that window even though no fetch has run yet, which would otherwise
+  // fall through the `if (isLoading)` branch below and flash "User not
+  // found." until the restore completes and the query actually fires.
+  const isRestoring = useIsRestoring();
 
   const submittedHead = useMemo(
     () => data?.submitted?.slice(0, RECENT_FETCH_LIMIT) ?? [],
@@ -199,7 +206,7 @@ export function UserPage() {
   if (!id) {
     return <EmptyState message="Missing user id." />;
   }
-  if (isLoading) {
+  if (isLoading || (isRestoring && !data)) {
     return (
       <div aria-busy="true" aria-label="Loading user">
         <UserSkeleton />

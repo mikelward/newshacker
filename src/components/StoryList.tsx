@@ -772,7 +772,13 @@ export function StoryListImpl({
     );
 
   const hasAnyItems = items.length > 0;
-  if (!hasAnyItems && feedItems.isLoading) {
+  // `isRestoring` covers the `PersistQueryClientProvider` rehydration
+  // window, when queries sit at `fetchStatus: 'idle'` so `isLoading`
+  // (= `isPending && isFetching`) is false even though no fetch has
+  // run yet — otherwise the "No stories yet." empty state below would
+  // flash on first paint until restore completes and the feed query
+  // actually fires.
+  if (!hasAnyItems && (feedItems.isLoading || isRestoring)) {
     return (
       <>
         {toolbar}

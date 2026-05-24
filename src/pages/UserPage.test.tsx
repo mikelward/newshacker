@@ -1,7 +1,12 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { Route, Routes } from 'react-router-dom';
-import { screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import {
+  IsRestoringProvider,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
 import { UserPage } from './UserPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock } from '../test/mockFetch';
@@ -445,5 +450,37 @@ describe('<UserPage>', () => {
     await waitFor(() => {
       expect(screen.getByText('bob')).toBeInTheDocument();
     });
+  });
+
+  // Regression: PersistQueryClientProvider parks queries with
+  // fetchStatus 'idle' during rehydrate, so `isLoading` is false on
+  // first paint and the `!data` branch would otherwise flash
+  // "User not found." for users whose profile fetch hasn't fired yet.
+  it('shows the loading skeleton (not "User not found.") while React Query is restoring from persisted cache', () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: 0,
+          staleTime: 0,
+          networkMode: 'offlineFirst',
+        },
+      },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <IsRestoringProvider value={true}>
+          <MemoryRouter initialEntries={['/user/missing']}>
+            <Routes>
+              <Route path="/user/:id" element={<UserPage />} />
+            </Routes>
+          </MemoryRouter>
+        </IsRestoringProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText(/User not found\./)).toBeNull();
+    expect(
+      screen.getByLabelText('Loading user'),
+    ).toHaveAttribute('aria-busy', 'true');
   });
 });

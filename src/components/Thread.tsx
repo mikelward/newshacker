@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useIsRestoring, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useItemTree } from '../hooks/useItemTree';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
@@ -744,6 +744,13 @@ function ThreadActionBar({
 export function Thread({ id }: Props) {
   const { data, isLoading, isError, refetch } = useItemTree(id);
   const queryClient = useQueryClient();
+  // `PersistQueryClientProvider` parks queries with `fetchStatus: 'idle'`
+  // while it rehydrates from localStorage on first paint. React Query's
+  // `isLoading` (= `isPending && isFetching`) is therefore false during
+  // that window even though no fetch has run yet, which would otherwise
+  // fall through the `if (isLoading)` branch below and flash "Item not
+  // found." until the restore completes and the query actually fires.
+  const isRestoring = useIsRestoring();
   const online = useOnlineStatus();
   const navigate = useNavigate();
   const location = useLocation();
@@ -988,7 +995,7 @@ export function Thread({ id }: Props) {
     },
   });
 
-  if (isLoading) {
+  if (isLoading || (isRestoring && !item)) {
     return (
       <div className="thread" aria-busy="true" aria-label="Loading thread">
         <ThreadSkeleton />
