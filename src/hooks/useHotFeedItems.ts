@@ -312,10 +312,13 @@ export function useHotFeedItems(
     // not present there.
     allIds,
     totalIds,
-    isLoading:
-      topQuery.isLoading ||
-      newQuery.isLoading ||
-      (pages.isLoading && items.length === 0 && idsLoaded),
+    // `isPending` is true while restoring from persisted cache too, so
+    // the skeleton stays up through the rehydrate window instead of
+    // letting "No stories yet." flash on first paint.
+    isPending:
+      topQuery.isPending ||
+      newQuery.isPending ||
+      (pages.isPending && items.length === 0 && idsLoaded),
     // `topQuery.isError && newQuery.isError` would be the strict
     // "both source feeds dead" guard; the spec asks us to degrade
     // to whichever source survived rather than blanking, so a

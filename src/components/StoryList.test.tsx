@@ -1,14 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
-import {
-  IsRestoringProvider,
-  QueryClient,
-  QueryClientProvider,
-} from '@tanstack/react-query';
-import { FeedBarProvider } from './FeedBarContext';
-import { LoginDialogProvider } from './LoginDialog';
+import { QueryClient } from '@tanstack/react-query';
 import { StoryList, StoryListImpl } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
@@ -289,7 +282,7 @@ describe('<StoryListImpl> feed refresh status', () => {
       items: [makeStory(1)],
       allIds: [1],
       totalIds: 1,
-      isLoading: false,
+      isPending: false,
       isError: false,
       isFetchingMore: false,
       hasMore: false,
@@ -348,39 +341,24 @@ describe('<StoryListImpl> feed refresh status', () => {
     expect(screen.queryByTestId('feed-refresh')).not.toBeInTheDocument();
   });
 
-  // Regression: PersistQueryClientProvider parks feed queries with
-  // fetchStatus 'idle' while it rehydrates from localStorage, so
-  // `feedItems.isLoading` is false on first paint even though no fetch
-  // has run yet. Without the `isRestoring` guard, the "No stories yet."
-  // empty state would flash for users whose persisted snapshot is still
-  // being loaded.
-  it('shows the loading skeleton (not the empty state) while React Query is restoring from persisted cache', () => {
-    const client = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-          gcTime: 0,
-          staleTime: 0,
-          networkMode: 'offlineFirst',
-        },
-      },
-    });
-    render(
-      <QueryClientProvider client={client}>
-        <IsRestoringProvider value={true}>
-          <MemoryRouter initialEntries={['/top']}>
-            <LoginDialogProvider>
-              <FeedBarProvider>
-                <StoryListImpl
-                  feedItems={makeFeedItems({ items: [], allIds: [], totalIds: 0 })}
-                  sourceFeed="top"
-                  hotThresholds={DEFAULT_HOT_THRESHOLDS}
-                />
-              </FeedBarProvider>
-            </LoginDialogProvider>
-          </MemoryRouter>
-        </IsRestoringProvider>
-      </QueryClientProvider>,
+  // Regression: while `feedItems.isPending` is true and no items have
+  // arrived, the skeleton stays on screen — without this guard the
+  // "No stories yet." empty state would flash on first paint during
+  // PersistQueryClientProvider rehydration (when `isLoading` is false
+  // because the query is paused-but-not-fetching) and during any
+  // other paused-with-no-data window.
+  it('shows the loading skeleton (not the empty state) while the feed is pending with no items', () => {
+    renderWithProviders(
+      <StoryListImpl
+        feedItems={makeFeedItems({
+          items: [],
+          allIds: [],
+          totalIds: 0,
+          isPending: true,
+        })}
+        sourceFeed="top"
+        hotThresholds={DEFAULT_HOT_THRESHOLDS}
+      />,
     );
     expect(screen.queryByText(/No stories yet\./)).toBeNull();
     expect(

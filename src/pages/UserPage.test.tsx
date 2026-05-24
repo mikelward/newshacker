@@ -454,8 +454,9 @@ describe('<UserPage>', () => {
 
   // Regression: PersistQueryClientProvider parks queries with
   // fetchStatus 'idle' during rehydrate, so `isLoading` is false on
-  // first paint and the `!data` branch would otherwise flash
-  // "User not found." for users whose profile fetch hasn't fired yet.
+  // first paint. <UserPage> gates its skeleton on `isPending` (true
+  // whenever there's no data, regardless of why) so the `!data`
+  // "User not found." branch can't flash through this window.
   it('shows the loading skeleton (not "User not found.") while React Query is restoring from persisted cache', () => {
     const client = new QueryClient({
       defaultOptions: {
