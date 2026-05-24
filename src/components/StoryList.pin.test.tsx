@@ -43,14 +43,16 @@ describe('<StoryList> pin and sweep', () => {
 
     fireEvent.click(pin);
 
-    // Pinning lifts the row into the top block; re-query it there and
-    // confirm the pin reads as pressed.
+    // Pinning a body row keeps it in place (SPEC.md *Pinned stories
+    // pinned to the top*) — the row stays at its natural feed
+    // position, just marked pressed. Story 10 already happened to be
+    // row 0 of the id-ordered mock feed, so its position doesn't
+    // change either way.
     await waitFor(() => {
       expect(
         within(story10Row()).getByTestId('pin-btn'),
       ).toHaveAttribute('aria-pressed', 'true');
     });
-    // It now sits at the very top, ahead of the unpinned Story 20.
     const rows = screen.getAllByTestId('story-row');
     expect(within(rows[0]).getByTestId('story-title')).toHaveTextContent(
       'Story 10',

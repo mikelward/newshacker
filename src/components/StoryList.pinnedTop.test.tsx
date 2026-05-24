@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { StoryList } from './StoryList';
+import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addPinnedId } from '../lib/pinnedStories';
@@ -179,5 +180,227 @@ describe('<StoryList> pinned-to-top block', () => {
     });
     expect(screen.getByText('Only Pin')).toBeInTheDocument();
     expect(screen.queryByTestId('empty-state')).toBeNull();
+  });
+
+  it('pinning an in-feed row keeps it at its natural position; Sweep is what consolidates it to the top', async () => {
+    // Regression: tapping pin on a body row used to yank it into the
+    // top block under the reader's eye. The new behavior leaves it in
+    // place — pinned, but at its natural feed position — and only
+    // moves it after Sweep commits.
+    const ids = [1, 2, 3, 4];
+    const items = Object.fromEntries(
+      ids.map((id) => [
+        id,
+        makeStory(id, { title: `Story ${id}` }),
+      ]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(4);
+    });
+
+    // Pin the middle row. It must stay at index 2 (natural position),
+    // not jump to index 0.
+    const beforeRows = screen.getAllByTestId('story-row');
+    const middleRow = beforeRows[2];
+    expect(within(middleRow).getByTestId('story-title')).toHaveTextContent(
+      'Story 3',
+    );
+    fireEvent.click(within(middleRow).getByTestId('pin-btn'));
+
+    await waitFor(() => {
+      expect(
+        within(screen.getAllByTestId('story-row')[2]).getByTestId('pin-btn'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+    const afterPinRows = screen.getAllByTestId('story-row');
+    expect(afterPinRows).toHaveLength(4);
+    const afterPinTitles = afterPinRows.map(
+      (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
+    );
+    expect(afterPinTitles).toEqual([
+      'Story 1',
+      'Story 2',
+      'Story 3',
+      'Story 4',
+    ]);
+
+    // Now Sweep — the four unpinned rows fade out, the pinned Story 3
+    // consolidates into the top block (it's the only survivor and
+    // therefore trivially at the top).
+    const sweep = screen.getByTestId('sweep-btn');
+    await waitFor(() => {
+      expect(sweep).not.toBeDisabled();
+    });
+    fireEvent.click(sweep);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Story 1')).toBeNull();
+      expect(screen.queryByText('Story 2')).toBeNull();
+      expect(screen.queryByText('Story 4')).toBeNull();
+    });
+    expect(screen.getAllByTestId('story-row')).toHaveLength(1);
+    expect(screen.getByText('Story 3')).toBeInTheDocument();
+  });
+
+  it('a pre-existing pin from a past session still surfaces in the top block on a fresh mount', async () => {
+    // The in-session "stay in body" behavior only applies to the pin
+    // the reader just made — pins carried over from a previous load
+    // (or another device, via sync) should land at the top on first
+    // paint exactly as before.
+    addPinnedId(3);
+    const ids = [1, 2, 3, 4];
+    const items = Object.fromEntries(
+      ids.map((id) => [
+        id,
+        makeStory(id, { title: `Story ${id}` }),
+      ]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(4);
+    });
+    const titles = screen
+      .getAllByTestId('story-row')
+      .map(
+        (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
+      );
+    expect(titles).toEqual(['Story 3', 'Story 1', 'Story 2', 'Story 4']);
+  });
+
+  it('unpinning a row pinned in-session drops the in-body marker, so re-pinning also stays in place', async () => {
+    // Otherwise the second pin would silently route through a stale
+    // "in body" marker the first pin left behind, and the row would
+    // jump to the top block — the very behavior this change exists
+    // to prevent.
+    const ids = [10, 20, 30];
+    const items = Object.fromEntries(
+      ids.map((id) => [
+        id,
+        makeStory(id, { title: `Story ${id}` }),
+      ]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    const story20 = () => screen.getByText('Story 20').closest('li')!;
+    // Pin → unpin → pin sequence. After the final pin the row should
+    // still be at index 1 (natural feed position), not lifted to top.
+    fireEvent.click(within(story20()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(
+        within(story20()).getByTestId('pin-btn'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+    fireEvent.click(within(story20()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(
+        within(story20()).getByTestId('pin-btn'),
+      ).toHaveAttribute('aria-pressed', 'false');
+    });
+    fireEvent.click(within(story20()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(
+        within(story20()).getByTestId('pin-btn'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    const titles = screen
+      .getAllByTestId('story-row')
+      .map(
+        (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
+      );
+    expect(titles).toEqual(['Story 10', 'Story 20', 'Story 30']);
+  });
+
+  it('drops the stay-in-body marker when a pinned row leaves the loaded feed, so a later return goes to the top block', async () => {
+    // Regression: pin a visible row → in-body marker set. Feed refresh
+    // drops the row from `items` → it surfaces in the top block (good).
+    // But the raw marker must also be GC'd, otherwise a *later* return
+    // of that id to `items` (loadMore landed a fresh page, cross-device
+    // sync brought the row back) silently re-routes the pin into the
+    // body via the stale marker. The intent was "just pinned, here and
+    // now"; once the row leaves the body it's no longer "here".
+    const ids = [10, 20, 30];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    const fixtures: {
+      feeds: { topstories: number[] };
+      items: Record<number, ReturnType<typeof makeStory>>;
+    } = { feeds: { topstories: [...ids] }, items };
+    installHNFetchMock(fixtures);
+
+    const { client } = renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    // Pin Story 20 in body — stays at its natural index 1 position.
+    const story20Row = () => screen.getByText('Story 20').closest('li')!;
+    fireEvent.click(within(story20Row()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(
+        within(story20Row()).getByTestId('pin-btn'),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+    const titlesAfterPin = screen
+      .getAllByTestId('story-row')
+      .map(
+        (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
+      );
+    expect(titlesAfterPin).toEqual(['Story 10', 'Story 20', 'Story 30']);
+
+    // Refresh: HN no longer ranks Story 20 in the loaded window. It
+    // moves to the top block (still pinned, just no longer in body).
+    fixtures.feeds.topstories = [10, 30];
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['storyIds', 'top'] });
+      await client.invalidateQueries({ queryKey: ['feedItems', 'top'] });
+    });
+    await waitFor(() => {
+      const titles = screen
+        .getAllByTestId('story-row')
+        .map(
+          (row) =>
+            row.querySelector('.story-row__title-text')?.textContent ?? '',
+        );
+      expect(titles).toEqual(['Story 20', 'Story 10', 'Story 30']);
+    });
+
+    // Refresh again: Story 20 returns to the loaded feed window. The
+    // stale "stay in body" marker must have been GC'd; 20 stays in the
+    // top block instead of jumping back to its natural feed position.
+    fixtures.feeds.topstories = [10, 20, 30];
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['storyIds', 'top'] });
+      await client.invalidateQueries({ queryKey: ['feedItems', 'top'] });
+    });
+    await waitFor(() => {
+      const titles = screen
+        .getAllByTestId('story-row')
+        .map(
+          (row) =>
+            row.querySelector('.story-row__title-text')?.textContent ?? '',
+        );
+      expect(titles).toEqual(['Story 20', 'Story 10', 'Story 30']);
+    });
   });
 });

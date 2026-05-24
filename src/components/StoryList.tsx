@@ -49,6 +49,11 @@ import './StoryList.css';
 // so the row slides in place instead of popping.
 const SWEEP_ANIMATION_MS = 200;
 
+// Reused for "no in-body-pinned ids right now" so the `useMemo` below
+// returns the same Set instance across renders — callers (isRowVisible,
+// pinnedTopStories) can rely on reference equality to skip re-derivation.
+const EMPTY_ID_SET: ReadonlySet<number> = new Set();
+
 interface Props {
   feed: Feed;
   // When true, the toolbar above the list renders the one-row
@@ -337,20 +342,82 @@ export function StoryListImpl({
     window.addEventListener('focus', refreshOnFocus);
     return () => window.removeEventListener('focus', refreshOnFocus);
   }, [includeOffFeedPinned, isRestoring, pinnedIds, queryClient]);
+  // Ids the reader has pinned while the row was rendered in the feed
+  // body. Pinning shouldn't yank a story you're looking at into the
+  // top block — keep it at its natural feed position and let the
+  // explicit Sweep gesture be the moment all in-body pins consolidate
+  // into the top block (see commitSweep). On a fresh mount this set
+  // is empty, so pre-existing pins still surface at the top as
+  // before. Garbage-collected by the effect below: an id falls out
+  // the moment the row stops being able to render in body (unpinned,
+  // or the feed window no longer contains it after a PTR/refresh) so
+  // it can't reactivate if the same row later returns to the feed
+  // window (loadMore, cross-device sync) — the intent was "just
+  // pinned, here-and-now", and a stale marker would silently re-route
+  // a re-fetched pin into the body instead of the top block.
+  const [stayInBodyIds, setStayInBodyIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+
+  // Reconcile stayInBodyIds with the external feed/pinned state. This
+  // is the only place that drops stale entries when a row leaves the
+  // feed window via PTR/refetch (the user takes no action, so a
+  // handler can't catch it). The lint rule usually warns about derived
+  // state — but here the state really is reconciliation history with
+  // external sources (React Query items, the pinned-stories store),
+  // exactly the "subscribe for updates from some external system"
+  // case the rule's own docs call out. The updater returns `prev`
+  // unchanged when nothing dropped out, so a re-run with no change
+  // can't cascade; the `[items, pinnedIds]` deps mean it only fires
+  // when one of those external sources actually moved.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
+    setStayInBodyIds((prev) => {
+      if (prev.size === 0) return prev;
+      const itemIds = new Set<number>();
+      for (const item of items) {
+        if (item) itemIds.add(item.id);
+      }
+      const next = new Set<number>();
+      let changed = false;
+      for (const id of prev) {
+        if (itemIds.has(id) && pinnedIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [items, pinnedIds]);
+
+  const inBodyPinnedIds = useMemo<ReadonlySet<number>>(() => {
+    if (stayInBodyIds.size === 0) return EMPTY_ID_SET;
+    // Defense-in-depth for the one render between `items` / `pinnedIds`
+    // changing and the GC effect above committing — the body filter and
+    // top-block filter both consult this, so excluding stale entries
+    // here keeps a row from briefly rendering in neither place.
+    const itemIds = new Set<number>();
+    for (const item of items) {
+      if (item) itemIds.add(item.id);
+    }
+    const result = new Set<number>();
+    for (const id of stayInBodyIds) {
+      if (itemIds.has(id) && pinnedIds.has(id)) result.add(id);
+    }
+    return result;
+  }, [stayInBodyIds, items, pinnedIds]);
+
   // Pin is a shield against Hide, so new state can't produce a pin ∩
   // hidden collision (swipe-right and menu "Hide" are blocked on
-  // pinned rows; see StoryListItem). This filter is defense-in-depth
-  // for legacy storage that predates that rule and for brief
-  // cross-device-sync windows where the two stores could disagree —
-  // without it, a surviving collision would render the pinned row on
-  // the home feed while `hiddenIds` said it should be gone.
+  // pinned rows; see StoryListItem). The hidden-collision filter is
+  // defense-in-depth for legacy storage that predates that rule and
+  // for brief cross-device-sync windows where the two stores could
+  // disagree. The `inBodyPinnedIds` filter keeps in-session pins out
+  // of the top block until Sweep consolidates them.
   const pinnedTopStories = useMemo(() => {
-    // The /tuning Preview opts out — the hook itself short-circuits to
-    // an empty list when disabled, so this filter just adds the
-    // defense-in-depth hidden-collision guard below.
     if (!includeOffFeedPinned) return [];
-    return rawPinnedStories.filter((s) => !hiddenIds.has(s.id));
-  }, [rawPinnedStories, hiddenIds, includeOffFeedPinned]);
+    return rawPinnedStories.filter(
+      (s) => !hiddenIds.has(s.id) && !inBodyPinnedIds.has(s.id),
+    );
+  }, [rawPinnedStories, hiddenIds, includeOffFeedPinned, inBodyPinnedIds]);
 
   // Pin/hide can target either an in-feed row or one of the pinned rows
   // that prepend the list. Look in both collections so the telemetry
@@ -367,6 +434,18 @@ export function StoryListImpl({
   const handlePin = useCallback(
     (id: number) => {
       pin(id);
+      // Keep the row at its natural feed position if it's currently
+      // rendered in the body — pinning shouldn't jump it into the top
+      // block under the reader's eye. Sweep is what consolidates.
+      const inLoadedFeed = items.some((it) => it?.id === id);
+      if (inLoadedFeed) {
+        setStayInBodyIds((prev) => {
+          if (prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.add(id);
+          return next;
+        });
+      }
       const story = lookupStory(id);
       if (story) {
         prefetchPinnedStory(queryClient, story);
@@ -378,12 +457,26 @@ export function StoryListImpl({
     },
     [
       pin,
+      items,
       lookupStory,
       queryClient,
       sourceFeed,
       isAuthenticated,
       articleOpenedIds,
     ],
+  );
+
+  const handleUnpin = useCallback(
+    (id: number) => {
+      unpin(id);
+      setStayInBodyIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+    [unpin],
   );
 
   const handleHideOne = useCallback(
@@ -435,11 +528,23 @@ export function StoryListImpl({
       (it.score ?? 0) > 1 &&
       (includeHidden || !hiddenIds.has(it.id)) &&
       (includeDone || !doneIds.has(it.id)) &&
-      // Pinned rows render once, in the top block — keep them out of
-      // the body so they're not duplicated. The /tuning Preview opts
-      // out of the top block, so it leaves pinned rows in place.
-      (!includeOffFeedPinned || !pinnedIds.has(it.id)),
-    [hiddenIds, doneIds, includeHidden, includeDone, includeOffFeedPinned, pinnedIds],
+      // Pinned rows render exactly once: either at their natural feed
+      // position (pinned in-session, see stayInBodyIds) or in the top
+      // block (the default — pre-existing pins, off-feed pins). The
+      // /tuning Preview opts out of the top block entirely, so it
+      // leaves pinned rows in place.
+      (!includeOffFeedPinned ||
+        !pinnedIds.has(it.id) ||
+        inBodyPinnedIds.has(it.id)),
+    [
+      hiddenIds,
+      doneIds,
+      includeHidden,
+      includeDone,
+      includeOffFeedPinned,
+      pinnedIds,
+      inBodyPinnedIds,
+    ],
   );
 
   const visibleStories = useMemo(
@@ -618,6 +723,11 @@ export function StoryListImpl({
       for (const id of ids) next.delete(id);
       return next;
     });
+    // Sweep is the moment in-session body pins consolidate into the
+    // top block (see stayInBodyIds). Clearing the set right after the
+    // hide commit means the next render sees pinned rows surface at
+    // the top in one motion with the unpinned rows leaving.
+    setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
   }, [hide, recordHide]);
 
   // If the list unmounts (route change, etc.) while a sweep is still
@@ -653,6 +763,7 @@ export function StoryListImpl({
     if (reducedMotion) {
       for (const id of ids) hide(id);
       recordHide(ids);
+      setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
       return;
     }
     sweepPendingIdsRef.current = ids;
@@ -841,7 +952,7 @@ export function StoryListImpl({
               showVelocity={showVelocity}
               onHide={readOnly ? undefined : handleHideOne}
               onPin={readOnly ? undefined : handlePin}
-              onUnpin={readOnly ? undefined : unpin}
+              onUnpin={readOnly ? undefined : handleUnpin}
               onShare={readOnly ? undefined : shareStory}
               onMarkUnread={readOnly ? undefined : handleMarkUnread}
               onOpenThread={handleOpenThread}
@@ -889,7 +1000,7 @@ export function StoryListImpl({
                 readOnly || hiddenIds.has(story.id) ? undefined : handlePin
               }
               onUnpin={
-                readOnly || hiddenIds.has(story.id) ? undefined : unpin
+                readOnly || hiddenIds.has(story.id) ? undefined : handleUnpin
               }
               onShare={readOnly ? undefined : shareStory}
               onMarkUnread={readOnly ? undefined : handleMarkUnread}
