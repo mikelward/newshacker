@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
-import { QueryClient } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import {
+  IsRestoringProvider,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
+import { FeedBarProvider } from '../components/FeedBarContext';
+import { LoginDialogProvider } from '../components/LoginDialog';
 import { OfflinePage } from './OfflinePage';
 import { renderWithProviders } from '../test/renderUtils';
 import { makeStory } from '../test/mockFetch';
@@ -201,5 +208,30 @@ describe('<OfflinePage>', () => {
     renderWithProviders(<OfflinePage />, { client });
 
     expect(screen.getByTestId('pin-btn')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  // Regression: PersistQueryClientProvider hands the page an empty
+  // cache during rehydrate, so without the `isRestoring` guard the
+  // "No offline stories yet." empty state would flash on first paint
+  // for users who actually have pinned stories cached on disk.
+  it('does not flash the empty state while React Query is restoring from persisted cache', () => {
+    const client = newClient();
+    render(
+      <QueryClientProvider client={client}>
+        <IsRestoringProvider value={true}>
+          <MemoryRouter initialEntries={['/offline']}>
+            <LoginDialogProvider>
+              <FeedBarProvider>
+                <OfflinePage />
+              </FeedBarProvider>
+            </LoginDialogProvider>
+          </MemoryRouter>
+        </IsRestoringProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText(/No offline stories yet/i)).toBeNull();
+    expect(
+      screen.getByLabelText('Loading offline stories'),
+    ).toHaveAttribute('aria-busy', 'true');
   });
 });

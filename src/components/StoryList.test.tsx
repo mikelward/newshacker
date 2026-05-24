@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
+import {
+  IsRestoringProvider,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
+import { FeedBarProvider } from './FeedBarContext';
+import { LoginDialogProvider } from './LoginDialog';
 import { StoryList, StoryListImpl } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
@@ -339,5 +346,45 @@ describe('<StoryListImpl> feed refresh status', () => {
     );
     await screen.findByTestId('story-row');
     expect(screen.queryByTestId('feed-refresh')).not.toBeInTheDocument();
+  });
+
+  // Regression: PersistQueryClientProvider parks feed queries with
+  // fetchStatus 'idle' while it rehydrates from localStorage, so
+  // `feedItems.isLoading` is false on first paint even though no fetch
+  // has run yet. Without the `isRestoring` guard, the "No stories yet."
+  // empty state would flash for users whose persisted snapshot is still
+  // being loaded.
+  it('shows the loading skeleton (not the empty state) while React Query is restoring from persisted cache', () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: 0,
+          staleTime: 0,
+          networkMode: 'offlineFirst',
+        },
+      },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <IsRestoringProvider value={true}>
+          <MemoryRouter initialEntries={['/top']}>
+            <LoginDialogProvider>
+              <FeedBarProvider>
+                <StoryListImpl
+                  feedItems={makeFeedItems({ items: [], allIds: [], totalIds: 0 })}
+                  sourceFeed="top"
+                  hotThresholds={DEFAULT_HOT_THRESHOLDS}
+                />
+              </FeedBarProvider>
+            </LoginDialogProvider>
+          </MemoryRouter>
+        </IsRestoringProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText(/No stories yet\./)).toBeNull();
+    expect(
+      screen.getByLabelText('Loading stories'),
+    ).toHaveAttribute('aria-busy', 'true');
   });
 });

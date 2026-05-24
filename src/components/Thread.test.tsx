@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  IsRestoringProvider,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
 import { Thread, TOP_LEVEL_PAGE_SIZE } from './Thread';
 import { FeedBarProvider } from './FeedBarContext';
 import { renderWithProviders } from '../test/renderUtils';
@@ -1860,5 +1864,42 @@ describe('<Thread>', () => {
       ).toBeInTheDocument();
       expect(await screen.findByText(/orphaned/)).toBeInTheDocument();
     });
+  });
+
+  // Regression: PersistQueryClientProvider parks queries with
+  // fetchStatus 'idle' while it rehydrates from localStorage on first
+  // paint, so React Query's `isLoading` (= `isPending && isFetching`)
+  // is false even though no fetch has run yet. Without an explicit
+  // `isRestoring` guard, the `!data || !item` branch in <Thread> falls
+  // through and flashes "Item not found." for one render until restore
+  // completes and the actual fetch fires.
+  it('shows the loading skeleton (not "Item not found.") while React Query is restoring from persisted cache', () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: 0,
+          staleTime: 0,
+          networkMode: 'offlineFirst',
+        },
+      },
+    });
+    // Don't install an HN fetch mock — during restore, no fetch should
+    // fire, and we want to assert on the synchronous first render.
+    render(
+      <QueryClientProvider client={client}>
+        <IsRestoringProvider value={true}>
+          <MemoryRouter initialEntries={['/item/777']}>
+            <FeedBarProvider>
+              <Thread id={777} />
+            </FeedBarProvider>
+          </MemoryRouter>
+        </IsRestoringProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText(/Item not found\./)).toBeNull();
+    expect(
+      screen.getByLabelText('Loading thread'),
+    ).toHaveAttribute('aria-busy', 'true');
   });
 });
