@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useIsRestoring, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { getUser, getItems, type HNItem } from '../lib/hn';
 import { formatTimeAgo } from '../lib/format';
 import { sanitizeCommentHtml } from '../lib/sanitize';
@@ -129,18 +129,19 @@ function groupByStory(
 
 export function UserPage() {
   const { id } = useParams();
-  const { data, isLoading, isError, refetch } = useQuery({
+  // `isPending` (no data yet, regardless of why) is the correct gate
+  // for the skeleton — it covers the in-flight first fetch *and* the
+  // PersistQueryClientProvider rehydrate window where the query sits
+  // paused with no data, where the narrower `isLoading`
+  // (= `isPending && isFetching`) would let "User not found." flash
+  // through. The query is `enabled: !!id` and the `!id` branch below
+  // returns *before* this check, so by the time we render the
+  // skeleton, pending always means actually waiting.
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['user', id],
     queryFn: ({ signal }) => getUser(id ?? '', signal),
     enabled: !!id,
   });
-  // `PersistQueryClientProvider` parks queries with `fetchStatus: 'idle'`
-  // while it rehydrates from localStorage on first paint. React Query's
-  // `isLoading` (= `isPending && isFetching`) is therefore false during
-  // that window even though no fetch has run yet, which would otherwise
-  // fall through the `if (isLoading)` branch below and flash "User not
-  // found." until the restore completes and the query actually fires.
-  const isRestoring = useIsRestoring();
 
   const submittedHead = useMemo(
     () => data?.submitted?.slice(0, RECENT_FETCH_LIMIT) ?? [],
@@ -206,7 +207,7 @@ export function UserPage() {
   if (!id) {
     return <EmptyState message="Missing user id." />;
   }
-  if (isLoading || (isRestoring && !data)) {
+  if (isPending) {
     return (
       <div aria-busy="true" aria-label="Loading user">
         <UserSkeleton />

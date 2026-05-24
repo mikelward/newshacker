@@ -75,7 +75,13 @@ export interface FeedItemsState {
   items: Array<HNItem | null>;
   allIds: number[] | undefined;
   totalIds: number;
-  isLoading: boolean;
+  // True whenever we don't yet have any items to show, regardless of why
+  // (in-flight first fetch, PersistQueryClientProvider rehydrate window,
+  // or a paused query). Broader than React Query's `isLoading`
+  // (= `isPending && isFetching`) so the skeleton stays on screen until
+  // either data lands or the request errors, instead of letting a "No
+  // stories yet." empty state flash during rehydrate.
+  isPending: boolean;
   isError: boolean;
   isFetchingMore: boolean;
   hasMore: boolean;
@@ -199,7 +205,17 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     items,
     allIds,
     totalIds: allIds?.length ?? 0,
-    isLoading: ids.isLoading || (pages.isLoading && items.length === 0),
+    // The `pages` infinite query is disabled when `allIds` is empty,
+    // and a disabled query reports `isPending: true` — so only count
+    // `pages` as pending when its id list resolved with at least one
+    // id; an empty id list is a real "no stories" outcome and must
+    // fall through to the empty state, not the skeleton.
+    isPending:
+      ids.isPending ||
+      (!!allIds &&
+        allIds.length > 0 &&
+        pages.isPending &&
+        items.length === 0),
     isError: ids.isError || pages.isError,
     isFetchingMore: isFetchingNextPage,
     hasMore: !!hasNextPage,

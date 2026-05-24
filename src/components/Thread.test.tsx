@@ -1869,10 +1869,10 @@ describe('<Thread>', () => {
   // Regression: PersistQueryClientProvider parks queries with
   // fetchStatus 'idle' while it rehydrates from localStorage on first
   // paint, so React Query's `isLoading` (= `isPending && isFetching`)
-  // is false even though no fetch has run yet. Without an explicit
-  // `isRestoring` guard, the `!data || !item` branch in <Thread> falls
-  // through and flashes "Item not found." for one render until restore
-  // completes and the actual fetch fires.
+  // is false even though no fetch has run yet. <Thread> gates the
+  // skeleton on `isPending` (true whenever there's no data, regardless
+  // of why) precisely so the `!data || !item` "Item not found." branch
+  // can't flash through this window.
   it('shows the loading skeleton (not "Item not found.") while React Query is restoring from persisted cache', () => {
     const client = new QueryClient({
       defaultOptions: {
