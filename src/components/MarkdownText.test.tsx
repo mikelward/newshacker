@@ -26,12 +26,95 @@ describe('MarkdownText', () => {
     );
   });
 
-  it('renders multiple spans of each kind in one string', () => {
+  it('renders *italic* as <em>', () => {
     const { container } = render(
-      <MarkdownText text="Use `foo` then `bar`, but **really** read the docs." />,
+      <MarkdownText text="This is *kind of* a big deal." />,
     );
     expect(container.innerHTML).toBe(
-      'Use <code>foo</code> then <code>bar</code>, but <strong>really</strong> read the docs.',
+      'This is <em>kind of</em> a big deal.',
+    );
+  });
+
+  it('renders a single-character italic span', () => {
+    const { container } = render(<MarkdownText text="the variable *x* here" />);
+    expect(container.innerHTML).toBe('the variable <em>x</em> here');
+  });
+
+  it('keeps **bold** as <strong> rather than treating the inner * as italic', () => {
+    const { container } = render(
+      <MarkdownText text="This is **important** stuff." />,
+    );
+    expect(container.innerHTML).toBe(
+      'This is <strong>important</strong> stuff.',
+    );
+  });
+
+  it('leaves spaced asterisks (arithmetic) alone', () => {
+    const { container } = render(
+      <MarkdownText text="The area is width * height in pixels." />,
+    );
+    expect(container.innerHTML).toBe(
+      'The area is width * height in pixels.',
+    );
+  });
+
+  it('leaves compact arithmetic like 2*3*4 literal', () => {
+    const { container } = render(
+      <MarkdownText text="The result of 2*3*4 is 24." />,
+    );
+    expect(container.innerHTML).toBe('The result of 2*3*4 is 24.');
+  });
+
+  it('leaves a compact identifier like foo*bar*baz literal', () => {
+    const { container } = render(<MarkdownText text="the foo*bar*baz token" />);
+    expect(container.innerHTML).toBe('the foo*bar*baz token');
+  });
+
+  it('leaves a word-flanked span literal even when it ends at a boundary', () => {
+    // The closing `*` here sits at a word boundary (end of string), so only
+    // the leading-side check keeps `foo*bar*` from italicizing to foo<em>bar</em>.
+    const { container } = render(<MarkdownText text="see foo*bar*" />);
+    expect(container.innerHTML).toBe('see foo*bar*');
+  });
+
+  it('leaves glob patterns literal (asterisks abut / or .)', () => {
+    const { container } = render(
+      <MarkdownText text="match src/*/*.ts and *.ts/*.tsx files" />,
+    );
+    expect(container.innerHTML).toBe(
+      'match src/*/*.ts and *.ts/*.tsx files',
+    );
+  });
+
+  it('italicizes accented and non-Latin emphasis', () => {
+    const { container } = render(
+      <MarkdownText text="a *café* and a *日本語* word" />,
+    );
+    expect(container.innerHTML).toBe(
+      'a <em>café</em> and a <em>日本語</em> word',
+    );
+  });
+
+  it('italicizes a span that ends at a sentence boundary', () => {
+    const { container } = render(<MarkdownText text="read the *docs*." />);
+    expect(container.innerHTML).toBe('read the <em>docs</em>.');
+  });
+
+  it('does not italicize across a newline', () => {
+    const { container } = render(
+      <MarkdownText text={'first *opens but does not close\nsecond closes* here'} />,
+    );
+    expect(container.innerHTML).toBe(
+      'first *opens but does not close\nsecond closes* here',
+    );
+  });
+
+  it('renders multiple spans of each kind in one string', () => {
+    const { container } = render(
+      <MarkdownText text="Use `foo` then `bar`, but **really** read the *docs*." />,
+    );
+    expect(container.innerHTML).toBe(
+      'Use <code>foo</code> then <code>bar</code>, but <strong>really</strong> read the <em>docs</em>.',
     );
   });
 
