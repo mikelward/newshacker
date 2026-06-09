@@ -164,10 +164,19 @@ function json(body: unknown, status = 200): Response {
 // Resolve the morelink's href against the favorites URL. HN's More
 // link is relative (`favorites?id=user&p=2`), so we construct the
 // absolute URL via the `URL` constructor anchored on the origin.
-function resolveMorePath(morePath: string): string {
-  // Absolute URLs are already fine.
-  if (/^https?:\/\//i.test(morePath)) return morePath;
-  return new URL(morePath, `${HN_ORIGIN}/`).toString();
+// Returns null (stop paginating) for anything that doesn't land on
+// HN's origin: the next fetch attaches the user's HN session cookie,
+// which must never be sent to a third-party host, even if HN's HTML
+// were to hand us an absolute off-site morelink.
+function resolveMorePath(morePath: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(morePath, `${HN_ORIGIN}/`);
+  } catch {
+    return null;
+  }
+  if (url.origin !== HN_ORIGIN) return null;
+  return url.toString();
 }
 
 export interface FavoritesListDeps {

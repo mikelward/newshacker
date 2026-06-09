@@ -196,6 +196,57 @@ describe('handleHnFavoritesListRequest', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  it('stops paginating instead of following an off-origin morelink', async () => {
+    // Regression: an absolute morelink used to be fetched verbatim —
+    // with the user's HN session cookie attached. Scraped hrefs must
+    // never send credentials off news.ycombinator.com.
+    const fetchImpl = vi.fn(async (url) => {
+      if ((url as string).includes('evil.example')) {
+        throw new Error('must not fetch off-origin URL');
+      }
+      return htmlResponse(
+        favoritesHtml({
+          ids: [1, 2],
+          morePath: 'https://evil.example/steal?cookie=1',
+        }),
+      );
+    }) as unknown as typeof fetch;
+
+    const res = await handleHnFavoritesListRequest(
+      requestWithCookie('hn_session=alice%26hash'),
+      { fetchImpl },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ids: [1, 2], truncated: false });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('still follows an absolute morelink on the HN origin', async () => {
+    const pages: Record<string, string> = {
+      'https://news.ycombinator.com/favorites?id=alice': favoritesHtml({
+        ids: [1],
+        morePath: 'https://news.ycombinator.com/favorites?id=alice&p=2',
+      }),
+      'https://news.ycombinator.com/favorites?id=alice&p=2': favoritesHtml({
+        ids: [2],
+        morePath: null,
+      }),
+    };
+    const fetchImpl = vi.fn(async (url) => {
+      const html = pages[url as string];
+      if (!html) throw new Error(`unexpected url: ${url}`);
+      return htmlResponse(html);
+    }) as unknown as typeof fetch;
+
+    const res = await handleHnFavoritesListRequest(
+      requestWithCookie('hn_session=alice%26hash'),
+      { fetchImpl },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ids: [1, 2], truncated: false });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it('truncates when the page cap is hit before HN says stop', async () => {
     const fetchImpl = vi.fn(async (url) => {
       // Every page has a More link, so without the cap we would loop
