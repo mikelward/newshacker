@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { ScrollToTop } from './ScrollToTop';
@@ -37,6 +37,26 @@ describe('<ScrollToTop>', () => {
         </Routes>
       </MemoryRouter>,
     );
+    expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+  });
+
+  it('scrolls to top on a PUSH to the same pathname', () => {
+    // Regression: the effect used to be keyed on pathname, so tapping
+    // a link to the page you're already on (new history entry, same
+    // path, still PUSH) left the page scrolled down.
+    function GoTop() {
+      const navigate = useNavigate();
+      return <button onClick={() => navigate('/top')}>go-top</button>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/top']}>
+        <ScrollToTop />
+        <GoTop />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText('go-top')); // POP → PUSH
+    scrollToSpy.mockClear();
+    fireEvent.click(screen.getByText('go-top')); // PUSH → PUSH, same path
     expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
   });
 
