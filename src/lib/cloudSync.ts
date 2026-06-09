@@ -50,8 +50,8 @@ import {
 
 export const SYNC_DEBOUNCE_MS = 2000;
 // Visibility-triggered pulls are gated: tab-switching shouldn't hammer
-// /api/sync. One pull per minute of visibility change is plenty for
-// the "I switched to this tab, show me the latest" case.
+// /api/sync. One pull per half-minute of visibility change is plenty
+// for the "I switched to this tab, show me the latest" case.
 const VISIBILITY_PULL_MIN_INTERVAL_MS = 30_000;
 
 export interface SyncEntry {
@@ -285,10 +285,20 @@ function applyServerState(state: SyncState): void {
     const incoming = state[list] ?? [];
     const merged = mergeEntries(readLocal(list), incoming);
     writeLocal(list, merged);
-    runtime.lastPushed[list] = Math.max(
-      runtime.lastPushed[list],
-      maxAt(incoming),
-    );
+    // Advance the watermark only past entries the server is known to
+    // cover. Blindly bumping to the server's max `at` would classify
+    // every *local-only* entry older than that as "already pushed" —
+    // collectDelta would skip it forever, so e.g. pins made on this
+    // device before sign-in would never reach the server once another
+    // device had pushed anything newer.
+    const incomingAt = new Map(incoming.map((e) => [e.id, e.at]));
+    let bump = maxAt(incoming);
+    for (const e of merged) {
+      const serverAt = incomingAt.get(e.id);
+      const coveredByServer = serverAt !== undefined && serverAt >= e.at;
+      if (!coveredByServer && e.at <= bump) bump = e.at - 1;
+    }
+    runtime.lastPushed[list] = Math.max(runtime.lastPushed[list], bump);
   }
   if (state.avatar) {
     // LWW on a single record: strictly-newer server `at` overwrites
@@ -369,12 +379,16 @@ function collectDelta(): SyncState {
 
 async function pull(): Promise<void> {
   if (!runtime) return;
-  runtime.lastPullAttemptAt = Date.now();
-  const startedAt = runtime.lastPullAttemptAt;
+  // Snapshot the runtime: stopCloudSync (sign-out) or a stop/start for
+  // a different user can swap it while the GET is in flight, and we
+  // must not apply user A's server state to user B's session.
+  const rt = runtime;
+  rt.lastPullAttemptAt = Date.now();
+  const startedAt = rt.lastPullAttemptAt;
 
   let res: Response;
   try {
-    res = await runtime.fetchImpl('/api/sync', { method: 'GET' });
+    res = await rt.fetchImpl('/api/sync', { method: 'GET' });
   } catch (e) {
     lastPull = { at: startedAt, ok: false, error: errorMessage(e) };
     notifyDebug();
@@ -421,12 +435,20 @@ async function pull(): Promise<void> {
     avatar: !!server.avatar,
     hotThresholds: !!server.hotThresholds,
   };
-  applyServerState(server);
+  // Bail if sync was stopped or restarted for another user while the
+  // GET was in flight — the response belongs to the old session.
+  if (runtime === rt) applyServerState(server);
   notifyDebug();
 }
 
 async function push(): Promise<void> {
   if (!runtime) return;
+  // Snapshot for the same reason as pull(): the runtime can be nulled
+  // (sign-out) or replaced (different user) during the POST, and the
+  // post-await watermark bumps must not land on the wrong runtime —
+  // that would both throw on null and suppress the new session's
+  // first delta.
+  const rt = runtime;
   const delta = collectDelta();
   const total =
     delta.pinned.length +
@@ -455,7 +477,7 @@ async function push(): Promise<void> {
 
   let res: Response;
   try {
-    res = await runtime.fetchImpl('/api/sync', {
+    res = await rt.fetchImpl('/api/sync', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(delta),
@@ -515,37 +537,39 @@ async function push(): Promise<void> {
     return;
   }
 
+  // Bail if sync was stopped or restarted for another user while the
+  // POST was in flight: `rt` is dead, and writing to the live runtime
+  // would contaminate the new session's watermarks. Still record the
+  // outcome so the debug panel reflects what happened on the wire.
+  if (runtime !== rt) {
+    lastPush = {
+      at: startedAt,
+      ok: true,
+      status: res.status,
+      counts: deltaCounts,
+      avatar: hasAvatarDelta,
+      hotThresholds: hasHotDelta,
+    };
+    notifyDebug();
+    return;
+  }
+
   // Raise the high-water mark for everything we just successfully
   // pushed, BEFORE applying the server response. If we bumped only
   // after applyServerState, a concurrent change event firing between
   // the two calls could trigger a schedulePush that re-sends the same
   // delta. Bumping first makes collectDelta correctly skip entries
   // that are already on the server.
-  runtime.lastPushed.pinned = Math.max(
-    runtime.lastPushed.pinned,
-    deltaMax.pinned,
-  );
-  runtime.lastPushed.favorite = Math.max(
-    runtime.lastPushed.favorite,
-    deltaMax.favorite,
-  );
-  runtime.lastPushed.hidden = Math.max(
-    runtime.lastPushed.hidden,
-    deltaMax.hidden,
-  );
-  runtime.lastPushed.done = Math.max(
-    runtime.lastPushed.done,
-    deltaMax.done,
-  );
+  rt.lastPushed.pinned = Math.max(rt.lastPushed.pinned, deltaMax.pinned);
+  rt.lastPushed.favorite = Math.max(rt.lastPushed.favorite, deltaMax.favorite);
+  rt.lastPushed.hidden = Math.max(rt.lastPushed.hidden, deltaMax.hidden);
+  rt.lastPushed.done = Math.max(rt.lastPushed.done, deltaMax.done);
   if (hasAvatarDelta) {
-    runtime.lastPushedAvatar = Math.max(
-      runtime.lastPushedAvatar,
-      deltaAvatarAt,
-    );
+    rt.lastPushedAvatar = Math.max(rt.lastPushedAvatar, deltaAvatarAt);
   }
   if (hasHotDelta) {
-    runtime.lastPushedHotThresholds = Math.max(
-      runtime.lastPushedHotThresholds,
+    rt.lastPushedHotThresholds = Math.max(
+      rt.lastPushedHotThresholds,
       deltaHotAt,
     );
   }
@@ -637,20 +661,23 @@ function schedulePush(delayOverride?: number): void {
 
 async function runPush(): Promise<void> {
   if (!runtime) return;
-  if (runtime.pushInFlight) {
-    runtime.pushQueued = true;
+  const rt = runtime;
+  if (rt.pushInFlight) {
+    rt.pushQueued = true;
     notifyDebug();
     return;
   }
-  runtime.pushInFlight = true;
+  rt.pushInFlight = true;
   notifyDebug();
   try {
     await push();
   } finally {
-    if (runtime) {
-      runtime.pushInFlight = false;
-      if (runtime.pushQueued) {
-        runtime.pushQueued = false;
+    // Identity check, not just null: a stop/start swap mid-push means
+    // the live runtime's flags are not ours to touch.
+    if (runtime === rt) {
+      rt.pushInFlight = false;
+      if (rt.pushQueued) {
+        rt.pushQueued = false;
         schedulePush(0);
       }
       notifyDebug();
