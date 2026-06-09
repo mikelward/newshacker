@@ -154,7 +154,10 @@ export function formatTimeAgo(unixSeconds: number, now: Date = new Date()): stri
     return `${d}d`;
   }
   if (diff < YEAR) {
+    // 30-day months × 365-day year means 360–365 days floors to 12 —
+    // roll that over to "1y" rather than render a nonsensical "12mo".
     const mo = Math.floor(diff / MONTH);
+    if (mo >= 12) return '1y';
     return `${mo}mo`;
   }
   const y = Math.floor(diff / YEAR);
