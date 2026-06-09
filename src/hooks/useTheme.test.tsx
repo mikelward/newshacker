@@ -114,4 +114,17 @@ describe('useTheme', () => {
     expect(result.current.resolved).toBe('light');
     expect(meta.content).toBe('#f6f6ef');
   });
+
+  it('repaints data-theme on a cross-tab storage event', () => {
+    // Regression: the storage listener updated React state but never
+    // applied the <html data-theme> attribute, so the receiving tab's
+    // Mode picker flipped while the page colors stayed stale.
+    const { result } = renderHook(() => useTheme());
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: THEME_STORAGE_KEY }));
+    });
+    expect(result.current.theme).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
 });

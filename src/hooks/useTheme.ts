@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   THEME_CHANGE_EVENT,
   type Theme,
+  applyTheme,
   applyThemeColorMeta,
   getStoredTheme,
   resolveTheme,
@@ -19,6 +20,13 @@ export function useTheme() {
       const next = getStoredTheme();
       setThemeState(next);
       setResolved(resolveTheme(next));
+      // Repaint, not just re-render: the page is styled off the
+      // `data-theme` attribute on <html>, which only the tab that
+      // called setStoredTheme has applied. A cross-tab `storage`
+      // event must apply it here too or this tab's picker flips
+      // while the page colors stay stale. (Idempotent for the
+      // same-tab THEME_CHANGE_EVENT case.)
+      applyTheme(next);
     };
     window.addEventListener(THEME_CHANGE_EVENT, sync);
     window.addEventListener('storage', sync);
