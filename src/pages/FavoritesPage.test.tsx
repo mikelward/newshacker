@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { QueryClient } from '@tanstack/react-query';
 import { FavoritesPage } from './FavoritesPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addFavoriteId } from '../lib/favorites';
+import { ME_QUERY_KEY } from '../hooks/useAuth';
+import { listQueue } from '../lib/hnFavoriteQueue';
 
 describe('<FavoritesPage>', () => {
   beforeEach(() => {
@@ -63,6 +66,34 @@ describe('<FavoritesPage>', () => {
       ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
       : [];
     expect(parsed.filter((e) => !e.deleted)).toEqual([]);
+  });
+
+  it('enqueues the HN write-back when a signed-in user unfavorites', async () => {
+    // Regression: the page used to call the raw store helper, so the
+    // story stayed favorited on news.ycombinator.com forever.
+    installHNFetchMock({
+      items: { 5: makeStory(5, { title: 'Five' }) },
+    });
+    addFavoriteId(5);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    client.setQueryData(ME_QUERY_KEY, { username: 'alice' });
+
+    renderWithProviders(<FavoritesPage />, { client });
+    await waitFor(() => {
+      expect(screen.getByText('Five')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /unfavorite/i }));
+    });
+
+    await waitFor(() => {
+      expect(
+        listQueue('alice').map((e) => ({ id: e.id, action: e.action })),
+      ).toEqual([{ id: 5, action: 'unfavorite' }]);
+    });
   });
 
   it('orders favorited stories newest first by favorite time', async () => {

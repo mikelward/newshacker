@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FAVORITES_CHANGE_EVENT,
   getFavoriteEntries,
-  removeFavoriteId,
 } from '../lib/favorites';
+import { useFavorites } from '../hooks/useFavorites';
 import { LibraryStoryList } from '../components/LibraryStoryList';
 import { HeartFilledIcon } from '../components/icons';
 
@@ -26,17 +26,18 @@ export function FavoritesPage() {
     };
   }, []);
 
-  const handleUnfavorite = useCallback((id: number) => {
-    removeFavoriteId(id);
-  }, []);
+  // Route through useFavorites().unfavorite, not the raw store helper:
+  // this is a user-originated unfavorite, so for signed-in users it
+  // must also enqueue the write-back that unfavorites the story on HN.
+  const { unfavorite } = useFavorites();
 
   const rightAction = useMemo(
     () => ({
       label: 'Unfavorite',
       icon: <HeartFilledIcon />,
-      onToggle: handleUnfavorite,
+      onToggle: unfavorite,
     }),
-    [handleUnfavorite],
+    [unfavorite],
   );
 
   return (
