@@ -144,6 +144,13 @@ describe('formatTimeAgo', () => {
     expect(formatTimeAgo(nowS - 60 * 60 * 24 * 400, now)).toBe('1y');
   });
 
+  it('rolls 360–365 days over to "1y" instead of "12mo"', () => {
+    // Regression: 30-day months against a 365-day year floored this
+    // window to a nonsensical "12mo".
+    expect(formatTimeAgo(nowS - 60 * 60 * 24 * 362, now)).toBe('1y');
+    expect(formatTimeAgo(nowS - 60 * 60 * 24 * 359, now)).toBe('11mo');
+  });
+
   it('clamps future times to "just now"', () => {
     expect(formatTimeAgo(nowS + 60, now)).toBe('just now');
   });
