@@ -1067,11 +1067,15 @@ retryAfterSeconds: N }` plus a `Retry-After: N` header; the UI renders
 a short "Too many requests — try again later." message in the
 affected summary card.
 
-Client IP is read from `x-forwarded-for` (leftmost entry) with
-`x-real-ip` as a fallback. IPv4 addresses are bucketed exactly; IPv6
-addresses are reduced to their `/64` prefix so a single subscriber
-can't trivially cycle source addresses within the subnet their ISP
-delegated them. If neither header is present (localhost, unusual
+Client IP is read from `x-real-ip` (set by Vercel's proxy from the
+actual peer, so a client can't influence it) with `x-forwarded-for`'s
+leftmost entry as a fallback — preferring XFF would let a client on a
+generic proxy chain prepend a fresh fake value per request and land
+every request in its own bucket. IPv4 addresses are bucketed exactly
+(including IPv4-mapped IPv6, `::ffff:a.b.c.d`, which buckets by the
+embedded dotted quad); other IPv6 addresses are reduced to their `/64`
+prefix so a single subscriber can't trivially cycle source addresses
+within the subnet their ISP delegated them. If neither header is present (localhost, unusual
 proxy), the handler **fails open** and skips the check rather than
 blocking. The rate-limit gate runs only after every free validation
 branch (story eligibility, API-key presence, and — for
