@@ -202,15 +202,34 @@
   gap: 8px 12px;
   padding: 8px 12px;
   font-size: 0.85rem;
-  color: #6b6b6b;
-  background: #f0f0e8;
-  border-top: 1px solid #e3e3d9;
+  /* Theme vars, not literals — hardcoded light values rendered as a
+     bright beige band in dark mode. */
+  color: var(--nh-meta);
+  background: var(--nh-bg-code);
+  border-top: 1px solid var(--nh-border);
 }
 
 .feed-refresh--failed {
   color: #8a3b00;
   background: #fbe9dd;
   border-top-color: #f0cdb6;
+}
+
+/* Dark equivalents of the failed strip; same double-selector pattern
+   as the token blocks in global.css (explicit data-theme choice wins,
+   OS preference fills in when no choice is stored). */
+:root[data-theme='dark'] .feed-refresh--failed {
+  color: #f0a979;
+  background: #3a2417;
+  border-top-color: #57341f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .feed-refresh--failed {
+    color: #f0a979;
+    background: #3a2417;
+    border-top-color: #57341f;
+  }
 }
 
 .feed-refresh__msg {

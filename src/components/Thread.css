@@ -156,6 +156,18 @@
   padding: 10px;
 }
 
+.thread__action-icon {
+  display: block;
+  /* Override the inline width/height on the Material SVGs (set to 28px
+     in the JSX) so the touch glyph is 22px in the 44px button (50%,
+     matching the icon/button ratio). The pointer-gated block shrinks
+     both button and glyph together — it must come AFTER this base rule
+     in source order (equal specificity), or the 20px pointer size
+     never wins the cascade. */
+  width: 22px;
+  height: 22px;
+}
+
 /* Pointer-capable devices: shrink the action bar a touch more. The 44px
    base is the touch tap-target floor (Apple HIG 44pt / WCAG 2.5.5 AAA);
    under a precise pointer it can go a little denser. Min-height drops to
@@ -194,16 +206,6 @@
 .thread__action--active {
   color: var(--nh-orange);
   border-color: var(--nh-orange);
-}
-
-.thread__action-icon {
-  display: block;
-  /* Override the inline width/height on the Material SVGs (set to 28px
-     in the JSX) so the touch glyph is 22px in the 44px button (50%,
-     matching the icon/button ratio). The pointer-gated block shrinks
-     both button and glyph together. */
-  width: 22px;
-  height: 22px;
 }
 
 .thread__summary-card {
