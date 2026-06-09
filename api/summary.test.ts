@@ -1036,6 +1036,15 @@ describe('rate limiting (helpers)', () => {
     expect(extractClientIp(h)).toBe('198.51.100.42');
   });
 
+  it('prefers x-real-ip over x-forwarded-for when both are present', () => {
+    // XFF's leftmost entry is client-suppliable; a spoofed value per
+    // request would otherwise land every request in a fresh bucket.
+    const h = new Headers();
+    h.set('x-forwarded-for', '6.6.6.6, 203.0.113.7');
+    h.set('x-real-ip', '203.0.113.7');
+    expect(extractClientIp(h)).toBe('203.0.113.7');
+  });
+
   it('returns null when neither header is present', () => {
     expect(extractClientIp(new Headers())).toBeNull();
   });
@@ -1068,6 +1077,18 @@ describe('rate limiting (helpers)', () => {
     // `fe80::1%eth0` and `fe80::1%wlan0` should hash to the same /64.
     expect(normalizeIpForRateLimit('fe80::1%eth0')).toBe(
       normalizeIpForRateLimit('fe80::1%wlan0'),
+    );
+  });
+
+  it('buckets IPv4-mapped IPv6 addresses by their embedded IPv4', () => {
+    // Regression: the /64 truncation used to collapse every
+    // `::ffff:a.b.c.d` client into the single shared key `0:0:0:0`.
+    expect(normalizeIpForRateLimit('::ffff:203.0.113.7')).toBe('203.0.113.7');
+    expect(normalizeIpForRateLimit('::FFFF:198.51.100.42')).toBe(
+      '198.51.100.42',
+    );
+    expect(normalizeIpForRateLimit('::ffff:1.2.3.4')).not.toBe(
+      normalizeIpForRateLimit('::ffff:5.6.7.8'),
     );
   });
 

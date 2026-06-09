@@ -152,16 +152,18 @@ function parsePositiveIntEnv(name: string, fallback: number): number | null {
   return n;
 }
 
+// Prefer `x-real-ip` over client-suppliable `x-forwarded-for` — see
+// api/summary.ts for the rationale.
 export function extractClientIp(headers: Headers): string | null {
-  const xff = headers.get('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
   const xri = headers.get('x-real-ip');
   if (xri) {
     const trimmed = xri.trim();
     if (trimmed) return trimmed;
+  }
+  const xff = headers.get('x-forwarded-for');
+  if (xff) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
   }
   return null;
 }
@@ -173,6 +175,9 @@ export function normalizeIpForRateLimit(raw: string): string {
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(trimmed)) return trimmed;
   if (!trimmed.includes(':')) return trimmed;
   const addr = trimmed.split('%')[0]!;
+  // IPv4-mapped IPv6 buckets by the dotted quad — see api/summary.ts.
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(addr);
+  if (mapped) return mapped[1]!;
   const groups = addr.includes('::')
     ? expandIPv6Shorthand(addr)
     : addr.split(':');
