@@ -53,10 +53,15 @@ export function HeaderAccountMenu() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
-    window.addEventListener('pointerdown', onDown);
+    // Capture phase, not bubble: TooltipButton calls stopPropagation()
+    // on pointerdown (long-press plumbing), and React's synthetic stop
+    // also halts native bubbling — so a bubble-phase listener never
+    // hears taps on any TooltipButton (pin buttons, toolbar, drawer ☰)
+    // and the menu would hang open. Capture runs before any of that.
+    window.addEventListener('pointerdown', onDown, true);
     window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointerdown', onDown, true);
       window.removeEventListener('keydown', onKey);
     };
   }, [open]);
