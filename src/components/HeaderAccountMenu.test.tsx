@@ -146,6 +146,44 @@ describe('<HeaderAccountMenu>', () => {
     });
   });
 
+  it('closes on an outside tap even when the target stops propagation', async () => {
+    // Regression: the outside-click listener was bubble-phase, so any
+    // control that stops pointerdown propagation (every TooltipButton —
+    // pin buttons, toolbar, drawer ☰) left the menu hanging open. The
+    // listener must run in the capture phase.
+    mockFetch(async (url) => {
+      if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
+      return jsonResponse({}, 404);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <HeaderAccountMenu />
+        <button
+          data-testid="outside-btn"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          outside
+        </button>
+      </>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('user-avatar')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('header-account-btn'));
+    expect(screen.getByTestId('header-account-menu')).toBeInTheDocument();
+
+    await user.pointer({
+      keys: '[MouseLeft]',
+      target: screen.getByTestId('outside-btn'),
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('header-account-menu'),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('defaults to a GitHub avatar picture for the logged-in HN username', async () => {
     mockFetch(async (url) => {
       if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
