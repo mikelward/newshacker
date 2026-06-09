@@ -428,6 +428,22 @@ describe('handleAdminRequest', () => {
       expect(res.status).toBe(503);
     });
 
+    it('returns 503 when HN answers 5xx/429 during verification', async () => {
+      // Regression: hn_status_5xx used to fall through to 403,
+      // presenting an HN outage as "Forbidden / wrong account" instead
+      // of "HN unavailable, retry". Still fail-closed either way.
+      for (const reason of ['hn_status_500', 'hn_status_503', 'hn_status_429']) {
+        const res = await handleAdminRequest(
+          requestWithCookie('hn_session=mikelward%26hash'),
+          {
+            pingRedis: async () => ({ ok: false }),
+            verifyHn: async () => ({ ok: false, reason }),
+          },
+        );
+        expect(res.status).toBe(503);
+      }
+    });
+
     it('does not round-trip to HN when the cookie prefix is obviously non-admin', async () => {
       // A non-admin cookie is safe to reject without burning an HN
       // call — the only thing HN could say is "yes, you're alice", but

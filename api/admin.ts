@@ -491,7 +491,12 @@ export async function handleAdminRequest(
         hnStatus: verified.httpStatus,
         hnSnippet: verified.pagetopSnippet,
       },
-      verified.reason === 'timeout' || verified.reason === 'unreachable'
+      // HN 5xx/429 means verification couldn't run, same as a timeout —
+      // surface "HN unavailable, retry" (503), not "Forbidden". Still
+      // fails closed either way.
+      verified.reason === 'timeout' ||
+        verified.reason === 'unreachable' ||
+        /^hn_status_(?:429|5\d\d)$/.test(verified.reason)
         ? 503
         : 403,
     );
