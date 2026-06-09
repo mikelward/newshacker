@@ -157,4 +157,34 @@ describe('sanitizeCommentHtml', () => {
     );
     expect(result).toBe('<p>the reply</p>');
   });
+
+  it('preserves code blocks when stripping a leading quote', () => {
+    // Regression: the stripper used to rebuild the comment from
+    // <p>…</p> matches only. <pre> is a top-level sibling (the parser
+    // auto-closes <p> before it), so quote-then-code comments lost
+    // their code block entirely.
+    const result = sanitizeCommentHtml(
+      '&gt; some quote<p>here is my fix:<p><pre><code>x = 1</code></pre><p>hope that helps',
+    );
+    expect(result).toBe(
+      '<p>here is my fix:</p><pre><code>x = 1</code></pre><p>hope that helps</p>',
+    );
+  });
+
+  it('preserves a trailing code block when stripping a leading quote', () => {
+    const result = sanitizeCommentHtml(
+      '&gt; q<p>my reply:<p><pre><code>code</code></pre>',
+    );
+    expect(result).toBe('<p>my reply:</p><pre><code>code</code></pre>');
+  });
+
+  it('keeps a code block that directly follows the quote', () => {
+    // With no reply text at all, paragraph normalization folds the
+    // quote and code into one block, so nothing is stripped — but the
+    // code must survive either way.
+    const result = sanitizeCommentHtml(
+      '&gt; quote<p><pre><code>only code</code></pre>',
+    );
+    expect(result).toContain('<code>only code</code>');
+  });
 });

@@ -82,21 +82,25 @@ function normalizeParagraphs(html: string): string {
 // reply's own content shows first. If the comment is nothing but quote
 // paragraphs, leave it alone rather than render an empty body.
 function stripLeadingQuoteParagraphs(html: string): string {
-  const paragraphs = html.match(/<p>[\s\S]*?<\/p>/g);
-  if (!paragraphs) return html;
-
-  let firstNonQuote = 0;
-  while (firstNonQuote < paragraphs.length) {
-    const inner = paragraphs[firstNonQuote].slice(3, -4);
-    const text = inner.replace(/<[^>]+>/g, '').trim();
-    if (/^(?:&gt;|>)\s/.test(text)) {
-      firstNonQuote++;
-    } else {
-      break;
-    }
+  // Peel quote paragraphs off the *front* of the string only — never
+  // rebuild the comment from <p> matches. Code blocks (<pre><code>) are
+  // top-level siblings of the paragraphs (the parser auto-closes <p>
+  // before <pre>), so a rebuild-from-<p>s would silently delete them.
+  const LEADING_P_RE = /^\s*<p>([\s\S]*?)<\/p>/;
+  let rest = html;
+  let stripped = false;
+  for (;;) {
+    const m = LEADING_P_RE.exec(rest);
+    if (!m) break;
+    const text = m[1].replace(/<[^>]+>/g, '').trim();
+    if (!/^(?:&gt;|>)\s/.test(text)) break;
+    rest = rest.slice(m[0].length);
+    stripped = true;
   }
 
-  if (firstNonQuote === 0) return html;
-  if (firstNonQuote === paragraphs.length) return html;
-  return paragraphs.slice(firstNonQuote).join('');
+  if (!stripped) return html;
+  // If the comment is nothing but quote paragraphs, leave it alone
+  // rather than render an empty body.
+  if (!rest.trim()) return html;
+  return rest;
 }
