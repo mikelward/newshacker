@@ -42,4 +42,19 @@ describe('useChrome', () => {
     const { result } = renderHook(() => useChrome());
     expect(result.current.chrome).toBe('classic');
   });
+
+  it('repaints data-chrome on a cross-tab storage event', () => {
+    // Regression: the storage listener updated React state but never
+    // applied the <html data-chrome> attribute, so the receiving tab's
+    // picker flipped while the page chrome stayed stale until reload.
+    const { result } = renderHook(() => useChrome());
+    window.localStorage.setItem(CHROME_STORAGE_KEY, 'classic');
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: CHROME_STORAGE_KEY }));
+    });
+    expect(result.current.chrome).toBe('classic');
+    expect(document.documentElement.getAttribute('data-chrome')).toBe(
+      'classic',
+    );
+  });
 });
