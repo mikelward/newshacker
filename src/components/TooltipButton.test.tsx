@@ -387,6 +387,35 @@ describe('TooltipButton', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it('does not swallow a later mouse click after a long-press with no click', () => {
+    // Regression: a long-press whose click never arrived (finger slid
+    // off before release) left the swallow latch set, and the next
+    // MOUSE click on the button was silently eaten.
+    const onClick = vi.fn();
+    render(
+      <TooltipButton tooltip="Pin" data-testid="btn" onClick={onClick}>
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn');
+    // Long-press fires, but no click follows.
+    dispatch(btn, 'pointerdown', { pointerType: 'touch' });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    dispatch(btn, 'pointerup', { pointerType: 'touch' });
+
+    // Next gesture is a plain mouse click.
+    dispatch(btn, 'pointerdown', { pointerType: 'mouse' });
+    dispatch(btn, 'pointerup', { pointerType: 'mouse' });
+    act(() => {
+      btn.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
   it('prevents the synthetic contextmenu while a long-press is pending', () => {
     render(
       <TooltipButton tooltip="Pin" data-testid="btn">

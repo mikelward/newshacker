@@ -191,6 +191,12 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         // are harmless to ancestors since those listeners key off
         // state they set in their own pointerdown handler.
         e.stopPropagation();
+        // Reset the long-press latch for EVERY pointer type before the
+        // mouse early-return below. If a long-press fired but no click
+        // followed (finger slid off before release), the stale `true`
+        // would otherwise swallow the next mouse click on a hybrid
+        // device.
+        activatedRef.current = false;
         // Mouse gets the hover-triggered tooltip via mouseenter; only
         // fire the long-press behavior for touch/pen.
         if (e.pointerType === 'mouse') return;
@@ -199,7 +205,6 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
           y: e.clientY,
           pointerId: e.pointerId,
         };
-        activatedRef.current = false;
         clearShowTimer();
         showTimerRef.current = window.setTimeout(() => {
           showTimerRef.current = null;
