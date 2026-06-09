@@ -101,10 +101,15 @@ function isResponse(x: unknown): x is HnFavoritesListResponse {
 
 async function bootstrapPull(): Promise<void> {
   if (!runtime) return;
+  // Snapshot the runtime: a sign-out (or an account switch) while the
+  // GET is in flight must not merge the old user's HN favorites into
+  // the store under the new session — cloudSync would then push them
+  // into the new user's server state.
+  const rt = runtime;
   const startedAt = Date.now();
   let res: Response;
   try {
-    res = await runtime.fetchImpl('/api/hn-favorites-list', { method: 'GET' });
+    res = await rt.fetchImpl('/api/hn-favorites-list', { method: 'GET' });
   } catch (e) {
     lastBootstrap = {
       at: startedAt,
@@ -139,13 +144,15 @@ async function bootstrapPull(): Promise<void> {
     return;
   }
 
+  if (runtime !== rt) return; // session changed mid-flight — discard
+
   const local = getAllFavoriteEntries();
   const merged = mergeHnFavorites(local, body.ids);
   const before = new Set(local.map((e) => e.id));
   const added = merged.filter((e) => !before.has(e.id)).length;
 
   if (added > 0) replaceFavoriteEntries(merged);
-  if (runtime) runtime.bootstrapped = true;
+  rt.bootstrapped = true;
 
   lastBootstrap = {
     at: startedAt,
@@ -196,22 +203,30 @@ function scheduleNextTick(): void {
   }, delay);
 }
 
-async function processOne(entry: {
-  id: number;
-  action: HnFavoriteAction;
-}): Promise<'stop' | 'continue'> {
-  if (!runtime) return 'stop';
+// `rt` is the runtime that owned this entry when the tick started.
+// All queue writes key off rt.username — if the session was swapped
+// while the POST was in flight, the outcome still belongs to the OLD
+// user's queue, and the module-level runtime would be the wrong (new)
+// user's. Dereferencing the module runtime after the await also threw
+// on sign-out (null).
+async function processOne(
+  rt: Runtime,
+  entry: {
+    id: number;
+    action: HnFavoriteAction;
+  },
+): Promise<'stop' | 'continue'> {
   const startedAt = Date.now();
   let res: Response;
   try {
-    res = await runtime.fetchImpl('/api/hn-favorite', {
+    res = await rt.fetchImpl('/api/hn-favorite', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: entry.id, action: entry.action }),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'network error';
-    markFailure(runtime.username, entry.id, msg);
+    markFailure(rt.username, entry.id, msg);
     lastWorkerAttempt = {
       at: startedAt,
       id: entry.id,
@@ -223,7 +238,7 @@ async function processOne(entry: {
   }
 
   if (res.status === 204 || res.ok) {
-    dropFromQueue(runtime.username, entry.id);
+    dropFromQueue(rt.username, entry.id);
     lastWorkerAttempt = {
       at: startedAt,
       id: entry.id,
@@ -235,7 +250,10 @@ async function processOne(entry: {
   }
 
   if (res.status === 401) {
-    runtime.stalledOnAuth = true;
+    // Stall the runtime this POST belonged to. If the session was
+    // swapped mid-flight, the new user's worker must not inherit the
+    // old session's dead-auth verdict.
+    rt.stalledOnAuth = true;
     lastWorkerAttempt = {
       at: startedAt,
       id: entry.id,
@@ -251,7 +269,7 @@ async function processOne(entry: {
     // Client-side bug or a permanently-bad request — dropping is
     // safer than looping. 404/405 shouldn't happen in practice but
     // treat them as terminal for defense-in-depth.
-    dropFromQueue(runtime.username, entry.id);
+    dropFromQueue(rt.username, entry.id);
     lastWorkerAttempt = {
       at: startedAt,
       id: entry.id,
@@ -264,7 +282,7 @@ async function processOne(entry: {
   }
 
   // 429, 502, 503, 504, or any other transient — retry.
-  markFailure(runtime.username, entry.id, `status ${res.status}`);
+  markFailure(rt.username, entry.id, `status ${res.status}`);
   lastWorkerAttempt = {
     at: startedAt,
     id: entry.id,
@@ -280,20 +298,23 @@ async function tick(): Promise<void> {
   if (!runtime) return;
   if (runtime.draining) return;
   if (runtime.stalledOnAuth) return;
-  runtime.draining = true;
+  const rt = runtime;
+  rt.draining = true;
   try {
     // Loop until nothing's ready, handling each entry in turn.
     // peekReady returns a fresh view each iteration so a markFailure
     // that just bumped nextAttemptAt gets excluded on the next pass.
-    while (runtime && !runtime.stalledOnAuth) {
-      const ready = peekReady(runtime.username);
+    // Bail when the runtime is stopped or swapped mid-drain — the new
+    // session kicks its own tick from startHnFavoritesSync.
+    while (runtime === rt && !rt.stalledOnAuth) {
+      const ready = peekReady(rt.username);
       if (ready.length === 0) break;
-      const outcome = await processOne(ready[0]);
+      const outcome = await processOne(rt, ready[0]);
       if (outcome === 'stop') break;
     }
   } finally {
-    if (runtime) runtime.draining = false;
-    scheduleNextTick();
+    rt.draining = false;
+    if (runtime === rt) scheduleNextTick();
   }
 }
 
