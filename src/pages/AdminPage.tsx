@@ -683,6 +683,20 @@ export function AdminPage() {
     retry: false,
   });
 
+  // `useAuth` caches /api/me for up to an hour, so the client can
+  // still think it's authenticated after the server-side session
+  // cookie has expired or been cleared. When /api/admin returns 401
+  // ("Not authenticated"), treat that as authoritative: clear the
+  // cached "me" and bounce to /login. Otherwise the user would be
+  // stuck on a generic "could not load" error. The cache write lives
+  // in an effect because setQueryData synchronously notifies every
+  // ['me'] subscriber — doing that during render is a cross-component
+  // state update React forbids.
+  const sessionExpired = error instanceof AdminError && error.status === 401;
+  useEffect(() => {
+    if (sessionExpired) client.setQueryData(ME_QUERY_KEY, null);
+  }, [sessionExpired, client]);
+
   if (auth.isLoading) {
     return (
       <article className="admin-page">
@@ -692,24 +706,7 @@ export function AdminPage() {
     );
   }
 
-  if (!auth.isAuthenticated) {
-    return (
-      <Navigate
-        to="/login"
-        replace
-        state={{ from: location.pathname }}
-      />
-    );
-  }
-
-  // `useAuth` caches /api/me for up to an hour, so the client can
-  // still think it's authenticated after the server-side session
-  // cookie has expired or been cleared. When /api/admin returns 401
-  // ("Not authenticated"), treat that as authoritative: clear the
-  // cached "me" and bounce to /login. Otherwise the user would be
-  // stuck on a generic "could not load" error.
-  if (error instanceof AdminError && error.status === 401) {
-    client.setQueryData(ME_QUERY_KEY, null);
+  if (!auth.isAuthenticated || sessionExpired) {
     return (
       <Navigate
         to="/login"

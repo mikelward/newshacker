@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
@@ -106,6 +106,16 @@ export function ThresholdTuningPage() {
     retry: false,
   });
 
+  // Same pattern as AdminPage: a 401 from the gate means the cached
+  // /api/me is stale — clear it and bounce to /login. The cache write
+  // lives in an effect because setQueryData synchronously notifies
+  // every ['me'] subscriber, which must not happen during render.
+  const sessionExpired =
+    gateError instanceof GateError && gateError.status === 401;
+  useEffect(() => {
+    if (sessionExpired) client.setQueryData(ME_QUERY_KEY, null);
+  }, [sessionExpired, client]);
+
   if (auth.isLoading || (enabled && gateLoading)) {
     return (
       <article className="admin-page">
@@ -115,14 +125,7 @@ export function ThresholdTuningPage() {
     );
   }
 
-  if (!auth.isAuthenticated) {
-    return (
-      <Navigate to="/login" replace state={{ from: location.pathname }} />
-    );
-  }
-
-  if (gateError instanceof GateError && gateError.status === 401) {
-    client.setQueryData(ME_QUERY_KEY, null);
+  if (!auth.isAuthenticated || sessionExpired) {
     return (
       <Navigate to="/login" replace state={{ from: location.pathname }} />
     );
