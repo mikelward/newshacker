@@ -242,7 +242,10 @@ export async function handleTelemetryEvents(
   if (!verified.ok) {
     return json(
       { error: 'Forbidden', reason: verified.reason, hnStatus: verified.httpStatus },
-      verified.reason === 'timeout' || verified.reason === 'unreachable'
+      // HN 5xx/429 = verification couldn't run → 503, same as timeout.
+      verified.reason === 'timeout' ||
+        verified.reason === 'unreachable' ||
+        /^hn_status_(?:429|5\d\d)$/.test(verified.reason ?? '')
         ? 503
         : 403,
     );

@@ -181,6 +181,19 @@ describe('handleAdminStatsRequest — auth gate', () => {
     expect(res.status).toBe(503);
   });
 
+  it('returns 503 when HN answers 5xx/429 during verification', async () => {
+    // Regression: hn_status_5xx used to fall through to 403.
+    for (const reason of ['hn_status_500', 'hn_status_502', 'hn_status_429']) {
+      const res = await handleAdminStatsRequest(
+        requestWithCookie('hn_session=mikelward%26abc'),
+        {
+          verifyHn: async () => ({ ok: false, reason }),
+        },
+      );
+      expect(res.status).toBe(503);
+    }
+  });
+
   it('returns 403 when HN says the cookie belongs to someone else', async () => {
     const res = await handleAdminStatsRequest(
       requestWithCookie('hn_session=mikelward%26abc'),

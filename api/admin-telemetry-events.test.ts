@@ -88,6 +88,16 @@ describe('handleTelemetryEvents', () => {
     expect(res.status).toBe(503);
   });
 
+  it('returns 503 when HN answers 5xx/429 during verification', async () => {
+    // Regression: hn_status_5xx used to fall through to 403.
+    for (const reason of ['hn_status_500', 'hn_status_502', 'hn_status_429']) {
+      const res = await handleTelemetryEvents(request('GET'), {
+        verifyHn: async () => ({ ok: false, reason }),
+      });
+      expect(res.status).toBe(503);
+    }
+  });
+
   it('returns empty arrays when Redis is not configured', async () => {
     // No env stubs — `hasRedisCredentials()` sees nothing and the
     // handler returns the empty-payload happy path so the UI shows
