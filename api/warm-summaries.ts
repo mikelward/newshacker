@@ -1268,7 +1268,11 @@ async function defaultFetchFeedIds(
 
 export function parseWarmFeed(raw: string | null): WarmFeed | null {
   if (!raw) return DEFAULT_FEED;
-  return raw in FEED_ENDPOINTS ? (raw as WarmFeed) : null;
+  // `in` would also accept Object.prototype keys (`toString`,
+  // `__proto__`, …) and interpolate garbage into the Firebase URL.
+  return Object.prototype.hasOwnProperty.call(FEED_ENDPOINTS, raw)
+    ? (raw as WarmFeed)
+    : null;
 }
 
 export function parseWarmN(raw: string | null, fallback: number): number | null {
