@@ -70,13 +70,12 @@ export function LibraryStoryList({
     isHotStory(story, now, hotThresholds) ? ('hot' as const) : null;
 
   const items = useQuery({
-    queryKey: [
-      'libraryStoryItems',
-      queryKey,
-      ids.length,
-      ids[0] ?? null,
-      ids[ids.length - 1] ?? null,
-    ],
+    // Key on the full id list: rows are matched to `items.data`
+    // positionally (`items.data?.[idx]` ↔ `ids[idx]`), so any key
+    // signature weaker than the whole list (e.g. length+first+last)
+    // can collide across a mid-list change and render another story's
+    // title against the wrong id.
+    queryKey: ['libraryStoryItems', queryKey, ids],
     queryFn: ({ signal }) => getItems(ids, signal),
     enabled: ids.length > 0,
   });
