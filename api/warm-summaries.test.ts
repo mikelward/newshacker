@@ -239,6 +239,20 @@ describe('parseWarmFeed', () => {
     expect(parseWarmFeed('')).toBe<WarmFeed>('top'); // empty → default
     expect(parseWarmFeed('../etc/passwd')).toBeNull();
   });
+  it('rejects Object.prototype keys', () => {
+    // Regression: `raw in FEED_ENDPOINTS` walked the prototype chain,
+    // so `?feed=toString` was accepted and a function got interpolated
+    // into the Firebase URL.
+    for (const key of [
+      'toString',
+      'valueOf',
+      'constructor',
+      '__proto__',
+      'hasOwnProperty',
+    ]) {
+      expect(parseWarmFeed(key)).toBeNull();
+    }
+  });
 });
 
 describe('parseWarmN', () => {
