@@ -108,6 +108,37 @@ describe('<EditAvatarForm>', () => {
     expect(saved.gravatarHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('shows an inline error when hashing the email fails', async () => {
+    // Regression: a gravatarHashFromEmail rejection (crypto.subtle
+    // unavailable in non-secure contexts) used to escape the submit
+    // handler unhandled — the form un-busied with no feedback.
+    const digestSpy = vi
+      .spyOn(crypto.subtle, 'digest')
+      .mockRejectedValueOnce(new Error('no subtle crypto'));
+    try {
+      const user = userEvent.setup();
+      const onSave = vi.fn();
+      render(
+        <EditAvatarForm
+          hnUsername="alice"
+          initialPrefs={{ source: 'github' }}
+          onSave={onSave}
+          onCancel={() => {}}
+        />,
+      );
+      await user.click(screen.getByTestId('edit-avatar-source-gravatar'));
+      await user.type(
+        screen.getByTestId('edit-avatar-email-input'),
+        'alice@example.com',
+      );
+      await user.click(screen.getByTestId('edit-avatar-save'));
+      expect(onSave).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(/could not hash/i);
+    } finally {
+      digestSpy.mockRestore();
+    }
+  });
+
   it('rejects a malformed email', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
