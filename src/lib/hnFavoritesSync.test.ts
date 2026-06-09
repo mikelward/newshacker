@@ -108,6 +108,31 @@ describe('startHnFavoritesSync bootstrap pull', () => {
     ]);
   });
 
+  it('discards a bootstrap pull that resolves after an account switch', async () => {
+    // Regression: a sign-out + different sign-in while the GET was in
+    // flight used to merge the OLD user's HN favorites into the store
+    // under the NEW session (cloudSync would then push them to the new
+    // user's server state).
+    let releaseGet!: (r: Response) => void;
+    const gate = new Promise<Response>((resolve) => {
+      releaseGet = resolve;
+    });
+    const aliceFetch = vi.fn().mockReturnValue(gate);
+    const alicePromise = startHnFavoritesSync('alice', {
+      fetchImpl: aliceFetch,
+    });
+
+    stopHnFavoritesSync();
+    const bobFetch = vi.fn().mockResolvedValue(jsonResponse({ ids: [] }));
+    await startHnFavoritesSync('bob', { fetchImpl: bobFetch });
+
+    releaseGet(jsonResponse({ ids: [555] }));
+    await alicePromise;
+    await flushMicrotasks();
+
+    expect(getAllFavoriteEntries()).toEqual([]);
+  });
+
   it('does not rewrite storage when nothing would change', async () => {
     replaceFavoriteEntries([{ id: 1, at: 100 }]);
     const spy = vi.spyOn(Storage.prototype, 'setItem');
@@ -316,6 +341,67 @@ describe('worker — drains the queue via /api/hn-favorite', () => {
 
     expect(onFavorite).not.toHaveBeenCalled();
     expect(listQueue('bob')).toHaveLength(1);
+  });
+
+  it('applies a POST outcome that resolves after an account switch to the OLD user\'s queue', async () => {
+    // Regression: processOne used to read the module runtime after the
+    // await — a sign-out crashed it (null deref → unhandled rejection),
+    // and after an account switch the success path dropped the entry
+    // from the NEW user's queue instead of the old one's.
+    let releasePost!: (r: Response) => void;
+    const postGate = new Promise<Response>((resolve) => {
+      releasePost = resolve;
+    });
+    const aliceFetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/hn-favorites-list') return jsonResponse({ ids: [] });
+      return postGate;
+    }) as typeof fetch;
+
+    await startHnFavoritesSync('alice', { fetchImpl: aliceFetch });
+    enqueueHnFavoriteAction('alice', 'favorite', 42);
+    await flushMicrotasks();
+    // Alice's POST for id 42 is now held open behind the gate.
+
+    stopHnFavoritesSync();
+    const bobFetch = workerFetchStub(() => new Response(null, { status: 204 }));
+    await startHnFavoritesSync('bob', { fetchImpl: bobFetch });
+    enqueueHnFavoriteAction('bob', 'unfavorite', 42);
+    await flushMicrotasks();
+    expect(listQueue('bob')).toEqual([]); // bob's own action drained
+
+    releasePost(new Response(null, { status: 204 }));
+    await flushMicrotasks();
+
+    expect(listQueue('alice')).toEqual([]); // alice's 42 dropped from HER queue
+    expect(getHnFavoritesSyncDebug().stalledOnAuth).toBe(false);
+  });
+
+  it('a stale 401 does not stall the new session\'s worker', async () => {
+    let releasePost!: (r: Response) => void;
+    const postGate = new Promise<Response>((resolve) => {
+      releasePost = resolve;
+    });
+    const aliceFetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/hn-favorites-list') return jsonResponse({ ids: [] });
+      return postGate;
+    }) as typeof fetch;
+
+    await startHnFavoritesSync('alice', { fetchImpl: aliceFetch });
+    enqueueHnFavoriteAction('alice', 'favorite', 7);
+    await flushMicrotasks();
+
+    stopHnFavoritesSync();
+    const bobFetch = workerFetchStub(() => new Response(null, { status: 204 }));
+    await startHnFavoritesSync('bob', { fetchImpl: bobFetch });
+
+    releasePost(new Response('nope', { status: 401 }));
+    await flushMicrotasks();
+
+    // Alice's dead session must not flip bob's stalledOnAuth.
+    expect(getHnFavoritesSyncDebug().stalledOnAuth).toBe(false);
+    expect(getHnFavoritesSyncDebug().username).toBe('bob');
   });
 
   it('drops an entry that has exhausted MAX_ATTEMPTS', async () => {
