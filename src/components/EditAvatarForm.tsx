@@ -73,6 +73,11 @@ export function EditAvatarForm({
           gravatarEmail: trimmed,
           gravatarHash: hash,
         });
+      } catch {
+        // crypto.subtle is unavailable in non-secure contexts; without
+        // this catch the submit rejects unhandled and the form just
+        // un-busies with no feedback.
+        setError('Could not hash that email address. Try again.');
       } finally {
         setSaving(false);
       }
