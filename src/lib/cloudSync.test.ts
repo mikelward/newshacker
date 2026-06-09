@@ -276,6 +276,112 @@ describe('cloudSync lifecycle', () => {
     expect(getPinnedIds()).toEqual(new Set([1]));
   });
 
+  it('still pushes a local-only entry older than the server max after a pull', async () => {
+    // Regression: the pull path used to raise lastPushed to the
+    // server's max `at`, so a pin made on this device at T1 (e.g.
+    // before sign-in) was treated as "already pushed" once another
+    // device had pushed anything newer — and never reached the server.
+    addPinnedId(1, T.T1);
+    const server: SyncState = {
+      pinned: [{ id: 2, at: T.T3 }],
+      favorite: [],
+      hidden: [],
+      done: [],
+    };
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(server) },
+      {
+        matcher: (input, init) =>
+          String(input) === '/api/sync' && init?.method === 'POST',
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.pinned).toContainEqual({ id: 1, at: T.T1 });
+  });
+
+  it('a push resolving across stop/start does not touch the new runtime', async () => {
+    // Regression: push() used to dereference the module runtime after
+    // the await — a sign-out (null) crashed it, and a different user's
+    // sign-in during the POST got their watermarks contaminated.
+    addPinnedId(7, T.T2);
+    let releasePost!: (r: Response) => void;
+    const postGate = new Promise<Response>((resolve) => {
+      releasePost = resolve;
+    });
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'GET') return jsonResponse(emptyState());
+      return postGate;
+    }) as FetchMock;
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await _flushCloudSyncForTests();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    // Alice's POST of pin 7 is now held open behind the gate.
+    stopCloudSync();
+    // Fresh device state for the next user: bob has nothing local, so
+    // his watermark stays 0 unless the stale push contaminates it.
+    window.localStorage.clear();
+    const fetchMock2 = queuedFetch([{ response: jsonResponse(emptyState()) }]);
+    await startCloudSync('bob', { fetchImpl: fetchMock2, debounceMs: 0 });
+    await drain();
+    expect(_getCloudSyncRuntimeForTests()!.lastPushed.pinned).toBe(0);
+
+    releasePost(
+      jsonResponse({
+        pinned: [{ id: 7, at: T.T2 }],
+        favorite: [],
+        hidden: [],
+        done: [],
+      }),
+    );
+    await drain();
+
+    expect(_getCloudSyncRuntimeForTests()!.lastPushed.pinned).toBe(0);
+  });
+
+  it('a pull resolving across stop/start is not applied to the new session', async () => {
+    let releaseGet!: (r: Response) => void;
+    const getGate = new Promise<Response>((resolve) => {
+      releaseGet = resolve;
+    });
+    const fetchMock = vi.fn(async () => getGate) as FetchMock;
+
+    const alicePromise = startCloudSync('alice', {
+      fetchImpl: fetchMock,
+      debounceMs: 0,
+    });
+    // Alice's GET is in flight; swap sessions underneath it.
+    stopCloudSync();
+    const fetchMock2 = queuedFetch([{ response: jsonResponse(emptyState()) }]);
+    await startCloudSync('bob', { fetchImpl: fetchMock2, debounceMs: 0 });
+    await drain();
+
+    releaseGet(
+      jsonResponse({
+        pinned: [{ id: 9, at: T.T3 }],
+        favorite: [],
+        hidden: [],
+        done: [],
+      }),
+    );
+    await alicePromise;
+    await drain();
+
+    // Alice's stale response must not leak into bob's stores.
+    expect(getPinnedIds()).toEqual(new Set());
+  });
+
   it('survives a failed POST — next change retries', async () => {
     const fetchMock = queuedFetch([
       { response: jsonResponse(emptyState()) }, // GET
