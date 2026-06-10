@@ -32,12 +32,32 @@ describe('prefetchCommentBatch', () => {
     await prefetchCommentBatch(client, [10, 20, 30], fetcher);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(fetcher).toHaveBeenCalledWith([10, 20, 30], undefined, {
+    expect(fetcher).toHaveBeenCalledWith([10, 20, 30], expect.any(AbortSignal), {
       fields: 'full',
     });
     expect(client.getQueryData(['comment', 10])).toMatchObject({ id: 10 });
     expect(client.getQueryData(['comment', 20])).toMatchObject({ id: 20 });
     expect(client.getQueryData(['comment', 30])).toMatchObject({ id: 30 });
+  });
+
+  it('passes a timeout signal so a hung batch cannot block the caller indefinitely', async () => {
+    let seenSignal: AbortSignal | undefined;
+    const fetcher = vi.fn(
+      async (ids: number[], signal?: AbortSignal) => {
+        seenSignal = signal;
+        return ids.map(makeComment);
+      },
+    );
+    const client = newClient();
+
+    await prefetchCommentBatch(client, [10], fetcher);
+
+    // The deadline itself comes from AbortSignal.timeout — asserting the
+    // signal is wired through (and not already fired) is the part this
+    // module owns; the abort -> rejection -> swallow path is covered by
+    // the fetcher-error test above.
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+    expect(seenSignal?.aborted).toBe(false);
   });
 
   it('caps the request at the top-level limit (single batch, no mega-thread burst)', async () => {

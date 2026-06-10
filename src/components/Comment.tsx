@@ -93,23 +93,47 @@ interface Props {
 
 export function Comment({ id, defaultExpanded = false }: Props) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const { data: item, isLoading } = useCommentItem(id);
+  const { data: item, isLoading, isFetching, refetch } = useCommentItem(id);
   const handleLinkClick = useInternalLinkClick();
   const queryClient = useQueryClient();
   const { isVoted, isDownvoted, toggleVote, toggleDownvote } = useVote();
   const voted = isVoted(id);
   const downvoted = isDownvoted(id);
 
-  if (isLoading || !item) {
+  if (!item) {
+    if (isLoading || isFetching) {
+      return (
+        <div
+          className="comment comment--loading"
+          aria-busy="true"
+        >
+          <div className="comment__footer">
+            <div className="comment__meta">
+              <span className="comment__author">…</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // Retries exhausted (or a legacy null hydrated from the persisted
+    // cache). Distinguishable from loading on purpose: an endless "…"
+    // card gave the reader nothing to do when HN's API had a bad night.
     return (
-      <div
-        className="comment comment--loading"
-        aria-busy="true"
-      >
+      <div className="comment comment--error">
         <div className="comment__footer">
           <div className="comment__meta">
-            <span className="comment__author">…</span>
+            <span className="comment__error-text">
+              Couldn't load this comment.
+            </span>
           </div>
+          <button
+            type="button"
+            className="comment__retry"
+            data-testid="comment-retry"
+            onClick={() => refetch()}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );

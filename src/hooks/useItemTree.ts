@@ -43,7 +43,18 @@ export function useItemTree(id: number) {
 export function useCommentItem(id: number) {
   return useQuery({
     queryKey: ['comment', id],
-    queryFn: ({ signal }) => getItem(id, signal),
+    queryFn: async ({ signal }) => {
+      const item = await getItem(id, signal);
+      // Comment ids come from a parent's `kids` array, so they always
+      // reference real items — Firebase resolving null here is upstream
+      // trouble (replication lag, transient errors), not "deleted"
+      // (deleted comments resolve as { deleted: true }). Throw so the
+      // failure is retryable instead of being cached as fresh data for
+      // the full 7-day staleTime (and persisted), which is how one bad
+      // night used to leave comments permanently blank.
+      if (!item) throw new Error(`Comment ${id} unavailable`);
+      return item;
+    },
     enabled: Number.isFinite(id),
     // Match prefetchCommentBatch's 7-day window so observer-driven
     // refetches don't race the batch: on a Thread re-mount after the

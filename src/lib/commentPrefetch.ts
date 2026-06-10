@@ -9,6 +9,24 @@ import { SUMMARY_RETENTION_MS } from '../hooks/useSummary';
 // bound keeps an expand-click cheap even on huge subthreads.
 export const COMMENT_BATCH_LIMIT = 30;
 
+// Hard ceiling on how long a batch prefetch may block its caller.
+// Thread's infinite-scroll sentinel (and loadRoot) await this helper
+// before mounting the next page of <Comment>s — without a deadline, a
+// hung /api/items request (slow upstream, half-dead radio) left the
+// reader staring at placeholder skeletons until the browser's own
+// fetch timeout, often minutes. On abort the prefetch is swallowed
+// like any other failure and each Comment falls back to its own
+// per-item Firebase fetch.
+export const COMMENT_BATCH_TIMEOUT_MS = 8000;
+
+function batchTimeoutSignal(): AbortSignal | undefined {
+  // AbortSignal.timeout is everywhere we support (2022+ browsers,
+  // Node 18+); the guard is for older test environments only.
+  if (typeof AbortSignal === 'undefined') return undefined;
+  if (typeof AbortSignal.timeout !== 'function') return undefined;
+  return AbortSignal.timeout(COMMENT_BATCH_TIMEOUT_MS);
+}
+
 type BatchFetcher = (
   ids: number[],
   signal?: AbortSignal,
@@ -39,7 +57,7 @@ export async function prefetchCommentBatch(
   const slice = kidIds.slice(0, limit);
   let items: Array<HNItem | null>;
   try {
-    items = await fetcher(slice, undefined, { fields: 'full' });
+    items = await fetcher(slice, batchTimeoutSignal(), { fields: 'full' });
   } catch {
     return;
   }
