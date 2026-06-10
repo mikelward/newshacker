@@ -288,6 +288,47 @@
   opacity: 0.6;
 }
 
+/* Failed-to-load card: same footprint as the loading card, but with a
+   readable message and a Retry button so the reader isn't stuck staring
+   at a perpetual "…" when the HN API has a bad night. */
+.comment--error {
+  cursor: default;
+}
+
+.comment__error-text {
+  color: var(--nh-meta);
+}
+
+.comment__retry {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--nh-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nh-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+@media (hover: hover) {
+  .comment__retry:hover {
+    background: var(--nh-pressed);
+  }
+}
+
+.comment__retry:active {
+  background: var(--nh-border);
+}
+
+.comment__retry:focus-visible {
+  outline: 2px solid var(--nh-orange);
+  outline-offset: -2px;
+}
+
 /* Reserved-height stand-in for an unloaded top-level comment. min-height
    tracks a typical collapsed comment (clamped body + 44px footer) so the
    thread's scroll height is set up front and the real card swapping in

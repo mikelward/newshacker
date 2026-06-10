@@ -144,4 +144,26 @@ describe('handleItemsRequest', () => {
     expect(cache).toMatch(/s-maxage=60/);
     expect(cache).toMatch(/stale-while-revalidate=300/);
   });
+
+  it('marks the response no-store when any item fetch fails, so failure-nulls never poison the shared edge cache', async () => {
+    const fetchItem = async (id: number) => {
+      if (id === 2) throw new Error('firebase 503');
+      return story(id);
+    };
+    const res = await handleItemsRequest(makeRequest('ids=1,2,3'), {
+      fetchItem,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = (await res.json()) as Array<HNItem | null>;
+    expect(body[1]).toBeNull();
+  });
+
+  it('keeps the cacheable header when Firebase genuinely resolves an id to null', async () => {
+    const fetchItem = async (id: number) => (id === 2 ? null : story(id));
+    const res = await handleItemsRequest(makeRequest('ids=1,2,3'), {
+      fetchItem,
+    });
+    expect(res.headers.get('cache-control')).toMatch(/s-maxage=60/);
+  });
 });

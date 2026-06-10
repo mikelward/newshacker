@@ -80,12 +80,21 @@ export async function handleItemsRequest(
 
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
 
+  // A failed upstream fetch still yields a null entry (the client falls
+  // back to a per-item Firebase fetch), but it must not be cached: this
+  // response carries a shared s-maxage at the Vercel edge, so caching a
+  // batch with failure-nulls would serve "empty" comments to every user
+  // for up to s-maxage + stale-while-revalidate after a transient
+  // Firebase hiccup. Genuine Firebase nulls (deleted/unknown ids) are
+  // stable and stay cacheable.
+  let upstreamFailed = false;
   const items = await Promise.all(
     ids.map(async (id) => {
       try {
         const item = await fetchItem(id, request.signal);
         return full ? item : thinForFeed(item);
       } catch {
+        upstreamFailed = true;
         return null;
       }
     }),
@@ -98,8 +107,9 @@ export async function handleItemsRequest(
       // Short browser TTL, longer shared TTL at the Vercel edge. The
       // stale-while-revalidate window lets the edge serve a cached
       // batch instantly while refreshing in the background.
-      'cache-control':
-        'public, max-age=60, s-maxage=60, stale-while-revalidate=300',
+      'cache-control': upstreamFailed
+        ? 'no-store'
+        : 'public, max-age=60, s-maxage=60, stale-while-revalidate=300',
     },
   });
 }
@@ -109,7 +119,10 @@ async function defaultFetchItem(
   signal?: AbortSignal,
 ): Promise<HNItem | null> {
   const res = await fetch(HN_ITEM_URL(id), { signal });
-  if (!res.ok) return null;
+  // Throw (rather than return null) so the handler can tell "Firebase
+  // says this id doesn't exist" apart from "Firebase errored" — only
+  // the former is safe to cache at the shared edge.
+  if (!res.ok) throw new Error(`HN API ${res.status} for item ${id}`);
   return (await res.json()) as HNItem | null;
 }
 
