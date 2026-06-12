@@ -6,6 +6,7 @@ import {
   getPinnedEntries,
   getPinnedIds,
   removePinnedId,
+  removePinnedIds,
   replacePinnedEntries,
 } from './pinnedStories';
 
@@ -152,6 +153,72 @@ describe('pinnedStories', () => {
       addPinnedId(2, 2000);
       removePinnedId(1, 3000);
       expect(getPinnedEntries()).toEqual([{ id: 2, at: 2000 }]);
+    });
+  });
+
+  describe('removePinnedIds (batched)', () => {
+    it('tombstones every id in the batch', () => {
+      addPinnedId(1, 1000);
+      addPinnedId(2, 1000);
+      addPinnedId(3, 1000);
+      removePinnedIds([1, 2, 3], 2000);
+      expect(getPinnedIds()).toEqual(new Set());
+      expect(getAllPinnedEntries()).toEqual([
+        { id: 1, at: 2000, deleted: true },
+        { id: 2, at: 2000, deleted: true },
+        { id: 3, at: 2000, deleted: true },
+      ]);
+    });
+
+    it('fires exactly one change event for the whole batch', () => {
+      addPinnedId(1, 1000);
+      addPinnedId(2, 1000);
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:pinnedStoriesChanged', handler);
+      try {
+        removePinnedIds([1, 2], 2000);
+      } finally {
+        window.removeEventListener(
+          'newshacker:pinnedStoriesChanged',
+          handler,
+        );
+      }
+      expect(events.length).toBe(1);
+    });
+
+    it('does nothing (and fires no event) for an empty batch', () => {
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:pinnedStoriesChanged', handler);
+      try {
+        removePinnedIds([], 2000);
+      } finally {
+        window.removeEventListener(
+          'newshacker:pinnedStoriesChanged',
+          handler,
+        );
+      }
+      expect(events.length).toBe(0);
+    });
+
+    it('leaves an already-tombstoned id untouched, tombstoning the rest', () => {
+      addPinnedId(1, 1000);
+      removePinnedId(1, 2000);
+      addPinnedId(2, 1000);
+      removePinnedIds([1, 2], 3000);
+      // id 1 keeps its original `at`; id 2 gets a fresh tombstone.
+      expect(getAllPinnedEntries()).toEqual([
+        { id: 1, at: 2000, deleted: true },
+        { id: 2, at: 3000, deleted: true },
+      ]);
+    });
+
+    it('tombstones ids that were never pinned (sync ghost guard)', () => {
+      removePinnedIds([99], 5000);
+      expect(getAllPinnedEntries()).toEqual([
+        { id: 99, at: 5000, deleted: true },
+      ]);
     });
   });
 

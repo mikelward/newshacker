@@ -178,6 +178,25 @@ export function addHiddenId(id: number, now: number = Date.now()): void {
   writeRaw(entries);
 }
 
+// Batched form of `addHiddenId`: hide many ids with a single read, a
+// single write, and a single change event. A bulk Sweep used to call
+// `addHiddenId` once per row, which re-parsed and re-serialized the
+// whole stored list and fired a change event (→ a full list re-render)
+// for every swept row — O(rows × list size). Sweeping a screenful with
+// a week's worth of accumulated hides built up enough work to make the
+// list visibly stall before compacting. Same semantics as calling
+// `addHiddenId` per id: later ids win, no duplicates.
+export function addHiddenIds(
+  ids: readonly number[],
+  now: number = Date.now(),
+): void {
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const entries = readRaw(now).filter((e) => !idSet.has(e.id));
+  for (const id of idSet) entries.push({ id, at: now });
+  writeRaw(entries);
+}
+
 export function removeHiddenId(id: number, now: number = Date.now()): void {
   const before = readRaw(now);
   const existing = before.find((e) => e.id === id);

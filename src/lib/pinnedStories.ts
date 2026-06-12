@@ -120,6 +120,41 @@ export function removePinnedId(id: number, now: number = Date.now()): void {
   writeRaw(after);
 }
 
+// Batched form of `removePinnedId`: tombstone many ids with a single
+// read, a single write, and a single change event. The bulk Sweep path
+// removes the pin for every swept row (the Pin ↔ Hide shield), and doing
+// that one id at a time re-parsed and re-serialized the whole pinned
+// list — and fired a change event — per row. Same semantics as calling
+// `removePinnedId` per id: ids that already carry a tombstone keep it
+// untouched; the rest get a fresh tombstone at `now`.
+export function removePinnedIds(
+  ids: readonly number[],
+  now: number = Date.now(),
+): void {
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const before = readRaw();
+  const after: PinnedEntry[] = [];
+  const kept = new Set<number>();
+  for (const e of before) {
+    if (!idSet.has(e.id)) {
+      after.push(e);
+    } else if (e.deleted) {
+      // Preserve the existing tombstone rather than bumping its `at`,
+      // matching removePinnedId's early return for already-deleted ids.
+      after.push(e);
+      kept.add(e.id);
+    }
+    // Live entries that match are dropped here and re-added as
+    // tombstones below.
+  }
+  for (const id of idSet) {
+    if (kept.has(id)) continue;
+    after.push({ id, at: now, deleted: true });
+  }
+  writeRaw(after);
+}
+
 export function clearPinnedIds(): void {
   writeRaw([]);
 }

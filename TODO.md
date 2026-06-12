@@ -6,10 +6,6 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Performance
 
-- **Faster sweep.** The broom currently rebuilds the hidden-ids
-  localStorage entry once per swept story, firing a storage change
-  event each time. Batch the write so a sweep of 30 rows is one
-  write + one event.
 - **Prefetch page N+1 after each landed page.** With `/api/items`
   batched and edge-cached, each prefetch is effectively free — so
   keeping one page of lookahead warm would eliminate nearly every

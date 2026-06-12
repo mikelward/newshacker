@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   HIDDEN_STORY_TTL_MS,
   addHiddenId,
+  addHiddenIds,
   clearHiddenIds,
   getAllHiddenEntries,
   getHiddenEntries,
@@ -169,6 +170,62 @@ describe('hiddenStories', () => {
         { id: 2, at: now - 500 },
         { id: 3, at: now - 200, deleted: true },
       ]);
+    });
+  });
+
+  describe('addHiddenIds (batched)', () => {
+    it('hides every id in the batch', () => {
+      const now = 1_000_000_000_000;
+      addHiddenIds([1, 2, 3], now);
+      expect(getHiddenIds(now)).toEqual(new Set([1, 2, 3]));
+    });
+
+    it('fires exactly one change event for the whole batch', () => {
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:hiddenStoriesChanged', handler);
+      try {
+        addHiddenIds([1, 2, 3, 4, 5]);
+      } finally {
+        window.removeEventListener(
+          'newshacker:hiddenStoriesChanged',
+          handler,
+        );
+      }
+      expect(events.length).toBe(1);
+    });
+
+    it('does nothing (and fires no event) for an empty batch', () => {
+      const events: Event[] = [];
+      const handler = (e: Event) => events.push(e);
+      window.addEventListener('newshacker:hiddenStoriesChanged', handler);
+      try {
+        addHiddenIds([]);
+      } finally {
+        window.removeEventListener(
+          'newshacker:hiddenStoriesChanged',
+          handler,
+        );
+      }
+      expect(events.length).toBe(0);
+      expect(getHiddenIds()).toEqual(new Set());
+    });
+
+    it('does not duplicate ids already hidden or repeated in the batch', () => {
+      const now = 1_000_000_000_000;
+      addHiddenId(1, now - 1000);
+      addHiddenIds([1, 1, 2], now);
+      expect(getAllHiddenEntries(now)).toEqual([
+        { id: 1, at: now },
+        { id: 2, at: now },
+      ]);
+    });
+
+    it('clears a tombstone when re-hiding via the batch', () => {
+      const now = 1_000_000_000_000;
+      removeHiddenId(1, now - 1000);
+      addHiddenIds([1, 2], now);
+      expect(getHiddenIds(now)).toEqual(new Set([1, 2]));
     });
   });
 

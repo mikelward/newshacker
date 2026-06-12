@@ -66,6 +66,49 @@ describe('useHiddenStories', () => {
     expect(getPinnedIds().has(5)).toBe(false);
   });
 
+  // The bulk Sweep path hides many rows at once. hideMany must hide
+  // every id and enforce the same Pin ↔ Hide shield as hide().
+  it('hideMany() hides every id and clears their pins', () => {
+    addPinnedId(2);
+    const { result } = renderHook(() => useHiddenStories());
+    act(() => {
+      result.current.hideMany([1, 2, 3]);
+    });
+    expect(result.current.hiddenIds).toEqual(new Set([1, 2, 3]));
+    expect(getPinnedIds().has(2)).toBe(false);
+    const { result: second } = renderHook(() => useHiddenStories());
+    expect(second.current.hiddenIds).toEqual(new Set([1, 2, 3]));
+  });
+
+  // The whole reason hideMany exists: a bulk sweep should touch each
+  // store once, not once per row. Two batched writes (pins + hidden)
+  // → two change events, regardless of how many rows are swept.
+  it('hideMany() fires one change event per store, not one per id', () => {
+    let hiddenEvents = 0;
+    let pinnedEvents = 0;
+    const onHidden = () => (hiddenEvents += 1);
+    const onPinned = () => (pinnedEvents += 1);
+    window.addEventListener('newshacker:hiddenStoriesChanged', onHidden);
+    window.addEventListener('newshacker:pinnedStoriesChanged', onPinned);
+    const { result } = renderHook(() => useHiddenStories());
+    try {
+      act(() => {
+        result.current.hideMany([1, 2, 3, 4, 5]);
+      });
+    } finally {
+      window.removeEventListener(
+        'newshacker:hiddenStoriesChanged',
+        onHidden,
+      );
+      window.removeEventListener(
+        'newshacker:pinnedStoriesChanged',
+        onPinned,
+      );
+    }
+    expect(hiddenEvents).toBe(1);
+    expect(pinnedEvents).toBe(1);
+  });
+
   // Hide ↔ Done coexistence is *allowed* (per useDoneStories
   // markDone's comment: "Done's list filter supersedes [hidden]
   // anyway"). Hide must NOT clear Done — that would lose the
