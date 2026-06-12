@@ -294,7 +294,7 @@ export function StoryListImpl({
   const queryClient = useQueryClient();
   const isRestoring = useIsRestoring();
   const { isAuthenticated } = useAuth();
-  const { hiddenIds, hide } = useHiddenStories();
+  const { hiddenIds, hide, hideMany } = useHiddenStories();
   const { doneIds } = useDoneStories();
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts, unopen } =
     useOpenedStories();
@@ -697,12 +697,12 @@ export function StoryListImpl({
   const sweepPendingIdsRef = useRef<readonly number[] | null>(null);
   const sweepFallbackTimerRef = useRef<number | null>(null);
   // Keep handler refs so the unmount cleanup below can commit without
-  // re-subscribing every time hide/recordHide change identity.
-  const hideRef = useRef(hide);
+  // re-subscribing every time hideMany/recordHide change identity.
+  const hideManyRef = useRef(hideMany);
   const recordHideRef = useRef(recordHide);
   useEffect(() => {
-    hideRef.current = hide;
-  }, [hide]);
+    hideManyRef.current = hideMany;
+  }, [hideMany]);
   useEffect(() => {
     recordHideRef.current = recordHide;
   }, [recordHide]);
@@ -715,7 +715,7 @@ export function StoryListImpl({
       window.clearTimeout(sweepFallbackTimerRef.current);
       sweepFallbackTimerRef.current = null;
     }
-    for (const id of ids) hide(id);
+    hideMany(ids);
     recordHide(ids);
     setSweepingIds((prev) => {
       if (prev.size === 0) return prev;
@@ -728,7 +728,7 @@ export function StoryListImpl({
     // hide commit means the next render sees pinned rows surface at
     // the top in one motion with the unpinned rows leaving.
     setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
-  }, [hide, recordHide]);
+  }, [hideMany, recordHide]);
 
   // If the list unmounts (route change, etc.) while a sweep is still
   // animating, commit the hide synchronously so the action isn't
@@ -739,7 +739,7 @@ export function StoryListImpl({
     return () => {
       const ids = sweepPendingIdsRef.current;
       if (ids) {
-        for (const id of ids) hideRef.current(id);
+        hideManyRef.current(ids);
         recordHideRef.current(ids);
         sweepPendingIdsRef.current = null;
       }
@@ -761,7 +761,7 @@ export function StoryListImpl({
       typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reducedMotion) {
-      for (const id of ids) hide(id);
+      hideMany(ids);
       recordHide(ids);
       setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
       return;
@@ -776,7 +776,7 @@ export function StoryListImpl({
       commitSweep,
       SWEEP_ANIMATION_MS * 2,
     );
-  }, [sweepableIds, hide, recordHide, commitSweep]);
+  }, [sweepableIds, hideMany, recordHide, commitSweep]);
 
   // First `animationend` from a swept row drives the commit — `<li>`
   // elements all animate with the same duration, so one signal is

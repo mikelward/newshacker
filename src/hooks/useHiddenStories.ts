@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   HIDDEN_STORIES_CHANGE_EVENT,
   addHiddenId,
+  addHiddenIds,
   getHiddenIds,
   removeHiddenId,
 } from '../lib/hiddenStories';
-import { removePinnedId } from '../lib/pinnedStories';
+import { removePinnedId, removePinnedIds } from '../lib/pinnedStories';
 
 export function useHiddenStories() {
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(() =>
@@ -35,11 +36,19 @@ export function useHiddenStories() {
     removePinnedId(id);
     addHiddenId(id);
   }, []);
+  // Batched hide for bulk Sweep: one pin-store write + one hidden-store
+  // write + one change event for the whole batch, instead of a pair per
+  // row. Enforces the same Pin ↔ Hide shield as `hide`.
+  const hideMany = useCallback((ids: readonly number[]) => {
+    if (ids.length === 0) return;
+    removePinnedIds(ids);
+    addHiddenIds(ids);
+  }, []);
   const unhide = useCallback((id: number) => removeHiddenId(id), []);
   const isHidden = useCallback(
     (id: number) => hiddenIds.has(id),
     [hiddenIds],
   );
 
-  return { hiddenIds, hide, unhide, isHidden };
+  return { hiddenIds, hide, hideMany, unhide, isHidden };
 }
