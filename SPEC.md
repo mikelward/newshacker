@@ -718,7 +718,7 @@ The card has a single bottom **footer row** (`.comment__footer`) with three slot
 
 Card behavior:
 
-- **Body** clamped to 3 lines collapsed (CSS `-webkit-line-clamp: 3`) at 15px to match the AI summary card; un-clamped when expanded.
+- **Body** clamped to 3 lines collapsed (CSS `-webkit-line-clamp: 3`, paired with a matching `max-height` so block-level `<pre>`/`<code>` content — which line-clamp alone doesn't bound — can't overflow the preview) at 15px to match the AI summary card; un-clamped when expanded.
 - **Background** tints to `--nh-pressed` on the expanded comment so the active node stands out in a long thread.
 - **Cursor** is `pointer` collapsed and `default` (reading state) when expanded.
 - **Vote behavior.** Upvote and Downvote share the thread action bar's optimistic-vote path: tapping while signed in flips local state immediately, POSTs `/api/vote` in the background, and rolls back + toasts on failure. The voted button paints in `--nh-orange` (shape stays solid — HN's own shape+color convention, matching the story vote button). Switching direction (up → down, or down → up) chains two API hits — `un` then the new direction — because HN models it that way; if the second leg fails after a successful `un` the UI lands at neutral locally rather than restoring the original direction, so the client can't display a vote HN no longer has. A logged-out tap on either button opens the global **Login dialog** ("Sign in to upvote" / "Sign in to vote") instead of silently dropping the action — see *Login dialog* below.
