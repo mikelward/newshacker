@@ -94,6 +94,13 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* `-webkit-line-clamp` only counts inline line boxes, so a collapsed
+     comment whose body is a block-level `<pre>`/`<code>` block (or any
+     other block child) slips past the 3-line clamp and dumps its whole
+     contents into the preview. The max-height caps the preview at the
+     same 3 lines (line-height 1.5 × 3) regardless of what kind of
+     content is inside, so code-block comments collapse like text ones. */
+  max-height: calc(1.5em * 3);
 }
 
 .comment__body a {
@@ -117,6 +124,17 @@
 }
 
 .comment__body p:last-child {
+  margin-bottom: 0;
+}
+
+/* In the collapsed preview, drop the 8px inter-paragraph gap that
+   `.comment__body p` adds. Otherwise a plain-text comment with
+   paragraph breaks spends part of the 3-line `max-height` cap on
+   margins and gets clipped to ~2 lines, short of the documented
+   3-line preview. The gap is restored when the comment expands.
+   Declared after `.comment__body p` so it wins the same-specificity
+   tie on source order. */
+.comment__body--clamped p {
   margin-bottom: 0;
 }
 

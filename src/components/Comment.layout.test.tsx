@@ -117,6 +117,47 @@ describe('<Comment> nested layout CSS invariants', () => {
   });
 });
 
+describe('<Comment> collapsed-body clamp CSS invariants', () => {
+  // Regression guard: a collapsed comment's preview must stay bounded
+  // even when the body is a block-level `<pre>`/`<code>` block.
+  // `-webkit-line-clamp` only clamps inline line boxes, so without an
+  // explicit height cap a code-block comment dumps its entire contents
+  // into the "3-line" preview. The fix pins a `max-height` on the
+  // clamped body so block content is bounded like text content.
+  it('.comment__body--clamped caps height in addition to line-clamp', async () => {
+    const css = await loadCommentCss();
+    const rule = extractRule(css, '.comment__body--clamped');
+    expect(rule).not.toBeNull();
+    // Keep the inline-text line clamp …
+    expect(rule!).toMatch(/-webkit-line-clamp:\s*3/);
+    expect(rule!).toMatch(/overflow:\s*hidden/);
+    // … but also bound the overall preview height so block-level
+    // children (pre/code) can't overflow it.
+    expect(rule!).toMatch(/max-height:/);
+  });
+
+  it('drops the inter-paragraph gap inside the clamped preview', async () => {
+    // With the height cap in place, the 8px bottom margin between
+    // paragraphs would eat into the 3-line budget and clip plain-text
+    // comments to ~2 lines. The collapsed preview resets that gap so
+    // the cap maps to three actual content lines.
+    const css = await loadCommentCss();
+    const rule = extractRule(css, '.comment__body--clamped p');
+    expect(rule).not.toBeNull();
+    expect(rule!).toMatch(/margin-bottom:\s*0/);
+
+    // `.comment__body--clamped p` and `.comment__body p` have equal
+    // specificity (one class + one element each), so the reset only
+    // wins if it's declared AFTER the base rule. Pin that source order
+    // — otherwise the 8px gap silently comes back.
+    const clampedAt = css.search(/\.comment__body--clamped p\s*\{/);
+    const baseAt = css.search(/(?:^|[\s}])\.comment__body p\s*\{/);
+    expect(clampedAt).toBeGreaterThan(-1);
+    expect(baseAt).toBeGreaterThan(-1);
+    expect(clampedAt).toBeGreaterThan(baseAt);
+  });
+});
+
 describe('<Comment> footer row order', () => {
   // Regression guard for the bottom-row layout: .comment__meta on
   // the left (flex:1, ellipsis), then the optional toolbar on the
