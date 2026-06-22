@@ -157,7 +157,8 @@ If any of the above fails, fix it — don't disable the check.
 ## Safe vs. risky actions
 
 - Safe: edit files, add dependencies, run tests, run the dev server,
-  creating new `claude/<short-topic>` feature branches, creating PRs
+  creating new `<agent>/<short-topic>` feature branches (see *Branching*
+  for the `<agent>` convention), creating PRs
   via `mcp__github__create_pull_request` once the user has asked you
   to open one (and for subsequent follow-up PRs in the same thread —
   don't keep re-asking), `git push --force-with-lease` to your own
@@ -174,13 +175,14 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Branching
 
-- **Workflow.** `claude/<short-topic>` branch off `origin/main` → PR → merge via rebase or squash. One topic per branch. Follow-up work after a merge goes on a new branch. Never commit to `main` / `master`.
+- **Branch naming.** Feature branches are prefixed with the agent's own short name: `<agent>/<short-topic>` (e.g. `claude/...` for Claude Code, `codex/...` for Codex, `cursor/...` for Cursor, etc.). Human contributors pick a name that identifies them. The placeholder `<agent>` below stands in for whichever prefix you use — don't hard-code `claude/` unless you *are* Claude Code.
+- **Workflow.** `<agent>/<short-topic>` branch off `origin/main` → PR → merge via rebase or squash. One topic per branch. Follow-up work after a merge goes on a new branch. Never commit to `main` / `master`.
 - **One commit per logical surviving change on the branch.** Rewrite unmerged commits freely (squash, amend, reorder, split with `git rebase -i` / `git reset --soft`) so each landing commit is one coherent change, with fix-ups and review responses folded into the commit they belong to. A PR can be a single commit or a short series — but review-fix noise doesn't survive into `main`.
 - **Check state before you push or branch.** Query the branch's PR via the GitHub MCP first.
   - No PR yet, or PR open → `git push` (`--force-with-lease` to your own feature branch after a rebase is fine; don't ask).
-  - PR merged / closed → don't push. Merge-path hygiene: `git fetch origin`, cut a fresh `claude/<short-topic>` branch off `origin/main`, announce the switch.
+  - PR merged / closed → don't push. Merge-path hygiene: `git fetch origin`, cut a fresh `<agent>/<short-topic>` branch off `origin/main`, announce the switch.
 - **Merge cue (`merged` / `I merged` / `landed` / merge webhook) runs hygiene *before* engaging with the rest of the message.**
-- Creating new `claude/<short-topic>` branches and creating PRs via `mcp__github__create_pull_request` (once the user has asked for one in the thread) are safe — don't re-ask.
+- Creating new `<agent>/<short-topic>` branches and creating PRs via `mcp__github__create_pull_request` (once the user has asked for one in the thread) are safe — don't re-ask.
 - Sandbox git proxy can't delete branches (HTTP 403). Flag it and move on; auto-delete-on-merge handles GitHub's side.
 - **After every push and after every merge, report the resulting HEAD SHA in the end-of-turn summary** so the operator can compare it against `/debug`'s `build` field to know when Vercel has caught up — `/debug` only shows the deployed build, so the operator can't otherwise tell whether the URL they're testing is the commit you just pushed or a stale preview from earlier in the conversation. Format: `pushed <short-sha>` after a push (branch head on `origin/<branch>`); `merged at <short-sha>` after a merge webhook (the resulting commit on `origin/main`). 7-char prefix is fine — that's what `/debug` displays. Mention it once per push; if you push, then immediately push again to amend, only the last SHA matters.
 - End every reply with the open-PR link (or `.../compare/main...<branch>` until a PR exists). Never link to a closed or merged PR.
