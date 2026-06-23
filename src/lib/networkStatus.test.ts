@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { onlineManager } from '@tanstack/react-query';
 import {
   _resetNetworkStatusForTests,
   getOnline,
@@ -146,6 +147,34 @@ describe('networkStatus tracker', () => {
       expect(getOnline()).toBe(true);
     });
 
+    it('does NOT pause React Query on a transient fetch failure while the browser is online', () => {
+      // Regression: feeding the combined (fetch-failure) signal into
+      // React Query's onlineManager paused the retry that would have
+      // recovered a transient blip. Because navigator.onLine never
+      // flipped, no 'online' event ever fired to un-pause it, so the
+      // feed wedged on the loading skeleton with empty cells. The pill
+      // still goes offline, but onlineManager must stay online so the
+      // query's own retry/backoff can recover.
+      expect(onlineManager.isOnline()).toBe(true);
+
+      reportFetchFailure(new TypeError('Failed to fetch'));
+
+      expect(getOnline()).toBe(false); // pill reacts immediately
+      expect(onlineManager.isOnline()).toBe(true); // RQ keeps retrying
+    });
+
+    it('pauses React Query only when the browser itself reports offline (resumable)', () => {
+      // A genuine browser-offline has a matching 'online' event to
+      // resume on, so it's safe to pause React Query here.
+      expect(onlineManager.isOnline()).toBe(true);
+
+      window.dispatchEvent(new Event('offline'));
+      expect(onlineManager.isOnline()).toBe(false);
+
+      window.dispatchEvent(new Event('online'));
+      expect(onlineManager.isOnline()).toBe(true);
+    });
+
     it('emits only when the combined value actually changes', () => {
       const events: boolean[] = [];
       subscribeOnline((v) => events.push(v));
@@ -160,6 +189,45 @@ describe('networkStatus tracker', () => {
       reportFetchSuccess();
 
       expect(events).toEqual([false, true]);
+    });
+  });
+
+  describe('React Query integration (offlineFirst + retry)', () => {
+    it('recovers a transient trackedFetch failure instead of wedging the query paused', async () => {
+      // End-to-end reproduction of the home-page "loading forever, empty
+      // cells" bug. With networkMode 'offlineFirst' the first attempt
+      // fires; the previous code flipped onlineManager offline on that
+      // failure, which paused the retry — and since navigator.onLine
+      // never flipped, nothing ever resumed it. The query stayed pending
+      // (skeleton) forever. After the fix, onlineManager tracks the
+      // browser signal only, so the retry runs and the query resolves.
+      const { QueryClient } = await import('@tanstack/react-query');
+
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify([1, 2, 3]), { status: 200 }),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { networkMode: 'offlineFirst', retry: 1, retryDelay: 0 },
+        },
+      });
+
+      const result = await client.fetchQuery({
+        queryKey: ['storyIds', 'top'],
+        queryFn: async () => {
+          const res = await trackedFetch('https://example.test/topstories.json');
+          return (await res.json()) as number[];
+        },
+      });
+
+      expect(result).toEqual([1, 2, 3]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      client.clear();
     });
   });
 });

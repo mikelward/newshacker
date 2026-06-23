@@ -19,7 +19,11 @@ type Listener = (online: boolean) => void;
 
 function initialBrowserOnline(): boolean {
   if (typeof navigator === 'undefined') return true;
-  return navigator.onLine;
+  // `navigator.onLine` is `undefined` under the node test environment
+  // (navigator exists, the property doesn't). Treat anything that isn't
+  // an explicit `false` as online so we never feed `undefined` into
+  // `onlineManager.setOnline`, which would pause every query.
+  return navigator.onLine !== false;
 }
 
 let browserOnline: boolean = initialBrowserOnline();
@@ -37,11 +41,27 @@ function emitIfChanged() {
   if (next === lastEmitted) return;
   lastEmitted = next;
   for (const fn of listeners) fn(next);
-  // Keep React Query's own onlineManager in sync so paused queries
-  // resume when we reconnect (belt-and-braces with networkMode:
-  // 'offlineFirst' — that mode prevents hanging, this keeps
-  // refetch-on-reconnect working).
-  onlineManager.setOnline(next);
+}
+
+// React Query's onlineManager gates retry/pause behavior, and with
+// `networkMode: 'offlineFirst'` a query that fails its first attempt
+// has its *retries* paused while onlineManager reports offline. We
+// deliberately drive onlineManager from the *browser* signal only —
+// NOT the combined fetch-failure signal.
+//
+// Why: `fetchOnline` flips false the instant a single request throws a
+// TypeError (a flaky radio, one slow Firebase read on open). If that
+// fed onlineManager, the retry that would have recovered the blip gets
+// paused — and because `navigator.onLine` never actually flipped in
+// that case, there's no browser 'online' event to ever un-pause it. The
+// feed wedges on the loading skeleton until a manual refresh. The
+// browser signal, by contrast, always has a matching 'online' event to
+// resume on, so pausing on it is safe. Transient fetch failures are
+// left to React Query's own retry/backoff, which is exactly what
+// recovers them. The header pill still reacts to fetch failures via the
+// combined signal above — that's UI-only and doesn't pause queries.
+function syncOnlineManager() {
+  onlineManager.setOnline(browserOnline);
 }
 
 export function getOnline(): boolean {
@@ -119,18 +139,21 @@ export async function trackedFetch(
 function handleBrowserOnline() {
   if (browserOnline) return;
   browserOnline = true;
+  syncOnlineManager();
   emitIfChanged();
 }
 
 function handleBrowserOffline() {
   if (!browserOnline) return;
   browserOnline = false;
+  syncOnlineManager();
   emitIfChanged();
 }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('online', handleBrowserOnline);
   window.addEventListener('offline', handleBrowserOffline);
+  syncOnlineManager();
 }
 
 // Tests need to rehydrate module state after overriding
@@ -140,4 +163,5 @@ export function _resetNetworkStatusForTests() {
   browserOnline = initialBrowserOnline();
   fetchOnline = true;
   lastEmitted = combined();
+  syncOnlineManager();
 }
