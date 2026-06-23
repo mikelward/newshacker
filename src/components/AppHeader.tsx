@@ -80,10 +80,10 @@ export function AppHeader() {
         <Link
           to="/"
           className="app-header__home"
-          aria-label="newshacker home"
+          aria-label="nack home"
         >
           <span className="app-header__brand" aria-hidden="true" />
-          <span className="app-header__title">newshacker</span>
+          <span className="app-header__title">nack</span>
         </Link>
         <div className="app-header__actions">
           {offlinePill}
