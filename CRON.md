@@ -65,6 +65,7 @@ until you have a week of real `warm-story` logs to base a tweak on.
 | `WARM_COMMENTS_MAX_AGE_SECONDS` | `115200` (32 h) | Comments only | Twin of the article cutoff. Past this we stop hashing transcripts; cached insights still serve until Upstash evicts at 30 days. |
 | `WARM_TOP_N` | `30` | Both tracks | How many feed ids to process per tick when `?n=` isn't in the URL. |
 | `WARM_COMMENTS_MIN_KIDS` | `5` | Comments only | Minimum usable top-level comments before the cron creates a `first_seen` record. Avoids caching 2-comment thin threads. |
+| `WARM_MIN_DELTA_BYTES` | `256` | Article only | Skip the Gemini regen when the Jina-clean body's hash flips but `|contentBytes_now − contentBytes_prev|` is under this many bytes — emit `skipped_minor_delta` instead. Catches in-body timestamp / ad-slot / related-articles churn. Set to `0` to disable the guard (every flip regenerates, pre-fix behaviour). |
 
 Comments also use a **compile-time ladder** (`COMMENTS_TIERS` in `api/warm-summaries.ts`) keyed off HN `story.time`: 15/30/60/120/240/480 min intervals for 0-1/1-2/2-4/4-8/8-16/16-32 h age bands. Bucket widths are 1:1 with the `ageBand` log field, so "polled per band" and "changed per band" plot against the same x-axis. To reshape the ladder, edit the constant and redeploy — it's deliberately not an env var.
 
@@ -246,6 +247,31 @@ Paste any of these into the Axiom query console:
     stableForMinutes = todouble(e.stableForMinutes),
     contentBytes = toint(e.contentBytes)
 | sort by storyId asc, _time asc
+```
+
+```apl
+// Article delta-guard effectiveness, last 24 h. After WARM_MIN_DELTA_BYTES
+// lands, this is the first dashboard to glance at: how many ticks were
+// skipped vs how many real regens fired, and what the deltaBytes
+// distribution looks like inside the skipped bucket. If
+// `skipped_minor_delta` dominates `changed`, the guard is doing its
+// job; if a chunk of `skipped_minor_delta` events have deltaBytes near
+// the threshold, consider lowering it (e.g. to 128) or moving to a
+// percentage-of-contentBytes threshold.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article"
+| where tostring(e.outcome) in ("changed", "skipped_minor_delta")
+| summarize
+    count_ = count(),
+    p50_delta = percentile(toint(e.deltaBytes), 50),
+    p90_delta = percentile(toint(e.deltaBytes), 90)
+  by outcome = tostring(e.outcome)
+| sort by outcome asc
 ```
 
 ```apl
@@ -489,6 +515,16 @@ After a week of `warm-story` logs, look for:
   the first-bucket data, drop `WARM_COMMENTS_MIN_KIDS` to 3. If
   we keep regenerating 5-comment threads that immediately look
   different 20 min later, raise it to 8.
+- **Article delta guard.** Run the "Article delta-guard
+  effectiveness" query above. If `skipped_minor_delta` events
+  cluster near the `WARM_MIN_DELTA_BYTES` threshold (p90 close to
+  the limit), lower the threshold (e.g. 256 → 128). If real edits
+  are leaking through as `skipped_minor_delta` (Gemini regen would
+  have produced a meaningfully different summary), raise it. Once
+  this guard has been in place for 48 h and the noise floor drops,
+  the article-track age curve actually starts to taper — at which
+  point `WARM_STABLE_CHECK_INTERVAL_SECONDS` becomes meaningful and
+  can push out further than the current 2 h.
 
 ## Disabling / emergency kill switch
 
