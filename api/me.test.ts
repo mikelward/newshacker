@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import {
-  handleMeRequest,
-  parseCookieHeader,
-  usernameFromSessionValue,
-} from './me';
+import { handleMeRequest } from './me';
+
+// Unit tests for `parseCookieHeader` and `usernameFromSessionValue` now
+// live next to the shared implementation in `lib/api/session.test.ts`.
+// This file covers the request-handler behavior on top of them.
 
 function requestWithCookie(cookie: string | null): Request {
   const headers = new Headers();
@@ -14,40 +14,6 @@ function requestWithCookie(cookie: string | null): Request {
     headers,
   });
 }
-
-describe('parseCookieHeader', () => {
-  it('returns an empty map for null/undefined/empty input', () => {
-    expect(parseCookieHeader(null)).toEqual({});
-    expect(parseCookieHeader(undefined)).toEqual({});
-    expect(parseCookieHeader('')).toEqual({});
-  });
-
-  it('parses a single cookie', () => {
-    expect(parseCookieHeader('hn_session=alice%26hash')).toEqual({
-      hn_session: 'alice&hash',
-    });
-  });
-
-  it('parses multiple cookies', () => {
-    const cookies = parseCookieHeader('a=1; b=2; hn_session=alice%26hash');
-    expect(cookies).toEqual({ a: '1', b: '2', hn_session: 'alice&hash' });
-  });
-
-  it('ignores cookies without a name or value-separator', () => {
-    expect(parseCookieHeader('=value; noequals; a=1')).toEqual({ a: '1' });
-  });
-});
-
-describe('usernameFromSessionValue', () => {
-  it('extracts username from `alice&hash`', () => {
-    expect(usernameFromSessionValue('alice&hash')).toBe('alice');
-  });
-  it('rejects bad values', () => {
-    expect(usernameFromSessionValue('')).toBeNull();
-    expect(usernameFromSessionValue(undefined)).toBeNull();
-    expect(usernameFromSessionValue('a&x')).toBeNull(); // too short
-  });
-});
 
 describe('handleMeRequest', () => {
   it('returns 401 when no cookie is set', async () => {
