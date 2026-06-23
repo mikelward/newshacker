@@ -53,8 +53,9 @@
    home-indicator pill has room below without the letter landing on
    it, and a small white pill at the bottom edge. Pill is
    proportionally thicker than the favicon's 512-viewBox version
-   (10×2 at 28 px vs. 160×12 at 512 px = ~9×0.7 pro-rata) so it
-   survives anti-aliasing. */
+   (12×3 at 28 px vs. 160×12 at 512 px = ~9×0.7 pro-rata) so it
+   survives anti-aliasing — the white-on-orange contrast is only
+   ~2.93:1, so the pill needs extra vertical ink to read at 1× DPI. */
 .app-header__brand {
   position: relative;
   display: inline-block;
@@ -84,10 +85,10 @@
   bottom: 3px;
   left: 50%;
   transform: translateX(-50%);
-  width: 10px;
-  height: 2px;
+  width: 12px;
+  height: 3px;
   background: #fff;
-  border-radius: 1px;
+  border-radius: 1.5px;
 }
 
 .app-header__title {
