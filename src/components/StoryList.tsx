@@ -49,6 +49,15 @@ import './StoryList.css';
 // so the row slides in place instead of popping.
 const SWEEP_ANIMATION_MS = 200;
 
+// A fully-visible row can report an intersectionRatio fractionally below 1 on
+// sub-pixel layouts, so anything at or above this counts as fully in view. The
+// same value is also an observer threshold (not just `[0, 1]`): the callback
+// only fires when the ratio crosses a configured threshold, so without the
+// cutoff a row that left full visibility at ~0.9995 would get no follow-up
+// callback until it exited the viewport entirely — staying wrongly sweepable
+// behind the sticky header the whole way up.
+const FULLY_VISIBLE_RATIO = 0.999;
+
 // Reused for "no in-body-pinned ids right now" so the `useMemo` below
 // returns the same Set instance across renders — callers (isRowVisible,
 // pinnedTopStories) can rely on reference equality to skip re-derivation.
@@ -590,15 +599,16 @@ export function StoryListImpl({
             const el = entry.target as HTMLElement;
             const id = Number(el.dataset.storyId);
             if (!id) continue;
-            // "Fully visible" — intersectionRatio can round to just under 1
-            // for sub-pixel layouts, so treat very close to 1 as fully in.
-            if (entry.intersectionRatio >= 0.999) next.add(id);
+            if (entry.intersectionRatio >= FULLY_VISIBLE_RATIO) next.add(id);
             else next.delete(id);
           }
           return next;
         });
       },
-      { threshold: [0, 1], rootMargin: `-${stickyInset}px 0px 0px 0px` },
+      {
+        threshold: [0, FULLY_VISIBLE_RATIO, 1],
+        rootMargin: `-${stickyInset}px 0px 0px 0px`,
+      },
     );
     observerRef.current = io;
     for (const el of rowEls.current.values()) io.observe(el);
