@@ -72,6 +72,15 @@ export function setVisibilityForTest(el: Element, ratio: number): void {
   }
 }
 
+// The live observers, for asserting construction options (thresholds,
+// rootMargin). The mock fires its callback on every `setVisibilityForTest`
+// regardless of thresholds, so it can't model the browser's "only fires on a
+// threshold crossing" semantics — a test that the cutoff is *observed* (not
+// just compared) has to inspect the threshold list directly.
+export function getObserversForTest(): MockIntersectionObserver[] {
+  return [...mockObservers];
+}
+
 type IOGlobal = { IntersectionObserver?: typeof IntersectionObserver };
 
 let previousIntersectionObserver: typeof IntersectionObserver | undefined;

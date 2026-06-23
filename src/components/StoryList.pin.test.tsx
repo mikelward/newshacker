@@ -6,6 +6,7 @@ import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addPinnedId } from '../lib/pinnedStories';
 import {
+  getObserversForTest,
   installIntersectionObserverMock,
   setVisibilityForTest,
   uninstallIntersectionObserverMock,
@@ -464,6 +465,23 @@ describe('<StoryList> pin and sweep', () => {
     await waitFor(() => {
       expect(screen.getByTestId('sweep-btn')).toBeDisabled();
     });
+  });
+
+  it('observes the fully-visible cutoff as a threshold so it fires on crossings', async () => {
+    // The callback treats ratio >= 0.999 as visible; the observer must watch
+    // that same value, or a row dropping from ~0.9995 to behind the sticky
+    // header would never get a follow-up callback (no [0, 1] boundary crossed).
+    installHNFetchMock({ feeds: { topstories: [1] }, items: { 1: makeStory(1) } });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(1);
+    });
+
+    const observed = getObserversForTest();
+    expect(observed.length).toBeGreaterThan(0);
+    expect(observed.some((o) => o.thresholds.includes(0.999))).toBe(true);
   });
 
   it('disables the sweep button when the whole list is empty', async () => {
