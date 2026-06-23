@@ -27,6 +27,26 @@ interface Props {
   returnFromHiddenThresholdMs?: number;
 }
 
+// Tracks a localStorage write that failed at runtime even though reads
+// keep working. Safari's quota-exceeded state (and some private modes)
+// rejects setItem while still answering getItem — so writeInstalledFlag()
+// throws-and-swallows, the flag never persists, and getItem keeps
+// returning null. Without this memory, readInstalledFlag() would report
+// `false` on every controllerchange, the first-ever-install guard would
+// fire forever, and real updates would be suppressed — the exact opposite
+// of the fail-open behavior this flag exists to guarantee. Remembering the
+// failure here lets readInstalledFlag() fail open instead.
+let installedFlagWriteFailed = false;
+
+// Resets the in-memory write-failure latch. Exported for tests so each
+// case starts from a clean fail-open baseline; not used by the component.
+// (Fast-refresh doesn't apply to a test-only helper, so the rule's
+// component-only-export warning is a false positive here.)
+// eslint-disable-next-line react-refresh/only-export-components
+export function resetInstalledFlagWriteFailureForTests() {
+  installedFlagWriteFailed = false;
+}
+
 // Fail open: when storage isn't usable (Safari private mode, disabled
 // cookies, quota exceeded), pretend the flag is set so the watcher
 // shows the toast on every controllerchange. The alternative — fail
@@ -35,6 +55,7 @@ interface Props {
 // browsers where storage just happens to be off. One spurious toast
 // per session on those browsers is the much better failure mode.
 function readInstalledFlag(): boolean {
+  if (installedFlagWriteFailed) return true;
   try {
     return localStorage.getItem(SW_INSTALLED_FLAG) === '1';
   } catch {
@@ -46,9 +67,13 @@ function writeInstalledFlag() {
   try {
     localStorage.setItem(SW_INSTALLED_FLAG, '1');
   } catch {
-    // Storage disabled (private mode, quota); readInstalledFlag also
-    // returns true on a throw, so the next controllerchange will
-    // surface the toast — exactly what we want.
+    // Storage rejected the write (private mode, quota exceeded). If reads
+    // still work, getItem would keep returning null and readInstalledFlag
+    // would report `false` forever; latch the failure so reads fail open.
+    // The caller in the first-install branch also checks this latch
+    // directly so the *current* claim fails open too, not just future
+    // ones — exactly what we want.
+    installedFlagWriteFailed = true;
   }
 }
 
@@ -99,15 +124,21 @@ export function AppUpdateWatcher({
     const onControllerChange = () => {
       const current = navigator.serviceWorker.controller;
       if (current === baselineController) return;
-      if (!readInstalledFlag()) {
-        // Truly first-ever install on this device: the bundle we're
-        // running was just fetched fresh, the SW that's claiming us
-        // precaches the same hashes — no reason to nudge.
-        baselineController = current;
-        writeInstalledFlag();
-        return;
-      }
       baselineController = current;
+      if (!readInstalledFlag()) {
+        // No record of a prior install on this device. Try to record this
+        // claim as the first one and suppress the spurious toast — the
+        // bundle we're running was just fetched fresh, the SW claiming us
+        // precaches the same hashes, no reason to nudge. But only suppress
+        // if the write actually sticks: if storage rejects it (reads work,
+        // writes throw), we can never persist the flag and so can't tell a
+        // first install from a real update on the next load. Fail open on
+        // *this* claim — suppressing it would silently swallow the real
+        // update on every reload in that environment, which is the bug the
+        // flag exists to prevent.
+        writeInstalledFlag();
+        if (!installedFlagWriteFailed) return;
+      }
       showToast({
         message: 'New version available',
         actionLabel: 'Reload',
@@ -134,7 +165,12 @@ export function AppUpdateWatcher({
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    let hiddenAt = 0;
+    // Seed from the current state. If the tab is restored already-hidden
+    // (session restore of a background tab), no `hidden` visibilitychange
+    // fires after we attach the listener, so without this seed hiddenAt
+    // would stay 0 and the first `visible` event would skip the ping even
+    // after a long real absence.
+    let hiddenAt = document.visibilityState === 'hidden' ? Date.now() : 0;
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         hiddenAt = Date.now();
