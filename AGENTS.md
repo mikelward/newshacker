@@ -200,6 +200,7 @@ Copilot reviews are triggered automatically — do not call `mcp__github__reques
 ## Pull requests and reviews
 
 - Open PRs ready for review (not draft) unless asked otherwise.
+- **Wait for a 👍 reaction and no open comments before merging.** Don't merge to `main` (via rebase) until the reviewer has left a top-level thumbs-up reaction on the PR AND there are no open review comments. Don't ask whether it's okay to merge — wait for the signal.
 - When a feature has multiple open PRs, list **every** open PR by URL,
   one per line — the "View PR" chip sticks to the first link and hides
   the rest (anthropics/claude-code#46625).
