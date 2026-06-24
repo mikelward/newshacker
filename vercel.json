@@ -1,4 +1,5 @@
 {
+  "ignoreCommand": "! git diff HEAD^ HEAD --name-only | grep -qvE '\\.md$'",
   "rewrites": [
     {
       "source": "/item/:id",
