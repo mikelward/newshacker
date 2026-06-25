@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
@@ -8,6 +8,7 @@ import { avatarImageUrl, type AvatarPrefs } from '../lib/avatarPrefs';
 import { EditAvatarForm } from './EditAvatarForm';
 import { TooltipButton } from './TooltipButton';
 import { UserAvatar } from './UserAvatar';
+import { usePopoverDismiss } from '../hooks/usePopoverDismiss';
 import './HeaderAccountMenu.css';
 
 // Always-visible auth control in the top-right. Two display states:
@@ -43,28 +44,16 @@ export function HeaderAccountMenu() {
     staleTime: 60 * 60 * 1000,
   });
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (!wrapperRef.current) return;
-      if (wrapperRef.current.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    // Capture phase, not bubble: TooltipButton calls stopPropagation()
-    // on pointerdown (long-press plumbing), and React's synthetic stop
-    // also halts native bubbling — so a bubble-phase listener never
-    // hears taps on any TooltipButton (pin buttons, toolbar, drawer ☰)
-    // and the menu would hang open. Capture runs before any of that.
-    window.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  // Shared dropdown dismissal: Escape, outside-press, and the first-press-only
+  // swallow (so dismissing the menu doesn't also activate the control tapped
+  // outside). The capture-phase pointerdown inside the hook is what lets it
+  // hear taps on TooltipButtons (pin buttons, toolbar, drawer ☰) that
+  // stopPropagation() during long-press plumbing.
+  usePopoverDismiss({
+    open,
+    onDismiss: () => setOpen(false),
+    isInside: (target) => !!wrapperRef.current?.contains(target),
+  });
 
   // Two pieces of state-coupling done with the "previous value"
   // idiom so React re-renders synchronously without an extra effect

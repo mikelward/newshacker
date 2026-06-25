@@ -371,7 +371,10 @@ server-side with most-recent-first eviction.
      opens a small popover with the username, karma (via the existing
      Firebase `getUser` path, cached through React Query), a link to
      `/user/:username`, and a `Log out` button. Closes on Escape,
-     outside click, or after a menu selection.
+     outside press, or after a menu selection. Dismissal is the shared
+     dropdown contract (`usePopoverDismiss`, also used by the overflow
+     menu): **the first press outside only dismisses** — its trailing
+     click is swallowed, so it never also activates whatever was tapped.
    - **Profile picture on top of the initial.** The letter-on-color
      disc is the baseline (offline, zero requests, deterministic), but
      a real picture can be layered over it. By default the header

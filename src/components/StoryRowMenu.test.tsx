@@ -159,7 +159,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
     expect(screen.getByTestId('story-row-menu-cancel')).toBeInTheDocument();
   });
 
-  it('closes when a mousedown lands outside both the menu and the anchor', () => {
+  it('closes when a press lands outside both the menu and the anchor', () => {
     const anchor = document.createElement('button');
     anchor.getBoundingClientRect = () =>
       ({
@@ -189,7 +189,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
       );
       act(() => {
         outside.dispatchEvent(
-          new MouseEvent('mousedown', { bubbles: true }),
+          new MouseEvent('pointerdown', { bubbles: true }),
         );
       });
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -232,7 +232,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
         />,
       );
       act(() => {
-        outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        outside.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       });
       const click = new MouseEvent('click', {
         bubbles: true,
@@ -292,7 +292,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
       // auxclick rather than a primary click, so no swallower is armed.
       act(() => {
         outside.dispatchEvent(
-          new MouseEvent('mousedown', { bubbles: true, button: 2 }),
+          new MouseEvent('pointerdown', { bubbles: true, button: 2 }),
         );
       });
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -330,7 +330,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
     document.body.appendChild(outside);
     const onClose = vi.fn();
     try {
-      render(
+      const { rerender } = render(
         <StoryRowMenu
           open
           title="A story"
@@ -339,11 +339,23 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
           onClose={onClose}
         />,
       );
-      // Primary mousedown arms the swallower, but the gesture ends with
-      // no click (e.g. a drag/selection released elsewhere).
+      // Primary press arms the swallower and dismisses the menu; the gesture
+      // ends with no click (e.g. a drag/selection released elsewhere). The
+      // real parent closes on dismiss, so re-render closed to let the menu's
+      // own outside listener tear down — leaving only the standalone swallower.
       act(() => {
-        outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        outside.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       });
+      expect(onClose).toHaveBeenCalledTimes(1);
+      rerender(
+        <StoryRowMenu
+          open={false}
+          title="A story"
+          items={items()}
+          anchorEl={anchor}
+          onClose={onClose}
+        />,
+      );
       // A brand-new gesture begins; its pointerdown must tear the stale
       // swallower down so the new gesture's click is not eaten.
       act(() => {
@@ -396,7 +408,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
       // control with Enter/Space — a click with detail 0 and no
       // preceding pointer event. It must NOT be swallowed.
       act(() => {
-        outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        outside.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       });
       const kbClick = new MouseEvent('click', {
         bubbles: true,
@@ -414,7 +426,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
     }
   });
 
-  it('does NOT close when a mousedown lands inside the anchor (the trigger owns toggling)', () => {
+  it('does NOT close when a press lands inside the anchor (the trigger owns toggling)', () => {
     const anchor = document.createElement('button');
     anchor.getBoundingClientRect = () =>
       ({
@@ -442,7 +454,7 @@ describe('StoryRowMenu popover mode (anchor supplied)', () => {
       );
       act(() => {
         anchor.dispatchEvent(
-          new MouseEvent('mousedown', { bubbles: true }),
+          new MouseEvent('pointerdown', { bubbles: true }),
         );
       });
       expect(onClose).not.toHaveBeenCalled();
