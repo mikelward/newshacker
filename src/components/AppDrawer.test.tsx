@@ -6,6 +6,7 @@ import { AppDrawer } from './AppDrawer';
 import { renderWithProviders } from '../test/renderUtils';
 import { THEME_STORAGE_KEY } from '../lib/theme';
 import { CHROME_STORAGE_KEY } from '../lib/chrome';
+import { FONT_SIZE_STORAGE_KEY } from '../lib/fontSize';
 import { HOME_FEED_STORAGE_KEY } from '../lib/homeFeed';
 
 describe('<AppDrawer>', () => {
@@ -217,6 +218,49 @@ describe('<AppDrawer>', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Mono' }));
     expect(window.localStorage.getItem(CHROME_STORAGE_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-chrome')).toBe(false);
+  });
+
+  it('exposes a text-size radiogroup with Medium selected by default', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const group = screen.getByRole('radiogroup', { name: 'Text size' });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Medium' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('radio', { name: 'Small' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(screen.getByRole('radio', { name: 'Large' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('switches the text size when a radio is clicked', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Large' }));
+    expect(window.localStorage.getItem(FONT_SIZE_STORAGE_KEY)).toBe('large');
+    expect(document.documentElement.getAttribute('data-font-size')).toBe(
+      'large',
+    );
+    expect(screen.getByRole('radio', { name: 'Large' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Small' }));
+    expect(window.localStorage.getItem(FONT_SIZE_STORAGE_KEY)).toBe('small');
+    expect(document.documentElement.getAttribute('data-font-size')).toBe(
+      'small',
+    );
+
+    // Medium is the 16px baseline — clears both the key and the attribute.
+    fireEvent.click(screen.getByRole('radio', { name: 'Medium' }));
+    expect(window.localStorage.getItem(FONT_SIZE_STORAGE_KEY)).toBeNull();
+    expect(document.documentElement.hasAttribute('data-font-size')).toBe(false);
   });
 
   it('exposes a home-feed radiogroup with Top selected by default', () => {

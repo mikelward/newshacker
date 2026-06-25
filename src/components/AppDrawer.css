@@ -159,6 +159,14 @@
   font-weight: 600;
 }
 
+/* The capital "A" of the text-size picker. The per-button inline font-size
+   (px, not rem) sets the scale hint and stays fixed regardless of the chosen
+   reading size; line-height: 1 keeps each "A" centered in the shared button. */
+.app-drawer__size-glyph {
+  font-weight: 700;
+  line-height: 1;
+}
+
 .app-drawer__segmented-btn[data-active] {
   background: var(--nh-bg-card);
   color: var(--nh-orange);

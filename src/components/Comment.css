@@ -57,7 +57,7 @@
   align-items: center;
   gap: 8px;
   padding-left: 1px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--nh-meta);
 }
 
@@ -83,7 +83,7 @@
 }
 
 .comment__body {
-  font-size: 15px;
+  font-size: 0.9375rem;
   line-height: 1.5;
   color: var(--nh-text);
   word-wrap: break-word;
@@ -326,6 +326,7 @@
   background: transparent;
   color: var(--nh-text);
   font: inherit;
+  /* Action control — stays px so the Text size setting doesn't scale it. */
   font-size: 13px;
   cursor: pointer;
   flex-shrink: 0;

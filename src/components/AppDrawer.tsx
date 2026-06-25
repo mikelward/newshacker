@@ -5,6 +5,7 @@ import { FEEDS, feedLabel } from '../lib/feeds';
 import { getStoryIds } from '../lib/hn';
 import { useTheme } from '../hooks/useTheme';
 import { useChrome } from '../hooks/useChrome';
+import { useFontSize } from '../hooks/useFontSize';
 import { useHomeFeed } from '../hooks/useHomeFeed';
 import {
   useHideOnScroll,
@@ -12,6 +13,7 @@ import {
 } from '../hooks/useFeedSettings';
 import type { Theme } from '../lib/theme';
 import type { Chrome } from '../lib/chrome';
+import { type FontSize, FONT_SIZE_LABELS } from '../lib/fontSize';
 import type { HomeFeed } from '../lib/homeFeed';
 import { TooltipButton } from './TooltipButton';
 import './AppDrawer.css';
@@ -114,6 +116,19 @@ const CHROME_OPTIONS: Array<{ value: Chrome; label: string }> = [
   { value: 'classic', label: 'Classic' },
 ];
 
+// The text-size picker renders each option as a capital "A" whose glyph size
+// hints the scale (small / medium / large), the conventional font-size control.
+// The accessible name still comes from the label.
+const FONT_SIZE_OPTIONS: Array<{
+  value: FontSize;
+  label: string;
+  glyph: number;
+}> = [
+  { value: 'small', label: FONT_SIZE_LABELS.small, glyph: 14 },
+  { value: 'medium', label: FONT_SIZE_LABELS.medium, glyph: 18 },
+  { value: 'large', label: FONT_SIZE_LABELS.large, glyph: 22 },
+];
+
 const HOME_FEED_OPTIONS: Array<{ value: HomeFeed; label: string }> = [
   { value: 'top', label: 'Top' },
   { value: 'hot', label: 'Hot' },
@@ -129,6 +144,7 @@ export function AppDrawer({ open, onClose }: Props) {
   const lastLocationRef = useRef(location.key);
   const { theme, setTheme } = useTheme();
   const { chrome, setChrome } = useChrome();
+  const { fontSize, setFontSize } = useFontSize();
   const { homeFeed, setHomeFeed } = useHomeFeed();
   const { hideOnScroll, setHideOnScroll } = useHideOnScroll();
   const { stickyBottomBar, setStickyBottomBar } = useStickyBottomBar();
@@ -330,6 +346,35 @@ export function AppDrawer({ open, onClose }: Props) {
             </span>
           </span>
         </label>
+
+        <div className="app-drawer__section-title">Text size</div>
+        <div
+          className="app-drawer__segmented"
+          role="radiogroup"
+          aria-label="Text size"
+        >
+          {FONT_SIZE_OPTIONS.map((opt) => (
+            <TooltipButton
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={fontSize === opt.value}
+              tooltip={opt.label}
+              aria-label={opt.label}
+              className="app-drawer__segmented-btn"
+              data-active={fontSize === opt.value || undefined}
+              onClick={() => setFontSize(opt.value)}
+            >
+              <span
+                className="app-drawer__size-glyph"
+                style={{ fontSize: opt.glyph }}
+                aria-hidden="true"
+              >
+                A
+              </span>
+            </TooltipButton>
+          ))}
+        </div>
 
         <div className="app-drawer__section-title">Feeds</div>
         <ul className="app-drawer__list">
