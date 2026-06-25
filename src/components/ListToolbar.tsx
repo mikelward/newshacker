@@ -241,7 +241,11 @@ interface HotPanelProps {
   panelId: string;
 }
 
-function HotPanel({ panelId }: HotPanelProps) {
+// The Hot rule editor — two enable-able branches (Top / New) each with a
+// pair of threshold sliders, plus a reset. Exported so the Settings page can
+// host the same controls as the `/hot` toolbar panel; both edit the one
+// persisted `useHotThresholds` record.
+export function HotRuleEditor({ panelId }: HotPanelProps) {
   const { prefs, save } = useHotThresholds();
   // Re-read the stored prefs at apply time rather than merging into
   // the captured render-time `prefs`. Two patches landing between
@@ -412,7 +416,7 @@ export function ListToolbar({
         </div>
       </div>
       {showHotCustomize && hotExpanded ? (
-        <HotPanel panelId={hotPanelId} />
+        <HotRuleEditor panelId={hotPanelId} />
       ) : null}
     </section>
   );

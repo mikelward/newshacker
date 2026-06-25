@@ -1,0 +1,200 @@
+.settings-page {
+  background: var(--nh-bg-card);
+  padding: 16px;
+  border-bottom: 1px solid var(--nh-border);
+  color: var(--nh-text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.settings-page__title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.settings-page__intro {
+  margin: 0 0 8px;
+  color: var(--nh-meta);
+  font-size: 14px;
+}
+
+.settings-page__section {
+  margin-top: 20px;
+}
+
+.settings-page__heading {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.settings-page__section-desc {
+  margin: 0 0 10px;
+  color: var(--nh-meta);
+  font-size: 14px;
+}
+
+/* Small label above each appearance picker row. */
+.settings-page__field-label {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nh-meta);
+}
+
+/* Segmented appearance picker — same shape as the drawer's `app-drawer__
+   segmented` row (the shared pickers in `appearanceOptions.tsx`), restyled for
+   the page card: no horizontal margin since the card already pads. */
+.settings-page__segmented {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding: 4px;
+  background: var(--nh-bg-code);
+  border: 1px solid var(--nh-border);
+  border-radius: 8px;
+}
+
+.settings-page__segmented-btn {
+  flex: 1 1 0;
+  min-height: var(--tap-min);
+  padding: 8px 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--nh-text);
+}
+
+.settings-page__segmented-btn--text {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-page__segmented-btn[data-active] {
+  background: var(--nh-bg-card);
+  color: var(--nh-orange);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.settings-page__segmented-btn:active {
+  background: var(--nh-pressed);
+}
+
+@media (hover: hover) {
+  .settings-page__segmented-btn:not([data-active]):hover {
+    background: var(--nh-pressed);
+  }
+}
+
+/* The capital "A" of the text-size picker — inline font-size (px) sets the
+   scale hint and stays fixed regardless of the chosen reading size. */
+.settings-page__size-glyph {
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Per-device toggle: a labeled checkbox with a short description, sized to the
+   touch floor. Moved here from the drawer's Reading section. */
+.settings-page__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  min-height: var(--tap-min);
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-page__toggle-input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--nh-orange);
+}
+
+.settings-page__toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-page__toggle-title {
+  font-size: 15px;
+  color: var(--nh-text);
+}
+
+.settings-page__toggle-desc {
+  font-size: 13px;
+  color: var(--nh-meta);
+}
+
+/* The Hot rule editor is shared with the compact, opt-in `/hot` toolbar panel.
+   On this primary mobile settings surface its controls are bumped to the 44px
+   touch floor (Golden rule 5) without disturbing the toolbar instance. */
+.settings-page .hot-rule-card__body {
+  padding: 12px;
+}
+.settings-page .hot-rule-card__legend {
+  min-height: var(--tap-min);
+  margin-bottom: 0;
+}
+.settings-page .hot-rule-card__toggle {
+  width: 24px;
+  height: 24px;
+}
+.settings-page .hot-rule-card__legend-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-height: var(--tap-min);
+}
+.settings-page .hot-rule-card__rows {
+  padding-left: 32px;
+}
+.settings-page .hot-rule-card__slider {
+  min-height: var(--tap-min);
+}
+.settings-page .hot-rule-card__reset {
+  min-height: var(--tap-min);
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.settings-page__links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-page__links li {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+}
+
+.settings-page__links a {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--tap-min);
+}
+
+.settings-page__back {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+/* Give the body-exit link a full tap target (Golden rule 5) rather than just
+   the text line — readers reach /settings from the mobile drawer. inline-flex
+   keeps it hugging its label width while min-height holds the 44px floor. */
+.settings-page__back a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+}

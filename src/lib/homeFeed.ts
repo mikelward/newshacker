@@ -12,6 +12,13 @@ const HOME_FEEDS: readonly HomeFeed[] = ['top', 'hot'];
 
 export const DEFAULT_HOME_FEED: HomeFeed = 'top';
 
+// Picker options (value + label), shared by the drawer's Home picker and the
+// Settings page so the two stay in lockstep.
+export const HOME_FEED_OPTIONS: Array<{ value: HomeFeed; label: string }> = [
+  { value: 'top', label: 'Top' },
+  { value: 'hot', label: 'Hot' },
+];
+
 function hasWindow(): boolean {
   return typeof window !== 'undefined';
 }

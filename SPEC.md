@@ -779,13 +779,38 @@ Undo and Sweep are wrapped in a right-aligned action group (`.story-list__footer
 
 Library pages therefore show only the Back-to-top slot; feed pages show all four — and once the feed's id list has been exhausted the middle slot stays put as the disabled "No more stories" button rather than collapsing, so the bar reads Back-to-top + (grayed) end-of-feed + Undo + Hide-unpinned. Reaching the end of any long scroll surfaces Back to top right where the reader stopped, matching where the thread page puts it.
 
-## Reading settings (drawer)
+## Settings page (`/settings`)
 
-The drawer's **Reading** section (between Theme and Feeds) carries two per-device
-toggles, both **off by default** so the shipped behavior is unchanged until a
-reader opts in. Each is a labeled checkbox stored as a localStorage flag and
-broadcast via a custom change event (mirrors `useTheme`); the hooks live in
-`src/hooks/useFeedSettings.ts` over `src/lib/feedSettings.ts`.
+A dedicated settings route, linked from the drawer's **App** section (first
+entry, above Help / About / Debug). It collects the lower-frequency,
+"set-and-forget" preferences so the slide-out drawer stays a fast nav surface
+for the high-frequency appearance picks (mode, app-bar style, text size) that
+remain inline in it. Same simple-content-page shell as `/about` / `/help`
+(`SettingsPage` + `SettingsPage.css`), with a back link to `/top` (a full
+44px tap target, not just the text line). Sections:
+
+- **Appearance** — mode (light/dark/system), app-bar style (mono/duo/classic),
+  and text size (small/medium/large), each a segmented picker. These are
+  **also** in the drawer for quick access; both surfaces render the shared
+  pickers from `appearanceOptions.ts` + `appearanceIcons.tsx` over the same
+  `useTheme` / `useChrome` / `useFontSize` hooks, so they can never drift.
+- **Reading** — the Home feed picker (Top/Hot — **also** in the drawer, sharing
+  `HOME_FEED_OPTIONS` over `useHomeFeed`) plus the two per-device toggles below
+  (the toggles moved here from the drawer; the Home picker is mirrored).
+- **Hot rule** — the same threshold editor (`HotRuleEditor`, shared with the
+  `/hot` toolbar panel; both edit the one `newshacker:hotThresholds` record via
+  `useHotThresholds`). See *Hot rule card*.
+- **More** — links to Help, About, and Debug.
+
+Everything on the page is per-device and stored in `localStorage`; the page
+itself fetches nothing.
+
+### Reading toggles
+
+Two per-device toggles, both **off by default** so the shipped behavior is
+unchanged until a reader opts in. Each is a labeled checkbox stored as a
+localStorage flag and broadcast via a custom change event (mirrors `useTheme`);
+the hooks live in `src/hooks/useFeedSettings.ts` over `src/lib/feedSettings.ts`.
 
 - **Hide stories as you scroll past** (`newshacker:hideOnScroll`). When on, an
   unpinned story is hidden the moment it scrolls fully off the **top** of the
@@ -804,6 +829,13 @@ broadcast via a custom change event (mirrors `useTheme`); the hooks live in
 Both settings are independent and apply to every scrolling feed view. Matches
 readmo's *Reading* / *Bottom toolbar* settings (same defaults), so the two apps
 stay behavior-equivalent.
+
+The appearance pickers — mode (light/dark/system), app-bar style
+(mono/duo/classic), and text size (small/medium/large) — plus the Home feed
+picker (Top/Hot) appear in **both** the drawer (quick access, highest-frequency)
+and the Settings page, rendered from shared option modules (`appearanceOptions`
+/ `appearanceIcons`, `HOME_FEED_OPTIONS`) so they can't drift. The checkbox-style
+reading toggles and the Hot rule editor live **only** on `/settings`.
 
 ## Visual Design
 
@@ -918,6 +950,7 @@ Because newshacker is a Vite SPA, the bare `index.html` is what crawlers receive
 | `/opened` | recently opened stories (7-day history) |
 | `/hidden` | recently hidden stories (7-day history) |
 | `/login` | HN login form |
+| `/settings` | per-device settings — Reading toggles, Hot rule editor, and links to Help / About / Debug; linked from the drawer's App section — see *Settings page* |
 | `/search` | full-text search over HN stories — see *Search* |
 | `/admin` | operator-only dashboard (quota / billing for Jina, Gemini, Redis; link to `/tuning`; analytics rollup over the structured `summary-outcome` / `comments-summary-outcome` / `warm-run` log lines via Axiom — see *Operator analytics dashboard*) — gated server-side on an HN round-trip that confirms the `hn_session` cookie is real **and** belongs to `ADMIN_USERNAME` (defaults to `mikelward`); not linked from the UI |
 | `/tuning` | operator-only Hot threshold tuning view (interactive expression + sliders, score and comments scatters, event list) — same auth gate as `/admin`; not linked from the UI |
