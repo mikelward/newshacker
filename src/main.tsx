@@ -6,6 +6,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
 import { FEED_QUERY_RETRY, feedQueryRetryDelay } from './hooks/useStoryList';
+import { setConnectivityProbeUrl } from './lib/networkStatus';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import {
   lockAllPinnedQueriesGcTime,
@@ -73,6 +74,17 @@ const persister = createSyncStoragePersister({
   key: 'newshacker:rq-cache',
   throttleTime: 1000,
 });
+
+// Point the connectivity tracker at our liveness endpoint. `/api/me` is a pure
+// origin-reachability check: its handler only reads the session cookie and
+// returns 200/401 with no upstream dependency (no Redis, no HN round-trip — see
+// api/me.ts), so a slow/down dependency can never make a reachable origin look
+// offline. It's same-origin and deliberately NOT in the service worker's
+// runtimeCaching, so the probe always hits the network (never a cache hit that
+// lies about being online). Used only to confirm recovery while we're showing
+// the offline pill — it fires at most every 30s, and while genuinely offline it
+// fails without ever reaching the server, so the cost is negligible.
+setConnectivityProbeUrl('/api/me');
 
 // Bridge cache writes across tabs in real time so a pin/favorite in tab
 // A doesn't force tab B to re-fetch what A already warmed. No cleanup —

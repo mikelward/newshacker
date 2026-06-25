@@ -743,9 +743,33 @@ There is **no header Share button**. An earlier design put a Share-page button t
 `document.title` is still set per-route via the `useDocumentTitle` hook so the **browser tab** (and the server-side OG title) read the actual content rather than the static fallback. On `/item/:id` the format is `<story title> - newshacker` (lowercase brand to match the rest of the UI vocabulary; for comment-focus deep links, the parent story title is used). Routes without an opinion (`/pinned`, `/about`, etc.) keep the static `newshacker — a reader for Hacker News` from `index.html`.
 
 - **Offline chip** — appears in the header whenever the app's combined
-  browser/fetch network tracker reports offline. The chip links to
-  `/offline`, so tapping it opens stories already cached on this device
-  instead of acting as a dead status label.
+  browser/fetch network tracker (`src/lib/networkStatus.ts`) reports
+  offline. The chip links to `/offline`, so tapping it opens stories
+  already cached on this device instead of acting as a dead status label.
+  - **No flapping while offline.** The tracker keeps two signals —
+    `browserOnline` (`navigator.onLine` + events) and `fetchOnline`
+    (`trackedFetch` flips it on a network-error throw or any response) —
+    and reports offline if either is down. A Workbox-cache-served GET that
+    resolves looks like a successful fetch, which would otherwise flip the
+    chip back online while the device is genuinely offline (the read path
+    then bounces it online↔offline on every cache hit). To stop that, once
+    a request fails the tracker is "awaiting liveness": an ambiguous
+    (cache-eligible GET) success can no longer clear the chip — only a
+    **cache-bypassing** success may (a non-GET the server accepted, since
+    Workbox runtime caching is GET-only, or a liveness probe). Recovery is
+    confirmed by probing `/api/me` (a pure origin-reachability check — its
+    handler only reads the session cookie and returns 200/401 with **no
+    upstream dependency**, so a slow/down Redis or HN never makes a
+    reachable origin look offline; deliberately **not** in the SW's
+    runtimeCaching, plus `cache: 'no-store'`, so it always hits the
+    network) every 30s while offline and immediately on regained tab focus,
+    until a probe reaches the backend. React Query's `onlineManager` is
+    still driven by the **browser** signal only, so a transient fetch
+    failure never pauses the retry that would recover it. **Cost:**
+    negligible — the probe fires at most every 30s only while the chip is
+    showing, and while genuinely offline it fails without reaching the
+    server; it succeeds (once) only on recovery. No new infrastructure —
+    `/api/me` already exists.
 
 Icons are inlined monochrome SVG (Apache 2.0, Google Material Symbols, outlined weight, viewBox `0 -960 960 960`, drawn with `fill="currentColor"`). No icon font, CSS, or web request is used to load them at runtime.
 
