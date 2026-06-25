@@ -135,6 +135,15 @@ export function StoryRowMenu({
   // first closes via this handler, then the anchor's onClick re-opens,
   // which would be a wash — so we simply ignore anchor-origin clicks
   // here and let the anchor's own handler toggle.
+  //
+  // We close on mousedown, but the same gesture still fires a `click`
+  // afterward. Left alone that click would activate whatever sits under
+  // the pointer — a story row's stretched link, a neighboring row, a
+  // toolbar button — so the first tap outside would both dismiss the
+  // menu AND do something else. To make the first outside tap *only*
+  // dismiss, we arm a one-shot capture-phase swallower for that trailing
+  // click. It runs before React's root listener, so the underlying
+  // onClick / navigation never sees the event.
   useEffect(() => {
     if (!popover) return;
     const onDocMouseDown = (e: MouseEvent) => {
@@ -143,6 +152,39 @@ export function StoryRowMenu({
       if (sheetRef.current?.contains(target)) return;
       if (anchorEl?.contains(target)) return;
       onClose();
+      // Only a primary-button (left button / touch tap) dismissal is
+      // followed by the `click` we need to swallow. Right/middle buttons
+      // fire `contextmenu` / `auxclick` instead of a primary `click`, so
+      // arming here would strand the swallower and make the next
+      // unrelated click appear ignored — skip them.
+      if (e.button !== 0) return;
+      const swallowNextClick = (clickEvent: MouseEvent) => {
+        // A keyboard activation (Enter/Space on a focused control) fires
+        // a `click` with `detail === 0` and no preceding pointer event —
+        // it's never the trailing click of the outside pointer gesture we
+        // armed for. Don't eat it; just drop the now-stale swallower and
+        // let the activation through.
+        if (clickEvent.detail === 0) {
+          teardownSwallow();
+          return;
+        }
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+        teardownSwallow();
+      };
+      const teardownSwallow = () => {
+        document.removeEventListener('click', swallowNextClick, true);
+        document.removeEventListener('pointerdown', teardownSwallow, true);
+      };
+      document.addEventListener('click', swallowNextClick, true);
+      // The matching click normally consumes the swallower; but if the
+      // gesture ends without one (a drag or text selection that releases
+      // over a different element fires no click), the next pointerdown —
+      // the start of a brand-new gesture — tears it down instead, so it
+      // can never eat an unrelated later click. Registered after the
+      // arming gesture's own pointerdown, so it only fires for
+      // subsequent gestures.
+      document.addEventListener('pointerdown', teardownSwallow, true);
     };
     document.addEventListener('mousedown', onDocMouseDown, true);
     return () => {
