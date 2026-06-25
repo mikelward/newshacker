@@ -757,16 +757,16 @@ Every list view — feed pages (`/top`, `/new`, `/best`, `/ask`, `/show`, `/jobs
 
 The toolbar always carries two right-aligned icon buttons, in order **Undo → Sweep unpinned**. Both stay in place (never shift) so the layout doesn't jump; each is disabled when the action is unavailable rather than being hidden. On `/hot` the bar also carries a left-aligned **Customize Hot rule** button (with the expandable panel below it — see *Story feeds → Hot rule card*); on every other list view the left slot is empty.
 
-- **Undo** (Material Symbols `undo`) — restores the most recent hide action: either the last swipe-to-hide, the last menu "Hide", or the last sweep (the whole batch at once). One level of undo only; recording a new hide replaces the stored batch. Disabled when there is nothing to undo. Not persisted across reloads. The undo state is global (lives in `FeedBarContext`) so it survives navigation between list views — a hide on `/top` followed by a jump to `/pinned` keeps Undo armed on the latter's toolbar.
+- **Undo** (Material Symbols `undo`) — restores the most recent hide action: either the last swipe-to-hide, the last menu "Hide", or the last sweep (the whole batch at once). One level of undo only; recording a new hide replaces the stored batch — **except** that consecutive auto-dismiss-on-scroll hides within a 2s window (`DISMISS_BATCH_WINDOW_MS`) share one batch keyed per burst, so a single Undo restores the whole run the reader just scrolled past. A keyless hide (swipe / Sweep / menu) always replaces the batch, so a manual dismissal between two scroll hides can't be folded into the burst. Disabled when there is nothing to undo. Not persisted across reloads. The undo state is global (lives in `FeedBarContext`) so it survives navigation between list views — a hide on `/top` followed by a jump to `/pinned` keeps Undo armed on the latter's toolbar.
 - **Sweep unpinned** (Material Symbols `sweep`) — hides every visible unpinned story in one shot. Disabled when there are no unpinned stories to hide; library views never register a sweep handler, so the button is permanently disabled there (consistent placement across views beats hiding it on each library page). Tapping it plays the **same** slide-right + fade-out as `useSwipeToDismiss` (200ms ease-out, translate by the row's full width so each row leaves the viewport the way a manually swiped row would) on every swept row *together* (one gesture, not a staggered cascade — "sweep" is a single motion), and the actual hide + undo-batch record commits when the animation finishes, so the rows slide in place instead of popping. Readers with `prefers-reduced-motion: reduce` skip both the animation and the delay and see the rows disappear instantly. Double-tap is ignored while a sweep is already playing out.
 
 Testids are stable: the toolbar's buttons keep `undo-btn` and `sweep-btn` (unchanged from when they lived in the header); the feed footer's redundant sweep entry point keeps `sweep-btn-bottom`.
 
-No hide/sweep toast: the Undo button is the recovery path. Hiding is always deliberate (swipe right, broom, or menu Hide) — scroll-past does not auto-hide. Pin/unpin don't toast either; the pin button's pressed state is the single source of truth for pinned state.
+No hide/sweep toast: the Undo button is the recovery path. Hiding is deliberate by default (swipe right, broom, or menu Hide); the optional **Auto-dismiss on scroll-past** setting (off by default — see *Reading settings*) additionally hides an unpinned row once it scrolls off the top of the viewport. There's no hide toast in either case. Pin/unpin don't toast either; the pin button's pressed state is the single source of truth for pinned state.
 
 ## Bottom action bar (list views)
 
-Every scrolling list view — feed pages (`/top`, `/new`, `/best`, `/hot`, etc.) and library pages (`/pinned`, `/favorites`, `/done`, `/hidden`, `/opened`, `/offline`) — ends in a **bottom action bar** that visually mirrors the list toolbar above (see *List toolbar*): same `--nh-bg-card` background, same compact 40×40 icon button shape. The bar sits at the end of the list as if it were another row — no sticky/fixed positioning — so the reader scrolls past it the same way they scroll past the last story. **No `border-top` on the footer** — the last `.story-list__item` already carries a `border-bottom`, which serves as the single divider line (mirrors the top toolbar's `border-bottom` against a no-`border-top` first story; adding both ends would double the rule).
+Every scrolling list view — feed pages (`/top`, `/new`, `/best`, `/hot`, etc.) and library pages (`/pinned`, `/favorites`, `/done`, `/hidden`, `/opened`, `/offline`) — ends in a **bottom action bar** that visually mirrors the list toolbar above (see *List toolbar*): same `--nh-bg-card` background, same compact 40×40 icon button shape. **By default** the bar sits at the end of the list as if it were another row — no sticky/fixed positioning — so the reader scrolls past it the same way they scroll past the last story. **No `border-top` on the footer** in this default position — the last `.story-list__item` already carries a `border-bottom`, which serves as the single divider line (mirrors the top toolbar's `border-bottom` against a no-`border-top` first story; adding both ends would double the rule). The optional **Sticky bottom toolbar** setting (off by default — see *Reading settings*) instead pins the bar to the foot of the viewport (`position: sticky; bottom: 0`, `.story-list__footer--sticky`) so Back to top / More / Undo / Sweep stay in reach without scrolling to the end; in that mode it gains a `border-top` divider (it now floats over a row) and the Sweep visibility observer shrinks its bottom edge by the bar's height (`useStickyFooterInset`) so a row tucked behind the pinned bar isn't counted fully visible.
 
 **Slots, left → right, always in this order:**
 
@@ -778,6 +778,32 @@ Every scrolling list view — feed pages (`/top`, `/new`, `/best`, `/hot`, etc.)
 Undo and Sweep are wrapped in a right-aligned action group (`.story-list__footer-right`, `margin-left: auto`) that mirrors the top toolbar's `.list-toolbar__right` group, so the pair hugs the trailing edge of the bar no matter what sits between it and Back to top (More present or absent).
 
 Library pages therefore show only the Back-to-top slot; feed pages show all four — and once the feed's id list has been exhausted the middle slot stays put as the disabled "No more stories" button rather than collapsing, so the bar reads Back-to-top + (grayed) end-of-feed + Undo + Hide-unpinned. Reaching the end of any long scroll surfaces Back to top right where the reader stopped, matching where the thread page puts it.
+
+## Reading settings (drawer)
+
+The drawer's **Reading** section (between Theme and Feeds) carries two per-device
+toggles, both **off by default** so the shipped behavior is unchanged until a
+reader opts in. Each is a labeled checkbox stored as a localStorage flag and
+broadcast via a custom change event (mirrors `useTheme`); the hooks live in
+`src/hooks/useFeedSettings.ts` over `src/lib/feedSettings.ts`.
+
+- **Hide stories as you scroll past** (`newshacker:hideOnScroll`). When on, an
+  unpinned story is hidden the moment it scrolls fully off the **top** of the
+  viewport after having been fully visible — the reader scrolled past it without
+  pinning. It's driven by the same Sweep `IntersectionObserver` (extended to
+  report a row that leaves via the top edge), reuses `hideMany` + the Pin shield
+  (pinned rows are never auto-hidden), and records undo through the 2s
+  burst-batch window above. Rows still below the fold are never auto-hidden;
+  only ones actually scrolled past. A row's "seen" mark is cleared when it
+  leaves the DOM, so an Undo-restored row remounted above the viewport isn't
+  instantly re-hidden.
+- **Sticky bottom toolbar** (`newshacker:stickyBottomBar`). Pins the bottom
+  action bar to the foot of the viewport instead of letting it flow at the end
+  of the list — see *Bottom action bar*.
+
+Both settings are independent and apply to every scrolling feed view. Matches
+readmo's *Reading* / *Bottom toolbar* settings (same defaults), so the two apps
+stay behavior-equivalent.
 
 ## Visual Design
 

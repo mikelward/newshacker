@@ -12,6 +12,7 @@ import { useHiddenStories } from '../hooks/useHiddenStories';
 import { useHotThresholds } from '../hooks/useHotThresholds';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { useStickyBottomBar } from '../hooks/useFeedSettings';
 import { BackToTopButton } from './BackToTopButton';
 import { ListToolbar } from './ListToolbar';
 import { PullToRefresh } from './PullToRefresh';
@@ -55,6 +56,7 @@ export function LibraryStoryList({
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts, unopen } =
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
+  const { stickyBottomBar } = useStickyBottomBar();
   const queryClient = useQueryClient();
   const isRestoring = useIsRestoring();
   const [cacheVersion, setCacheVersion] = useState(0);
@@ -265,7 +267,12 @@ export function LibraryStoryList({
           );
         })}
       </ol>
-      <div className="story-list__footer">
+      <div
+        className={
+          'story-list__footer' +
+          (stickyBottomBar ? ' story-list__footer--sticky' : '')
+        }
+      >
         <BackToTopButton />
       </div>
     </PullToRefresh>

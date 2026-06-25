@@ -11,6 +11,7 @@ import { useHotThresholds } from '../hooks/useHotThresholds';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useShareStory } from '../hooks/useShareStory';
+import { useStickyBottomBar } from '../hooks/useFeedSettings';
 import type { ItemRoot } from '../hooks/useItemTree';
 import { isHotStory } from '../lib/format';
 import type { HNItem } from '../lib/hn';
@@ -43,6 +44,7 @@ export function OfflinePage() {
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
+  const { stickyBottomBar } = useStickyBottomBar();
   const { prefs: hotThresholds } = useHotThresholds();
 
   useEffect(() => {
@@ -152,7 +154,12 @@ export function OfflinePage() {
           </li>
         ))}
       </ol>
-      <div className="story-list__footer">
+      <div
+        className={
+          'story-list__footer' +
+          (stickyBottomBar ? ' story-list__footer--sticky' : '')
+        }
+      >
         <BackToTopButton />
       </div>
     </>

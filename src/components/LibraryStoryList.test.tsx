@@ -49,4 +49,16 @@ describe('<LibraryStoryList>', () => {
     });
     expect(screen.queryByText('Two')).toBeNull();
   });
+
+  it('honors the sticky bottom toolbar setting on its footer', async () => {
+    installHNFetchMock({ items: { 1: makeStory(1, { title: 'One' }) } });
+    window.localStorage.setItem('newshacker:stickyBottomBar', '1');
+    renderWithProviders(
+      <LibraryStoryList queryKey="sticky" ids={[1]} emptyMessage="none" />,
+    );
+    await waitFor(() => expect(screen.getByText('One')).toBeInTheDocument());
+    expect(
+      document.querySelector('.story-list__footer'),
+    ).toHaveClass('story-list__footer--sticky');
+  });
 });
