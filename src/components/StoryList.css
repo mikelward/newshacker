@@ -137,6 +137,7 @@
   border: 1px solid var(--nh-border);
   border-radius: 6px;
   color: var(--nh-text);
+  /* Action control — stays px so the Text size setting doesn't scale it. */
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -169,6 +170,7 @@
   border: 1px solid var(--nh-border);
   border-radius: 6px;
   color: var(--nh-text);
+  /* Action control — stays px so the Text size setting doesn't scale it. */
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;

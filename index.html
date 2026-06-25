@@ -62,6 +62,13 @@
           if (c === 'duo' || c === 'classic') {
             document.documentElement.setAttribute('data-chrome', c);
           }
+          // Text size — explicit whitelist (medium is the 16px baseline, no
+          // attribute) so a corrupt value falls back to medium rather than
+          // activating a `:root[data-font-size]` override with no token.
+          var fs = localStorage.getItem('newshacker:font-size');
+          if (fs === 'small' || fs === 'large') {
+            document.documentElement.setAttribute('data-font-size', fs);
+          }
           // Seed the <meta name="theme-color"> from the *resolved* theme
           // (explicit override first, OS preference second). Keeping this
           // in lockstep with the inline boot avoids a visible flash of

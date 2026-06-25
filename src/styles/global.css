@@ -20,6 +20,12 @@
   --skeleton-highlight: #e4e4e4;
   --tap-min: 48px;
 
+  /* Reading text size (drawer → Text size). The anchor for the rem-based
+     reading surfaces — story rows, comments, thread text — so the setting
+     scales what you read while px-sized chrome stays put. Medium (16px) is the
+     default and owns the bare :root; small/large override below. */
+  --nh-font-size: 16px;
+
   /* Outer height of the sticky <AppHeader>. The header has no
      declared height — its size is implied by the 48px (`--tap-min`)
      menu button plus 4+4px of vertical padding (and a 1px bottom
@@ -156,15 +162,29 @@ button {
 
 /* ---------- Base ---------- */
 
+/* Text-size scale. Overrides the --nh-font-size token the root font-size reads
+   below; medium (16px) is the default and needs no attribute. */
+:root[data-font-size='small'] {
+  --nh-font-size: 15px;
+}
+
+:root[data-font-size='large'] {
+  --nh-font-size: 17px;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Anchor `rem` to the chosen text size: the reading surfaces size their type
+     in `rem`, which resolves against the root, so the "Text size" setting moves
+     the root font-size to scale them. Chrome stays in px and is unaffected. */
+  font-size: var(--nh-font-size);
 }
 
 body {
   min-height: 100dvh;
   font-family: var(--font-system);
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.4;
   color: var(--nh-text);
   background: var(--nh-bg);
