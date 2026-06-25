@@ -29,6 +29,7 @@ import { ThresholdTuningPage } from './pages/ThresholdTuningPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { SearchPage } from './pages/SearchPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 function CloudSyncBridge() {
   useCloudSync();
@@ -87,6 +88,7 @@ export default function App() {
               <Route path="/pinned" element={<PinnedPage />} />
               <Route path="/favorites" element={<FavoritesPage />} />
               <Route path="/offline" element={<OfflinePage />} />
+              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/debug" element={<DebugPage />} />

@@ -7,132 +7,15 @@ import { useTheme } from '../hooks/useTheme';
 import { useChrome } from '../hooks/useChrome';
 import { useFontSize } from '../hooks/useFontSize';
 import { useHomeFeed } from '../hooks/useHomeFeed';
+import { HOME_FEED_OPTIONS } from '../lib/homeFeed';
+import { ChromeIcon, ThemeIcon } from './appearanceIcons';
 import {
-  useHideOnScroll,
-  useStickyBottomBar,
-} from '../hooks/useFeedSettings';
-import type { Theme } from '../lib/theme';
-import type { Chrome } from '../lib/chrome';
-import { type FontSize, FONT_SIZE_LABELS } from '../lib/fontSize';
-import type { HomeFeed } from '../lib/homeFeed';
+  CHROME_OPTIONS,
+  FONT_SIZE_OPTIONS,
+  THEME_OPTIONS,
+} from './appearanceOptions';
 import { TooltipButton } from './TooltipButton';
 import './AppDrawer.css';
-
-// Material Symbols Outlined — Apache 2.0, Google. viewBox 0 -960 960 960,
-// fill-based paths that take `color` via currentColor.
-const MS_VIEWBOX = '0 -960 960 960';
-
-function ThemeIcon({ path }: { path: string }) {
-  return (
-    <svg
-      viewBox={MS_VIEWBOX}
-      fill="currentColor"
-      width="22"
-      height="22"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d={path} />
-    </svg>
-  );
-}
-
-const LIGHT_PATH =
-  'M480-360q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35Zm0 80q-83 0-141.5-58.5T280-480q0-83 58.5-141.5T480-680q83 0 141.5 58.5T680-480q0 83-58.5 141.5T480-280ZM200-440H40v-80h160v80Zm720 0H760v-80h160v80ZM440-760v-160h80v160h-80Zm0 720v-160h80v160h-80ZM256-650l-101-97 57-59 96 100-52 56Zm492 496-97-101 53-55 101 97-57 59Zm-98-550 97-101 59 57-100 96-56-52ZM154-212l101-97 55 53-97 101-59-57Zm326-268Z';
-const DARK_PATH =
-  'M480-120q-150 0-255-105T120-480q0-150 105-255t255-105q14 0 27.5 1t26.5 3q-41 29-65.5 75.5T444-660q0 90 63 153t153 63q55 0 101-24.5t75-65.5q2 13 3 26.5t1 27.5q0 150-105 255T480-120Z';
-const SYSTEM_PATH =
-  'M80-120v-80h240v-80H160q-33 0-56.5-23.5T80-360v-400q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v400q0 33-23.5 56.5T800-280H640v80h240v80H80Zm80-240h640v-400H160v400Zm0 0v-400 400Z';
-
-const THEME_OPTIONS: Array<{ value: Theme; label: string; path: string }> = [
-  { value: 'light', label: 'Light', path: LIGHT_PATH },
-  { value: 'dark', label: 'Dark', path: DARK_PATH },
-  { value: 'system', label: 'System', path: SYSTEM_PATH },
-];
-
-// App-bar style icon — a small schematic of the bar showing how much
-// orange the chrome carries. The mark and the optional wordmark line
-// are painted in brand orange (`--nh-orange`) because the icon acts
-// as a color *swatch*. `classic` draws the full orange bar with a
-// white outlined disc; `mono` and `duo` use a neutral outline bar
-// (`currentColor` so the outline inherits the button's text color
-// and stays legible against the highlighted active-button surface).
-// Only `duo` paints the wordmark line in orange — that single-pixel
-// delta is what distinguishes it from `mono`.
-function ChromeIcon({ variant }: { variant: Chrome }) {
-  const isClassic = variant === 'classic';
-  const barFill = isClassic ? 'var(--nh-orange)' : 'none';
-  const barStroke = isClassic ? 'var(--nh-orange)' : 'currentColor';
-  // Classic's real in-header mark is a transparent disc with a white
-  // ring outline (the orange bar shows through), so the picker icon
-  // mirrors that — `fill='none'` + white stroke. Mono and Duo both
-  // use a filled orange disc.
-  const discFill = isClassic ? 'none' : 'var(--nh-orange)';
-  const discStroke = isClassic ? '#ffffff' : 'none';
-  const discStrokeWidth = isClassic ? 0.75 : 0;
-  return (
-    <svg
-      viewBox="0 0 40 16"
-      width="34"
-      height="14"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <rect
-        x="0.75"
-        y="0.75"
-        width="38.5"
-        height="14.5"
-        rx="3"
-        fill={barFill}
-        stroke={barStroke}
-        strokeWidth="1.5"
-      />
-      <circle
-        cx="7"
-        cy="8"
-        r="3"
-        fill={discFill}
-        stroke={discStroke}
-        strokeWidth={discStrokeWidth}
-      />
-      {variant === 'duo' ? (
-        <rect
-          x="12"
-          y="6.25"
-          width="20"
-          height="3.5"
-          rx="1"
-          fill="var(--nh-orange)"
-        />
-      ) : null}
-    </svg>
-  );
-}
-
-const CHROME_OPTIONS: Array<{ value: Chrome; label: string }> = [
-  { value: 'mono', label: 'Mono' },
-  { value: 'duo', label: 'Duo' },
-  { value: 'classic', label: 'Classic' },
-];
-
-// The text-size picker renders each option as a capital "A" whose glyph size
-// hints the scale (small / medium / large), the conventional font-size control.
-// The accessible name still comes from the label.
-const FONT_SIZE_OPTIONS: Array<{
-  value: FontSize;
-  label: string;
-  glyph: number;
-}> = [
-  { value: 'small', label: FONT_SIZE_LABELS.small, glyph: 14 },
-  { value: 'medium', label: FONT_SIZE_LABELS.medium, glyph: 18 },
-  { value: 'large', label: FONT_SIZE_LABELS.large, glyph: 22 },
-];
-
-const HOME_FEED_OPTIONS: Array<{ value: HomeFeed; label: string }> = [
-  { value: 'top', label: 'Top' },
-  { value: 'hot', label: 'Hot' },
-];
 
 interface Props {
   open: boolean;
@@ -146,8 +29,6 @@ export function AppDrawer({ open, onClose }: Props) {
   const { chrome, setChrome } = useChrome();
   const { fontSize, setFontSize } = useFontSize();
   const { homeFeed, setHomeFeed } = useHomeFeed();
-  const { hideOnScroll, setHideOnScroll } = useHideOnScroll();
-  const { stickyBottomBar, setStickyBottomBar } = useStickyBottomBar();
   const client = useQueryClient();
 
   useEffect(() => {
@@ -311,42 +192,6 @@ export function AppDrawer({ open, onClose }: Props) {
             </TooltipButton>
           ))}
         </div>
-        <div className="app-drawer__section-title">Reading</div>
-        <label className="app-drawer__toggle">
-          <input
-            type="checkbox"
-            className="app-drawer__toggle-input"
-            checked={hideOnScroll}
-            onChange={(e) => setHideOnScroll(e.target.checked)}
-          />
-          <span className="app-drawer__toggle-text">
-            <span className="app-drawer__toggle-title">
-              Hide stories as you scroll past
-            </span>
-            <span className="app-drawer__toggle-desc">
-              Unpinned stories are dismissed once you scroll them off the top.
-              Pin a story to keep it.
-            </span>
-          </span>
-        </label>
-        <label className="app-drawer__toggle">
-          <input
-            type="checkbox"
-            className="app-drawer__toggle-input"
-            checked={stickyBottomBar}
-            onChange={(e) => setStickyBottomBar(e.target.checked)}
-          />
-          <span className="app-drawer__toggle-text">
-            <span className="app-drawer__toggle-title">
-              Sticky bottom toolbar
-            </span>
-            <span className="app-drawer__toggle-desc">
-              Keep the Back to top / More / Undo / Sweep bar pinned to the
-              bottom of the screen instead of at the end of the list.
-            </span>
-          </span>
-        </label>
-
         <div className="app-drawer__section-title">Text size</div>
         <div
           className="app-drawer__segmented"
@@ -405,6 +250,11 @@ export function AppDrawer({ open, onClose }: Props) {
         </ul>
         <div className="app-drawer__section-title">App</div>
         <ul className="app-drawer__list">
+          <li>
+            <Link to="/settings" className="app-drawer__link">
+              Settings
+            </Link>
+          </li>
           <li>
             <Link to="/help" className="app-drawer__link">
               Help

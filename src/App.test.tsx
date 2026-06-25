@@ -86,6 +86,15 @@ describe('<App> routing', () => {
     expect(screen.getByText(/page not found/i)).toBeInTheDocument();
   });
 
+  it('renders the Settings page at /settings', () => {
+    installHNFetchMock({});
+    renderWithProviders(<App />, { route: '/settings' });
+    expect(
+      screen.getByRole('heading', { level: 1, name: /settings/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+  });
+
   it('mounts Vercel Web Analytics', () => {
     analyticsMock.mockClear();
     installHNFetchMock({ feeds: { topstories: [] } });
