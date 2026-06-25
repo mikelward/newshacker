@@ -71,6 +71,43 @@
   padding: 0;
 }
 
+/* Per-device feed-behavior toggle (Reading section): a labeled checkbox with a
+   short description, sized to the touch floor. */
+.app-drawer__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  min-height: var(--tap-min);
+  cursor: pointer;
+  user-select: none;
+}
+
+.app-drawer__toggle-input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--nh-orange);
+}
+
+.app-drawer__toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-drawer__toggle-title {
+  font-size: 14px;
+  color: var(--nh-text);
+}
+
+.app-drawer__toggle-desc {
+  font-size: 12px;
+  color: var(--nh-meta);
+}
+
 .app-drawer__link {
   display: flex;
   align-items: center;

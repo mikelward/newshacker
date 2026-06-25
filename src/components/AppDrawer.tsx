@@ -6,6 +6,10 @@ import { getStoryIds } from '../lib/hn';
 import { useTheme } from '../hooks/useTheme';
 import { useChrome } from '../hooks/useChrome';
 import { useHomeFeed } from '../hooks/useHomeFeed';
+import {
+  useHideOnScroll,
+  useStickyBottomBar,
+} from '../hooks/useFeedSettings';
 import type { Theme } from '../lib/theme';
 import type { Chrome } from '../lib/chrome';
 import type { HomeFeed } from '../lib/homeFeed';
@@ -126,6 +130,8 @@ export function AppDrawer({ open, onClose }: Props) {
   const { theme, setTheme } = useTheme();
   const { chrome, setChrome } = useChrome();
   const { homeFeed, setHomeFeed } = useHomeFeed();
+  const { hideOnScroll, setHideOnScroll } = useHideOnScroll();
+  const { stickyBottomBar, setStickyBottomBar } = useStickyBottomBar();
   const client = useQueryClient();
 
   useEffect(() => {
@@ -289,6 +295,42 @@ export function AppDrawer({ open, onClose }: Props) {
             </TooltipButton>
           ))}
         </div>
+        <div className="app-drawer__section-title">Reading</div>
+        <label className="app-drawer__toggle">
+          <input
+            type="checkbox"
+            className="app-drawer__toggle-input"
+            checked={hideOnScroll}
+            onChange={(e) => setHideOnScroll(e.target.checked)}
+          />
+          <span className="app-drawer__toggle-text">
+            <span className="app-drawer__toggle-title">
+              Hide stories as you scroll past
+            </span>
+            <span className="app-drawer__toggle-desc">
+              Unpinned stories are dismissed once you scroll them off the top.
+              Pin a story to keep it.
+            </span>
+          </span>
+        </label>
+        <label className="app-drawer__toggle">
+          <input
+            type="checkbox"
+            className="app-drawer__toggle-input"
+            checked={stickyBottomBar}
+            onChange={(e) => setStickyBottomBar(e.target.checked)}
+          />
+          <span className="app-drawer__toggle-text">
+            <span className="app-drawer__toggle-title">
+              Sticky bottom toolbar
+            </span>
+            <span className="app-drawer__toggle-desc">
+              Keep the Back to top / More / Undo / Sweep bar pinned to the
+              bottom of the screen instead of at the end of the list.
+            </span>
+          </span>
+        </label>
+
         <div className="app-drawer__section-title">Feeds</div>
         <ul className="app-drawer__list">
           {FEEDS.map((f) => (

@@ -64,6 +64,20 @@
   background: var(--nh-bg-card);
 }
 
+/* Opt-in sticky bottom bar (newshacker:stickyBottomBar): pin the action bar to
+   the foot of the viewport so Back to top / More / Undo / Sweep stay in reach
+   without scrolling to the end. `position: sticky` reserves the bar's flow space
+   at the list end (no padding hack needed) and sticks it to the bottom while
+   content scrolls underneath. A top border separates it from a row it overlaps;
+   the Sweep observer excludes rows behind it via useStickyFooterInset. */
+.story-list__footer--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  border-top: 1px solid var(--nh-border);
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+}
+
 /* Compact transparent icon button — same shape as `.list-toolbar__button`
    (40×40, borderless, hover/pressed background, disabled fade). Back to
    top sits on the left, Sweep on the right (pinned via margin-left:auto

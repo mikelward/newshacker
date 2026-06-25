@@ -29,6 +29,7 @@ import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { refreshPinnedStoriesForHomeView } from '../lib/homePinnedRefresh';
 import { useStickyInset } from '../hooks/useStickyInset';
+import { useStickyFooterInset } from '../hooks/useStickyFooterInset';
 import {
   FEED_PREFETCH_SCORE_THRESHOLD,
   prefetchFeedStory,
@@ -39,6 +40,7 @@ import { useAuth } from '../hooks/useAuth';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
 import { useFeedBar } from '../hooks/useFeedBar';
+import { useHideOnScroll, useStickyBottomBar } from '../hooks/useFeedSettings';
 import './StoryList.css';
 
 // Keep in sync with the `story-list__item--sweeping` animation duration
@@ -57,6 +59,19 @@ const SWEEP_ANIMATION_MS = 200;
 // callback until it exited the viewport entirely — staying wrongly sweepable
 // behind the sticky header the whole way up.
 const FULLY_VISIBLE_RATIO = 0.999;
+
+// Auto-dismiss-on-scroll hides within this window of each other share one undo
+// batch, so a single Undo restores the whole burst the reader just scrolled
+// past. Long enough to cover a fast scroll burst, short enough that Undo only
+// reaches what was just on screen.
+const DISMISS_BATCH_WINDOW_MS = 2000;
+
+// Module-level monotonic source of auto-dismiss burst keys. The undo batch key
+// (`lastHiddenKeyRef`) lives in the global FeedBarProvider, so a per-mount
+// counter that always starts at 0 would let two StoryListImpl mounts collide:
+// feed B's first burst would reuse feed A's stale key and append to its undo
+// batch. A global sequence makes every burst's key unique across all lists.
+let scrollBurstSeq = 0;
 
 // Reused for "no in-body-pinned ids right now" so the `useMemo` below
 // returns the same Set instance across renders — callers (isRowVisible,
@@ -310,6 +325,8 @@ export function StoryListImpl({
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
   const { setSweep, recordHide, canUndo, undo } = useFeedBar();
+  const { hideOnScroll } = useHideOnScroll();
+  const { stickyBottomBar } = useStickyBottomBar();
   // `hotThresholds` is supplied by the parent (`<StoryList>` for
   // shipping feeds, `<HotStoryList>` for /hot, `ThresholdTuningPage`
   // for the Preview), so this component opens no `useHotThresholds`
@@ -510,6 +527,38 @@ export function StoryListImpl({
     ],
   );
 
+  // Auto-dismiss-on-scroll: hide unpinned rows the moment they scroll off the
+  // top of the viewport (the reader scrolled past them without pinning). Each
+  // burst gets a fresh batchKey; recordHide only extends a batch with a matching
+  // key, so the whole scroll burst restores with one Undo, while an intervening
+  // swipe/Sweep (keyless) can't be folded into a later scroll hide. A gap longer
+  // than the window also starts a new burst. Pinned and already-hidden rows are
+  // shielded. Gated on the hideOnScroll setting (off by default).
+  const lastScrollHideAt = useRef(0);
+  const scrollBatchKey = useRef(0);
+  const handleScrolledPast = useCallback(
+    (ids: readonly number[]) => {
+      // The /tuning Preview mounts StoryListImpl with `readOnly` (and
+      // includeDone/includeHidden) and suppresses every mutation affordance —
+      // auto-dismiss must not mutate the reader's hidden store there either.
+      if (readOnly) return;
+      const toHide = ids.filter(
+        (id) => !pinnedIds.has(id) && !hiddenIds.has(id),
+      );
+      if (toHide.length === 0) return;
+      const now = Date.now();
+      if (now - lastScrollHideAt.current >= DISMISS_BATCH_WINDOW_MS) {
+        // A gap ends the burst; mint a globally-unique key for the new one so it
+        // can't extend another list's (or this list's prior) undo batch.
+        scrollBatchKey.current = ++scrollBurstSeq;
+      }
+      lastScrollHideAt.current = now;
+      hideMany(toHide);
+      recordHide(toHide, { batchKey: scrollBatchKey.current });
+    },
+    [readOnly, pinnedIds, hiddenIds, hideMany, recordHide],
+  );
+
   // Visibility floor: filter out stories that haven't earned at least one
   // organic upvote (HN submissions start at score 1 from the
   // submitter's implicit self-vote; `> 1` means at least one other
@@ -588,26 +637,98 @@ export function StoryListImpl({
   const rowEls = useRef<Map<number, HTMLLIElement>>(new Map());
   const observerRef = useRef<IntersectionObserver | null>(null);
   const stickyInset = useStickyInset();
+  // Bottom intrusion of the pinned bar (0 unless the sticky-bottom-bar setting
+  // is on), so a row behind it isn't swept — mirrors the top sticky inset. The
+  // footer element is captured by a callback ref into state so the inset
+  // re-measures the instant the footer mounts (a cold load renders the skeleton
+  // first); gated on the setting so the non-sticky footer never insets.
+  const [footerEl, setFooterEl] = useState<HTMLDivElement | null>(null);
+  const footerInset = useStickyFooterInset(stickyBottomBar ? footerEl : null);
+
+  // Rows that have been fully visible at least once *while the setting is on*.
+  // Only a previously-seen row that then leaves via the top counts as "scrolled
+  // past" — this excludes rows still below the fold (never intersected).
+  const seenRef = useRef<Set<number>>(new Set());
+
+  // Latest inViewIds mirrored into a ref so the enable effect can seed from it
+  // without subscribing to it (depending on inViewIds would re-seed seen on
+  // every scroll and wipe the accumulating set).
+  const inViewIdsRef = useRef(inViewIds);
+  useEffect(() => {
+    inViewIdsRef.current = inViewIds;
+  }, [inViewIds]);
+
+  // Latest setting + handler held in refs so toggling hideOnScroll or
+  // re-deriving the handler never recreates the observer (its effect only
+  // depends on the insets). Updated in effects, matching the hideManyRef /
+  // recordHideRef pattern below.
+  const hideOnScrollRef = useRef(hideOnScroll);
+  const onScrolledPastRef = useRef(handleScrolledPast);
+  useEffect(() => {
+    hideOnScrollRef.current = hideOnScroll;
+    // On enable, seed `seen` with exactly the rows fully visible *right now*.
+    // Those become dismissable on their next top-exit (so the setting applies to
+    // what's on screen immediately), while rows already scrolled past — above the
+    // viewport, absent from inViewIds — stay excluded so they aren't retroactively
+    // hidden (e.g. when toggling Sticky bottom toolbar recreates the observer
+    // below and replays initial non-intersecting entries). The observer only adds
+    // to `seen` while the setting is on, so rows that enter view later are
+    // tracked going forward.
+    if (hideOnScroll) seenRef.current = new Set(inViewIdsRef.current);
+  }, [hideOnScroll]);
+  useEffect(() => {
+    onScrolledPastRef.current = handleScrolledPast;
+  }, [handleScrolledPast]);
 
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver(
       (entries) => {
-        setInViewIds((prev) => {
-          const next = new Set(prev);
-          for (const entry of entries) {
-            const el = entry.target as HTMLElement;
-            const id = Number(el.dataset.storyId);
-            if (!id) continue;
-            if (entry.intersectionRatio >= FULLY_VISIBLE_RATIO) next.add(id);
-            else next.delete(id);
+        const exitedTop: number[] = [];
+        const nowVisible: number[] = [];
+        const nowHidden: number[] = [];
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const id = Number(el.dataset.storyId);
+          if (!id) continue;
+          if (entry.intersectionRatio >= FULLY_VISIBLE_RATIO) {
+            nowVisible.push(id);
+            // Only track "seen" while the setting is on, so a row fully viewed
+            // with auto-dismiss off never becomes dismissable after a later
+            // enable (paired with the clear-on-enable above).
+            if (hideOnScrollRef.current) seenRef.current.add(id);
+          } else {
+            nowHidden.push(id);
+            // A previously-seen row now fully out of view: auto-dismiss it only
+            // if it left via the *top* (scrolled past while reading down), not
+            // the bottom (scrolled back up). rootBounds is unavailable in jsdom;
+            // treat its absence as a top exit, which the seen-guard already keeps
+            // from firing on below-the-fold rows.
+            if (
+              hideOnScrollRef.current &&
+              !entry.isIntersecting &&
+              seenRef.current.has(id)
+            ) {
+              const rb = entry.rootBounds;
+              if (rb ? entry.boundingClientRect.bottom <= rb.top : true) {
+                exitedTop.push(id);
+              }
+            }
           }
-          return next;
-        });
+        }
+        if (nowVisible.length || nowHidden.length) {
+          setInViewIds((prev) => {
+            const next = new Set(prev);
+            for (const id of nowVisible) next.add(id);
+            for (const id of nowHidden) next.delete(id);
+            return next;
+          });
+        }
+        if (exitedTop.length) onScrolledPastRef.current(exitedTop);
       },
       {
         threshold: [0, FULLY_VISIBLE_RATIO, 1],
-        rootMargin: `-${stickyInset}px 0px 0px 0px`,
+        rootMargin: `-${stickyInset}px 0px -${footerInset}px 0px`,
       },
     );
     observerRef.current = io;
@@ -616,7 +737,7 @@ export function StoryListImpl({
       io.disconnect();
       observerRef.current = null;
     };
-  }, [stickyInset]);
+  }, [stickyInset, footerInset]);
 
   // Cache one stable callback-ref per row id so React doesn't tear
   // down the IntersectionObserver attachment on every render. The
@@ -637,6 +758,10 @@ export function StoryListImpl({
       if (prev && prev !== el) {
         io?.unobserve(prev);
         rowEls.current.delete(id);
+        // Forget that this row was ever seen once it leaves the DOM, so an
+        // Undo-restored row that remounts above the viewport isn't instantly
+        // re-dismissed by its first non-intersecting observation.
+        seenRef.current.delete(id);
         setInViewIds((s) => {
           if (!s.has(id)) return s;
           const next = new Set(s);
@@ -1026,7 +1151,13 @@ export function StoryListImpl({
         ))}
       </ol>
       {refreshStatus}
-      <div className="story-list__footer story-list__footer--feed">
+      <div
+        ref={setFooterEl}
+        className={
+          'story-list__footer story-list__footer--feed' +
+          (stickyBottomBar ? ' story-list__footer--sticky' : '')
+        }
+      >
         <BackToTopButton iconOnly />
         {/* Always rendered on a populated feed so reaching the end is
             explicit feedback, not a vanished control: enabled "More"

@@ -81,7 +81,7 @@ describe('<AppDrawer>', () => {
     // taps. Pin the order so a later refactor doesn't drift the
     // sections back to the original Feeds-first layout.
     renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
-    const sections = ['Home', 'Library', 'Theme', 'Feeds', 'App'];
+    const sections = ['Home', 'Library', 'Theme', 'Reading', 'Feeds', 'App'];
     const headings = sections.map((label) => screen.getByText(label));
     for (let i = 1; i < headings.length; i++) {
       expect(
@@ -245,6 +245,37 @@ describe('<AppDrawer>', () => {
     expect(
       screen.getByRole('radio', { name: 'Home shows Top' }),
     ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('Reading toggles default to off and persist when flipped', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const hide = screen.getByRole('checkbox', {
+      name: /hide stories as you scroll past/i,
+    });
+    const sticky = screen.getByRole('checkbox', {
+      name: /sticky bottom toolbar/i,
+    });
+    expect(hide).not.toBeChecked();
+    expect(sticky).not.toBeChecked();
+
+    act(() => {
+      fireEvent.click(hide);
+    });
+    expect(hide).toBeChecked();
+    expect(window.localStorage.getItem('newshacker:hideOnScroll')).toBe('1');
+
+    act(() => {
+      fireEvent.click(sticky);
+    });
+    expect(sticky).toBeChecked();
+    expect(window.localStorage.getItem('newshacker:stickyBottomBar')).toBe('1');
+
+    // Turning a toggle back off clears its key.
+    act(() => {
+      fireEvent.click(hide);
+    });
+    expect(hide).not.toBeChecked();
+    expect(window.localStorage.getItem('newshacker:hideOnScroll')).toBeNull();
   });
 
   it('panel background follows the theme variable, not a hardcoded light color', () => {
