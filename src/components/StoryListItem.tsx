@@ -10,6 +10,8 @@ import {
 } from '../lib/format';
 import { markArticleOpenedId } from '../lib/openedStories';
 import { usePointerDevice } from '../hooks/usePointerDevice';
+import { useWideViewport } from '../hooks/useWideViewport';
+import { useDoneStories } from '../hooks/useDoneStories';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss';
 import { StoryRowMenu, type StoryRowMenuItem } from './StoryRowMenu';
 import { TooltipButton } from './TooltipButton';
@@ -112,6 +114,16 @@ interface Props {
    * swiping or long-pressing a row.
    */
   readOnly?: boolean;
+  /**
+   * Marks the row as belonging to a library view (`/pinned`, `/favorites`,
+   * `/done`, `/hidden`, `/opened`). Library rows suppress the wide-viewport
+   * Done button in the row's reserved middle slot because the right-side
+   * button already names the row's intent (Unmark done, Unfavorite, …) —
+   * see SPEC.md § *Story row layout*. `rightAction` presence alone isn't a
+   * sufficient signal because `/pinned` keeps the default Pin/Unpin button,
+   * so `LibraryStoryList` always sets this prop regardless of `rightAction`.
+   */
+  isLibraryRow?: boolean;
 }
 
 export function StoryListItem({
@@ -131,6 +143,7 @@ export function StoryListItem({
   rightAction,
   flag,
   showVelocity = false,
+  isLibraryRow = false,
 }: Props) {
   const hasExternalUrl = !!story.url;
   const domain = formatDisplayDomain(story.url);
@@ -161,6 +174,9 @@ export function StoryListItem({
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const articleRef = useRef<HTMLElement>(null);
   const pointerDevice = usePointerDevice();
+  const wide = useWideViewport();
+  const { isDone, markDone, unmarkDone } = useDoneStories();
+  const done = isDone(story.id);
 
   const handleHide = useCallback(() => {
     onHide?.(story.id);
@@ -303,6 +319,20 @@ export function StoryListItem({
   ]);
 
   const pinLabel = pinned ? `Unpin ${title}` : `Pin ${title}`;
+  const doneLabel = done ? `Unmark ${title} done` : `Mark ${title} done`;
+  // Wide-viewport-only Done button on feed rows: fills the row's reserved
+  // middle slot with the same toggle the reader's action bar exposes. Library
+  // rows suppress it (the right-side button already names the slot's
+  // intent — Unmark done / Unfavorite / Unhide / Unpin, or Unpin on
+  // /pinned where Pin/Unpin stays the default), and narrow viewports keep
+  // the row's two-tap-zone shape so phones see no change. `rightAction`
+  // also suppresses it as defense-in-depth — any caller deliberately
+  // taking over the right slot would otherwise get a stale Done button.
+  const showDoneButton = !isLibraryRow && !rightAction && wide;
+  const handleToggleDone = useCallback(() => {
+    if (done) unmarkDone(story.id);
+    else markDone(story.id);
+  }, [done, story.id, markDone, unmarkDone]);
 
   // Per-row keyboard shortcuts: Space opens the row menu, `o` opens
   // the article in a new tab, `p` toggles pin, `d` dismisses (hides)
@@ -461,6 +491,35 @@ export function StoryListItem({
           ) : null}
         </span>
       </Link>
+
+      {showDoneButton ? (
+        <TooltipButton
+          type="button"
+          className={'pin-btn' + (done ? ' pin-btn--active' : '')}
+          data-testid="done-btn"
+          aria-pressed={done}
+          aria-label={doneLabel}
+          tooltip={done ? 'Unmark done' : 'Mark done'}
+          onClick={handleToggleDone}
+        >
+          <svg
+            className="pin-btn__icon"
+            viewBox="0 -960 960 960"
+            width="22"
+            height="22"
+            fill="currentColor"
+            aria-hidden="true"
+            focusable="false"
+          >
+            {/* Material Symbols done / check_circle — Apache 2.0, Google. */}
+            {done ? (
+              <path d="M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm-56-216 280-280-56-56-224 224-114-114-56 56 170 170Z" />
+            ) : (
+              <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z" />
+            )}
+          </svg>
+        </TooltipButton>
+      ) : null}
 
       {rightAction ? (
         <TooltipButton

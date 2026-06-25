@@ -279,6 +279,124 @@ describe('StoryListItem', () => {
     expect(onOpenThread).not.toHaveBeenCalled();
   });
 
+  describe('wide-viewport Done button', () => {
+    function stubWideViewport(wide: boolean) {
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) =>
+        ({
+          matches: query.includes('min-width: 960px') ? wide : false,
+          media: query,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList) as unknown as typeof window.matchMedia;
+      return () => {
+        window.matchMedia = original;
+      };
+    }
+
+    afterEach(() => {
+      // Each test that wants the wide-viewport stub installs it locally
+      // and returns the restorer; tests that don't touch matchMedia
+      // leave the global alone and this afterEach is a no-op for them.
+      window.localStorage.clear();
+    });
+
+    it('does not render the wide-viewport Done button on narrow screens', () => {
+      const restore = stubWideViewport(false);
+      try {
+        renderWithProviders(<StoryListItem story={baseStory} />);
+        expect(screen.queryByTestId('done-btn')).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it('renders a wide-viewport Done button to the left of Pin on feed rows', () => {
+      const restore = stubWideViewport(true);
+      try {
+        renderWithProviders(
+          <StoryListItem story={baseStory} onPin={vi.fn()} />,
+        );
+        const done = screen.getByTestId('done-btn');
+        expect(done).toHaveAttribute('aria-pressed', 'false');
+        const buttons = screen.getAllByRole('button');
+        const doneIdx = buttons.indexOf(done);
+        const pinIdx = buttons.indexOf(screen.getByTestId('pin-btn'));
+        expect(doneIdx).toBeGreaterThanOrEqual(0);
+        expect(doneIdx).toBeLessThan(pinIdx);
+      } finally {
+        restore();
+      }
+    });
+
+    it('toggles the done store on click and flips aria-pressed', () => {
+      const restore = stubWideViewport(true);
+      try {
+        renderWithProviders(<StoryListItem story={baseStory} />);
+        fireEvent.click(screen.getByTestId('done-btn'));
+        expect(screen.getByTestId('done-btn')).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        fireEvent.click(screen.getByTestId('done-btn'));
+        expect(screen.getByTestId('done-btn')).toHaveAttribute(
+          'aria-pressed',
+          'false',
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it('hides the wide-viewport Done button on library views with a rightAction (e.g. /done, /favorites)', () => {
+      const restore = stubWideViewport(true);
+      try {
+        renderWithProviders(
+          <StoryListItem
+            story={baseStory}
+            isLibraryRow
+            rightAction={{
+              label: 'Unmark done',
+              icon: <span data-testid="library-icon" />,
+              onToggle: vi.fn(),
+            }}
+          />,
+        );
+        expect(screen.queryByTestId('done-btn')).toBeNull();
+        expect(screen.getByTestId('row-action-btn')).toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+
+    it('hides the wide-viewport Done button on /pinned, which keeps the default Pin/Unpin button (no rightAction)', () => {
+      // Regression for Codex review on PR #347: `/pinned` renders
+      // LibraryStoryList without a rightAction (Pin/Unpin already is the
+      // contextual button), so `rightAction` alone is not enough to detect
+      // a library row. `isLibraryRow` is the explicit signal.
+      const restore = stubWideViewport(true);
+      try {
+        renderWithProviders(
+          <StoryListItem
+            story={baseStory}
+            isLibraryRow
+            pinned
+            onPin={vi.fn()}
+            onUnpin={vi.fn()}
+          />,
+        );
+        expect(screen.queryByTestId('done-btn')).toBeNull();
+        expect(screen.getByTestId('pin-btn')).toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+  });
+
   describe('rightAction override', () => {
     it('replaces the default pin button with the custom action', () => {
       renderWithProviders(

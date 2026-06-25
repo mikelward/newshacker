@@ -237,6 +237,7 @@ export function LibraryStoryList({
               <StoryListItem
                 story={story}
                 rank={idx + 1}
+                isLibraryRow
                 flag={flagFromHot(story)}
                 articleOpened={articleOpenedIds.has(story.id)}
                 commentsOpened={commentsOpenedIds.has(story.id)}
