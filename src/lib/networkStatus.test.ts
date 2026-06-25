@@ -5,6 +5,7 @@ import {
   getOnline,
   reportFetchFailure,
   reportFetchSuccess,
+  setConnectivityProbeUrl,
   subscribeOnline,
   trackedFetch,
 } from './networkStatus';
@@ -189,6 +190,117 @@ describe('networkStatus tracker', () => {
       reportFetchSuccess();
 
       expect(events).toEqual([false, true]);
+    });
+  });
+
+  describe('liveness probe (stops the offline ↔ online flap)', () => {
+    const PROBE = '/api/me';
+    const RECOVERY_INTERVAL_MS = 30_000;
+
+    it('does not let a cache-served GET success flip us back online while offline', async () => {
+      // The flap: navigator.onLine is stuck true (tunnel), a real request failed
+      // → offline, then a Workbox-cache-served GET resolves and trackedFetch
+      // reports success, bouncing the pill back online. With a probe configured,
+      // an ambiguous GET success must NOT clear the pill.
+      setConnectivityProbeUrl(PROBE);
+      reportFetchFailure(new TypeError('Failed to fetch'));
+      expect(getOnline()).toBe(false);
+
+      // Cache hit (GET, cacheBypassing=false) — suppressed, even before any probe.
+      reportFetchSuccess(/* cacheBypassing */ false);
+      expect(getOnline()).toBe(false);
+
+      // A genuine cache-bypassing success (an accepted non-GET) does clear it.
+      reportFetchSuccess(/* cacheBypassing */ true);
+      expect(getOnline()).toBe(true);
+    });
+
+    it('treats a non-GET trackedFetch success as cache-bypassing proof of liveness', async () => {
+      setConnectivityProbeUrl(PROBE);
+      reportFetchFailure(new TypeError('Failed to fetch'));
+      expect(getOnline()).toBe(false);
+
+      // A POST can't be a Workbox cache hit (runtime caching is GET-only), so an
+      // accepted POST proves the origin was reached → clears the pill.
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+      await trackedFetch('/api/vote', { method: 'POST' });
+      expect(getOnline()).toBe(true);
+    });
+
+    it('still lets a bare GET success recover when no probe is configured (legacy)', async () => {
+      // Unconfigured mode (tests / SSR): without a probe to confirm recovery we
+      // must not get stuck offline, so a bare GET success clears the pill.
+      reportFetchFailure(new TypeError('Failed to fetch'));
+      expect(getOnline()).toBe(false);
+      reportFetchSuccess();
+      expect(getOnline()).toBe(true);
+    });
+
+    it('self-heals via the recovery probe when the network returns', async () => {
+      vi.useFakeTimers();
+      try {
+        setConnectivityProbeUrl(PROBE);
+        reportFetchFailure(new TypeError('Failed to fetch'));
+        expect(getOnline()).toBe(false);
+
+        // The backend is reachable again; the next interval probe confirms it and
+        // clears the pill on its own (no app read needed).
+        const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        await vi.advanceTimersByTimeAsync(RECOVERY_INTERVAL_MS);
+
+        expect(getOnline()).toBe(true);
+        expect(fetchMock).toHaveBeenCalledWith(
+          PROBE,
+          expect.objectContaining({ method: 'GET', cache: 'no-store' }),
+        );
+
+        // Once recovered, the timer stands down.
+        await vi.advanceTimersByTimeAsync(RECOVERY_INTERVAL_MS * 3);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps re-probing while the backend stays down, and a cache hit cannot stop it', async () => {
+      vi.useFakeTimers();
+      try {
+        setConnectivityProbeUrl(PROBE);
+        reportFetchFailure(new TypeError('Failed to fetch'));
+
+        // A cache hit can't clear the pill or cancel the probe.
+        reportFetchSuccess(/* cacheBypassing */ false);
+        expect(getOnline()).toBe(false);
+
+        const fetchMock = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+        vi.stubGlobal('fetch', fetchMock);
+        await vi.advanceTimersByTimeAsync(RECOVERY_INTERVAL_MS);
+        await vi.advanceTimersByTimeAsync(RECOVERY_INTERVAL_MS);
+
+        expect(getOnline()).toBe(false);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not run a recovery probe while the device itself reports offline', async () => {
+      vi.useFakeTimers();
+      try {
+        setConnectivityProbeUrl(PROBE);
+        const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        setNavigatorOnline(false);
+        window.dispatchEvent(new Event('offline'));
+        expect(getOnline()).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(RECOVERY_INTERVAL_MS * 2);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
