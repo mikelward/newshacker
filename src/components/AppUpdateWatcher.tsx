@@ -7,6 +7,17 @@ import { pingServiceWorkerForUpdate } from '../lib/swUpdate';
 // enough that rapid tab-switching doesn't spam SW update checks.
 const RETURN_FROM_HIDDEN_THRESHOLD_MS = 30_000;
 
+// How often a *continuously-foregrounded* tab re-checks `/sw.js`. The
+// browser only re-fetches the SW script on navigation, and our other
+// triggers are gestural (PTR) or transitional (visibilitychange-after-≥30s) —
+// none of which fire for a tab left open and in view (an installed PWA, or
+// a desktop tab parked on one route). Without a periodic check such a tab
+// can sit on a stale build indefinitely after a deploy. A conditional GET
+// against the tiny `/sw.js` every 30 min is negligible bandwidth, and pings
+// pause entirely while hidden, so a backgrounded tab costs nothing. Any
+// update found surfaces through the same `controllerchange` → toast path.
+const PERIODIC_UPDATE_CHECK_MS = 30 * 60_000;
+
 // Sticky flag: set the first time we observe a SW controller on this
 // device, never cleared. Used to distinguish "this is the very first
 // SW install ever" (suppress the spurious toast) from "controller is
@@ -25,6 +36,9 @@ export const SW_INSTALLED_FLAG = 'newshacker:sw:installed';
 interface Props {
   reload?: () => void;
   returnFromHiddenThresholdMs?: number;
+  // Injected for tests — how often a continuously-visible tab re-checks
+  // `/sw.js`. Production uses PERIODIC_UPDATE_CHECK_MS (30 min).
+  periodicCheckMs?: number;
 }
 
 // Tracks a localStorage write that failed at runtime even though reads
@@ -77,7 +91,7 @@ function writeInstalledFlag() {
   }
 }
 
-// Sits inside `ToastProvider` at the app root. Two passive surfaces
+// Sits inside `ToastProvider` at the app root. Three passive surfaces
 // for SW updates that aren't covered by the PTR auto-reload path:
 //
 // 1. **`controllerchange` → update-available toast.** A new SW has
@@ -96,6 +110,12 @@ function writeInstalledFlag() {
 //    activates and the `controllerchange` path above surfaces the
 //    toast. No reload, no disruption beyond what the user already
 //    expected from returning to the tab.
+// 3. **Periodic passive ping while visible.** A tab kept open and in
+//    view but never navigated/PTR'd (installed PWA, or a parked
+//    desktop tab) would otherwise never re-check `/sw.js`. A 30 min
+//    `registration.update()` while visible (paused while hidden)
+//    bounds how long such a tab can sit on a stale build; a found
+//    update surfaces via the same `controllerchange` toast.
 //
 // First-ever-install guard: only suppress the toast if we have *no*
 // record of ever having seen a controller on this device (the
@@ -110,6 +130,7 @@ function writeInstalledFlag() {
 export function AppUpdateWatcher({
   reload,
   returnFromHiddenThresholdMs = RETURN_FROM_HIDDEN_THRESHOLD_MS,
+  periodicCheckMs = PERIODIC_UPDATE_CHECK_MS,
 }: Props = {}) {
   const { showToast } = useToast();
 
@@ -189,6 +210,38 @@ export function AppUpdateWatcher({
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [returnFromHiddenThresholdMs]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    // Periodic `/sw.js` re-check for a tab that's open and in view but never
+    // navigates or pulls-to-refresh — the gap the gestural/transitional
+    // triggers don't cover. Runs only while visible (a hidden tab can't show
+    // the resulting toast and shouldn't spend bandwidth), so the interval is
+    // torn down on hide and re-armed on show. A found update flows through the
+    // `controllerchange` → toast path above; no reload is forced here.
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const sync = () => {
+      if (document.visibilityState === 'visible') {
+        if (timer === null) {
+          timer = setInterval(() => void pingServiceWorkerForUpdate(), periodicCheckMs);
+        }
+      } else {
+        stop();
+      }
+    };
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', sync);
+    };
+  }, [periodicCheckMs]);
 
   return null;
 }

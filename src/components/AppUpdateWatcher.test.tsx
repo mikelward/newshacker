@@ -308,6 +308,71 @@ describe('<AppUpdateWatcher>', () => {
     expect(pingServiceWorkerForUpdate).not.toHaveBeenCalled();
   });
 
+  it('pings the SW periodically while the tab stays visible', () => {
+    vi.useFakeTimers();
+    stubServiceWorker({ id: 'ctrl' });
+    render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} periodicCheckMs={1000} />
+      </ToastProvider>,
+    );
+    // Visible at mount, no navigation/PTR — only the periodic timer drives it.
+    expect(pingServiceWorkerForUpdate).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(pingServiceWorkerForUpdate).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(pingServiceWorkerForUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses the periodic ping while hidden and resumes on return', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-23T08:00:00Z'));
+    stubServiceWorker({ id: 'ctrl' });
+    render(
+      <ToastProvider>
+        <AppUpdateWatcher
+          reload={vi.fn()}
+          periodicCheckMs={1000}
+          returnFromHiddenThresholdMs={30_000}
+        />
+      </ToastProvider>,
+    );
+    setVisibility('hidden');
+    // A hidden tab spends no bandwidth — the interval is torn down, so even
+    // several periods' worth of elapsed time fires no ping.
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(pingServiceWorkerForUpdate).not.toHaveBeenCalled();
+    // Back in view well under the return-from-hidden threshold, so that path
+    // stays silent; only the re-armed periodic timer should ping.
+    setVisibility('visible');
+    expect(pingServiceWorkerForUpdate).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(pingServiceWorkerForUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops the periodic ping after unmount', () => {
+    vi.useFakeTimers();
+    stubServiceWorker({ id: 'ctrl' });
+    const { unmount } = render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} periodicCheckMs={1000} />
+      </ToastProvider>,
+    );
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(pingServiceWorkerForUpdate).not.toHaveBeenCalled();
+  });
+
   it('cleans up listeners on unmount', () => {
     const { fireControllerChange } = stubServiceWorker({ id: 'ctrl' });
     const { unmount } = render(
