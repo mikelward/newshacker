@@ -12,6 +12,11 @@ import {
   lockAllPinnedQueriesGcTime,
   startPinnedQueryRetention,
 } from './lib/pinnedQueryRetention';
+// Self-hosted Roboto (Fontsource, variable wght axis) so the UI renders in a
+// consistent face instead of whatever sans the OS happens to map. The bundled
+// woff2 only fetches when text actually paints in this family; until then the
+// system fallback stack (--font-system) carries the first paint.
+import '@fontsource-variable/roboto/wght.css';
 import './styles/global.css';
 import './styles/chromePreview.css';
 

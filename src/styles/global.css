@@ -63,6 +63,9 @@
 
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
+  /* Bundled Roboto (see main.tsx) with the system stack as fallback for the
+     pre-font-load first paint and any environment that can't fetch the woff2. */
+  --font: 'Roboto Variable', var(--font-system);
 
   color-scheme: light;
 }
@@ -183,7 +186,7 @@ html {
 
 body {
   min-height: 100dvh;
-  font-family: var(--font-system);
+  font-family: var(--font);
   font-size: 1rem;
   line-height: 1.4;
   color: var(--nh-text);
