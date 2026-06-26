@@ -51,6 +51,12 @@ import './StoryList.css';
 // so the row slides in place instead of popping.
 const SWEEP_ANIMATION_MS = 200;
 
+// After a sweep commits, ignore further sweep taps for a short beat so a rapid
+// second tap (e.g. the toolbar Sweep right after another) can't immediately
+// clear rows that only just settled into view. The cooldown extends the
+// in-flight guard past the commit; a deliberate later sweep still goes through.
+const SWEEP_COOLDOWN_MS = 400;
+
 // A fully-visible row can report an intersectionRatio fractionally below 1 on
 // sub-pixel layouts, so anything at or above this counts as fully in view. The
 // same value is also an observer threshold (not just `[0, 1]`): the callback
@@ -831,6 +837,17 @@ export function StoryListImpl({
   );
   const sweepPendingIdsRef = useRef<readonly number[] | null>(null);
   const sweepFallbackTimerRef = useRef<number | null>(null);
+  // Set for SWEEP_COOLDOWN_MS after a sweep commits; a non-null timer means a
+  // sweep just settled and a rapid follow-up tap should be ignored.
+  const sweepCooldownTimerRef = useRef<number | null>(null);
+  const beginSweepCooldown = useCallback(() => {
+    if (sweepCooldownTimerRef.current != null) {
+      window.clearTimeout(sweepCooldownTimerRef.current);
+    }
+    sweepCooldownTimerRef.current = window.setTimeout(() => {
+      sweepCooldownTimerRef.current = null;
+    }, SWEEP_COOLDOWN_MS);
+  }, []);
   // Keep handler refs so the unmount cleanup below can commit without
   // re-subscribing every time hideMany/recordHide change identity.
   const hideManyRef = useRef(hideMany);
@@ -863,7 +880,8 @@ export function StoryListImpl({
     // hide commit means the next render sees pinned rows surface at
     // the top in one motion with the unpinned rows leaving.
     setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
-  }, [hideMany, recordHide]);
+    beginSweepCooldown();
+  }, [hideMany, recordHide, beginSweepCooldown]);
 
   // If the list unmounts (route change, etc.) while a sweep is still
   // animating, commit the hide synchronously so the action isn't
@@ -882,14 +900,24 @@ export function StoryListImpl({
         window.clearTimeout(sweepFallbackTimerRef.current);
         sweepFallbackTimerRef.current = null;
       }
+      if (sweepCooldownTimerRef.current != null) {
+        window.clearTimeout(sweepCooldownTimerRef.current);
+        sweepCooldownTimerRef.current = null;
+      }
     };
   }, []);
 
   const handleSweep = useCallback(() => {
     if (sweepableIds.length === 0) return;
-    // Ignore repeat taps while a sweep is already playing out — the
-    // second batch would be identical (hiddenIds hasn't updated yet).
-    if (sweepPendingIdsRef.current !== null) return;
+    // Ignore repeat taps while a sweep is already playing out (the second
+    // batch would be identical — hiddenIds hasn't updated yet) or during the
+    // brief post-commit cooldown, so a rapid follow-up tap can't immediately
+    // sweep rows that only just settled into view.
+    if (
+      sweepPendingIdsRef.current !== null ||
+      sweepCooldownTimerRef.current !== null
+    )
+      return;
     const ids = sweepableIds.slice();
     const reducedMotion =
       typeof window !== 'undefined' &&
@@ -899,6 +927,7 @@ export function StoryListImpl({
       hideMany(ids);
       recordHide(ids);
       setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
+      beginSweepCooldown();
       return;
     }
     sweepPendingIdsRef.current = ids;
@@ -911,7 +940,7 @@ export function StoryListImpl({
       commitSweep,
       SWEEP_ANIMATION_MS * 2,
     );
-  }, [sweepableIds, hideMany, recordHide, commitSweep]);
+  }, [sweepableIds, hideMany, recordHide, commitSweep, beginSweepCooldown]);
 
   // First `animationend` from a swept row drives the commit — `<li>`
   // elements all animate with the same duration, so one signal is
