@@ -210,6 +210,133 @@ describe('<StoryList> pin and sweep', () => {
     });
   });
 
+  it('ignores a second sweep tap while the first is still animating', async () => {
+    // A sweep defers its hide until the slide+fade finishes. Tapping sweep
+    // again before that settles must be a no-op — the in-flight batch owns the
+    // animation, and re-running with a since-changed sweepable set would
+    // clobber the pending ids and hide rows the first tap never selected. Here
+    // rows 3 and 4 are off-screen (not sweepable) at the first tap, then scroll
+    // into view mid-animation; without the guard the second tap would sweep
+    // them too.
+    const ids = [1, 2, 3, 4];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(4);
+    });
+
+    const row = (id: number) => screen.getByText(`Story ${id}`).closest('li')!;
+    // Push stories 3 and 4 off-screen so only 1 and 2 are sweepable.
+    act(() => {
+      setVisibilityForTest(row(3), 0);
+      setVisibilityForTest(row(4), 0);
+    });
+
+    const sweep = screen.getByTestId('sweep-btn-bottom');
+    await waitFor(() => expect(sweep).not.toBeDisabled());
+    fireEvent.click(sweep);
+
+    // Stories 1 and 2 are now mid-animation; 3 and 4 scroll into view.
+    expect(row(1).className).toContain('story-list__item--sweeping');
+    act(() => {
+      setVisibilityForTest(row(3), 1);
+      setVisibilityForTest(row(4), 1);
+    });
+
+    // Second tap before the first settles — must be dropped, so 3 and 4 never
+    // join the animation.
+    fireEvent.click(screen.getByTestId('sweep-btn-bottom'));
+    expect(row(3).className).not.toContain('story-list__item--sweeping');
+    expect(row(4).className).not.toContain('story-list__item--sweeping');
+
+    // Commit the in-flight sweep via a matching animationend on a swept row.
+    act(() => {
+      const ev = new Event('animationend', { bubbles: true }) as AnimationEvent;
+      Object.defineProperty(ev, 'animationName', {
+        value: 'story-list__sweep-out',
+      });
+      row(1).dispatchEvent(ev);
+    });
+
+    // Only the first batch left; 3 and 4 survived because their tap was ignored.
+    await waitFor(() => {
+      expect(screen.queryByText('Story 1')).toBeNull();
+      expect(screen.queryByText('Story 2')).toBeNull();
+    });
+    expect(screen.getByText('Story 3')).toBeInTheDocument();
+    expect(screen.getByText('Story 4')).toBeInTheDocument();
+  });
+
+  it('ignores a sweep tap during the cooldown right after a sweep commits', async () => {
+    // A sweep keeps ignoring taps for a short beat after it commits, not just
+    // during the slide-out — otherwise a rapid second tap clears rows that only
+    // just settled into view. Stories 3 and 4 are off-screen at the first tap,
+    // scroll in once it has committed, and the immediate second tap must be
+    // dropped by the cooldown.
+    const ids = [1, 2, 3, 4];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(4);
+    });
+
+    const row = (id: number) => screen.getByText(`Story ${id}`).closest('li')!;
+    act(() => {
+      setVisibilityForTest(row(3), 0);
+      setVisibilityForTest(row(4), 0);
+    });
+
+    const sweep = screen.getByTestId('sweep-btn-bottom');
+    await waitFor(() => expect(sweep).not.toBeDisabled());
+    fireEvent.click(sweep);
+
+    // Let the first sweep fully commit via animationend (cooldown starts here).
+    act(() => {
+      const ev = new Event('animationend', { bubbles: true }) as AnimationEvent;
+      Object.defineProperty(ev, 'animationName', {
+        value: 'story-list__sweep-out',
+      });
+      row(1).dispatchEvent(ev);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Story 1')).toBeNull();
+      expect(screen.queryByText('Story 2')).toBeNull();
+    });
+
+    // 3 and 4 scroll into view; an immediate second tap (within the cooldown)
+    // must be dropped, so they survive.
+    act(() => {
+      setVisibilityForTest(row(3), 1);
+      setVisibilityForTest(row(4), 1);
+    });
+    fireEvent.click(screen.getByTestId('sweep-btn-bottom'));
+
+    expect(row(3).className).not.toContain('story-list__item--sweeping');
+    expect(row(4).className).not.toContain('story-list__item--sweeping');
+    expect(screen.getByText('Story 3')).toBeInTheDocument();
+    expect(screen.getByText('Story 4')).toBeInTheDocument();
+  });
+
   it('committing the pending sweep on unmount so navigation mid-animation is not dropped', async () => {
     const ids = [1, 2];
     const items = Object.fromEntries(
