@@ -35,6 +35,13 @@ describe('<AboutPage>', () => {
     expect(apiLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
+  it('credits the author with a link to mikelward.com', () => {
+    renderWithProviders(<AboutPage />, { route: '/about' });
+    expect(
+      screen.getByRole('link', { name: /mikel ward/i }),
+    ).toHaveAttribute('href', 'https://mikelward.com');
+  });
+
   it('has a back link to Top', () => {
     renderWithProviders(<AboutPage />, { route: '/about' });
     expect(screen.getByRole('link', { name: /back to top/i })).toHaveAttribute(

@@ -14,6 +14,14 @@ export function AboutPage() {
         >
           Hacker News
         </a>
+        , by{' '}
+        <a
+          href="https://mikelward.com"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Mikel Ward
+        </a>
         .
       </p>
 
@@ -45,8 +53,8 @@ export function AboutPage() {
 
       <h2 className="about-page__heading">What newshacker stores</h2>
       <p>
-        newshacker keeps a small amount of data on your device (in
-        <code> localStorage</code>) to remember which stories you&rsquo;ve
+        newshacker keeps a small amount of data on your device (in{' '}
+        <code>localStorage</code>) to remember which stories you&rsquo;ve
         opened or hidden so they can be hidden or surfaced in the Library.
         This data stays in your browser &mdash; it is not sent to any
         server operated by newshacker.
