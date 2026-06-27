@@ -1,27 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  HOME_FEED_CHANGE_EVENT,
-  type HomeFeed,
-  getStoredHomeFeed,
-  setStoredHomeFeed,
-} from '../lib/homeFeed';
+import { useCallback } from 'react';
+import { type HomeFeed, homeFeedStore } from '../lib/homeFeed';
+import { usePersistentValue } from './usePersistentValue';
 
 export function useHomeFeed() {
-  const [homeFeed, setHomeFeedState] = useState<HomeFeed>(() =>
-    getStoredHomeFeed(),
-  );
-
-  useEffect(() => {
-    const sync = () => setHomeFeedState(getStoredHomeFeed());
-    window.addEventListener(HOME_FEED_CHANGE_EVENT, sync);
-    window.addEventListener('storage', sync);
-    return () => {
-      window.removeEventListener(HOME_FEED_CHANGE_EVENT, sync);
-      window.removeEventListener('storage', sync);
-    };
-  }, []);
-
-  const setHomeFeed = useCallback((f: HomeFeed) => setStoredHomeFeed(f), []);
-
+  const homeFeed = usePersistentValue(homeFeedStore);
+  const setHomeFeed = useCallback((f: HomeFeed) => homeFeedStore.set(f), []);
   return { homeFeed, setHomeFeed };
 }

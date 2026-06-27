@@ -1,3 +1,5 @@
+import { createPersistentValue } from './persistentValue';
+
 export const HOME_FEED_STORAGE_KEY = 'newshacker:homeFeed';
 export const HOME_FEED_CHANGE_EVENT = 'newshacker:homeFeedChanged';
 
@@ -19,10 +21,6 @@ export const HOME_FEED_OPTIONS: Array<{ value: HomeFeed; label: string }> = [
   { value: 'hot', label: 'Hot' },
 ];
 
-function hasWindow(): boolean {
-  return typeof window !== 'undefined';
-}
-
 function isHomeFeed(value: unknown): value is HomeFeed {
   return (
     typeof value === 'string' &&
@@ -30,28 +28,13 @@ function isHomeFeed(value: unknown): value is HomeFeed {
   );
 }
 
-export function getStoredHomeFeed(): HomeFeed {
-  if (!hasWindow()) return DEFAULT_HOME_FEED;
-  try {
-    const raw = window.localStorage.getItem(HOME_FEED_STORAGE_KEY);
-    return isHomeFeed(raw) ? raw : DEFAULT_HOME_FEED;
-  } catch {
-    return DEFAULT_HOME_FEED;
-  }
-}
+export const homeFeedStore = createPersistentValue<HomeFeed>({
+  storageKey: HOME_FEED_STORAGE_KEY,
+  changeEvent: HOME_FEED_CHANGE_EVENT,
+  defaultValue: DEFAULT_HOME_FEED,
+  parse: (raw) => (isHomeFeed(raw) ? raw : undefined),
+  detailKey: 'feed',
+});
 
-export function setStoredHomeFeed(feed: HomeFeed): void {
-  if (!hasWindow()) return;
-  try {
-    if (feed === DEFAULT_HOME_FEED) {
-      window.localStorage.removeItem(HOME_FEED_STORAGE_KEY);
-    } else {
-      window.localStorage.setItem(HOME_FEED_STORAGE_KEY, feed);
-    }
-  } catch {
-    // quota or privacy-mode failures are non-fatal
-  }
-  window.dispatchEvent(
-    new CustomEvent(HOME_FEED_CHANGE_EVENT, { detail: { feed } }),
-  );
-}
+export const getStoredHomeFeed = homeFeedStore.get;
+export const setStoredHomeFeed = homeFeedStore.set;
