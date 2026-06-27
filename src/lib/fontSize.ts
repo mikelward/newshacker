@@ -1,3 +1,5 @@
+import { createPersistentValue } from './persistentValue';
+
 export const FONT_SIZE_STORAGE_KEY = 'newshacker:font-size';
 export const FONT_SIZE_CHANGE_EVENT = 'newshacker:fontSizeChanged';
 
@@ -20,25 +22,11 @@ export const FONT_SIZE_LABELS: Record<FontSize, string> = {
   large: 'Large',
 };
 
-function hasWindow(): boolean {
-  return typeof window !== 'undefined';
-}
-
 function isFontSize(value: unknown): value is FontSize {
   return (
     typeof value === 'string' &&
     (FONT_SIZES as readonly string[]).includes(value)
   );
-}
-
-export function getStoredFontSize(): FontSize {
-  if (!hasWindow()) return 'medium';
-  try {
-    const raw = window.localStorage.getItem(FONT_SIZE_STORAGE_KEY);
-    return isFontSize(raw) ? raw : 'medium';
-  } catch {
-    return 'medium';
-  }
 }
 
 export function applyFontSize(fontSize: FontSize): void {
@@ -51,19 +39,14 @@ export function applyFontSize(fontSize: FontSize): void {
   }
 }
 
-export function setStoredFontSize(fontSize: FontSize): void {
-  if (!hasWindow()) return;
-  try {
-    if (fontSize === 'medium') {
-      window.localStorage.removeItem(FONT_SIZE_STORAGE_KEY);
-    } else {
-      window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, fontSize);
-    }
-  } catch {
-    // quota or privacy-mode failures are non-fatal
-  }
-  applyFontSize(fontSize);
-  window.dispatchEvent(
-    new CustomEvent(FONT_SIZE_CHANGE_EVENT, { detail: { fontSize } }),
-  );
-}
+export const fontSizeStore = createPersistentValue<FontSize>({
+  storageKey: FONT_SIZE_STORAGE_KEY,
+  changeEvent: FONT_SIZE_CHANGE_EVENT,
+  defaultValue: 'medium',
+  parse: (raw) => (isFontSize(raw) ? raw : undefined),
+  onApply: applyFontSize,
+  detailKey: 'fontSize',
+});
+
+export const getStoredFontSize = fontSizeStore.get;
+export const setStoredFontSize = fontSizeStore.set;
