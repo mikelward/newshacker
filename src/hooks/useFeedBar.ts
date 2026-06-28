@@ -18,5 +18,6 @@ export function useFeedBar(): FeedBarContextValue {
     canUndo: false,
     recordHide: noop,
     undo: noop,
+    setOnUndo: noop,
   };
 }
