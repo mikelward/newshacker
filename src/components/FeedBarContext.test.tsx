@@ -42,4 +42,34 @@ describe('FeedBarContext recordHide undo batching', () => {
     // one, so Undo restores only 30.
     expect(getHiddenIds()).toEqual(new Set([10, 20]));
   });
+
+  it('fires the registered onUndo handler with the restored ids (in order)', () => {
+    addHiddenIds([10, 20, 30]);
+    const { result } = renderHook(() => useFeedBar(), { wrapper });
+    const restored: number[][] = [];
+    act(() => result.current.setOnUndo((ids) => restored.push([...ids])));
+    act(() => result.current.recordHide([10, 20], { batchKey: 1 }));
+    act(() => result.current.recordHide([30], { batchKey: 1 })); // same burst
+    act(() => result.current.undo());
+    expect(restored).toEqual([[10, 20, 30]]);
+  });
+
+  it('does not fire onUndo when there is nothing to undo', () => {
+    const { result } = renderHook(() => useFeedBar(), { wrapper });
+    let calls = 0;
+    act(() => result.current.setOnUndo(() => calls++));
+    act(() => result.current.undo()); // empty batch — no-op
+    expect(calls).toBe(0);
+  });
+
+  it('stops firing onUndo once the handler is cleared', () => {
+    addHiddenIds([10]);
+    const { result } = renderHook(() => useFeedBar(), { wrapper });
+    let calls = 0;
+    act(() => result.current.setOnUndo(() => calls++));
+    act(() => result.current.setOnUndo(null));
+    act(() => result.current.recordHide([10]));
+    act(() => result.current.undo());
+    expect(calls).toBe(0);
+  });
 });

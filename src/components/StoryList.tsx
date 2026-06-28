@@ -29,6 +29,7 @@ import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { refreshPinnedStoriesForHomeView } from '../lib/homePinnedRefresh';
 import { useStickyInset } from '../hooks/useStickyInset';
+import { measureStickyInset } from '../lib/stickyInset';
 import { useStickyFooterInset } from '../hooks/useStickyFooterInset';
 import {
   FEED_PREFETCH_SCORE_THRESHOLD,
@@ -324,7 +325,7 @@ export function StoryListImpl({
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
   const shareStory = useShareStory();
-  const { setSweep, recordHide, canUndo, undo } = useFeedBar();
+  const { setSweep, recordHide, canUndo, undo, setOnUndo } = useFeedBar();
   const { hideOnScroll } = useHideOnScroll();
   const { stickyBottomBar } = useStickyBottomBar();
   // `hotThresholds` is supplied by the parent (`<StoryList>` for
@@ -930,6 +931,58 @@ export function StoryListImpl({
     setSweep(handleSweep, sweepableIds.length);
     return () => setSweep(null, 0);
   }, [setSweep, handleSweep, sweepableIds.length]);
+
+  // Ids restored by the most recent Undo, awaiting a scroll-into-view. After
+  // undoing an auto-dismiss-on-scroll burst the restored rows remount *above*
+  // the viewport (they sit earlier in the feed than where the reader scrolled
+  // to), so bring the topmost one back on screen. The Undo button lives in the
+  // toolbar, so we register a handler with the shared feed bar; the scroll
+  // itself is deferred to the effect below, which fires once the restored rows
+  // are back in the rendered list.
+  const pendingUndoScrollIds = useRef<Set<number> | null>(null);
+  const handleUndoScroll = useCallback((ids: readonly number[]) => {
+    pendingUndoScrollIds.current = ids.length > 0 ? new Set(ids) : null;
+  }, []);
+  useEffect(() => {
+    setOnUndo(handleUndoScroll);
+    return () => setOnUndo(null);
+  }, [setOnUndo, handleUndoScroll]);
+
+  // Scroll back up to the topmost row an Undo just restored, but only when it's
+  // off-screen above the fold — so undoing a scroll-past burst returns the
+  // reader to where they were reading, while undoing a swipe/Sweep (whose rows
+  // are still on screen) never jerks the viewport.
+  useEffect(() => {
+    const pending = pendingUndoScrollIds.current;
+    if (!pending) return;
+    // Consume the request on this single post-undo render. Un-hiding is
+    // synchronous, so any restored rows that belong to this feed are already
+    // back in visibleStories — one pass is enough. Clearing even when none match
+    // stops a stale request from scrolling later: the undo batch is global, so
+    // Undo may restore rows that live in a different feed the reader navigated
+    // from, and a later refresh could otherwise surface one of those ids and
+    // scroll this feed unexpectedly (Codex P2 on PR #357).
+    pendingUndoScrollIds.current = null;
+    const restoredInList = visibleStories.filter((s) => pending.has(s.id));
+    if (restoredInList.length === 0) return;
+    let target: HTMLElement | null = null;
+    for (const s of restoredInList) {
+      const el = document.querySelector(`[data-story-id="${s.id}"]`);
+      if (el instanceof HTMLElement) {
+        target = el;
+        break;
+      }
+    }
+    if (!target) return;
+    const chrome = measureStickyInset();
+    const top = target.getBoundingClientRect().top;
+    if (top >= chrome) return; // already fully below the sticky chrome — on screen
+    // Browsers honoring prefers-reduced-motion fall back to an instant scroll.
+    window.scrollTo({
+      top: Math.max(0, top + window.scrollY - chrome),
+      behavior: 'smooth',
+    });
+  }, [visibleStories]);
 
   // Refresh == "pull the feed + cross-device sync state + latest
   // app bundle". Same callback PullToRefresh uses — see onRefresh

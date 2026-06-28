@@ -29,6 +29,10 @@ export interface FeedBarContextValue {
   canUndo: boolean;
   recordHide: (ids: readonly number[], options?: RecordHideOptions) => void;
   undo: () => void;
+  /** Register a handler invoked by {@link undo} with the ids it just restored
+   * (in list order). The list view uses it to scroll back up to the topmost
+   * restored row when it's off-screen above the fold. Pass null to clear. */
+  setOnUndo: (handler: ((ids: readonly number[]) => void) | null) => void;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -48,6 +52,16 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
   // Identity of the action that produced `lastHidden`; only a matching key may
   // extend it (see RecordHideOptions). null = no extendable batch.
   const lastHiddenKeyRef = useRef<string | number | null>(null);
+  // Registered by the list view so `undo` can hand it the restored ids to scroll
+  // back into view. Held in a ref so `undo`'s identity doesn't churn when the
+  // handler changes (and so registering it doesn't re-render consumers).
+  const onUndoRef = useRef<((ids: readonly number[]) => void) | null>(null);
+  const setOnUndo = useCallback(
+    (handler: ((ids: readonly number[]) => void) | null) => {
+      onUndoRef.current = handler;
+    },
+    [],
+  );
 
   const setSweep = useCallback(
     (handler: Handler | null, count: number) => {
@@ -78,9 +92,14 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
 
   const undo = useCallback(() => {
     if (lastHidden.length === 0) return;
-    for (const id of lastHidden) removeHiddenId(id);
+    const restored = lastHidden;
+    for (const id of restored) removeHiddenId(id);
     lastHiddenKeyRef.current = null;
     setLastHidden([]);
+    // Let the list view scroll the restored rows back into view. Fired after the
+    // store update so the rows are about to re-render; the handler defers the
+    // actual scroll until they're back in the list.
+    onUndoRef.current?.(restored);
   }, [lastHidden]);
 
   const value = useMemo<FeedBarContextValue>(
@@ -91,6 +110,7 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
       canUndo: lastHidden.length > 0,
       recordHide,
       undo,
+      setOnUndo,
     }),
     [
       sweepState.handler,
@@ -99,6 +119,7 @@ export function FeedBarProvider({ children }: { children: ReactNode }) {
       lastHidden,
       recordHide,
       undo,
+      setOnUndo,
     ],
   );
 
