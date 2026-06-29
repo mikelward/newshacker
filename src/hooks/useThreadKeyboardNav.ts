@@ -33,11 +33,20 @@ import { useEffect } from 'react';
 // on the feed pages. The args are optional so the focused-comment
 // view — which has no per-thread action bar — can leave them off and
 // only get the scroll keys.
+//
+// u / b are navigation-out keys. b ("back") pops browser history to
+// the page the reader came from; u ("up") goes one level up the
+// content hierarchy — to the parent comment/story on a focused-comment
+// view, falling back to "back" on a story view that has nothing above
+// it. Both are wired on every thread view (story and comment), unlike
+// o/p/d which are story-only.
 
 interface Args {
   onOpenArticle?: () => void;
   onTogglePin?: () => void;
   onToggleDone?: () => void;
+  onBack?: () => void;
+  onUp?: () => void;
 }
 
 // Every rendered comment in the thread, top-level or nested.
@@ -167,6 +176,8 @@ export function useThreadKeyboardNav({
   onOpenArticle,
   onTogglePin,
   onToggleDone,
+  onBack,
+  onUp,
 }: Args): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -211,6 +222,18 @@ export function useThreadKeyboardNav({
             onToggleDone();
           }
           break;
+        case 'u':
+          if (onUp) {
+            e.preventDefault();
+            onUp();
+          }
+          break;
+        case 'b':
+          if (onBack) {
+            e.preventDefault();
+            onBack();
+          }
+          break;
       }
     };
     document.addEventListener('keydown', onKey);
@@ -218,5 +241,5 @@ export function useThreadKeyboardNav({
       document.removeEventListener('keydown', onKey);
       markKeyboardFocused(null);
     };
-  }, [onOpenArticle, onTogglePin, onToggleDone]);
+  }, [onOpenArticle, onTogglePin, onToggleDone, onBack, onUp]);
 }

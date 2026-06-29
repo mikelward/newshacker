@@ -786,6 +786,26 @@ export function Thread({ id }: Props) {
     if (commentCount === undefined) return;
     markCommentsOpenedId(id, Date.now(), commentCount);
   }, [id, commentCount]);
+  // Pop browser history to the page the reader came from (usually a
+  // feed). location.key === 'default' means this is the first in-app
+  // history entry (deep link, refresh, shared URL), so there's nothing
+  // to pop — land on the home feed instead. Shared by mark-done and the
+  // `b` keyboard shortcut.
+  const goBack = useCallback(() => {
+    if (location.key !== 'default') navigate(-1);
+    else navigate('/');
+  }, [location.key, navigate]);
+  // Go one level up the content hierarchy. On a focused-comment view
+  // (`/item/<commentId>`) that means the immediate parent comment or
+  // story; a story view has nothing above it in the app, so `u` falls
+  // back to going back to the feed. Wired to the `u` shortcut.
+  const goUp = useCallback(() => {
+    if (item?.type === 'comment' && item.parent !== undefined) {
+      navigate(`/item/${item.parent}`);
+      return;
+    }
+    goBack();
+  }, [item, navigate, goBack]);
   const handleTogglePinned = useCallback(() => {
     if (pinned) {
       unpin(id);
@@ -822,12 +842,9 @@ export function Thread({ id }: Props) {
     }
     markDone(id);
     // Mark-done closes the thread: pop back to wherever the reader came
-    // from (usually a feed). location.key === 'default' means this is
-    // the first in-app history entry (deep link, refresh, shared URL),
-    // so there's nothing to pop — land on the home feed instead.
-    if (location.key !== 'default') navigate(-1);
-    else navigate('/');
-  }, [done, id, markDone, unmarkDone, location.key, navigate]);
+    // from (usually a feed) via the shared back helper.
+    goBack();
+  }, [done, id, markDone, unmarkDone, goBack]);
   const { isFavorite, favorite, unfavorite } = useFavorites();
   const favorited = isFavorite(id);
   const handleToggleFavorite = useCallback(() => {
@@ -859,6 +876,10 @@ export function Thread({ id }: Props) {
       isStoryView && isSafeHttpUrl(item?.url) ? handleOpenArticle : undefined,
     onTogglePin: isStoryView ? handleTogglePinned : undefined,
     onToggleDone: isStoryView ? handleToggleDone : undefined,
+    // Navigation-out keys work on every thread view (story and comment),
+    // not just stories — there's always somewhere to go back/up to.
+    onBack: goBack,
+    onUp: goUp,
   });
   const handleLinkClick = useInternalLinkClick();
   const shareStory = useShareStory();
