@@ -49,4 +49,18 @@ describe('<AboutPage>', () => {
       '/top',
     );
   });
+
+  it('shows the build version/age and links to Debug', () => {
+    renderWithProviders(<AboutPage />, { route: '/about' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /version/i }),
+    ).toBeInTheDocument();
+    // The test build injects a fixed commit time, so the age line renders
+    // (and falls back to "Build info unavailable" when metadata is absent).
+    expect(screen.getByText(/^Built /)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /debug/i })).toHaveAttribute(
+      'href',
+      '/debug',
+    );
+  });
 });

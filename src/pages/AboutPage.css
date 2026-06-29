@@ -36,6 +36,11 @@
   font-size: 13px;
 }
 
+.about-page__build {
+  color: var(--nh-meta);
+  font-size: 14px;
+}
+
 .about-page__back {
   margin-top: 20px;
   font-size: 14px;

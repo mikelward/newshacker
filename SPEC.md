@@ -417,7 +417,7 @@ server-side with most-recent-first eviction.
      is the one whose avatar is being shown (no third-party
      commenter avatars, so no fan-out across an entire thread).
    - **Why not also in the drawer.** The drawer's `App` section
-     already carries static entries (Help, About, Debug); the header
+     already carries static entries (Settings, Help, About); the header
      chip is the single canonical auth surface and the drawer stays
      focused on navigation.
 
@@ -809,7 +809,7 @@ Library pages therefore show only the Back-to-top slot; feed pages show all four
 ## Settings page (`/settings`)
 
 A dedicated settings route, linked from the drawer's **App** section (first
-entry, above Help / About / Debug). It collects the lower-frequency,
+entry, above Help / About). It collects the lower-frequency,
 "set-and-forget" preferences so the slide-out drawer stays a fast nav surface
 for the high-frequency appearance picks (mode, app-bar style, text size) that
 remain inline in it. Same simple-content-page shell as `/about` / `/help`
@@ -831,6 +831,14 @@ remain inline in it. Same simple-content-page shell as `/about` / `/help`
 
 Everything on the page is per-device and stored in `localStorage`; the page
 itself fetches nothing.
+
+**Where `/debug` is reached.** `/debug` is reachable from the About page's
+**Version** section and from this Settings *More* list — **not** from the
+drawer's App section, which keeps only the high-frequency nav (Settings,
+Help, About). The About Version line shows the build age (e.g. `Built 5d ago`,
+from the baked-in `buildCommitTime` so it renders without a network call;
+falls back to `Build info unavailable` when git metadata is absent) followed
+by a link to `/debug` for the full deployment detail.
 
 ### Reading toggles
 

@@ -68,10 +68,13 @@ describe('<AppDrawer>', () => {
       'href',
       '/about',
     );
-    expect(screen.getByRole('link', { name: 'Debug' })).toHaveAttribute(
-      'href',
-      '/debug',
-    );
+  });
+
+  it('does not link to Debug from the App section (it lives on the About page)', () => {
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    expect(
+      screen.queryByRole('link', { name: 'Debug' }),
+    ).not.toBeInTheDocument();
   });
 
   it('orders sections Home → Library → Theme → Feeds → App from top to bottom', () => {
