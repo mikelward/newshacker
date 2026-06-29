@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { buildCommitTime, summarizeBuildAge } from '../lib/buildInfo';
 import './AboutPage.css';
 
 export function AboutPage() {
@@ -72,6 +73,12 @@ export function AboutPage() {
           news.ycombinator.com
         </a>
         .
+      </p>
+
+      <h2 className="about-page__heading">Version</h2>
+      <p className="about-page__build">
+        {summarizeBuildAge(buildCommitTime)} &middot;{' '}
+        <Link to="/debug">Debug</Link>
       </p>
 
       <p className="about-page__back">

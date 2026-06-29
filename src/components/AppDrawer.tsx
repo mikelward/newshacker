@@ -265,11 +265,6 @@ export function AppDrawer({ open, onClose }: Props) {
               About
             </Link>
           </li>
-          <li>
-            <Link to="/debug" className="app-drawer__link">
-              Debug
-            </Link>
-          </li>
         </ul>
       </nav>
     </div>
