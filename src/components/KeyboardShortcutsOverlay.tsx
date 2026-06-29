@@ -34,6 +34,8 @@ const THREAD_SHORTCUTS: Shortcut[] = [
   { keys: ['o'], description: 'Open the article in a new tab' },
   { keys: ['p'], description: 'Pin or unpin the story' },
   { keys: ['d'], description: 'Mark the story done' },
+  { keys: ['u'], description: 'Go up to the parent comment or story' },
+  { keys: ['b'], description: 'Go back to the previous page' },
   { keys: ['?'], description: 'Show this help' },
   { keys: ['Esc'], description: 'Close menus or this help' },
 ];

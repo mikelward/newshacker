@@ -1029,12 +1029,15 @@ The thread / comments page (`/item/:id`) reuses the same letter keys with a thre
 | `o` | Open the story's article URL in a new tab. Story view only; no-op on self-posts and on the focused-comment view (`/item/<commentId>`). |
 | `p` | Toggle pin for this story. Story view only. |
 | `d` | Mark this story done (closes the thread, navigating back). Story view only. |
+| `u` | Go up one level. On a focused-comment view (`/item/<commentId>`) jumps to the immediate parent comment or story; on a story view (nothing above it) it falls back to going back. |
+| `b` | Go back to the previous page (pops browser history, `navigate(-1)`); lands on the home feed when there's no in-app history (deep link, refresh, shared URL). |
 | `?` | Open the keyboard-shortcuts help overlay. |
 | `Esc` | Close the menu / overlay (existing behavior). |
 
 - **Visible comments only.** `j`/`k` walk every rendered card — top-level cards on a fresh thread, *and* nested replies as soon as their parent is expanded. `<Comment>` only mounts its `comment__children` subtree when the parent is expanded, so "rendered" already means "visible"; a collapsed subtree doesn't show up as keyboard stops. Press `Enter` to expand a card and `j` immediately starts walking its replies.
 - Comments are not focusable rows the way list rows are. The "current" comment for `j`/`k`/`Enter` is whichever rendered card is currently nearest the top of the viewport, recomputed on every press, so manual scrolling and keyboard scrolling compose without surprise. After each successful `j`/`k`/`Enter` the active card gets a 3px brand-orange bar across its top (the `.is-keyboard-focused` class, layered on top of the collapsed/expanded left stripe via stacked inset box-shadows) so the reader can see which card Enter will toggle. The bar is a pure visual cue — it persists until the next keyboard press and is **not** cleared by mouse scrolling, so the indicator can be temporarily out of sync with what Enter would actually toggle if the reader scrolls past it with the wheel; the next `j`/`k` realigns it. Pressing `k` at the very top of the thread (the scroll-to-page-top branch) clears the indicator, since no card is "active" up in the story header.
 - The same bail-out conditions apply: typing in an input, an open dialog/menu, modifier keys, or a pre-defaulted event all skip the handler. Browser find (`Cmd-F`), HN's reply link, the help overlay, and the row-action menu remain reachable. The `?` overlay itself is context-aware — opening it on `/item/:id` shows the thread shortcuts (Next comment / Expand or collapse / Mark done) instead of the list shortcuts.
+- **`u` / `b` work on every thread view**, story and focused-comment alike — unlike `o`/`p`/`d`, which are story-only. `b` is browser back (`navigate(-1)`, the same pop mark-done uses, falling back to `/` with no in-app history). `u` goes up the content hierarchy: on `/item/<commentId>` it navigates to the immediate parent (`item.parent`, a comment or the root story), so repeated `u` walks a deep reply back up toward the story; on a story view it has nowhere higher to go and falls back to `b`.
 
 ## Performance Targets
 

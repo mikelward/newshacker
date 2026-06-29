@@ -1,9 +1,54 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Thread } from './Thread';
+import { FeedBarProvider } from './FeedBarContext';
+import { LoginDialogProvider } from './LoginDialog';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
+
+// Surfaces the current path so navigation-out shortcuts (u / b) can be
+// asserted on. Mirrors the LocationProbe in Thread.test.tsx.
+function LocationProbe() {
+  const loc = useLocation();
+  return <div data-testid="location-pathname">{loc.pathname}</div>;
+}
+
+// Renders <Thread> inside a multi-entry MemoryRouter so u / b have a
+// history (and a parent) to navigate to. initialIndex lands on the last
+// entry (the /item/:id route the reader is "on").
+function renderThreadWithHistory({
+  id,
+  entries,
+}: {
+  id: number;
+  entries: string[];
+}) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 0,
+        staleTime: 0,
+        networkMode: 'offlineFirst',
+      },
+    },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+        <LoginDialogProvider>
+          <FeedBarProvider>
+            <LocationProbe />
+            <Thread id={id} />
+          </FeedBarProvider>
+        </LoginDialogProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
 
 // jsdom doesn't lay out, so getBoundingClientRect returns zeros for
 // every element. Stub it to return a real-ish layout (header at
@@ -598,5 +643,75 @@ describe('<Thread> keyboard shortcuts', () => {
     await userEvent.keyboard('opd');
     expect(open).not.toHaveBeenCalled();
     expect(window.localStorage.getItem('newshacker:pinnedStoryIds')).toBeNull();
+  });
+
+  it('b pops back to the previous page', async () => {
+    installHNFetchMock({
+      items: { 810: makeStory(810, { title: 'Backable' }) },
+    });
+
+    renderThreadWithHistory({ id: 810, entries: ['/top', '/item/810'] });
+    await screen.findByText('Backable');
+
+    await userEvent.keyboard('b');
+    await waitFor(() => {
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/top');
+    });
+  });
+
+  it('b with no in-app history falls back to the home feed', async () => {
+    installHNFetchMock({
+      items: { 811: makeStory(811, { title: 'Deeplinked' }) },
+    });
+
+    // Single-entry history → location.key === 'default', nothing to pop.
+    renderThreadWithHistory({ id: 811, entries: ['/item/811'] });
+    await screen.findByText('Deeplinked');
+
+    await userEvent.keyboard('b');
+    await waitFor(() => {
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/');
+    });
+  });
+
+  it('u on a focused-comment view goes up to the parent', async () => {
+    installHNFetchMock({
+      items: {
+        820: makeStory(820, { title: 'Root story', kids: [821] }),
+        821: {
+          id: 821,
+          type: 'comment',
+          by: 'a',
+          text: 'focused comment',
+          parent: 820,
+          time: 1,
+        },
+      },
+    });
+
+    renderThreadWithHistory({ id: 821, entries: ['/item/821'] });
+    await screen.findByText('focused comment');
+
+    await userEvent.keyboard('u');
+    await waitFor(() => {
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent(
+        '/item/820',
+      );
+    });
+  });
+
+  it('u on a story view falls back to going back', async () => {
+    installHNFetchMock({
+      items: { 830: makeStory(830, { title: 'Top story' }) },
+    });
+
+    renderThreadWithHistory({ id: 830, entries: ['/top', '/item/830'] });
+    await screen.findByText('Top story');
+
+    // A story has nothing above it, so u behaves like b.
+    await userEvent.keyboard('u');
+    await waitFor(() => {
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/top');
+    });
   });
 });
