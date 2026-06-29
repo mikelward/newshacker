@@ -247,6 +247,21 @@ describe('<AppUpdateWatcher>', () => {
     unmount();
   });
 
+  it('pings the SW once on mount as a startup update check', () => {
+    // The browser's own navigation-time SW check is throttled and a
+    // relaunched installed PWA can't rely on its timing, so the watcher
+    // fires one explicit registration.update() at mount. Any newer SW
+    // found flows through the controllerchange → toast path like the
+    // other triggers; no forced reload.
+    stubServiceWorker({ id: 'ctrl' });
+    render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} />
+      </ToastProvider>,
+    );
+    expect(pingServiceWorkerForUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it('pings the SW when the tab returns from hidden after the threshold', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-23T08:00:00Z'));
@@ -259,6 +274,9 @@ describe('<AppUpdateWatcher>', () => {
         />
       </ToastProvider>,
     );
+    // The one-shot startup ping fires at mount; clear it so this test
+    // counts only the return-from-hidden trigger.
+    vi.mocked(pingServiceWorkerForUpdate).mockClear();
     setVisibility('hidden');
     vi.setSystemTime(new Date('2026-04-23T08:01:00Z'));
     setVisibility('visible');
@@ -285,6 +303,8 @@ describe('<AppUpdateWatcher>', () => {
         />
       </ToastProvider>,
     );
+    // Ignore the one-shot startup ping fired at mount.
+    vi.mocked(pingServiceWorkerForUpdate).mockClear();
     vi.setSystemTime(new Date('2026-04-23T08:01:00Z'));
     setVisibility('visible');
     expect(pingServiceWorkerForUpdate).toHaveBeenCalledTimes(1);
@@ -302,6 +322,8 @@ describe('<AppUpdateWatcher>', () => {
         />
       </ToastProvider>,
     );
+    // Ignore the one-shot startup ping fired at mount.
+    vi.mocked(pingServiceWorkerForUpdate).mockClear();
     setVisibility('hidden');
     vi.setSystemTime(new Date('2026-04-23T08:00:10Z'));
     setVisibility('visible');
@@ -316,6 +338,8 @@ describe('<AppUpdateWatcher>', () => {
         <AppUpdateWatcher reload={vi.fn()} periodicCheckMs={1000} />
       </ToastProvider>,
     );
+    // Ignore the one-shot startup ping fired at mount; isolate the periodic timer.
+    vi.mocked(pingServiceWorkerForUpdate).mockClear();
     // Visible at mount, no navigation/PTR — only the periodic timer drives it.
     expect(pingServiceWorkerForUpdate).not.toHaveBeenCalled();
     act(() => {
@@ -341,6 +365,8 @@ describe('<AppUpdateWatcher>', () => {
         />
       </ToastProvider>,
     );
+    // Ignore the one-shot startup ping fired at mount.
+    vi.mocked(pingServiceWorkerForUpdate).mockClear();
     setVisibility('hidden');
     // A hidden tab spends no bandwidth — the interval is torn down, so even
     // several periods' worth of elapsed time fires no ping.
@@ -366,6 +392,9 @@ describe('<AppUpdateWatcher>', () => {
         <AppUpdateWatcher reload={vi.fn()} periodicCheckMs={1000} />
       </ToastProvider>,
     );
+    // Ignore the one-shot startup ping fired at mount; this asserts the
+    // periodic timer is torn down, not that nothing ever pinged.
+    vi.mocked(pingServiceWorkerForUpdate).mockClear();
     unmount();
     act(() => {
       vi.advanceTimersByTime(5000);

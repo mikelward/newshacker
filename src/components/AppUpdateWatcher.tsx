@@ -243,5 +243,24 @@ export function AppUpdateWatcher({
     };
   }, [periodicCheckMs]);
 
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return;
+    }
+    // Startup check. The browser runs its own `/sw.js` update check on a
+    // cold navigation, but its timing is throttled and an installed PWA
+    // the OS killed and relaunched can't rely on it firing promptly — so
+    // a freshly-opened app could otherwise sit on a stale bundle until
+    // the 30 min periodic ping comes around. Firing one explicit
+    // `registration.update()` at mount guarantees a check at the moment
+    // we know the user just opened the app, closing that gap. Passive
+    // (no forced reload): any newer SW found activates via `autoUpdate`
+    // and surfaces through the `controllerchange` → toast path above, so
+    // the user still gets the same tap-to-reload nudge, never a surprise
+    // reload. One conditional GET against the tiny `/sw.js` per launch —
+    // negligible bandwidth.
+    void pingServiceWorkerForUpdate();
+  }, []);
+
   return null;
 }
