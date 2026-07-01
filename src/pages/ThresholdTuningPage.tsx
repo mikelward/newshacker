@@ -8,14 +8,14 @@ import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { StoryListImpl } from '../components/StoryList';
 import type { RowFlag } from '../components/StoryListItem';
-import { DEFAULT_HOT_THRESHOLDS } from '../lib/hotThresholds';
 import {
+  DEFAULT_HOT_THRESHOLDS,
   HOT_BIG_DESCENDANTS,
   HOT_BIG_SCORE,
   HOT_MIN_DESCENDANTS,
   HOT_MIN_VELOCITY,
-  isHotStory,
-} from '../lib/format';
+} from '../lib/hotThresholds';
+import { isHotStory } from '../lib/format';
 import {
   clearLocalEvents,
   exportLocalEvents,
