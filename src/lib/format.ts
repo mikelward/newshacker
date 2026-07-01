@@ -196,15 +196,7 @@ export interface StoryMetaInput {
 // `HotThresholds` record to localStorage (and syncs it via
 // `/api/sync` for signed-in users). Each branch can be disabled
 // individually; off means that disjunct evaluates to false. The
-// constants below are the production defaults, re-exported from
-// `hotThresholds.ts` so changing them in one place updates both the
-// fallback path and the `/hot` editor's "default" baseline.
-export {
-  HOT_MIN_VELOCITY,
-  HOT_MIN_DESCENDANTS,
-  HOT_BIG_SCORE,
-  HOT_BIG_DESCENDANTS,
-} from './hotThresholds';
+// production defaults and the `evalHot` rule live in `hotThresholds.ts`.
 import {
   DEFAULT_HOT_THRESHOLDS,
   evalHot,
