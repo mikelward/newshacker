@@ -6,6 +6,7 @@ import { Thread } from '../components/Thread';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addPinnedId } from '../lib/pinnedStories';
+import { addHiddenId, removeHiddenId } from '../lib/hiddenStories';
 import type { HNItem } from '../lib/hn';
 import { _resetNetworkStatusForTests } from '../lib/networkStatus';
 
@@ -48,6 +49,48 @@ describe('<PinnedPage>', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Alpha')).toBeInTheDocument();
+      expect(screen.getByText('Beta')).toBeInTheDocument();
+    });
+  });
+
+  it('withholds a pinned story that is also in the hidden list (sync collision)', async () => {
+    // A cross-device sync can leave a story in both lists; hide wins the
+    // display so the row doesn't render on /pinned with an inert Unpin.
+    installHNFetchMock({
+      items: {
+        1: makeStory(1, { title: 'Alpha' }),
+        2: makeStory(2, { title: 'Beta' }),
+      },
+    });
+    addPinnedId(1);
+    addPinnedId(2);
+    addHiddenId(2);
+
+    renderWithProviders(<PinnedPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Alpha')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Beta')).toBeNull();
+  });
+
+  it('resurfaces a formerly-hidden pinned story once the hide is cleared', async () => {
+    installHNFetchMock({
+      items: { 2: makeStory(2, { title: 'Beta' }) },
+    });
+    addPinnedId(2);
+    addHiddenId(2);
+
+    renderWithProviders(<PinnedPage />);
+    await waitFor(() => {
+      expect(screen.getByText(/Nothing pinned yet/i)).toBeInTheDocument();
+    });
+
+    act(() => {
+      removeHiddenId(2);
+    });
+
+    await waitFor(() => {
       expect(screen.getByText('Beta')).toBeInTheDocument();
     });
   });

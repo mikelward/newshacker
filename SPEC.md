@@ -170,13 +170,17 @@ flag pin ∩ hidden collisions on the home feed; under the shield rule
 those collisions can't happen, so the extra visual signal has
 nothing to say.
 
-Legacy storage from before the shield rule can carry a pin ∩ hidden
-pair. Such a pair self-heals: the hidden-store's 7-day TTL expires
-the stale hide, leaving just the pin. Until it does, off-feed pinned
-rendering filters out any id that is also live-hidden, so the pair
-never surfaces on the home feed. (A one-shot migration that actively
-dropped the pin was retired after 2026-05-15, once every pre-shield
-hide had expired.)
+A pin ∩ hidden pair can still exist even though the shield rule bars
+creating one locally: cross-device sync merges the pinned and hidden
+lists independently, and legacy storage from before the shield rule
+can carry one too. Such a pair self-heals — the hidden-store's 7-day
+TTL expires the hide, leaving just the permanent pin — and until it
+does, hide wins the display: both the home feed's off-feed pinned
+block and the `/pinned` library filter out any id that is also
+live-hidden, so the story shows only on `/hidden` (with a working
+Unhide) in the meantime. (A one-shot migration that actively dropped
+the pin was retired after 2026-05-15, once every pre-shield hide had
+expired.)
 
 The four lists live side by side in the drawer ("Favorites", "Pinned",
 "Done", "Hidden") and each has its own localStorage key
