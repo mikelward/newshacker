@@ -259,21 +259,14 @@ describe('<StoryList> hidden-story handling', () => {
   // Regression for the originally reported bug: legacy storage can
   // carry a pin ∩ hidden pair from before the shield rule. Off-feed
   // pinned rendering must filter that pair out so it doesn't render
-  // on the home feed. The one-shot migration (see hiddenStories.ts)
-  // also drops the pin, but this filter is defense-in-depth for the
-  // brief window before the migration runs and for any sync-induced
-  // collision. We stub the migration marker to skip the migration
-  // here so the test exercises the filter path in isolation.
+  // on the home feed — the sole guard against a sync-induced or
+  // legacy collision until the hidden-store's 7-day TTL clears it.
   it("off-feed pinned doesn't render a story that's also hidden", async () => {
     const feedIds = [1, 2, 3];
     const items = Object.fromEntries(
       [...feedIds, 42].map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
     );
     installHNFetchMock({ feeds: { topstories: feedIds }, items });
-    window.localStorage.setItem(
-      'newshacker:pinHideCollisionMigrated',
-      'true',
-    );
     addPinnedId(42);
     addHiddenId(42);
     // Both stores now carry 42 — the collision the filter must resolve.

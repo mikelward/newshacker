@@ -171,14 +171,12 @@ those collisions can't happen, so the extra visual signal has
 nothing to say.
 
 Legacy storage from before the shield rule can carry a pin ∩ hidden
-pair. On first load after upgrade, the hidden-stores module runs a
-one-shot migration (`migratePinHideCollisions` in
-`src/lib/hiddenStories.ts`, gated by the
-`newshacker:pinHideCollisionMigrated` version marker) and drops the
-pin for any such pair — dismiss is the stronger, more recent signal,
-so it wins. The migration is self-limiting (the hidden-store's 7-day
-TTL clears surviving collisions on its own) and is scheduled for
-removal after 2026-05-15.
+pair. Such a pair self-heals: the hidden-store's 7-day TTL expires
+the stale hide, leaving just the pin. Until it does, off-feed pinned
+rendering filters out any id that is also live-hidden, so the pair
+never surfaces on the home feed. (A one-shot migration that actively
+dropped the pin was retired after 2026-05-15, once every pre-shield
+hide had expired.)
 
 The four lists live side by side in the drawer ("Favorites", "Pinned",
 "Done", "Hidden") and each has its own localStorage key
