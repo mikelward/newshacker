@@ -87,18 +87,39 @@ export async function handleItemsRequest(
   // for up to s-maxage + stale-while-revalidate after a transient
   // Firebase hiccup. Genuine Firebase nulls (deleted/unknown ids) are
   // stable and stay cacheable.
-  let upstreamFailed = false;
+  let failedCount = 0;
   const items = await Promise.all(
     ids.map(async (id) => {
       try {
         const item = await fetchItem(id, request.signal);
         return full ? item : thinForFeed(item);
       } catch {
-        upstreamFailed = true;
+        failedCount++;
         return null;
       }
     }),
   );
+  const upstreamFailed = failedCount > 0;
+
+  // Every id failed upstream: Firebase is unreachable/erroring behind us and
+  // the batch carries no data at all. Say so with a 5xx instead of a 200 of
+  // failure-nulls — the client's connectivity tracker treats a core-read 5xx
+  // as "backend down" (pausing the query layer, showing the Down pill), and a
+  // 200 here would hide the outage as an empty-but-online feed. A partial
+  // failure keeps the degraded 200 + no-store above: some rows are usable and
+  // one flaky item must not flip the whole app.
+  if (upstreamFailed && failedCount === ids.length) {
+    return new Response(
+      JSON.stringify({ error: 'All upstream item fetches failed' }),
+      {
+        status: 503,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        },
+      },
+    );
+  }
 
   return new Response(JSON.stringify(items), {
     status: 200,

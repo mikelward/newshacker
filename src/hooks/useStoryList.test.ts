@@ -1,6 +1,11 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
-import { deriveRefreshState, feedQueryRetryDelay } from './useStoryList';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  deriveRefreshState,
+  FEED_QUERY_MAX_RETRIES,
+  feedQueryRetry,
+  feedQueryRetryDelay,
+} from './useStoryList';
 
 describe('deriveRefreshState', () => {
   it('reports neither when a fresh load just succeeded', () => {
@@ -69,11 +74,46 @@ describe('deriveRefreshState', () => {
 });
 
 describe('feedQueryRetryDelay', () => {
-  it('backs off exponentially and caps at 8s', () => {
-    expect(feedQueryRetryDelay(0)).toBe(1000);
-    expect(feedQueryRetryDelay(1)).toBe(2000);
-    expect(feedQueryRetryDelay(2)).toBe(4000);
-    expect(feedQueryRetryDelay(3)).toBe(8000);
-    expect(feedQueryRetryDelay(10)).toBe(8000);
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('backs off exponentially with jitter, capping the base at 8s', () => {
+    // Pin the jitter so the exponential shape is assertable. The delay is
+    // cap/2 + random * cap/2: at random=0.5 that's 0.75 * cap.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    expect(feedQueryRetryDelay(0)).toBe(750);
+    expect(feedQueryRetryDelay(1)).toBe(1500);
+    expect(feedQueryRetryDelay(2)).toBe(3000);
+    expect(feedQueryRetryDelay(3)).toBe(6000);
+    expect(feedQueryRetryDelay(10)).toBe(6000);
+  });
+
+  it('jitters within [cap/2, cap] so parallel clients never retry in lockstep', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    expect(feedQueryRetryDelay(3)).toBe(4000);
+    vi.spyOn(Math, 'random').mockReturnValue(0.999999);
+    expect(feedQueryRetryDelay(3)).toBeLessThan(8000);
+    expect(feedQueryRetryDelay(3)).toBeGreaterThan(7999);
+  });
+});
+
+describe('feedQueryRetry', () => {
+  it('retries statusless network blips up to the max', () => {
+    const blip = new TypeError('Failed to fetch');
+    for (let attempt = 0; attempt < FEED_QUERY_MAX_RETRIES; attempt++) {
+      expect(feedQueryRetry(attempt, blip)).toBe(true);
+    }
+    expect(feedQueryRetry(FEED_QUERY_MAX_RETRIES, blip)).toBe(false);
+  });
+
+  it('never retries an error that carried an HTTP status', () => {
+    // A response reached us: re-asking won't change a 4xx, and retrying a
+    // 5xx storms a backend that just said it's struggling — the tracker's
+    // 'down' state + rate-bounded recovery probe own that path.
+    expect(feedQueryRetry(0, new Error('HN API 500: /topstories.json'))).toBe(
+      false,
+    );
+    expect(feedQueryRetry(0, new Error('items API 404'))).toBe(false);
   });
 });
