@@ -32,7 +32,8 @@ function isOfflineStory(item: HNItem): boolean {
 export function OfflinePage() {
   const queryClient = useQueryClient();
   // The list is derived from itemRoot entries already in the query cache,
-  // which `PersistQueryClientProvider` populates from localStorage on
+  // which `PersistQueryClientProvider` populates from the persisted
+  // blob (IndexedDB, see idbPersister.ts) on
   // first paint. Before rehydrate completes, the cache looks empty —
   // without this guard the "No offline stories yet." copy below flashes
   // for users who actually have pinned stories cached.
