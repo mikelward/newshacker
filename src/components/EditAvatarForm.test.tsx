@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditAvatarForm } from './EditAvatarForm';
 
@@ -101,7 +101,11 @@ describe('<EditAvatarForm>', () => {
     const email = screen.getByTestId('edit-avatar-email-input');
     await user.type(email, '  Alice@Example.com ');
     await user.click(screen.getByTestId('edit-avatar-save'));
-    expect(onSave).toHaveBeenCalledTimes(1);
+    // The gravatar path awaits the async crypto.subtle email hash
+    // before calling onSave, so the call lands a task after the click
+    // settles — asserting synchronously here raced it (flaked under
+    // full-suite CPU load).
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const saved = onSave.mock.calls[0][0];
     expect(saved.source).toBe('gravatar');
     expect(saved.gravatarEmail).toBe('Alice@Example.com');

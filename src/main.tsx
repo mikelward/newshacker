@@ -3,18 +3,22 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
 import { feedQueryRetry, feedQueryRetryDelay } from './hooks/useStoryList';
 import {
   isRetryableFetchError,
   setConnectivityProbeUrl,
 } from './lib/networkStatus';
+import { createAppPersister } from './lib/idbPersister';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import {
   lockAllPinnedQueriesGcTime,
   startPinnedQueryRetention,
 } from './lib/pinnedQueryRetention';
+import {
+  startPinnedOfflineSync,
+  syncPinnedStoriesForOffline,
+} from './lib/pinnedOfflineSync';
 // Self-hosted Roboto (Fontsource, variable wght axis) so the UI renders in a
 // consistent face instead of whatever sans the OS happens to map. The bundled
 // woff2 only fetches when text actually paints in this family; until then the
@@ -83,11 +87,10 @@ queryClient.setQueryDefaults(['storyIds'], {
   retryDelay: feedQueryRetryDelay,
 });
 
-const persister = createSyncStoragePersister({
-  storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-  key: 'newshacker:rq-cache',
-  throttleTime: 1000,
-});
+// IndexedDB-backed persister (with a one-shot migration of the old
+// localStorage blob and a localStorage fallback when IDB is missing).
+// See src/lib/idbPersister.ts for the quota/main-thread rationale.
+const persister = createAppPersister();
 
 // Point the connectivity tracker at our liveness endpoint. `/api/me` is a pure
 // origin-reachability check: its handler only reads the session cookie and
@@ -116,6 +119,16 @@ startQueryCacheSync(queryClient);
 // queryCacheSync delivers its data.
 startPinnedQueryRetention(queryClient);
 
+// Download pinned content (item root, first comments, both AI summaries)
+// the moment the pinned set changes — which is how a pin made on another
+// device arrives here via cloud sync — and when connectivity returns, so
+// "pin it anywhere, it's readable offline everywhere" doesn't wait for
+// the reader to visit the home feed. The home feed's own mount/focus
+// calls remain as the periodic staleness refresh moments; all paths
+// share a 6 h per-story attempt throttle. See pinnedOfflineSync.ts for
+// the cost bounds.
+startPinnedOfflineSync(queryClient);
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
@@ -127,6 +140,13 @@ createRoot(document.getElementById('root')!).render(
         // restored from disk would be GC'd within an hour of boot if
         // no observer attached. Lock them at Infinity immediately.
         lockAllPinnedQueriesGcTime(queryClient);
+        // Then top up anything a pinned story is still missing for
+        // offline reading (root, comments, either AI summary). Runs
+        // after rehydrate on purpose: the staleness/missing checks
+        // must see the restored cache, not an empty one — otherwise
+        // every boot would re-download all pins. Landing on a thread
+        // link directly (no home view) still syncs this way.
+        syncPinnedStoriesForOffline(queryClient);
       }}
     >
       <BrowserRouter>

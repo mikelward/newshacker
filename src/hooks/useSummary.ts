@@ -8,10 +8,10 @@ import { trackedFetch } from '../lib/networkStatus';
 // the service-worker `ai-summaries` retention in `vite.config.ts`,
 // which has no expiration at all (pinned stories must live forever in
 // the SW cache, see CLAUDE.md rule 9). Keeping every cold-read summary
-// in localStorage indefinitely would bloat the persister blob and risk
-// QuotaExceededError, so React Query is the in-memory hot cache + a
-// bounded persisted window for whatever the reader actually touched
-// recently. On the next refetch after the RQ window expires, the SW
+// in the persisted blob (IndexedDB, see idbPersister.ts) indefinitely
+// would still grow it without bound and slow every snapshot serialize,
+// so React Query is the in-memory hot cache + a bounded persisted
+// window for whatever the reader actually touched recently. On the next refetch after the RQ window expires, the SW
 // cache still serves the bytes so there's no user-visible regression
 // — just an extra trip through the SW.
 export const SUMMARY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
