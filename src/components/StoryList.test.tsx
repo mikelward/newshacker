@@ -10,6 +10,7 @@ import {
   DEFAULT_HOT_THRESHOLDS,
   setStoredHotThresholds,
 } from '../lib/hotThresholds';
+import { _resetNetworkStatusForTests } from '../lib/networkStatus';
 
 describe('<StoryList>', () => {
   beforeEach(() => {
@@ -327,6 +328,41 @@ describe('<StoryListImpl> feed refresh status', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /retry/i }));
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the Retry button and says Offline when the refresh failed offline', async () => {
+    // A Retry while offline is guaranteed to fail, and the reconnect path
+    // (refetchOnReconnect + the tracker's recovery probe) already refetches
+    // automatically — so the footer states the situation instead of
+    // offering a dead button. Mirrors the thread page's
+    // no-retry-while-offline rule.
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      value: false,
+    });
+    _resetNetworkStatusForTests();
+    try {
+      renderWithProviders(
+        <StoryListImpl
+          feedItems={makeFeedItems({ refreshFailed: true })}
+          sourceFeed="top"
+          hotThresholds={DEFAULT_HOT_THRESHOLDS}
+        />,
+      );
+      const status = await screen.findByTestId('feed-refresh');
+      expect(status).toHaveTextContent(/offline — showing cached stories/i);
+      expect(
+        screen.queryByRole('button', { name: /retry/i }),
+      ).not.toBeInTheDocument();
+      // The cached rows stay on screen.
+      expect(screen.getByTestId('story-row')).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window.navigator, 'onLine', {
+        configurable: true,
+        value: true,
+      });
+      _resetNetworkStatusForTests();
+    }
   });
 
   it('renders no status strip when the feed is fresh', async () => {
