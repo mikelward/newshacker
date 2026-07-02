@@ -9,7 +9,8 @@ import type { ItemRoot } from '../hooks/useItemTree';
 // "Pinned articles never get evicted" lives at this layer. React Query
 // removes a query from the cache when its `gcTime` elapses with no
 // observers; once removed, the next persister snapshot drops it from
-// localStorage too. So "never evicted" reduces to "never let the gc
+// the persisted blob (IndexedDB, see idbPersister.ts) too. So "never
+// evicted" reduces to "never let the gc
 // timer fire on a pinned-story query." We do that by bumping each
 // pinned-story query's `gcTime` to Infinity. Query.updateGcTime is
 // `Math.max`-merged, so a later observer using the regular 7-day window

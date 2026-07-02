@@ -3,13 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
 import { feedQueryRetry, feedQueryRetryDelay } from './hooks/useStoryList';
 import {
   isRetryableFetchError,
   setConnectivityProbeUrl,
 } from './lib/networkStatus';
+import { createAppPersister } from './lib/idbPersister';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import {
   lockAllPinnedQueriesGcTime,
@@ -87,11 +87,10 @@ queryClient.setQueryDefaults(['storyIds'], {
   retryDelay: feedQueryRetryDelay,
 });
 
-const persister = createSyncStoragePersister({
-  storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-  key: 'newshacker:rq-cache',
-  throttleTime: 1000,
-});
+// IndexedDB-backed persister (with a one-shot migration of the old
+// localStorage blob and a localStorage fallback when IDB is missing).
+// See src/lib/idbPersister.ts for the quota/main-thread rationale.
+const persister = createAppPersister();
 
 // Point the connectivity tracker at our liveness endpoint. `/api/me` is a pure
 // origin-reachability check: its handler only reads the session cookie and
