@@ -114,8 +114,14 @@ export default defineConfig({
               // sibling `/api/items` rule below chose NetworkFirst for the
               // same reason. NetworkFirst still falls back to the cache
               // when the user is genuinely offline, so `/pinned` reads
-              // keep working after the 10s timeout falls through.
-              networkTimeoutSeconds: 10,
+              // keep working after the 6s timeout falls through.
+              //
+              // 6s is the middle of the connectivity tracker's ordering
+              // (src/lib/networkStatus.ts): hedge probe (3s) < this SW
+              // cache-fallback window (6s) < client read cap (8s). The SW
+              // must get its chance to answer from cache before the client
+              // aborts the read; vite.config.test.ts guards the ordering.
+              networkTimeoutSeconds: 6,
               // No `expiration` — neither time-based nor LRU-count-based.
               // Pinned items are meant to be kept forever (CLAUDE.md rule 9,
               // SPEC.md *Retention today*), and the SW running in
@@ -141,8 +147,10 @@ export default defineConfig({
               // The feed list changes on every HN ranking pass, so we
               // wait a relatively long time for the network before
               // giving up and serving the cached copy. 3s was short
-              // enough to flip to a stale list on ordinary mobile data.
-              networkTimeoutSeconds: 10,
+              // enough to flip to a stale list on ordinary mobile data;
+              // 6s keeps the hedge < SW window < read-cap ordering (see
+              // the hn-items rule above).
+              networkTimeoutSeconds: 6,
               expiration: { maxEntries: 10, maxAgeSeconds: 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
@@ -195,7 +203,8 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'hn-items-batch',
-              networkTimeoutSeconds: 10,
+              // Same 6s window as hn-items — see the ordering note there.
+              networkTimeoutSeconds: 6,
               expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },

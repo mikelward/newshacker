@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AppDrawer } from './AppDrawer';
 import { HeaderAccountMenu } from './HeaderAccountMenu';
 import { TooltipButton } from './TooltipButton';
-import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useConnectivityStatus } from '../hooks/useOnlineStatus';
 import './AppHeader.css';
 
 // Material Symbols Outlined — Apache 2.0, Google. viewBox 0 -960 960 960,
@@ -27,7 +27,7 @@ function SearchIcon() {
 
 export function AppHeader() {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const online = useOnlineStatus();
+  const connectivity = useConnectivityStatus();
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
@@ -48,19 +48,37 @@ export function AppHeader() {
       <SearchIcon />
     </TooltipButton>
   ) : null;
-  const offlinePill = !online ? (
-    <Link
-      to="/offline"
-      className="app-header__offline"
-      data-testid="offline-indicator"
-      aria-label="Offline. View offline stories."
-      title="You are offline. View stories cached on this device."
-    >
-      <span role="status" aria-live="polite">
-        Offline
-      </span>
-    </Link>
-  ) : null;
+  // One pill, two evidence-labeled states: 'offline' means the device has no
+  // network (or requests throw with no response); 'down' means the backend
+  // answered a 5xx on the core data plane — reachable but erroring, so "you
+  // are offline" would be the wrong message. Both link to /offline because
+  // cached stories keep working either way.
+  const offlinePill =
+    connectivity === 'offline' ? (
+      <Link
+        to="/offline"
+        className="app-header__offline"
+        data-testid="offline-indicator"
+        aria-label="Offline. View offline stories."
+        title="You are offline. View stories cached on this device."
+      >
+        <span role="status" aria-live="polite">
+          Offline
+        </span>
+      </Link>
+    ) : connectivity === 'down' ? (
+      <Link
+        to="/offline"
+        className="app-header__offline"
+        data-testid="down-indicator"
+        aria-label="Server down. View offline stories."
+        title="The story server is having trouble. Stories cached on this device still work."
+      >
+        <span role="status" aria-live="polite">
+          Down
+        </span>
+      </Link>
+    ) : null;
 
   return (
     <>

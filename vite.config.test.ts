@@ -33,13 +33,40 @@ describe('vite.config service worker runtimeCaching', () => {
   it('serves /v0/item/<id>.json via NetworkFirst so a thread-root refetch actually reaches Firebase instead of replaying the SW cache', () => {
     const block = findRuleBlock('hn-items');
     expect(block).toMatch(/handler:\s*'NetworkFirst'/);
-    // Match the `/api/items` sibling's 10s budget — slow mobile networks
-    // already need this much before we fall through to the offline cache.
-    expect(block).toMatch(/networkTimeoutSeconds:\s*10/);
+    expect(block).toMatch(/networkTimeoutSeconds:\s*6/);
   });
 
   it('keeps the /api/items batch on NetworkFirst (same rationale, sibling rule)', () => {
     const block = findRuleBlock('hn-items-batch');
     expect(block).toMatch(/handler:\s*'NetworkFirst'/);
+  });
+
+  it('keeps hedge < SW cache-fallback window < client read cap', () => {
+    // The connectivity tracker's timings only work if the service worker's
+    // NetworkFirst fallback window sits strictly between the hedge probe and
+    // the client-side read cap: the hedge must fire while the read can still
+    // be rescued, and the SW must get its chance to answer from cache before
+    // the client aborts the read. Parsed from source (same style as the
+    // config assertions above) because this file lives in the node tsconfig
+    // project and can't import from src/.
+    const netSource = readFileSync(
+      new URL('./src/lib/networkStatus.ts', import.meta.url),
+      'utf-8',
+    );
+    const constant = (name: string): number => {
+      const m = new RegExp(`${name} = ([\\d_]+)`).exec(netSource);
+      expect(m, `${name} missing from networkStatus.ts`).not.toBeNull();
+      return Number(m![1].replace(/_/g, ''));
+    };
+    const hedgeMs = constant('CORE_READ_HEDGE_DELAY_MS');
+    const capMs = constant('CORE_READ_TIMEOUT_MS');
+    const windows = [...source.matchAll(/networkTimeoutSeconds:\s*(\d+)/g)].map(
+      (m) => Number(m[1]) * 1000,
+    );
+    expect(windows.length).toBeGreaterThan(0);
+    for (const w of windows) {
+      expect(hedgeMs).toBeLessThan(w);
+      expect(w).toBeLessThan(capMs);
+    }
   });
 });

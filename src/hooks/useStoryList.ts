@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { getItems, getStoryIds, type HNItem } from '../lib/hn';
+import { isRetryableFetchError } from '../lib/networkStatus';
 import type { Feed } from '../lib/feeds';
 
 // Fields we render in the feed. Stripping everything else (notably the
@@ -22,10 +23,24 @@ export const PAGE_SIZE = 30;
 // request) shouldn't immediately strand the reader on the persisted
 // snapshot. Retry a few times with exponential backoff before we give up
 // and surface the refresh-failed state. This overrides the app-wide
-// `retry: 1` default (see main.tsx) for the feed list/item queries only.
-export const FEED_QUERY_RETRY = 3;
-export const feedQueryRetryDelay = (attempt: number) =>
-  Math.min(1000 * 2 ** attempt, 8000);
+// retry default (see main.tsx) for the feed list/item queries only.
+//
+// Retries are for true statusless network blips only: a response that
+// carried an HTTP status is the backend speaking, and re-asking won't
+// change a 4xx while re-asking a 5xx hammers a backend that just said it's
+// struggling — the connectivity tracker's 'down' state + rate-bounded
+// recovery probe own that path instead.
+export const FEED_QUERY_MAX_RETRIES = 3;
+export function feedQueryRetry(failureCount: number, error: unknown): boolean {
+  return failureCount < FEED_QUERY_MAX_RETRIES && isRetryableFetchError(error);
+}
+export const feedQueryRetryDelay = (attempt: number) => {
+  const cap = Math.min(1000 * 2 ** attempt, 8000);
+  // Half fixed + half jitter, so clients that all failed together (a Firebase
+  // hiccup hits everyone at once) don't retry in lockstep against a backend
+  // that's trying to recover.
+  return cap / 2 + Math.random() * (cap / 2);
+};
 
 // Derives the two refresh signals the feed UI renders from the underlying
 // React Query state. Pulled out as a pure function so it can be unit
@@ -62,7 +77,7 @@ export function useStoryIds(feed: Feed) {
     queryKey: ['storyIds', feed],
     queryFn: ({ signal }) => getStoryIds(feed, signal),
     // The retry/backoff for the id-list query is configured app-wide via
-    // `setQueryDefaults(['storyIds'], …)` in main.tsx (see FEED_QUERY_RETRY
+    // `setQueryDefaults(['storyIds'], …)` in main.tsx (see feedQueryRetry
     // / feedQueryRetryDelay) rather than inline here, so tests that want a
     // fast, deterministic error path can opt out with their own client.
     refetchOnMount: 'always',

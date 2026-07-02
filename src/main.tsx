@@ -5,8 +5,11 @@ import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import App from './App';
-import { FEED_QUERY_RETRY, feedQueryRetryDelay } from './hooks/useStoryList';
-import { setConnectivityProbeUrl } from './lib/networkStatus';
+import { feedQueryRetry, feedQueryRetryDelay } from './hooks/useStoryList';
+import {
+  isRetryableFetchError,
+  setConnectivityProbeUrl,
+} from './lib/networkStatus';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import {
   lockAllPinnedQueriesGcTime,
@@ -45,7 +48,13 @@ const queryClient = new QueryClient({
       // enough that vote/comment counts refresh naturally.
       staleTime: 5 * 60 * 1000,
       gcTime: ONE_HOUR,
-      retry: 1,
+      // One retry, and only for true statusless network blips (a thrown
+      // fetch, our read-cap timeout). Never retry a response that carried an
+      // HTTP status: a 4xx won't change, and retrying 5xx storms a struggling
+      // backend — the connectivity tracker's 'down' state + rate-bounded
+      // recovery probe own that recovery path.
+      retry: (failureCount, error) =>
+        failureCount < 1 && isRetryableFetchError(error),
       refetchOnWindowFocus: false,
       // The Workbox service worker answers from the Cache API when it
       // can, so we want queries to run the fetch even when the browser
@@ -70,7 +79,7 @@ const queryClient = new QueryClient({
 // summary queries. The "More" page fetch deliberately keeps the default
 // (no extra retries) so its bail-on-failure chase behavior is preserved.
 queryClient.setQueryDefaults(['storyIds'], {
-  retry: FEED_QUERY_RETRY,
+  retry: feedQueryRetry,
   retryDelay: feedQueryRetryDelay,
 });
 
@@ -83,12 +92,16 @@ const persister = createSyncStoragePersister({
 // Point the connectivity tracker at our liveness endpoint. `/api/me` is a pure
 // origin-reachability check: its handler only reads the session cookie and
 // returns 200/401 with no upstream dependency (no Redis, no HN round-trip — see
-// api/me.ts), so a slow/down dependency can never make a reachable origin look
-// offline. It's same-origin and deliberately NOT in the service worker's
+// api/me.ts; it never touches a database, so it stays up while the data plane
+// fails). It's same-origin and deliberately NOT in the service worker's
 // runtimeCaching, so the probe always hits the network (never a cache hit that
-// lies about being online). Used only to confirm recovery while we're showing
-// the offline pill — it fires at most every 30s, and while genuinely offline it
-// fails without ever reaching the server, so the cost is negligible.
+// lies about being online). Configuring it also opts the tracker into pausing
+// React Query's onlineManager on fetch evidence — safe only because the probe
+// guarantees a resume path (see syncOnlineManager in networkStatus.ts). Cost is
+// negligible: the probe fires on failure transitions, hedged slow reads,
+// connection-change events, focus regain, and a 30s recovery interval while in
+// doubt — coalesced to one in flight, and while genuinely offline it fails
+// without ever reaching the server.
 setConnectivityProbeUrl('/api/me');
 
 // Bridge cache writes across tabs in real time so a pin/favorite in tab

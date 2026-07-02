@@ -159,6 +159,36 @@ describe('handleItemsRequest', () => {
     expect(body[1]).toBeNull();
   });
 
+  it('returns 503 when every item fetch fails, so the client can latch "backend down"', async () => {
+    // A 200 of failure-nulls would hide a Firebase outage as an
+    // empty-but-online feed; the connectivity tracker only pauses the query
+    // layer (and shows the Down pill) on a core-read 5xx.
+    const fetchItem = async () => {
+      throw new Error('firebase 503');
+    };
+    const res = await handleItemsRequest(makeRequest('ids=1,2,3'), {
+      fetchItem,
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('still returns 200 when only some items fail — one flaky item must not flip the app', async () => {
+    const fetchItem = async (id: number) => {
+      if (id !== 2) throw new Error('firebase 503');
+      return story(id);
+    };
+    const res = await handleItemsRequest(makeRequest('ids=1,2,3'), {
+      fetchItem,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = (await res.json()) as Array<HNItem | null>;
+    expect(body[0]).toBeNull();
+    expect(body[1]?.id).toBe(2);
+    expect(body[2]).toBeNull();
+  });
+
   it('keeps the cacheable header when Firebase genuinely resolves an id to null', async () => {
     const fetchItem = async (id: number) => (id === 2 ? null : story(id));
     const res = await handleItemsRequest(makeRequest('ids=1,2,3'), {

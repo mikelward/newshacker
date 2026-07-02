@@ -1,6 +1,7 @@
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { AppHeader } from './AppHeader';
+import { trackedFetch } from '../lib/networkStatus';
 import { renderWithProviders } from '../test/renderUtils';
 
 function setOnline(value: boolean) {
@@ -13,6 +14,7 @@ function setOnline(value: boolean) {
 describe('<AppHeader>', () => {
   afterEach(() => {
     setOnline(true);
+    vi.unstubAllGlobals();
   });
 
   it('does not render a top-right page-title label', () => {
@@ -63,6 +65,26 @@ describe('<AppHeader>', () => {
       'href',
       '/offline',
     );
+  });
+
+  it('shows a "Down" pill (not Offline) when the backend answers 5xx on the core data plane', async () => {
+    renderWithProviders(<AppHeader />, { route: '/top' });
+    expect(screen.queryByTestId('down-indicator')).toBeNull();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('oops', { status: 500 })),
+    );
+    await act(async () => {
+      await trackedFetch('/api/items?ids=1', undefined, { coreRead: true });
+    });
+
+    // Reachable-but-erroring is 'down', not 'offline' — a throw would be the
+    // absence of a response; a 5xx is the backend speaking.
+    const pill = screen.getByTestId('down-indicator');
+    expect(pill).toHaveTextContent(/^down$/i);
+    expect(pill).toHaveAttribute('href', '/offline');
+    expect(screen.queryByTestId('offline-indicator')).toBeNull();
   });
 
   it('shows the offline pill on non-feed routes too', () => {
