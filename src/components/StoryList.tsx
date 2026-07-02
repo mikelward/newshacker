@@ -24,6 +24,7 @@ import { StoryRowSkeleton } from './Skeletons';
 import { ErrorState, EmptyState } from './States';
 import { TooltipButton } from './TooltipButton';
 import { useListKeyboardNav } from '../hooks/useListKeyboardNav';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
@@ -328,6 +329,7 @@ export function StoryListImpl({
   const { setSweep, recordHide, canUndo, undo, setOnUndo } = useFeedBar();
   const { hideOnScroll } = useHideOnScroll();
   const { stickyBottomBar } = useStickyBottomBar();
+  const online = useOnlineStatus();
   // `hotThresholds` is supplied by the parent (`<StoryList>` for
   // shipping feeds, `<HotStoryList>` for /hot, `ThresholdTuningPage`
   // for the Preview), so this component opens no `useHotThresholds`
@@ -1038,10 +1040,16 @@ export function StoryListImpl({
   // it after a while: a quiet "Checking for new stories…" while a refresh
   // is in flight over the persisted snapshot, or a "Couldn't load new
   // stories — Retry" when that refresh failed (so we don't silently leave
-  // them on a stale feed). Rendered at the foot of the list, just above the
-  // More / Back-to-top row, so all the load-related affordances sit
-  // together. The /tuning Preview (readOnly) opts out — it has its own
-  // chrome and isn't a reading surface.
+  // them on a stale feed). While offline the failure copy switches to
+  // "Offline" and drops the Retry button — a retry is guaranteed to fail,
+  // and the reconnect path already refetches the feed automatically
+  // (refetchOnReconnect + the connectivity tracker's recovery probe), so
+  // the button would only ever confirm the failure. Matches the thread
+  // page's no-retry-while-offline rule (SPEC § Offline UX). Rendered at
+  // the foot of the list, just above the More / Back-to-top row, so all
+  // the load-related affordances sit together. The /tuning Preview
+  // (readOnly) opts out — it has its own chrome and isn't a reading
+  // surface.
   const refreshStatus =
     readOnly || !(isRefreshing || refreshFailed) ? null : (
       <div
@@ -1050,7 +1058,11 @@ export function StoryListImpl({
         aria-live="polite"
         data-testid="feed-refresh"
       >
-        {refreshFailed ? (
+        {refreshFailed && !online ? (
+          <span className="feed-refresh__msg">
+            Offline — showing cached stories.
+          </span>
+        ) : refreshFailed ? (
           <>
             <span className="feed-refresh__msg">Couldn’t load new stories.</span>
             <button
