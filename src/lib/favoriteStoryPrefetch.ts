@@ -4,6 +4,7 @@ import { getItem, getItems } from './hn';
 import { summaryQueryOptions, SUMMARY_RETENTION_MS } from '../hooks/useSummary';
 import { commentsSummaryQueryOptions } from '../hooks/useCommentsSummary';
 import { prefetchCommentBatch } from './commentPrefetch';
+import { hasSelfPostBody } from './selfPostBody';
 
 // Mirror of prefetchPinnedStory for the Favorites list. Favorites are the
 // permanent keepsake shelf — we want to guarantee the title/domain/points
@@ -14,7 +15,7 @@ import { prefetchCommentBatch } from './commentPrefetch';
 // see prefetchPinnedStory for the rationale.
 export function prefetchFavoriteStory(
   client: QueryClient,
-  story: Pick<HNItem, 'id' | 'url'>,
+  story: Pick<HNItem, 'id' | 'url' | 'text'>,
 ): void {
   client.prefetchQuery({
     queryKey: ['itemRoot', story.id],
@@ -29,7 +30,9 @@ export function prefetchFavoriteStory(
     gcTime: SUMMARY_RETENTION_MS,
   });
   client.prefetchQuery(commentsSummaryQueryOptions(story.id));
-  if (story.url) {
+  // Same rule as prefetchPinnedStory: self-posts are summarizable from
+  // `text`, so don't gate the article-summary warm on `url` alone.
+  if (story.url || hasSelfPostBody(story.text)) {
     client.prefetchQuery(summaryQueryOptions(story.id));
   }
 }

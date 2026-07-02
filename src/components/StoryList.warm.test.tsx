@@ -8,7 +8,7 @@ import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { summaryQueryKey } from '../hooks/useSummary';
 import { commentsSummaryQueryKey } from '../hooks/useCommentsSummary';
 import { addPinnedId } from '../lib/pinnedStories';
-import { _resetHomePinnedRefreshForTests } from '../lib/homePinnedRefresh';
+import { _resetPinnedOfflineSyncForTests } from '../lib/pinnedOfflineSync';
 import { _resetNetworkStatusForTests } from '../lib/networkStatus';
 
 function RestoringStoryListHarness() {
@@ -44,12 +44,12 @@ function hasFullPinnedRootBatch(
 describe('<StoryList> trending-score cache warming', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    _resetHomePinnedRefreshForTests();
+    _resetPinnedOfflineSyncForTests();
     _resetNetworkStatusForTests();
   });
   afterEach(() => {
     window.localStorage.clear();
-    _resetHomePinnedRefreshForTests();
+    _resetPinnedOfflineSyncForTests();
     _resetNetworkStatusForTests();
     vi.unstubAllGlobals();
     vi.useRealTimers();
