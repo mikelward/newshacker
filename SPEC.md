@@ -202,19 +202,61 @@ for Pinned, Done, and tombstones once we have real usage data.
 **Pinned offline warm:** Pinning a story, loading a pinned row from a
 library view, or seeing a synced pin on `/pinned` seeds the thread cache
 immediately from the row data and then warms the full story, first page of
-top-level comments, and AI summaries in the background. Feed/home views also
-refresh stale or missing pinned roots in the foreground, capped to the newest
-30 pins and one 30-comment batch, so pinned data stays fresh without a
-background timer. The feed/home refresh path deliberately skips proactive AI
-summary refresh to avoid surprise Gemini spend on routine app opens. That
-means tapping a pinned article can paint from cache even while the full item
-refresh is still in flight. Cost: this reuses existing APIs — at most one
-Firebase item request for pin-time id-only warms, one `/api/items` story batch
-per feed/home view, one capped `/api/items` comment batch, and summary
-endpoint requests only on pin-time warms, with no new infrastructure.
+top-level comments, and AI summaries in the background. The pinned offline
+sync (`src/lib/pinnedOfflineSync.ts`) also runs in the foreground at app boot
+(after persister rehydrate), on feed/home views, on window focus, whenever the
+pinned set changes — same-tab via the change event (which is how a pin made on
+*another* device arrives via cloud sync — see *Cross-device sync* below) and
+cross-tab via the key-filtered `storage` event (a pin made in another open
+tab, for when `queryCacheSync` can't deliver that tab's warmed data) — and
+when connectivity returns:
+it refreshes stale, missing, or invalidated pinned roots (invalidated =
+`prefetchPinnedStory`'s thin feed-row seed whose full-item fetch failed, e.g.
+a pin made while offline — the seed sits fresh-but-comment-less until a
+successful fetch clears the flag), capped to the newest 30 pins and
+one 30-comment batch, so pinned data stays fresh without a background timer,
+and — so a cross-device pin is fully readable offline without ever being
+opened here — downloads any AI summary (article or comments) that has **never
+been cached** on this device and tops up any **missing first-page top-level
+comments** (only the absent ids, aggregated into a **single capped 30-id
+comment batch per sync run** across everything the run touches — fill stories
+and refreshed roots alike: a mixed run merges the fill ids into the root
+batch's comment batch rather than issuing a second `/api/items` call.
+Pin-time comment batches are best-effort and can fail silently, and without
+the top-up such a thread stayed comment-less offline until its root went
+stale; ids past the cap wait for a later run — the affected stories are
+un-throttled once the batch settles, so the next trigger picks up the tail
+instead of waiting out the 6 h window, and each successful batch makes
+progress, so repeated triggers converge). The pinned-set-change
+trigger runs one macrotask deferred: local pin handlers dispatch the change
+event synchronously *before* firing the pin-time warm, so an inline sync
+would double-fetch every local pin; one tick later the pin-time root fetch is
+in flight and the sync's in-flight guard skips the story. The sync path never *refreshes* an
+already-cached summary (freshness stays owned by the warm-summaries cron and
+the normal thread-open refetch), which is what keeps the earlier "no surprise
+Gemini spend on routine app opens" rule intact: a missing summary is fetched
+at most once per story per device (per-story attempts are throttled to one
+per 6 h, network blips excepted), and it's almost always a Redis cache hit
+because the device that pinned (or the cron / warm-on-view path) already
+generated the record — a Gemini generation only happens for a story nothing
+has ever summarized. Tapping a pinned article can paint from cache even while
+the full item refresh is still in flight. Cost: this reuses existing APIs —
+at most one Firebase item request for pin-time id-only warms, one
+`/api/items` story batch per sync run, one capped `/api/items` comment batch,
+and summary endpoint requests only for never-cached summaries (bounded by the
+newest-30 cap and the per-story throttle), with no new infrastructure.
 Reliability: the warm is best-effort and fail-open; if any request fails, the
 pinned row still renders and the thread falls back to whatever cache is
-already present or the normal online fetch path.
+already present or the normal online fetch path. A root batch, summary
+prefetch, or comment batch (the root path's follow-up batch and the fill
+path's top-up alike) that dies on a statusless network blip clears the
+affected stories' attempt throttle so the next trigger (reconnect, focus,
+change event) retries; a comment batch that *resolves* but with `null` slots
+for some requested ids (`/api/items` reports partial upstream failure as an
+HTTP 200 with nulls) likewise clears just the stories whose requested
+comments didn't land, and a null *root* slot clears that story's mark the
+same way; an HTTP-status failure keeps the 6 h throttle so a
+struggling backend isn't re-asked on every sync pull.
 
 **Cross-device sync:** all four lists — Pinned, Favorite, Hidden, Done —
 ride `/api/sync` (Upstash Redis, per-user, per-id last-write-wins,
@@ -1258,6 +1300,7 @@ already-present Gemini and Jina dependencies.
 
 The SW runtime cache is **additive** to the existing React Query persister (7-day localStorage for non-pinned stories, indefinite for pinned). RQ hydrates the UI on cold boot; the SW covers fetches RQ decides to make.
 
+
 **Feed freshness override.** The app-wide React Query defaults (`staleTime: 5 min`, `refetchOnWindowFocus: false`) are tuned for comment threads and AI summaries — once those land, users don't expect them to re-fetch on every tab switch. The feed queries (`['storyIds', feed]` and `['feedItems', feed]`) opt into `refetchOnMount: 'always'` and `refetchOnWindowFocus: true`, so a browser reload or a tab refocus always re-checks the network. Without this, the persisted cache would hydrate the UI with a hours-old list that the 5-minute staleTime still considers fresh.
 
 ### Comment batching
@@ -1339,7 +1382,8 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 - Score-gated to `> 1` on the client (cheap short-circuit) and on the server (authoritative). Combined with the feed-level `score > 1` visibility rule, a score-1 row never renders and therefore never triggers a warm.
 
 ### Pin/Favorite offline prefetch
-- Pinning a story calls `prefetchPinnedStory` — stores the item root, the article AI summary, the AI comment summary (when the story has kids), **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time.
+- Pinning a story calls `prefetchPinnedStory` — stores the item root, the article AI summary (self-posts included: like the feed warmer, the warm fires whenever the story has a `url` *or* a non-empty `text` body, since `/api/summary` summarizes self-posts from `text`; only a titled-only stub skips it), the AI comment summary (when the story has kids), **and the first 30 top-level comments** (via the shared `prefetchCommentBatch`) in the persisted cache at pin time. `prefetchFavoriteStory` follows the same rule.
+- Pins that arrive *without* a local pin gesture (cloud sync from another device, or a pin made while offline) get the same shape from the pinned offline sync — see *Pinned offline warm* under *Pinned vs. Favorite vs. Done* for the trigger moments (app boot, home view, focus, pinned-set change, reconnect), caps, and cost/reliability notes.
 - Favoriting a story calls `prefetchFavoriteStory` — same shape, so `/favorites` works offline with real discussion and both summaries.
 - Top-level comments are fetched in a single `/api/items?ids=…&fields=full` batch (our edge-cached proxy), not per-comment against Firebase. This means one extra HTTP request per pin, ~30-60 KB typical. HN ranks `kids` roughly best-first, so slicing to 30 is a "top voted by HN's ranking" proxy for mega-threads.
 - Nested replies are pre-fetched opportunistically on expand (see *Comment batching* above), not at pin/favorite time. Pinned-and-never-opened threads still have all their top-level comments offline; nested subthreads become available as the user has expanded them online at least once.

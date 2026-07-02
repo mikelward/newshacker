@@ -28,7 +28,7 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useShareStory } from '../hooks/useShareStory';
 import { markCommentsOpenedId } from '../lib/openedStories';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
-import { refreshPinnedStoriesForHomeView } from '../lib/homePinnedRefresh';
+import { syncPinnedStoriesForOffline } from '../lib/pinnedOfflineSync';
 import { useStickyInset } from '../hooks/useStickyInset';
 import { measureStickyInset } from '../lib/stickyInset';
 import { useStickyFooterInset } from '../hooks/useStickyFooterInset';
@@ -363,13 +363,13 @@ export function StoryListImpl({
     items,
     includeOffFeedPinned,
   );
+  // Home-view sync moment only — window-focus (any page) lives in
+  // startPinnedOfflineSync (main.tsx) alongside the pin-change and
+  // reconnect triggers; the per-story attempt throttle dedupes overlap.
   useEffect(() => {
     if (!includeOffFeedPinned) return;
     if (isRestoring) return;
-    refreshPinnedStoriesForHomeView(queryClient);
-    const refreshOnFocus = () => refreshPinnedStoriesForHomeView(queryClient);
-    window.addEventListener('focus', refreshOnFocus);
-    return () => window.removeEventListener('focus', refreshOnFocus);
+    syncPinnedStoriesForOffline(queryClient);
   }, [includeOffFeedPinned, isRestoring, pinnedIds, queryClient]);
   // Ids the reader has pinned while the row was rendered in the feed
   // body. Pinning shouldn't yank a story you're looking at into the

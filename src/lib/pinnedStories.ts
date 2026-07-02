@@ -1,6 +1,9 @@
 import { createEntryStore, type StoreEntry } from './entryStore';
 
-const STORAGE_KEY = 'newshacker:pinnedStoryIds';
+// Exported so cross-tab `storage` listeners (pinnedOfflineSync) can
+// filter to pin changes without hard-coding the key a second time.
+export const PINNED_STORIES_STORAGE_KEY = 'newshacker:pinnedStoryIds';
+const STORAGE_KEY = PINNED_STORIES_STORAGE_KEY;
 const LEGACY_SAVED_KEY = 'newshacker:savedStoryIds';
 export const PINNED_STORIES_CHANGE_EVENT = 'newshacker:pinnedStoriesChanged';
 

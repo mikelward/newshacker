@@ -467,7 +467,49 @@ describe('prefetchPinnedStory', () => {
     expect(root?.gcTime).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
   });
 
-  it('skips the summary prefetch for self-posts without a url', async () => {
+  it('prefetches the article summary for self-posts (text, no url)', async () => {
+    // Regression (Codex review on #373): the article-summary warm gated
+    // on `url`, so a pinned Ask HN relied on a later offline-sync
+    // trigger for its summary — not fully readable if the reader went
+    // offline right after pinning. /api/summary summarizes self-posts
+    // from `text`.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'self-post summary' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/item/')) {
+        return new Response(
+          JSON.stringify({
+            id: 8,
+            type: 'story',
+            title: 'Ask HN',
+            text: 'What do you all think?',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchPinnedStory(client, { id: 8, text: 'What do you all think?' });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(summaryQueryKey(8))).toEqual({
+        summary: 'self-post summary',
+      });
+    });
+  });
+
+  it('skips the summary prefetch when the story has neither url nor text', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('/item/')) {

@@ -6,6 +6,7 @@ import { commentsSummaryQueryOptions } from '../hooks/useCommentsSummary';
 import { prefetchCommentBatch } from './commentPrefetch';
 import { getPinnedIds } from './pinnedStories';
 import { lockPinnedQueryGcTime } from './pinnedQueryRetention';
+import { hasSelfPostBody } from './selfPostBody';
 
 type PinnedStoryPrefetchInput = Pick<HNItem, 'id' | 'url'> & Partial<HNItem>;
 
@@ -83,7 +84,14 @@ export function prefetchPinnedStory(
     gcTime,
   });
   client.prefetchQuery({ ...commentsSummaryQueryOptions(story.id), gcTime });
-  if (story.url) {
+  // Self-posts (Ask HN / text-only) are summarizable too — /api/summary
+  // works from `text` when there's no `url` — so the article-summary
+  // warm must not gate on `url` alone. Without this, a locally pinned
+  // self-post relied on a *later* offline-sync trigger for its summary
+  // (the pin-time sync run skips the story while this root fetch is in
+  // flight), leaving it not fully readable if the reader went offline
+  // first.
+  if (story.url || hasSelfPostBody(story.text)) {
     client.prefetchQuery({ ...summaryQueryOptions(story.id), gcTime });
   }
   if (isPinned) {

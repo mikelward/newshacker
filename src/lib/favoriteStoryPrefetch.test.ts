@@ -225,7 +225,46 @@ describe('prefetchFavoriteStory', () => {
     });
   });
 
-  it('skips the summary prefetch for self-posts without a url', async () => {
+  it('prefetches the article summary for self-posts (text, no url)', async () => {
+    // Same rule as prefetchPinnedStory: /api/summary summarizes
+    // self-posts from `text`, so the warm must not gate on `url` alone.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/api/summary')) {
+        return new Response(JSON.stringify({ summary: 'self-post summary' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('/item/')) {
+        return new Response(
+          JSON.stringify({
+            id: 8,
+            type: 'story',
+            title: 'Ask HN',
+            text: 'What do you all think?',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    prefetchFavoriteStory(client, { id: 8, text: 'What do you all think?' });
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(summaryQueryKey(8))).toEqual({
+        summary: 'self-post summary',
+      });
+    });
+  });
+
+  it('skips the summary prefetch when the story has neither url nor text', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('/item/')) {
