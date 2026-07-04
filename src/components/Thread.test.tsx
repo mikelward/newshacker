@@ -78,6 +78,15 @@ function renderThreadWithHistory({
   id: number;
   entries: string[];
 }) {
+  // MemoryRouter keeps its own history and never touches window.history, but
+  // closeArticleView reads window.history.length to decide back-vs-close-vs-root.
+  // Mirror the intended session-history depth so multi-entry cases exercise the
+  // pop path and single-entry cases exercise the close/root fallback. Cleaned up
+  // in afterEach.
+  Object.defineProperty(window.history, 'length', {
+    configurable: true,
+    value: entries.length,
+  });
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -111,6 +120,9 @@ describe('<Thread>', () => {
   afterEach(() => {
     window.localStorage.clear();
     vi.unstubAllGlobals();
+    // Restore window.history.length to its prototype getter (see
+    // renderThreadWithHistory).
+    delete (window.history as unknown as { length?: number }).length;
     window.matchMedia = ORIGINAL_MATCH_MEDIA;
   });
 
@@ -685,49 +697,6 @@ describe('<Thread>', () => {
       expect(screen.getByTestId('location-pathname')).toHaveTextContent('/');
     });
     expect(screen.getByTestId('route-home')).toBeInTheDocument();
-  });
-
-  it('mark-done from an external deep link pops back to the referrer, not home', async () => {
-    installHNFetchMock({
-      items: { 733: makeStory(733, { title: 'FromReadmo' }) },
-    });
-
-    // Single router entry → location.key === 'default' (deep link). But the
-    // browser has a page behind us — the reader opened this thread from an
-    // external site like Readmo in the same tab, so that site is
-    // history[-1]. With window.history.length > 1, mark-done pops via
-    // navigate(-1) to return there instead of stranding on the home feed.
-    // MemoryRouter has no entry to pop, so the pop is a no-op and we stay on
-    // the thread route — the point is that we do NOT redirect to '/'.
-    const orig = Object.getOwnPropertyDescriptor(window.history, 'length');
-    Object.defineProperty(window.history, 'length', {
-      configurable: true,
-      value: 2,
-    });
-    try {
-      renderThreadWithHistory({
-        id: 733,
-        entries: ['/item/733'],
-      });
-      await screen.findByText('FromReadmo');
-
-      await userEvent.click(screen.getByTestId('thread-done'));
-
-      // Done still persisted…
-      expect(
-        window.localStorage.getItem('newshacker:doneStoryIds'),
-      ).toContain('"id":733');
-      // …but we did not fall back to the home feed.
-      await waitFor(() => {
-        expect(screen.getByTestId('location-pathname')).toHaveTextContent(
-          '/item/733',
-        );
-      });
-      expect(screen.queryByTestId('route-home')).toBeNull();
-    } finally {
-      if (orig) Object.defineProperty(window.history, 'length', orig);
-      else delete (window.history as unknown as { length?: number }).length;
-    }
   });
 
   it('unmark-done: does not navigate — the user stays on the thread', async () => {

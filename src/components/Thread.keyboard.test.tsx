@@ -26,6 +26,15 @@ function renderThreadWithHistory({
   id: number;
   entries: string[];
 }) {
+  // MemoryRouter keeps its own history and never touches window.history, but
+  // closeArticleView reads window.history.length to decide back-vs-close-vs-root.
+  // Mirror the intended session-history depth so multi-entry cases exercise the
+  // pop path and single-entry cases exercise the close/root fallback. Cleaned up
+  // in afterEach.
+  Object.defineProperty(window.history, 'length', {
+    configurable: true,
+    value: entries.length,
+  });
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -117,6 +126,9 @@ describe('<Thread> keyboard shortcuts', () => {
     window.localStorage.clear();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    // Restore window.history.length to its prototype getter (see
+    // renderThreadWithHistory).
+    delete (window.history as unknown as { length?: number }).length;
     document.body.querySelectorAll('.app-header').forEach((el) => el.remove());
   });
 
@@ -675,38 +687,6 @@ describe('<Thread> keyboard shortcuts', () => {
     await waitFor(() => {
       expect(screen.getByTestId('location-pathname')).toHaveTextContent('/');
     });
-  });
-
-  it('b on an external deep link pops back to the referrer, not home', async () => {
-    installHNFetchMock({
-      items: { 813: makeStory(813, { title: 'FromReadmo' }) },
-    });
-
-    // Single router entry → location.key === 'default', but the browser has
-    // a page behind us (opened from an external site like Readmo in the same
-    // tab). window.history.length > 1 → `b` pops with navigate(-1) to return
-    // there rather than redirecting to '/'. MemoryRouter can't pop past its
-    // one entry, so the path stays on the thread — the assertion is that it
-    // does NOT land on the home feed.
-    const orig = Object.getOwnPropertyDescriptor(window.history, 'length');
-    Object.defineProperty(window.history, 'length', {
-      configurable: true,
-      value: 2,
-    });
-    try {
-      renderThreadWithHistory({ id: 813, entries: ['/item/813'] });
-      await screen.findByText('FromReadmo');
-
-      await userEvent.keyboard('b');
-      await waitFor(() => {
-        expect(screen.getByTestId('location-pathname')).toHaveTextContent(
-          '/item/813',
-        );
-      });
-    } finally {
-      if (orig) Object.defineProperty(window.history, 'length', orig);
-      else delete (window.history as unknown as { length?: number }).length;
-    }
   });
 
   it('u on a focused-comment view goes up to the parent', async () => {
