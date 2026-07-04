@@ -914,10 +914,15 @@ remain inline in it. Same simple-content-page shell as `/about` / `/help`
 - **Hot rule** — the same threshold editor (`HotRuleEditor`, shared with the
   `/hot` toolbar panel; both edit the one `newshacker:hotThresholds` record via
   `useHotThresholds`). See *Hot rule card*.
+- **Connected apps** — issue an app token to a companion app (Readmo). **Only
+  shown when signed in** (the token acts as your HN identity). See *Connecting a
+  companion app*.
 - **More** — links to Help, About, and Debug.
 
-Everything on the page is per-device and stored in `localStorage`; the page
-itself fetches nothing.
+Everything on the page except *Connected apps* is per-device and stored in
+`localStorage`; the appearance/reading/hot sections fetch nothing. *Connected
+apps* is the one server-backed section — it lists/mints/revokes tokens for the
+signed-in user via `/api/connect-token`, and is simply absent when logged out.
 
 **Where `/debug` is reached.** `/debug` is reachable from the About page's
 **Version** section and from this Settings *More* list — **not** from the
@@ -960,6 +965,51 @@ picker (Top/Hot) appear in **both** the drawer (quick access, highest-frequency)
 and the Settings page, rendered from shared option modules (`appearanceOptions`
 / `appearanceIcons`, `HOME_FEED_OPTIONS`) so they can't drift. The checkbox-style
 reading toggles and the Hot rule editor live **only** on `/settings`.
+
+### Connecting a companion app
+
+A signed-in user can mint an **app token** that lets a trusted first-party
+companion app — **Readmo**, our RSS reader — act as their HN identity against
+`/api/sync` **server-to-server**. This is what makes "dismiss a Hacker News
+story in Readmo → it's marked Done here too" work: Readmo derives the numeric HN
+item id from the story and writes it into this user's `done` sync list.
+
+- **Why a token, not the cookie.** The `hn_session` cookie is `HttpOnly` +
+  `SameSite=Lax`, so it won't ride a cross-site request from Readmo's origin,
+  and third-party-cookie blocking (Safari/Firefox/Brave by default, and any
+  hardened profile) would make a browser-to-browser bridge silently fail on much
+  of the audience. A bearer token carried on a **server-to-server** call from
+  Readmo's backend sidesteps all of that — it works identically on every
+  browser, platform, PWA, and 3rd-party-cookie setting.
+- **Issuance (`/api/connect-token`).** `POST` mints a token and returns it
+  **once** (`nht_…`); `GET` lists existing tokens **redacted** (id / label /
+  last4 / createdAt — never the secret or its hash); `DELETE {id}` revokes one.
+  Auth is the same `hn_session`-presence-as-intent stance as `/api/me` and
+  `/api/sync` (no HN round-trip). Only the token's **SHA-256 hash** is stored
+  (`newshacker:apptoken:<hash>` → username, plus a redacted per-user list at
+  `newshacker:apptokens:<username>`), so a Redis dump never yields a usable
+  token. Capped at 20 tokens/user.
+- **Consumption (`/api/sync` bearer branch).** `/api/sync` now accepts
+  `Authorization: Bearer <token>` as an alternative to the cookie: it hashes the
+  token and looks up the owner. A valid cookie still **wins** when both are
+  present. No CORS/SameSite change was needed — the token travels on a
+  server-to-server request, not a browser cross-site fetch.
+- **UI.** The *Connected apps* Settings section (`<ConnectedApps>`), shown only
+  when signed in: a **Generate token** button reveals the new token once with a
+  **Copy** action and a "you won't see it again" note, above a list of existing
+  tokens each with **Revoke**. Buttons meet the 44px touch floor.
+- **Cost/reliability (rule 11):** reuses the existing Upstash Redis (a couple of
+  small keys per user) — **$0**, no new infra or third-party call. New failure
+  mode: token store down → issuance returns 503 and the bearer branch falls
+  through to 401, i.e. the mirror no-ops; cookie sync and the whole read path
+  are unaffected. Revocation is immediate (deletes the hash lookup).
+- **TODO — consider B3 (OAuth-style linking).** Today's flow is **B2**: the user
+  copy-pastes the token into Readmo. A future **B3** would replace the paste with
+  a one-tap authorize handshake (Readmo → `/authorize` consent → code exchange),
+  so the token never touches the user or Readmo's client. B3 issues tokens
+  through **this same** `apptoken:` store and `/api/sync` bearer branch, so it's
+  a pure front-end addition on top — no rework of what shipped here. Worth doing
+  only if the paste UX proves annoying or a second companion app appears.
 
 ## Visual Design
 

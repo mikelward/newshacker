@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { Link } from 'react-router-dom';
+import { ConnectedApps } from '../components/ConnectedApps';
 import { HotRuleEditor } from '../components/ListToolbar';
 import { ChromeIcon, ThemeIcon } from '../components/appearanceIcons';
 import {
@@ -194,6 +195,8 @@ export function SettingsPage() {
         </p>
         <HotRuleEditor panelId={hotPanelId} />
       </section>
+
+      <ConnectedApps />
 
       <section className="settings-page__section">
         <h2 className="settings-page__heading">More</h2>

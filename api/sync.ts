@@ -332,15 +332,86 @@ function getDefaultStore(): SyncStore | null {
   return defaultStore;
 }
 
-function authenticate(request: Request): string | null {
+/** Resolve a raw bearer app token to its owner's HN username, or null when
+ * unknown/revoked. App tokens (minted by api/connect-token.ts) let a trusted
+ * companion app (Readmo) act as the signed-in user server-to-server, without a
+ * browser cookie — SameSite/ITP make the cross-site cookie unreliable. The
+ * lookup mirrors connect-token.ts's storage: hash the raw token, read
+ * `newshacker:apptoken:<hash>` → username. Duplicated here (not imported)
+ * because Vercel drops cross-file api/ imports; see api/imports.test.ts. */
+export type TokenResolver = (rawToken: string) => Promise<string | null>;
+
+const APP_TOKEN_KEY_PREFIX = 'newshacker:apptoken:';
+const APP_TOKEN_WIRE_PREFIX = 'nht_';
+
+// SHA-256 hex via Web Crypto (global on Vercel Node 18+ and vitest node env).
+// Kept byte-identical to connect-token.ts's sha256Hex so a token minted there
+// resolves here.
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function bearerToken(request: Request): string | null {
+  const header = request.headers.get('authorization');
+  if (!header) return null;
+  const m = /^Bearer\s+(.+)$/i.exec(header.trim());
+  const t = m?.[1]?.trim();
+  return t && t.startsWith(APP_TOKEN_WIRE_PREFIX) ? t : null;
+}
+
+let defaultResolver: TokenResolver | null | undefined;
+
+function createDefaultResolver(): TokenResolver | null {
+  const url =
+    process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token =
+    process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  const redis = new Redis({ url, token });
+  return async (rawToken) => {
+    const hash = await sha256Hex(rawToken);
+    const u = await redis.get<unknown>(`${APP_TOKEN_KEY_PREFIX}${hash}`);
+    return typeof u === 'string' && HN_USERNAME_RE.test(u) ? u : null;
+  };
+}
+
+function getDefaultResolver(): TokenResolver | null {
+  if (defaultResolver === undefined) defaultResolver = createDefaultResolver();
+  return defaultResolver;
+}
+
+/** Identify the caller: the `hn_session` cookie first (browser path, unchanged),
+ * then a `Bearer <app-token>` (companion-app path). Cookie wins when both are
+ * present, so a user's own browser session is never shadowed by a stale token. */
+async function authenticate(
+  request: Request,
+  resolveToken: TokenResolver | null,
+): Promise<string | null> {
   const cookies = parseCookieHeader(request.headers.get('cookie'));
-  return usernameFromSessionValue(cookies[SESSION_COOKIE_NAME]);
+  const fromCookie = usernameFromSessionValue(cookies[SESSION_COOKIE_NAME]);
+  if (fromCookie) return fromCookie;
+  const bearer = bearerToken(request);
+  if (bearer && resolveToken) {
+    try {
+      return await resolveToken(bearer);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export interface SyncDeps {
   // `null` = explicitly disable the shared store (used by tests); `undefined`
   // = use the lazily-initialised Upstash default.
   store?: SyncStore | null;
+  // Bearer-token resolver. `null` = disable the bearer path (cookie only);
+  // `undefined` = use the lazily-initialised Upstash-backed default.
+  resolveToken?: TokenResolver | null;
 }
 
 export async function handleSyncRequest(
@@ -352,7 +423,9 @@ export async function handleSyncRequest(
     return json({ error: 'Method not allowed' }, 405);
   }
 
-  const username = authenticate(request);
+  const resolveToken =
+    deps.resolveToken === undefined ? getDefaultResolver() : deps.resolveToken;
+  const username = await authenticate(request, resolveToken);
   if (!username) return json({ error: 'Not authenticated' }, 401);
 
   const store = deps.store === undefined ? getDefaultStore() : deps.store;

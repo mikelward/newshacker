@@ -348,6 +348,91 @@ describe('handleSyncRequest auth', () => {
   });
 });
 
+describe('handleSyncRequest bearer-token auth (companion app)', () => {
+  const TOKEN = 'nht_companiontokenvalue';
+
+  function bearerRequest(
+    method: 'GET' | 'POST',
+    body?: unknown,
+    auth: string | null = `Bearer ${TOKEN}`,
+  ): Request {
+    const headers = new Headers();
+    if (auth !== null) headers.set('authorization', auth);
+    if (body !== undefined) headers.set('content-type', 'application/json');
+    // No cookie — this is the server-to-server companion path.
+    return new Request('https://newshacker.app/api/sync', {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  // Resolver that only knows the one valid token, mapping it to `alice`.
+  const resolveToken = async (raw: string) =>
+    raw === TOKEN ? 'alice' : null;
+
+  it('authenticates a valid bearer token as its owner and writes their list', async () => {
+    const store = createTestStore();
+    const res = await handleSyncRequest(
+      bearerRequest('POST', { done: [{ id: 42, at: 5 }] }),
+      { store, resolveToken },
+    );
+    expect(res.status).toBe(200);
+    const state = (await res.json()) as SyncState;
+    expect(state.done).toEqual([{ id: 42, at: 5 }]);
+    // The write landed under the token owner's username.
+    expect(store.map.get('alice')?.done).toEqual([{ id: 42, at: 5 }]);
+  });
+
+  it('rejects an unknown/revoked token with 401', async () => {
+    const store = createTestStore();
+    const res = await handleSyncRequest(
+      bearerRequest('GET', undefined, 'Bearer nht_revoked'),
+      { store, resolveToken },
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('ignores a bearer header without the app-token prefix', async () => {
+    const store = createTestStore();
+    const res = await handleSyncRequest(
+      bearerRequest('GET', undefined, 'Bearer some-other-jwt'),
+      { store, resolveToken },
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('a valid cookie takes precedence over a bearer token', async () => {
+    const store = createTestStore();
+    // Cookie says alice; bearer would resolve to bob — cookie must win.
+    const headers = new Headers();
+    headers.set('cookie', COOKIE); // alice
+    headers.set('authorization', 'Bearer nht_bobs');
+    headers.set('content-type', 'application/json');
+    const req = new Request('https://newshacker.app/api/sync', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ done: [{ id: 1, at: 1 }] }),
+    });
+    const res = await handleSyncRequest(req, {
+      store,
+      resolveToken: async () => 'bob',
+    });
+    expect(res.status).toBe(200);
+    expect(store.map.get('alice')?.done).toEqual([{ id: 1, at: 1 }]);
+    expect(store.map.has('bob')).toBe(false);
+  });
+
+  it('bearer path is disabled when no resolver is configured', async () => {
+    const store = createTestStore();
+    const res = await handleSyncRequest(bearerRequest('GET'), {
+      store,
+      resolveToken: null,
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('handleSyncRequest GET', () => {
   let store: ReturnType<typeof createTestStore>;
   beforeEach(() => {

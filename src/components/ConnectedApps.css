@@ -1,0 +1,90 @@
+/* App-token controls in Settings. Buttons meet the 44px touch floor; :hover
+ * that repaints is gated behind (hover: hover) per the sticky-hover gotcha,
+ * with :active kept outside so touch still gets a pressed state. */
+
+.connected-apps__generate,
+.connected-apps__copy,
+.connected-apps__revoke {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border, #d0d0c8);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--text, #1a1a1a);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.connected-apps__generate:active,
+.connected-apps__copy:active,
+.connected-apps__revoke:active {
+  background: var(--surface-active, #ececE4);
+}
+
+@media (hover: hover) {
+  .connected-apps__generate:hover,
+  .connected-apps__copy:hover,
+  .connected-apps__revoke:hover {
+    background: var(--surface-hover, #f2f2ec);
+  }
+}
+
+.connected-apps__generate:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.connected-apps__new {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.connected-apps__token {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-sunken, #f2f2ec);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+
+.connected-apps__once {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted, #6b6b63);
+}
+
+.connected-apps__error {
+  margin: 8px 0 0;
+  color: var(--danger, #b3261e);
+  font-size: 14px;
+}
+
+.connected-apps__list {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connected-apps__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connected-apps__meta {
+  font-size: 14px;
+  color: var(--text, #1a1a1a);
+  overflow-wrap: anywhere;
+}
