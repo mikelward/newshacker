@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useItemTree } from '../hooks/useItemTree';
@@ -755,7 +755,6 @@ export function Thread({ id }: Props) {
   const queryClient = useQueryClient();
   const online = useOnlineStatus();
   const navigate = useNavigate();
-  const location = useLocation();
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
   const { isAuthenticated } = useAuth();
   const { isPinned, pin, unpin } = usePinnedStories();
@@ -793,8 +792,8 @@ export function Thread({ id }: Props) {
   // Custom Tab into the opener), else the home feed. See closeArticleView.
   // Shared by mark-done and the `b` keyboard shortcut.
   const goBack = useCallback(() => {
-    closeArticleView(navigate, location.key);
-  }, [location.key, navigate]);
+    closeArticleView(navigate);
+  }, [navigate]);
   // Go one level up the content hierarchy. On a focused-comment view
   // (`/item/<commentId>`) that means the immediate parent comment or
   // story; a story view has nothing above it in the app, so `u` falls

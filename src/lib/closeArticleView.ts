@@ -1,40 +1,33 @@
 import type { NavigateFunction } from 'react-router-dom';
 
 /**
- * Leave the thread/reader view the way the browser's Back button would.
+ * Leave the thread/reader view the way the browser's Back button would:
+ * go back if the browser has somewhere to go, else close the tab, else root.
  *
- * The ladder, in order:
- * 1. `locationKey !== 'default'` — the router owns a prior in-app entry, so
- *    `navigate(-1)` traverses our own history.
- * 2. Otherwise this is the first router entry (deep link, refresh, shared URL,
- *    or a link tapped from another app). If the browser still has a page behind
- *    us — opened from another site in the same tab — pop back to it.
- * 3. No back entry at all: try to close the tab. This dismisses a script-opened
- *    tab or an Android Custom Tab straight back into the app that opened us
- *    (e.g. Readmo). Browsers that refuse to let a script close a user-opened
- *    tab (notably iOS Safari) leave us here, so we fall back to the app root.
+ * We key off `window.history.length` rather than the router's `location.key` or
+ * the Navigation API's `canGoBack`, because both misreport the cases that
+ * matter here:
+ * - `location.key` is a generated (non-`'default'`) value after a `replace`
+ *   navigation (e.g. a sign-in redirect that swaps a route back to the target),
+ *   even when that entry is the only one in session history — so it can't tell
+ *   "has a real back entry" from "was replaced into place".
+ * - `navigation.canGoBack` only sees **same-origin** entries (cross-origin
+ *   history is hidden from script for privacy), so it is `false` for exactly the
+ *   external-return flow (opened from Readmo in the same tab) this exists for.
  *
- * `window.navigation?.canGoBack` (Chromium's Navigation API) reports whether a
- * *back* entry exists precisely; `history.length` is the fallback where it's
- * unavailable (Firefox/Safari), even though it also counts forward and
- * pre-existing entries.
+ * `history.length` counts the real session-history entries, cross-origin
+ * included, and stays 1 through `replace`. Its one blind spot is that it also
+ * counts *forward* entries, so a cold deep link → in-app link → browser Back
+ * leaves `length > 1` with no back entry, and `navigate(-1)` is a no-op there —
+ * rare and low-impact.
  */
-export function closeArticleView(
-  navigate: NavigateFunction,
-  locationKey: string,
-): void {
-  if (locationKey !== 'default') {
+export function closeArticleView(navigate: NavigateFunction): void {
+  if (window.history.length > 1) {
     navigate(-1);
     return;
   }
-  const nav = (window as { navigation?: { canGoBack?: boolean } }).navigation;
-  const hasBackEntry = nav?.canGoBack ?? window.history.length > 1;
-  if (hasBackEntry) {
-    navigate(-1);
-    return;
-  }
-  // No back entry: dismiss the tab/Custom Tab back into the opener. A no-op on
-  // tabs the browser won't let scripts close, so fall back to the root.
+  // No other entry at all (cold/fresh tab): dismiss the tab/Custom Tab back into
+  // the opener, falling back to the root if the browser won't close it.
   window.close();
   navigate('/');
 }
