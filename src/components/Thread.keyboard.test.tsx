@@ -659,19 +659,54 @@ describe('<Thread> keyboard shortcuts', () => {
     });
   });
 
-  it('b with no in-app history falls back to the home feed', async () => {
+  it('b with no back entry closes the tab, then falls back to the home feed', async () => {
     installHNFetchMock({
       items: { 811: makeStory(811, { title: 'Deeplinked' }) },
     });
 
-    // Single-entry history → location.key === 'default', nothing to pop.
+    // Single-entry history → location.key === 'default', no back entry: `b`
+    // tries to close the tab and falls back to '/' when the browser won't.
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {});
     renderThreadWithHistory({ id: 811, entries: ['/item/811'] });
     await screen.findByText('Deeplinked');
 
     await userEvent.keyboard('b');
+    expect(close).toHaveBeenCalledTimes(1);
     await waitFor(() => {
       expect(screen.getByTestId('location-pathname')).toHaveTextContent('/');
     });
+  });
+
+  it('b on an external deep link pops back to the referrer, not home', async () => {
+    installHNFetchMock({
+      items: { 813: makeStory(813, { title: 'FromReadmo' }) },
+    });
+
+    // Single router entry → location.key === 'default', but the browser has
+    // a page behind us (opened from an external site like Readmo in the same
+    // tab). window.history.length > 1 → `b` pops with navigate(-1) to return
+    // there rather than redirecting to '/'. MemoryRouter can't pop past its
+    // one entry, so the path stays on the thread — the assertion is that it
+    // does NOT land on the home feed.
+    const orig = Object.getOwnPropertyDescriptor(window.history, 'length');
+    Object.defineProperty(window.history, 'length', {
+      configurable: true,
+      value: 2,
+    });
+    try {
+      renderThreadWithHistory({ id: 813, entries: ['/item/813'] });
+      await screen.findByText('FromReadmo');
+
+      await userEvent.keyboard('b');
+      await waitFor(() => {
+        expect(screen.getByTestId('location-pathname')).toHaveTextContent(
+          '/item/813',
+        );
+      });
+    } finally {
+      if (orig) Object.defineProperty(window.history, 'length', orig);
+      else delete (window.history as unknown as { length?: number }).length;
+    }
   });
 
   it('u on a focused-comment view goes up to the parent', async () => {
