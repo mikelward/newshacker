@@ -30,6 +30,7 @@ import {
   markArticleOpenedId,
   markCommentsOpenedId,
 } from '../lib/openedStories';
+import { closeArticleView } from '../lib/closeArticleView';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { recordFirstAction } from '../lib/telemetry';
@@ -786,14 +787,13 @@ export function Thread({ id }: Props) {
     if (commentCount === undefined) return;
     markCommentsOpenedId(id, Date.now(), commentCount);
   }, [id, commentCount]);
-  // Pop browser history to the page the reader came from (usually a
-  // feed). location.key === 'default' means this is the first in-app
-  // history entry (deep link, refresh, shared URL), so there's nothing
-  // to pop — land on the home feed instead. Shared by mark-done and the
-  // `b` keyboard shortcut.
+  // Leave the thread the way the browser Back button would: back to the page
+  // the reader came from (an in-app feed, or the external site they arrived
+  // from in the same tab), else close the tab (dismissing a new tab / Android
+  // Custom Tab into the opener), else the home feed. See closeArticleView.
+  // Shared by mark-done and the `b` keyboard shortcut.
   const goBack = useCallback(() => {
-    if (location.key !== 'default') navigate(-1);
-    else navigate('/');
+    closeArticleView(navigate, location.key);
   }, [location.key, navigate]);
   // Go one level up the content hierarchy. On a focused-comment view
   // (`/item/<commentId>`) that means the immediate parent comment or
