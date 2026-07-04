@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { SettingsPage } from './SettingsPage';
 import { renderWithProviders } from '../test/renderUtils';
@@ -13,8 +13,20 @@ function resetAppearance() {
 }
 
 describe('<SettingsPage>', () => {
-  beforeEach(resetAppearance);
-  afterEach(resetAppearance);
+  beforeEach(() => {
+    resetAppearance();
+    // The Connected-apps section calls useAuth → /api/me. Stub it to a fast
+    // 401 so these appearance/reading tests stay logged-out and never open a
+    // real socket (the section stays hidden for a logged-out user).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
+  });
+  afterEach(() => {
+    resetAppearance();
+    vi.unstubAllGlobals();
+  });
 
   it('renders the title and section headings', () => {
     renderWithProviders(<SettingsPage />, { route: '/settings' });
