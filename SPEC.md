@@ -414,7 +414,9 @@ server-side with most-recent-first eviction.
      so it never clashes with the brand mark's orange `n`). Tapping
      opens a small popover with the username, karma (via the existing
      Firebase `getUser` path, cached through React Query), a link to
-     `/user/:username`, and a `Log out` button. Closes on Escape,
+     `/user/:username`, a `Settings` link to `/settings`, an `Edit
+     avatar` item, `Help` and `About` links (to `/help` and `/about`),
+     and a `Log out` button. Closes on Escape,
      outside press, or after a menu selection. Dismissal is the shared
      dropdown contract (`usePopoverDismiss`, also used by the overflow
      menu): **the first press outside only dismisses** — its trailing

@@ -160,6 +160,15 @@ export function HeaderAccountMenu() {
               >
                 View profile
               </Link>
+              <Link
+                to="/settings"
+                role="menuitem"
+                className="header-account__menu-item"
+                data-testid="header-account-settings"
+                onClick={() => setOpen(false)}
+              >
+                Settings
+              </Link>
               <button
                 type="button"
                 role="menuitem"
@@ -169,6 +178,24 @@ export function HeaderAccountMenu() {
               >
                 Edit avatar
               </button>
+              <Link
+                to="/help"
+                role="menuitem"
+                className="header-account__menu-item"
+                data-testid="header-account-help"
+                onClick={() => setOpen(false)}
+              >
+                Help
+              </Link>
+              <Link
+                to="/about"
+                role="menuitem"
+                className="header-account__menu-item"
+                data-testid="header-account-about"
+                onClick={() => setOpen(false)}
+              >
+                About
+              </Link>
               <button
                 type="button"
                 role="menuitem"

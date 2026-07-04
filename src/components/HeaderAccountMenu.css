@@ -40,6 +40,11 @@
   z-index: 30;
   color: var(--nh-text);
   padding: 4px 0;
+  /* Keep every item (down to Log out) reachable on short viewports —
+     e.g. landscape phones — where the popover would otherwise run off
+     the bottom edge below the sticky header with no way to scroll. */
+  max-height: calc(100dvh - var(--app-header-height, 56px) - 12px);
+  overflow-y: auto;
 }
 
 .header-account__menu-header {

@@ -107,6 +107,31 @@ describe('<HeaderAccountMenu>', () => {
     );
   });
 
+  it('links to /settings, /help, and /about from the open menu', async () => {
+    mockFetch(async (url) => {
+      if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
+      return jsonResponse({}, 404);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<HeaderAccountMenu />);
+    await waitFor(() =>
+      expect(screen.getByTestId('user-avatar')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('header-account-btn'));
+    expect(screen.getByTestId('header-account-settings')).toHaveAttribute(
+      'href',
+      '/settings',
+    );
+    expect(screen.getByTestId('header-account-help')).toHaveAttribute(
+      'href',
+      '/help',
+    );
+    expect(screen.getByTestId('header-account-about')).toHaveAttribute(
+      'href',
+      '/about',
+    );
+  });
+
   it('displays karma in the open menu when the profile resolves', async () => {
     mockFetch(async (url) => {
       if (url.endsWith('/api/me')) return jsonResponse({ username: 'alice' });
