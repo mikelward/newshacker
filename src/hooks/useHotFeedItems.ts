@@ -331,6 +331,7 @@ export function useHotFeedItems(
     refreshFailed,
     loadMore,
     refetch,
+    dataUpdatedAt: pages.dataUpdatedAt,
     newSourceIds,
   };
 }

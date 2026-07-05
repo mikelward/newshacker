@@ -7,6 +7,7 @@ import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addPinnedId } from '../lib/pinnedStories';
 import {
   installIntersectionObserverMock,
+  setVisibilityForTest,
   uninstallIntersectionObserverMock,
 } from '../test/intersectionObserver';
 
@@ -182,11 +183,11 @@ describe('<StoryList> pinned-to-top block', () => {
     expect(screen.queryByTestId('empty-state')).toBeNull();
   });
 
-  it('pinning an in-feed row keeps it at its natural position; Sweep is what consolidates it to the top', async () => {
+  it('pinning an in-feed row keeps it at its natural position (no jump to the top block)', async () => {
     // Regression: tapping pin on a body row used to yank it into the
     // top block under the reader's eye. The new behavior leaves it in
-    // place — pinned, but at its natural feed position — and only
-    // moves it after Sweep commits.
+    // place — pinned, but at its natural feed position. Consolidation
+    // is deferred to the next refetch, not the pin itself.
     const ids = [1, 2, 3, 4];
     const items = Object.fromEntries(
       ids.map((id) => [
@@ -232,10 +233,51 @@ describe('<StoryList> pinned-to-top block', () => {
       'Story 3',
       'Story 4',
     ]);
+  });
 
-    // Now Sweep — the four unpinned rows fade out, the pinned Story 3
-    // consolidates into the top block (it's the only survivor and
-    // therefore trivially at the top).
+  it('Sweep no longer consolidates in-body pins — nothing reorders under the reader', async () => {
+    // New behavior (matching Readmo): a Sweep hides the unpinned rows
+    // but leaves an in-session body pin exactly where it sits — it does
+    // not snap up into the top block. To make "did it move?" observable,
+    // keep an *unpinned* row above the pin alive through the Sweep by
+    // marking it not-fully-visible (so it isn't sweepable). If the pin
+    // consolidated it would jump above that survivor; it must not.
+    const ids = [1, 2, 3, 4];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: ids }, items });
+
+    renderWithProviders(
+      <>
+        <AppHeader />
+        <StoryList feed="top" />
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(4);
+    });
+
+    // Story 1 scrolls above the fold — not fully visible, so Sweep skips
+    // it and it survives above the pin.
+    const row1 = screen.getByText('Story 1').closest('li')!;
+    act(() => {
+      setVisibilityForTest(row1, 0);
+    });
+
+    // Pin Story 4 (the last body row). It stays at its natural index 3.
+    const story4Row = () => screen.getByText('Story 4').closest('li')!;
+    fireEvent.click(within(story4Row()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(within(story4Row()).getByTestId('pin-btn')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    });
+
+    // Sweep: Stories 2 and 3 (visible, unpinned) fade out. Story 1
+    // (not fully visible) and Story 4 (pinned) survive.
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
       expect(sweep).not.toBeDisabled();
@@ -243,12 +285,75 @@ describe('<StoryList> pinned-to-top block', () => {
     fireEvent.click(sweep);
 
     await waitFor(() => {
-      expect(screen.queryByText('Story 1')).toBeNull();
       expect(screen.queryByText('Story 2')).toBeNull();
-      expect(screen.queryByText('Story 4')).toBeNull();
+      expect(screen.queryByText('Story 3')).toBeNull();
     });
-    expect(screen.getAllByTestId('story-row')).toHaveLength(1);
-    expect(screen.getByText('Story 3')).toBeInTheDocument();
+
+    // Story 4 stayed in the body *below* the surviving Story 1 — it did
+    // NOT consolidate into the top block above it.
+    const titles = screen
+      .getAllByTestId('story-row')
+      .map(
+        (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
+      );
+    expect(titles).toEqual(['Story 1', 'Story 4']);
+  });
+
+  it('a refetch consolidates an in-body pin into the top block — even when the data is byte-identical', async () => {
+    // The moment consolidation now happens: a feed refetch (PTR /
+    // focus / mount) releases every in-session hold so the pins surface
+    // at the top. This must hold even when the refetch returns the exact
+    // same ids and items — React Query's structural sharing keeps the
+    // `items` array reference stable in that case, so consolidation is
+    // keyed off the query's fetch timestamp, not array identity. (This
+    // is the regression guard for the Codex "identical refetch" note.)
+    // The pinned row also stays within the loaded window across the
+    // refetch, yet still consolidates — the old rule only lifted it when
+    // it *left* the window.
+    const ids = [10, 20, 30];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: [...ids] }, items });
+
+    const { client } = renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    // Pin Story 20 in body — stays at its natural index 1.
+    const story20Row = () => screen.getByText('Story 20').closest('li')!;
+    fireEvent.click(within(story20Row()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(within(story20Row()).getByTestId('pin-btn')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    });
+    const titlesAfterPin = screen
+      .getAllByTestId('story-row')
+      .map(
+        (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
+      );
+    expect(titlesAfterPin).toEqual(['Story 10', 'Story 20', 'Story 30']);
+
+    // Refetch with no data change at all (same ids, same items). The
+    // hold must still release and Story 20 snap to the top block.
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['storyIds', 'top'] });
+      await client.invalidateQueries({ queryKey: ['feedItems', 'top'] });
+    });
+
+    await waitFor(() => {
+      const titles = screen
+        .getAllByTestId('story-row')
+        .map(
+          (row) =>
+            row.querySelector('.story-row__title-text')?.textContent ?? '',
+        );
+      expect(titles).toEqual(['Story 20', 'Story 10', 'Story 30']);
+    });
   });
 
   it('a pre-existing pin from a past session still surfaces in the top block on a fresh mount', async () => {

@@ -358,6 +358,7 @@ export function StoryListImpl({
     isError,
     isRefreshing,
     refreshFailed,
+    dataUpdatedAt,
   } = feedItems;
   const { stories: rawPinnedStories } = usePinnedFeedStories(
     items,
@@ -373,36 +374,61 @@ export function StoryListImpl({
   }, [includeOffFeedPinned, isRestoring, pinnedIds, queryClient]);
   // Ids the reader has pinned while the row was rendered in the feed
   // body. Pinning shouldn't yank a story you're looking at into the
-  // top block — keep it at its natural feed position and let the
-  // explicit Sweep gesture be the moment all in-body pins consolidate
-  // into the top block (see commitSweep). On a fresh mount this set
-  // is empty, so pre-existing pins still surface at the top as
-  // before. Garbage-collected by the effect below: an id falls out
-  // the moment the row stops being able to render in body (unpinned,
-  // or the feed window no longer contains it after a PTR/refresh) so
-  // it can't reactivate if the same row later returns to the feed
-  // window (loadMore, cross-device sync) — the intent was "just
-  // pinned, here-and-now", and a stale marker would silently re-route
-  // a re-fetched pin into the body instead of the top block.
+  // top block — keep it at its natural feed position and let the next
+  // feed refetch (pull-to-refresh, window-focus, mount, or More) be
+  // the moment all in-body pins consolidate into the top block (see
+  // the reconcile effect below). A local action like Sweep deliberately
+  // does *not* consolidate — nothing reorders under the reader until
+  // fresh data reflows the list anyway. On a fresh mount this set is
+  // empty, so pre-existing pins still surface at the top as before.
+  // The intent is "just pinned, here-and-now", so a stale marker can't
+  // silently re-route a re-fetched pin into the body instead of the
+  // top block — the reconcile effect below releases every hold the
+  // moment a feed refetch lands.
   const [stayInBodyIds, setStayInBodyIds] = useState<Set<number>>(
     () => new Set(),
   );
 
-  // Reconcile stayInBodyIds with the external feed/pinned state. This
-  // is the only place that drops stale entries when a row leaves the
-  // feed window via PTR/refetch (the user takes no action, so a
-  // handler can't catch it). The lint rule usually warns about derived
-  // state — but here the state really is reconciliation history with
-  // external sources (React Query items, the pinned-stories store),
-  // exactly the "subscribe for updates from some external system"
-  // case the rule's own docs call out. The updater returns `prev`
-  // unchanged when nothing dropped out, so a re-run with no change
-  // can't cascade; the `[items, pinnedIds]` deps mean it only fires
-  // when one of those external sources actually moved.
+  // Reconcile stayInBodyIds with the external feed/pinned state. Two
+  // distinct triggers, told apart by whether a feed *refetch* just
+  // landed — detected via the items query's `dataUpdatedAt`, which
+  // bumps on every completed fetch even when the returned data is
+  // byte-identical (React Query's structural sharing would keep the
+  // `items` array reference stable across such a refetch, so array
+  // identity would silently miss it — see the Codex note on this file):
+  //
+  //  - A refetch landed (pull-to-refresh, window-focus, mount, More).
+  //    The reader asked for fresh data, so this is the moment to
+  //    consolidate: release *every* in-session hold and let the pins
+  //    surface in the top block — whether or not the row survived and
+  //    whether or not the data changed.
+  //  - No refetch, but `items` or the pinned set moved. This covers a
+  //    pin/unpin, a cross-tab/cross-device sync, *and* a client-side
+  //    re-filter of the visible set with no refetch behind it — most
+  //    notably `/hot` Customize re-running the predicate over cached
+  //    pages (which changes `items` without touching `dataUpdatedAt`).
+  //    Keep the held rows in body — a local action must not reorder
+  //    under the reader — but GC any id that's no longer pinned OR no
+  //    longer present in the visible items. Without the membership half,
+  //    a stale hold could survive a row leaving the filtered set and
+  //    then route it back into the body (reordering on a local action)
+  //    when the filter later readmits it.
+  //
+  // The lint rule usually warns about derived state — but here the
+  // state really is reconciliation history with external sources
+  // (React Query's items + fetch timestamp, the pinned-stories store),
+  // exactly the "subscribe for updates from some external system" case
+  // the rule's own docs call out. The updater returns `prev` unchanged
+  // when nothing dropped out, so a re-run with no change can't cascade;
+  // the `[items, dataUpdatedAt, pinnedIds]` deps mean it only fires when
+  // one of those external sources actually moved.
+  const prevDataUpdatedAtRef = useRef(dataUpdatedAt);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
+    const refetched = prevDataUpdatedAtRef.current !== dataUpdatedAt;
+    prevDataUpdatedAtRef.current = dataUpdatedAt;
     setStayInBodyIds((prev) => {
       if (prev.size === 0) return prev;
+      if (refetched) return new Set();
       const itemIds = new Set<number>();
       for (const item of items) {
         if (item) itemIds.add(item.id);
@@ -415,7 +441,7 @@ export function StoryListImpl({
       }
       return changed ? next : prev;
     });
-  }, [items, pinnedIds]);
+  }, [items, dataUpdatedAt, pinnedIds]);
 
   const inBodyPinnedIds = useMemo<ReadonlySet<number>>(() => {
     if (stayInBodyIds.size === 0) return EMPTY_ID_SET;
@@ -440,7 +466,7 @@ export function StoryListImpl({
   // defense-in-depth for legacy storage that predates that rule and
   // for brief cross-device-sync windows where the two stores could
   // disagree. The `inBodyPinnedIds` filter keeps in-session pins out
-  // of the top block until Sweep consolidates them.
+  // of the top block until the next refetch consolidates them.
   const pinnedTopStories = useMemo(() => {
     if (!includeOffFeedPinned) return [];
     return rawPinnedStories.filter(
@@ -465,7 +491,8 @@ export function StoryListImpl({
       pin(id);
       // Keep the row at its natural feed position if it's currently
       // rendered in the body — pinning shouldn't jump it into the top
-      // block under the reader's eye. Sweep is what consolidates.
+      // block under the reader's eye. The next refetch is what
+      // consolidates (see the reconcile effect above).
       const inLoadedFeed = items.some((it) => it?.id === id);
       if (inLoadedFeed) {
         setStayInBodyIds((prev) => {
@@ -861,11 +888,12 @@ export function StoryListImpl({
       for (const id of ids) next.delete(id);
       return next;
     });
-    // Sweep is the moment in-session body pins consolidate into the
-    // top block (see stayInBodyIds). Clearing the set right after the
-    // hide commit means the next render sees pinned rows surface at
-    // the top in one motion with the unpinned rows leaving.
-    setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
+    // Sweep deliberately does *not* consolidate in-session body pins
+    // into the top block — a local action must not reorder rows under
+    // the reader. The pinned rows stay at their natural feed position
+    // (their swept neighbors simply leave around them); the next feed
+    // refetch is what snaps them up (see stayInBodyIds / the reconcile
+    // effect).
   }, [hideMany, recordHide]);
 
   // If the list unmounts (route change, etc.) while a sweep is still
@@ -901,7 +929,8 @@ export function StoryListImpl({
     if (reducedMotion) {
       hideMany(ids);
       recordHide(ids);
-      setStayInBodyIds((prev) => (prev.size === 0 ? prev : new Set()));
+      // No stayInBodyIds clear here either — consolidation is the next
+      // refetch's job, not Sweep's (see commitSweep).
       return;
     }
     sweepPendingIdsRef.current = ids;
