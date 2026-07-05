@@ -91,6 +91,43 @@
         }
       })();
     </script>
+    <!-- Stale-entry boot guard. Runs BEFORE the entry <script type="module">
+         below (Vite injects that at the end of <head>), so it can catch the
+         entry module *itself* failing to load — a module can't catch its own
+         load failure, and if the entry fails nothing in React is alive to
+         recover, leaving a blank page after a deploy that removed the hash
+         this stale index.html still references. Capture-phase 'error' on a
+         hashed-asset <script>/<link>, one guarded reload keyed on
+         sessionStorage. Loop-safe: the entry module clears the key at its top
+         (see clearEntryReloadBudget in src/lib/staleEntryRecovery.ts), so a
+         permanently-broken entry never clears it and the single reload stands.
+         Kept in sync by hand with that module (it can't import this inline). -->
+    <script>
+      (function () {
+        var KEY = 'nh:entry-reload';
+        function onError(e) {
+          var t = e.target;
+          if (!t || (t.tagName !== 'SCRIPT' && t.tagName !== 'LINK')) return;
+          var url = t.src || t.href || '';
+          if (url.indexOf('/assets/') === -1) return;
+          try {
+            if (sessionStorage.getItem(KEY)) return;
+            sessionStorage.setItem(KEY, '1');
+          } catch (_) {
+            // No usable storage: fail closed. An un-recordable reload loops.
+            return;
+          }
+          window.location.reload();
+        }
+        window.addEventListener('error', onError, true);
+        // Let the entry module tear this down once it boots, so post-boot
+        // chunk failures are owned solely by the module's own listeners (the
+        // separate nh:chunk-reload budget) and never re-consume this one.
+        window.__nhBootGuardOff = function () {
+          window.removeEventListener('error', onError, true);
+        };
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -142,3 +142,38 @@ describe('vercel.json /api/og rewrite UA regex', () => {
     expect(RE).toBeInstanceOf(RegExp);
   });
 });
+
+// The SPA fallback must NOT capture the hashed-assets path: a *missing*
+// `/assets/index-<oldhash>.js` after a deploy has to return a real 404, not
+// `index.html` (HTML) with status 200 — HTML executed as a module script is
+// the worst case behind the blank-page-after-deploy bug. Existing assets are
+// served statically before the rewrite, so excluding `/assets/` only changes
+// the missing-asset case. This locks that exclusion in. See the stale-entry
+// recovery in src/lib/staleEntryRecovery.ts.
+function loadSpaFallbackRegex(): RegExp {
+  const config = JSON.parse(
+    readFileSync(join(ROOT, 'vercel.json'), 'utf8'),
+  ) as VercelJson;
+  const rule = config.rewrites.find((r) => r.destination === '/index.html');
+  if (!rule) throw new Error('No SPA fallback (→ /index.html) rule in vercel.json');
+  // Vercel anchors `source` against the whole path; mirror that.
+  return new RegExp(`^${rule.source}$`);
+}
+
+describe('vercel.json SPA fallback excludes hashed assets', () => {
+  const SPA = loadSpaFallbackRegex();
+
+  it.each([
+    ['/', true],
+    ['/pinned', true],
+    ['/item/123', true],
+    ['/favorites', true],
+    // Must fall through to a real 404, not the SPA shell:
+    ['/assets/index-abc123.js', false],
+    ['/assets/index-abc123.css', false],
+    // API routes were already excluded and must stay excluded:
+    ['/api/items', false],
+  ])('%s → rewritten-to-index.html = %s', (path, shouldRewrite) => {
+    expect(SPA.test(path)).toBe(shouldRewrite);
+  });
+});

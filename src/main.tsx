@@ -1,6 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import {
+  clearEntryReloadBudget,
+  installStaleChunkRecovery,
+} from './lib/staleEntryRecovery';
 import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import App from './App';
@@ -26,6 +30,24 @@ import {
 import '@fontsource-variable/roboto/wght.css';
 import './styles/global.css';
 import './styles/chromePreview.css';
+
+declare global {
+  interface Window {
+    // Set by the inline boot guard in index.html; lets the entry tear that
+    // guard's listener down once we've proven the entry loaded.
+    __nhBootGuardOff?: () => void;
+  }
+}
+
+// Reaching this line proves the entry module loaded and executed, so the
+// stale-entry reload budget can be released — a *later* stale-entry failure in
+// this same session is then free to reload once more. Tear down the inline
+// boot guard too, so post-boot chunk failures are owned solely by the handlers
+// installed just below (the separate `nh:chunk-reload` budget). A permanently
+// broken entry never reaches here, so its single reload stands — loop-safe.
+clearEntryReloadBudget();
+window.__nhBootGuardOff?.();
+installStaleChunkRecovery();
 
 // Bump when the shape of cached data changes in a way that would break
 // hydrated readers — it busts all persisted queries in one go (pinned

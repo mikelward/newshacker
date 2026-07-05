@@ -11,7 +11,7 @@
       ],
       "destination": "/api/og?id=:id"
     },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ],
   "crons": [
     { "path": "/api/warm-summaries?feed=top&n=30", "schedule": "*/5 * * * *" }
