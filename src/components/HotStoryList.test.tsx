@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HotStoryList } from './StoryList';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addDoneId } from '../lib/doneStories';
+import {
+  DEFAULT_HOT_THRESHOLDS,
+  setStoredHotThresholds,
+} from '../lib/hotThresholds';
 
 // Build a "fast riser" story: 50 points in 30 min = 100/h velocity,
 // well above the >15/h floor, with 25 comments to clear the
@@ -433,5 +437,86 @@ describe('<HotStoryList>', () => {
     });
     const meta = screen.getByTestId('story-meta');
     expect(meta.textContent).not.toMatch(/\/h\b/);
+  });
+
+  it('a Customize re-filter GCs the stale body hold, so re-admitting a pinned row does not reorder it back into the body', async () => {
+    // Regression: the reconcile effect keys consolidation off a refetch
+    // (`dataUpdatedAt`), but a /hot Customize change re-filters cached
+    // pages with no refetch — `items` moves while `dataUpdatedAt` and
+    // `pinnedIds` stay put. If the effect only watched `dataUpdatedAt`,
+    // a body pin dropped by a tightened predicate would keep its stale
+    // "stay in body" hold and get routed back into the body (reordering
+    // under the reader) when the predicate is loosened again. The
+    // membership-GC half of the effect must clear the hold on the drop.
+    const nowS = Math.floor(Date.now() / 1000);
+    // Both qualify only via the big-story (Top) branch — their velocity
+    // is cooled well under 15/h, so raising `topScoreMin` alone decides
+    // membership. `keep` stays hot at topScoreMin 250; `pin` drops.
+    installHNFetchMock({
+      feeds: { topstories: [1, 2], newstories: [] },
+      items: {
+        1: makeStory(1, {
+          title: 'keep-hot',
+          score: 300,
+          descendants: 200,
+          time: nowS - 100 * 60 * 60,
+        }),
+        2: makeStory(2, {
+          title: 'pin-me',
+          score: 210,
+          descendants: 110,
+          time: nowS - 100 * 60 * 60,
+        }),
+      },
+    });
+
+    renderWithProviders(<HotStoryList />);
+
+    // Both hot under defaults, in source-feed order.
+    await waitFor(() => {
+      expect(screen.getByText('pin-me')).toBeInTheDocument();
+    });
+    const rowTitles = () =>
+      screen
+        .getAllByTestId('story-row')
+        .map(
+          (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
+        );
+    expect(rowTitles()).toEqual(['keep-hot', 'pin-me']);
+
+    // Pin `pin-me` in the body — it stays at its natural position (a pin
+    // doesn't yank a /hot body row to the top either).
+    const pinRow = () => screen.getByText('pin-me').closest('li')!;
+    fireEvent.click(within(pinRow()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(within(pinRow()).getByTestId('pin-btn')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    });
+    expect(rowTitles()).toEqual(['keep-hot', 'pin-me']);
+
+    // Tighten the Top rule so `pin-me` (score 210) drops out of the hot
+    // filter while `keep-hot` (score 300) survives. No refetch — this is
+    // a pure client-side re-filter. The dropped pin surfaces in the top
+    // block, and its stale body hold must be GC'd here.
+    act(() => {
+      setStoredHotThresholds({ ...DEFAULT_HOT_THRESHOLDS, topScoreMin: 250 });
+    });
+    await waitFor(() => {
+      expect(rowTitles()).toEqual(['pin-me', 'keep-hot']);
+    });
+
+    // Loosen it back so `pin-me` is re-admitted to the hot filter. With
+    // the hold GC'd, it stays consolidated in the top block instead of
+    // snapping back into the body — no reorder on this local action.
+    act(() => {
+      setStoredHotThresholds({ ...DEFAULT_HOT_THRESHOLDS, topScoreMin: 200 });
+    });
+    // Give the re-filter a beat to land, then assert the order held.
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(2);
+    });
+    expect(rowTitles()).toEqual(['pin-me', 'keep-hot']);
   });
 });

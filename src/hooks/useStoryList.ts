@@ -118,6 +118,13 @@ export interface FeedItemsState {
   // single page per tap and ignore the predicate.
   loadMore: (isRowVisible?: (item: HNItem) => boolean) => void;
   refetch: () => Promise<unknown>;
+  // React Query's timestamp of the most recent *successful* items fetch.
+  // It bumps on every completed fetch — initial load, pull-to-refresh,
+  // window-focus/reconnect refetch, and each "More" page — even when the
+  // returned data is byte-identical (structural sharing would keep the
+  // `items` array reference stable, so array identity can't see that
+  // refetch). Consumers use it as the "a refetch just landed" signal.
+  dataUpdatedAt: number;
 }
 
 function pageRange(pageIndex: number): { start: number; take: number } {
@@ -238,5 +245,6 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     refreshFailed,
     loadMore,
     refetch,
+    dataUpdatedAt: pages.dataUpdatedAt,
   };
 }

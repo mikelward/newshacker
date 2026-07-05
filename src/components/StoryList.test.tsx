@@ -291,6 +291,7 @@ describe('<StoryListImpl> feed refresh status', () => {
       refreshFailed: false,
       loadMore: () => {},
       refetch: async () => undefined,
+      dataUpdatedAt: 0,
       ...overrides,
     };
   }
