@@ -132,31 +132,35 @@ describe('<StoryList>', () => {
     expect(endBtn).toBeDisabled();
   });
 
-  it('refetches the feed on mount when a populated cache would otherwise be considered fresh', async () => {
-    // Regression: after a browser reload, PersistQueryClient hydrates the
-    // React Query cache from localStorage. With the app-wide staleTime of
-    // 5 minutes, the seeded data is still "fresh", so without an
-    // explicit refetchOnMount override the UI would paint yesterday's
-    // story list indefinitely. This test seeds stale data under that same
-    // staleTime and asserts the fresh list replaces it.
+  it('refetches the feed on mount when the persisted cache has gone stale', async () => {
+    // Opening after a while: PersistQueryClient rehydrates each query with
+    // its ORIGINAL fetch timestamp, so a snapshot from a previous session
+    // is older than the 5-minute staleTime and reads as stale. The
+    // stale-gated refetchOnMount refreshes it and the current ranking
+    // replaces yesterday's list. (Seed the timestamp explicitly rather than
+    // rely on setQueryData's default of "now", which would be fresh.)
     const client = new QueryClient({
       defaultOptions: {
         queries: { retry: false, gcTime: 60_000, staleTime: 5 * 60_000 },
       },
     });
-    client.setQueryData(
-      ['storyIds', 'top'],
-      [1, 2],
-    );
-    client.setQueryData(['feedItems', 'top'], {
-      pages: [
-        [
-          makeStory(1, { title: 'Stale One' }),
-          makeStory(2, { title: 'Stale Two' }),
-        ],
-      ],
-      pageParams: [0],
+    const tenMinutesAgo = Date.now() - 10 * 60_000;
+    client.setQueryData(['storyIds', 'top'], [1, 2], {
+      updatedAt: tenMinutesAgo,
     });
+    client.setQueryData(
+      ['feedItems', 'top'],
+      {
+        pages: [
+          [
+            makeStory(1, { title: 'Stale One' }),
+            makeStory(2, { title: 'Stale Two' }),
+          ],
+        ],
+        pageParams: [0],
+      },
+      { updatedAt: tenMinutesAgo },
+    );
 
     installHNFetchMock({
       feeds: { topstories: [3, 4] },
@@ -172,6 +176,56 @@ describe('<StoryList>', () => {
       expect(screen.getByText('Fresh Three')).toBeInTheDocument();
     });
     expect(screen.queryByText('Stale One')).not.toBeInTheDocument();
+  });
+
+  it('does not re-check a still-fresh feed cache on mount (navigating back from a story)', async () => {
+    // Regression: the feed used to set refetchOnMount:'always', which
+    // ignores the cache TTL and re-fetches on every mount. Since opening a
+    // story unmounts the feed, returning to it remounted and re-checked —
+    // flashing "Checking for new stories…" far more often than expected.
+    // With the stale-gated policy, a cache within the 5-minute TTL (exactly
+    // the navigate-back case) is left untouched: no fetch, no strip.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 60_000, staleTime: 5 * 60_000 },
+      },
+    });
+    // Default updatedAt = now, so the seeded cache is well within the TTL.
+    client.setQueryData(['storyIds', 'top'], [1, 2]);
+    client.setQueryData(['feedItems', 'top'], {
+      pages: [
+        [
+          makeStory(1, { title: 'Cached One' }),
+          makeStory(2, { title: 'Cached Two' }),
+        ],
+      ],
+      pageParams: [0],
+    });
+
+    const fetchMock = installHNFetchMock({
+      feeds: { topstories: [3, 4] },
+      items: {
+        3: makeStory(3, { title: 'Network Three' }),
+        4: makeStory(4, { title: 'Network Four' }),
+      },
+    });
+
+    renderWithProviders(<StoryList feed="top" />, { client });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cached One')).toBeInTheDocument();
+    });
+    // The fresh cache is served as-is: the feed id-list is never re-fetched
+    // (a reverted 'always' would dispatch it during the mount effect that
+    // waitFor above already flushed), the network ranking never swaps in,
+    // and no background-refresh strip appears.
+    const feedFetches = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('topstories'),
+    );
+    expect(feedFetches).toHaveLength(0);
+    expect(screen.queryByText('Network Three')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feed-refresh')).not.toBeInTheDocument();
+    expect(screen.getByText('Cached One')).toBeInTheDocument();
   });
 
   it('filters out deleted and dead items', async () => {

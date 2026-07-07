@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { getItems, type HNItem } from '../lib/hn';
 import {
   deriveRefreshState,
+  FEED_REFETCH_POLICY,
   PAGE_SIZE,
   useStoryIds,
   type FeedItemsState,
@@ -164,16 +165,14 @@ export function useHotFeedItems(
       if (topRemaining <= 0 && newRemaining <= 0) return undefined;
       return allPages.length;
     },
-    // Match the same freshness contract as `useFeedItems`: bypass
-    // the app-wide staleTime on mount/focus so a reload renders the
-    // current ranking, not yesterday's.
-    // No `retry` override here on purpose — the source id-list queries
-    // (useStoryIds for top/new) carry the retry, while the "More" chase
-    // must bail on a failed page rather than re-issue it in a loop (see
-    // loadMore below and the "stops the More chase" test).
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    // Same feed refetch policy as `useFeedItems` (FEED_REFETCH_POLICY):
+    // mount, focus, and reconnect are all stale-gated on the 5-min TTL, so
+    // a reload after a while renders the current ranking while a quick
+    // remount stays quiet. No `retry` override here on purpose — the source
+    // id-list queries (useStoryIds for top/new) carry the retry, while the
+    // "More" chase must bail on a failed page rather than re-issue it in a
+    // loop (see loadMore below and the "stops the More chase" test).
+    ...FEED_REFETCH_POLICY,
   });
 
   // Cross-page dedup. The queryFn already dedupes within a page;

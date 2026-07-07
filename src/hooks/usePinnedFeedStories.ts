@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { getItems, type HNItem } from '../lib/hn';
 import { getPinnedEntries } from '../lib/pinnedStories';
+import { FEED_REFETCH_POLICY } from './useStoryList';
 import { usePinnedStories } from './usePinnedStories';
 
 export interface PinnedFeedState {
@@ -64,8 +65,11 @@ export function usePinnedFeedStories(
     queryKey: ['pinnedFeedItems', missingKey],
     queryFn: ({ signal }) => getItems(missingIds, signal),
     enabled: missingIds.length > 0,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
+    // Same feed refetch policy as the feed body (FEED_REFETCH_POLICY):
+    // mount/focus/reconnect refetches are stale-gated on the 5-min TTL, so
+    // the top pinned block doesn't re-fetch pinned item data on every
+    // remount either — only once the cache lapses.
+    ...FEED_REFETCH_POLICY,
   });
 
   const stories = useMemo<HNItem[]>(() => {
