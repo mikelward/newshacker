@@ -3,9 +3,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveRefreshState,
   FEED_QUERY_MAX_RETRIES,
+  FEED_REFETCH_POLICY,
   feedQueryRetry,
   feedQueryRetryDelay,
 } from './useStoryList';
+
+describe('FEED_REFETCH_POLICY', () => {
+  it('gates every refetch trigger on the cache TTL instead of forcing one on mount', () => {
+    // `refetchOnMount: true` is React Query's stale-gated default: it
+    // refetches on mount only once the cache is older than staleTime. The
+    // literal `'always'` (the previous value) would ignore the TTL and
+    // re-check on every remount — the "checking for new stories too often"
+    // bug, since opening a story unmounts the feed.
+    expect(FEED_REFETCH_POLICY.refetchOnMount).toBe(true);
+    // Window-focus refetch stays ON, but it too is stale-gated by `true`
+    // (not `'always'`), so a refocus only re-checks a lapsed cache.
+    expect(FEED_REFETCH_POLICY.refetchOnWindowFocus).toBe(true);
+    expect(FEED_REFETCH_POLICY.refetchOnReconnect).toBe(true);
+  });
+});
 
 describe('deriveRefreshState', () => {
   it('reports neither when a fresh load just succeeded', () => {

@@ -64,14 +64,39 @@ export function deriveRefreshState(args: {
   return { isRefreshing, refreshFailed };
 }
 
-// The feed queries override the app-wide `staleTime`/`refetchOnWindowFocus`
-// defaults: for a news feed, "last time the component mounted" is the only
-// freshness signal that matches user intent. Without this, a browser reload
-// (or a tab refocus) rehydrates the persisted React Query cache and shows
-// yesterday's list because the shared staleTime (5 min) still considers it
-// fresh. `refetchOnMount: 'always'` bypasses staleTime on mount; narrowing
-// `refetchOnWindowFocus` to these queries means per-thread/summary caches
-// still benefit from the app-wide off switch.
+// Refetch policy shared by every query behind the feed surface — the
+// id-list and item pages here, plus `/hot` (useHotFeedItems) and the
+// pinned-top block (usePinnedFeedStories). Every trigger honors the same
+// cache TTL: the app-wide 5-min `staleTime` (main.tsx). A refetch fires
+// only when the cached feed is actually older than that.
+//
+//   - `refetchOnMount: true` is React Query's stale-gated default: it
+//     refetches on mount only when the cache is older than `staleTime`.
+//     Opening the app after a while still lands the current ranking — the
+//     persisted cache keeps each query's original fetch timestamp, so a
+//     snapshot from a previous session reads as stale and refreshes. But
+//     navigating back to the feed from a story (a remount seconds later)
+//     sees a fresh cache and does NOT re-check. This is the one line that
+//     changed: it was `'always'`, the literal "ignore staleTime, refetch
+//     on every mount" — which force-refreshed on every back-navigation and
+//     surfaced the "Checking for new stories…" strip far more often than
+//     readers expected.
+//   - `refetchOnWindowFocus: true` is *also* stale-gated: a tab refocus
+//     refetches only when the cache has gone stale, so returning to a feed
+//     you were reading a minute ago is quiet while returning after the TTL
+//     lapses picks up new stories. (This overrides the app-wide
+//     `refetchOnWindowFocus: false`, kept on purpose for the feed.)
+//   - `refetchOnReconnect: true` — regaining connectivity refetches, which
+//     is what the offline refresh strip already promises.
+//
+// Pull-to-refresh and the More button remain the explicit "check now"
+// gestures, bypassing the TTL entirely.
+export const FEED_REFETCH_POLICY = {
+  refetchOnMount: true,
+  refetchOnWindowFocus: true,
+  refetchOnReconnect: true,
+} as const;
+
 export function useStoryIds(feed: Feed) {
   return useQuery({
     queryKey: ['storyIds', feed],
@@ -80,9 +105,7 @@ export function useStoryIds(feed: Feed) {
     // `setQueryDefaults(['storyIds'], …)` in main.tsx (see feedQueryRetry
     // / feedQueryRetryDelay) rather than inline here, so tests that want a
     // fast, deterministic error path can opt out with their own client.
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    ...FEED_REFETCH_POLICY,
   });
 }
 
@@ -157,15 +180,15 @@ export function useFeedItems(feed: Feed): FeedItemsState {
       const loaded = itemsLoadedAfter(allPages.length);
       return allIds && loaded < allIds.length ? allPages.length : undefined;
     },
-    // See the comment on useStoryIds — score/comment counts in the feed
-    // need to refresh on reload/refocus, not only after a 5-minute timer.
-    // No `retry` override here on purpose: the id-list query (useStoryIds)
-    // carries the retry, and the "More" chase (loadMore) deliberately
-    // bails on a failed page rather than hammering the upstream — see the
-    // loadMore comments and HotStoryList's "stops the More chase" test.
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    // Shared feed refetch policy (see FEED_REFETCH_POLICY): every trigger
+    // (mount, focus, reconnect) is stale-gated on the 5-min TTL, so score
+    // and comment counts refresh when the cache lapses instead of on every
+    // remount. No `retry` override here on purpose: the id-list query
+    // (useStoryIds) carries the retry, and the "More" chase (loadMore)
+    // deliberately bails on a failed page rather than hammering the upstream
+    // — see the loadMore comments and HotStoryList's "stops the More chase"
+    // test.
+    ...FEED_REFETCH_POLICY,
   });
 
   const items = useMemo<Array<HNItem | null>>(
