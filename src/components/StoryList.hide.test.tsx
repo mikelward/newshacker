@@ -128,7 +128,7 @@ describe('<StoryList> hidden-story handling', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
 
-    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn')).toHaveAttribute('aria-disabled', 'true');
 
     const target = screen.getAllByTestId('story-row')[1]; // Story 20
 
@@ -144,7 +144,7 @@ describe('<StoryList> hidden-story handling', () => {
       expect(screen.queryByText('Story 20')).toBeNull();
     });
     await waitFor(() => {
-      expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
+      expect(screen.getByTestId('undo-btn')).not.toHaveAttribute('aria-disabled', 'true');
     });
 
     fireEvent.click(screen.getByTestId('undo-btn'));
@@ -152,7 +152,7 @@ describe('<StoryList> hidden-story handling', () => {
     await waitFor(() => {
       expect(screen.getByText('Story 20')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn')).toHaveAttribute('aria-disabled', 'true');
     const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
     const parsed = stored
       ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)
@@ -187,7 +187,7 @@ describe('<StoryList> hidden-story handling', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
     expect(getPinnedIds().has(20)).toBe(true);
-    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn')).toHaveAttribute('aria-disabled', 'true');
 
     // Story 20 is pinned, so it sits in the top block, not at its
     // natural feed index — target it by content.
@@ -207,7 +207,7 @@ describe('<StoryList> hidden-story handling', () => {
     expect(getPinnedIds().has(20)).toBe(true);
     const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
     expect(stored).toBeFalsy();
-    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn')).toHaveAttribute('aria-disabled', 'true');
   });
 
   // The swipe gesture on a pinned row still tracks the finger and

@@ -105,7 +105,7 @@ describe('<StoryList> pin and sweep', () => {
 
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     expect(sweep).toHaveAccessibleName(/hide unpinned/i);
 
@@ -121,7 +121,7 @@ describe('<StoryList> pin and sweep', () => {
     // The disabled state propagates through the feed-bar context, so it
     // can settle a tick after the swept rows leave the DOM.
     await waitFor(() => {
-      expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+      expect(screen.getByTestId('sweep-btn')).toHaveAttribute('aria-disabled', 'true');
     });
   });
 
@@ -146,7 +146,7 @@ describe('<StoryList> pin and sweep', () => {
 
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     fireEvent.click(sweep);
 
@@ -188,7 +188,7 @@ describe('<StoryList> pin and sweep', () => {
 
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     fireEvent.click(sweep);
 
@@ -230,7 +230,7 @@ describe('<StoryList> pin and sweep', () => {
 
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     fireEvent.click(sweep);
 
@@ -284,7 +284,7 @@ describe('<StoryList> pin and sweep', () => {
 
       const sweep = screen.getByTestId('sweep-btn');
       await waitFor(() => {
-        expect(sweep).not.toBeDisabled();
+        expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
       });
       fireEvent.click(sweep);
 
@@ -325,14 +325,14 @@ describe('<StoryList> pin and sweep', () => {
 
     // Pre-sweep: both undo entry points are disabled and labeled the same.
     const bottomUndo = screen.getByTestId('undo-btn-bottom');
-    expect(bottomUndo).toBeDisabled();
+    expect(bottomUndo).toHaveAttribute('aria-disabled', 'true');
     expect(bottomUndo).toHaveAccessibleName(/nothing to undo/i);
 
     // Sweep to record a hide-batch, then assert the bottom undo enables
     // alongside the toolbar undo.
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     fireEvent.click(sweep);
     await waitFor(() => {
@@ -340,12 +340,12 @@ describe('<StoryList> pin and sweep', () => {
       expect(screen.queryByText('Story 3')).toBeNull();
     });
     await waitFor(() => {
-      expect(screen.getByTestId('undo-btn-bottom')).not.toBeDisabled();
+      expect(screen.getByTestId('undo-btn-bottom')).not.toHaveAttribute('aria-disabled', 'true');
     });
     expect(screen.getByTestId('undo-btn-bottom')).toHaveAccessibleName(
       /undo hide/i,
     );
-    expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
+    expect(screen.getByTestId('undo-btn')).not.toHaveAttribute('aria-disabled', 'true');
 
     // The bottom button restores the same way the toolbar one does.
     fireEvent.click(screen.getByTestId('undo-btn-bottom'));
@@ -353,8 +353,8 @@ describe('<StoryList> pin and sweep', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
     // Both undo entry points disable together once there's nothing left.
-    expect(screen.getByTestId('undo-btn-bottom')).toBeDisabled();
-    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn-bottom')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('undo-btn')).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('bottom-bar sweep button mirrors the header sweep — same state, same action', async () => {
@@ -378,7 +378,7 @@ describe('<StoryList> pin and sweep', () => {
 
     const bottomSweep = screen.getByTestId('sweep-btn-bottom');
     await waitFor(() => {
-      expect(bottomSweep).not.toBeDisabled();
+      expect(bottomSweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     expect(bottomSweep).toHaveAccessibleName(/hide unpinned/i);
 
@@ -391,8 +391,8 @@ describe('<StoryList> pin and sweep', () => {
     });
     expect(screen.getByText('Story 3')).toBeInTheDocument();
     // Both sweep entry points disable together once nothing is left to hide.
-    expect(screen.getByTestId('sweep-btn-bottom')).toBeDisabled();
-    expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+    expect(screen.getByTestId('sweep-btn-bottom')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('sweep-btn')).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('sweep only hides rows fully in the viewport', async () => {
@@ -425,7 +425,7 @@ describe('<StoryList> pin and sweep', () => {
 
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
 
     fireEvent.click(sweep);
@@ -463,7 +463,7 @@ describe('<StoryList> pin and sweep', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+      expect(screen.getByTestId('sweep-btn')).toHaveAttribute('aria-disabled', 'true');
     });
   });
 
@@ -495,7 +495,7 @@ describe('<StoryList> pin and sweep', () => {
     await waitFor(() => {
       expect(screen.getByTestId('empty-state')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+    expect(screen.getByTestId('sweep-btn')).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('disables the sweep button when every story is pinned', async () => {
@@ -516,7 +516,7 @@ describe('<StoryList> pin and sweep', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(2);
     });
-    expect(screen.getByTestId('sweep-btn')).toBeDisabled();
+    expect(screen.getByTestId('sweep-btn')).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('undo button is disabled on load and enabled after a sweep; clicking it restores the batch', async () => {
@@ -538,12 +538,12 @@ describe('<StoryList> pin and sweep', () => {
     });
 
     const undo = screen.getByTestId('undo-btn');
-    expect(undo).toBeDisabled();
+    expect(undo).toHaveAttribute('aria-disabled', 'true');
     expect(undo).toHaveAccessibleName(/nothing to undo/i);
 
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     fireEvent.click(sweep);
 
@@ -552,7 +552,7 @@ describe('<StoryList> pin and sweep', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('undo-btn')).not.toBeDisabled();
+      expect(screen.getByTestId('undo-btn')).not.toHaveAttribute('aria-disabled', 'true');
     });
     expect(screen.getByTestId('undo-btn')).toHaveAccessibleName(/undo hide/i);
 
@@ -561,7 +561,7 @@ describe('<StoryList> pin and sweep', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
-    expect(screen.getByTestId('undo-btn')).toBeDisabled();
+    expect(screen.getByTestId('undo-btn')).toHaveAttribute('aria-disabled', 'true');
     const stored = window.localStorage.getItem('newshacker:hiddenStoryIds');
     const parsed = stored
       ? (JSON.parse(stored) as Array<{ id: number; deleted?: true }>)

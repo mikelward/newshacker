@@ -280,7 +280,7 @@ describe('<StoryList> pinned-to-top block', () => {
     // (not fully visible) and Story 4 (pinned) survive.
     const sweep = screen.getByTestId('sweep-btn');
     await waitFor(() => {
-      expect(sweep).not.toBeDisabled();
+      expect(sweep).not.toHaveAttribute('aria-disabled', 'true');
     });
     fireEvent.click(sweep);
 

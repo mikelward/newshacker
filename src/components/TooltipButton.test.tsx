@@ -2,6 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { TooltipButton } from './TooltipButton';
 
+// jsdom ships no real PointerEvent constructor, so Testing Library's
+// `fireEvent.pointerEnter/Leave` fall back to a plain Event and drop the
+// `pointerType` from the init dict — which the hover path keys off. Give
+// it a minimal PointerEvent that carries pointerType through so the
+// mouse-hover tests exercise the real branch.
+if (typeof window.PointerEvent === 'undefined') {
+  class PointerEventPolyfill extends MouseEvent {
+    pointerType: string;
+    pointerId: number;
+    constructor(type: string, params: PointerEventInit = {}) {
+      super(type, params);
+      this.pointerType = params.pointerType ?? '';
+      this.pointerId = params.pointerId ?? 0;
+    }
+  }
+  // @ts-expect-error — assigning the polyfill to the global.
+  window.PointerEvent = PointerEventPolyfill;
+}
+
 type PointerType = 'touch' | 'pen' | 'mouse';
 
 function dispatch(
@@ -71,7 +90,10 @@ describe('TooltipButton', () => {
     const btn = screen.getByTestId('btn');
     expect(btn.tagName).toBe('BUTTON');
     expect(btn).toHaveAttribute('aria-label', 'Pin story');
-    expect(btn).toBeDisabled();
+    // `disabled` is rendered as a soft disable (aria-disabled), not the native
+    // attribute, so the control still receives events and can show its tooltip.
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    expect(btn).not.toBeDisabled();
     expect(btn).toHaveTextContent('icon');
   });
 
@@ -381,10 +403,37 @@ describe('TooltipButton', () => {
     dispatch(btn, 'pointerup', { pointerType: 'touch' });
     act(() => {
       btn.dispatchEvent(
-        new MouseEvent('click', { bubbles: true, cancelable: true }),
+        // A pointer-driven click carries detail >= 1 (keyboard clicks are 0).
+        new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }),
       );
     });
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('does not swallow a keyboard activation after an abandoned long-press', () => {
+    // Regression: a long-press with no click (finger slid off before release)
+    // leaves the latch set until the next POINTERDOWN clears it — but a
+    // keyboard activation (Enter/Space → click with detail === 0) has no
+    // pointerdown, so the first press was silently eaten.
+    const onClick = vi.fn();
+    render(
+      <TooltipButton tooltip="Pin" data-testid="btn" onClick={onClick}>
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn');
+    dispatch(btn, 'pointerdown', { pointerType: 'touch' });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    dispatch(btn, 'pointerup', { pointerType: 'touch' });
+
+    act(() => {
+      btn.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }),
+      );
+    });
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   it('does not swallow a later mouse click after a long-press with no click', () => {
@@ -527,5 +576,76 @@ describe('TooltipButton', () => {
     dispatch(btn, 'pointerup', { pointerType: 'touch' });
     expect(onPointerDown).toHaveBeenCalledTimes(1);
     expect(onPointerUp).toHaveBeenCalledTimes(1);
+  });
+
+  // A natively-`disabled` <button> fires no pointer/hover events in real
+  // browsers, so a disabled TooltipButton could never show its tooltip. We
+  // render the disabled state with aria-disabled so the tooltip still works.
+  describe('soft-disabled (aria-disabled) still shows its tooltip', () => {
+    it('shows the tooltip on a 500ms long-press when disabled', () => {
+      render(
+        <TooltipButton tooltip="Nothing to dismiss" data-testid="btn" disabled>
+          x
+        </TooltipButton>,
+      );
+      const btn = screen.getByTestId('btn');
+      const restore = mockRect(btn, {
+        top: 100,
+        left: 40,
+        width: 44,
+        height: 44,
+        right: 84,
+        bottom: 144,
+      });
+      dispatch(btn, 'pointerdown', { pointerType: 'touch' });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Nothing to dismiss');
+      restore();
+    });
+
+    it('shows the tooltip on mouse hover when disabled', () => {
+      render(
+        <TooltipButton tooltip="Nothing to undo" data-testid="btn" disabled>
+          x
+        </TooltipButton>,
+      );
+      const btn = screen.getByTestId('btn');
+      const restore = mockRect(btn, {
+        top: 12,
+        left: 40,
+        width: 44,
+        height: 44,
+        right: 84,
+        bottom: 56,
+      });
+      act(() => {
+        fireEvent.pointerEnter(btn, { pointerType: 'mouse', pointerId: 1 });
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Nothing to undo');
+      restore();
+    });
+
+    it('stays inert: a click does not invoke onClick while disabled', () => {
+      const onClick = vi.fn();
+      render(
+        <TooltipButton tooltip="Pin" data-testid="btn" disabled onClick={onClick}>
+          x
+        </TooltipButton>,
+      );
+      const btn = screen.getByTestId('btn');
+      act(() => {
+        btn.dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(onClick).not.toHaveBeenCalled();
+      expect(btn).toHaveAttribute('aria-disabled', 'true');
+      expect(btn).not.toBeDisabled();
+    });
   });
 });

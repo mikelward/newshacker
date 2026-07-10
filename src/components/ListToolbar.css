@@ -101,7 +101,9 @@
   cursor: pointer;
 }
 
-.list-toolbar__button:disabled {
+/* TooltipButtons go inert via aria-disabled (not the native `disabled`
+   attribute) so their tooltip still shows on hover/long-press. */
+.list-toolbar__button[aria-disabled='true'] {
   color: var(--nh-meta);
   cursor: default;
 }
@@ -112,12 +114,12 @@
 }
 
 @media (hover: hover) {
-  .list-toolbar__button:not(:disabled):hover {
+  .list-toolbar__button:not([aria-disabled='true']):hover {
     background: var(--nh-bg);
   }
 }
 
-.list-toolbar__button:not(:disabled):active {
+.list-toolbar__button:not([aria-disabled='true']):active {
   background: var(--nh-bg);
 }
 
