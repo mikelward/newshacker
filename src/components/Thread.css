@@ -262,6 +262,19 @@
   margin-bottom: 0;
 }
 
+/* Bullet lists MarkdownText emits when a summary or insight is multi-point.
+   Tight margins keep the card compact; the indent leaves room for the marker. */
+.thread__summary-body .markdown-list,
+.thread__summary-list .markdown-list {
+  margin: 4px 0 0;
+  padding-left: 1.25rem;
+}
+
+.thread__summary-body .markdown-list li,
+.thread__summary-list .markdown-list li {
+  margin: 2px 0;
+}
+
 .thread__summary-card--comments {
   margin-top: 8px;
   margin-bottom: 8px;
