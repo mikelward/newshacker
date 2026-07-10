@@ -236,15 +236,24 @@ describe('<Thread>', () => {
 
     renderWithProviders(<Thread id={400} />);
 
-    const bodyText = await screen.findByText(/a long enough comment body/);
-    const body = bodyText.closest('.comment__body') as HTMLElement;
-    expect(body).toHaveClass('comment__body--clamped');
+    await screen.findByText(/a long enough comment body/);
+    // Re-query the body each time rather than holding a reference: the async
+    // summary cards settle after first paint, and React 19 replaces the
+    // dangerouslySetInnerHTML child on that re-render, detaching any node
+    // captured earlier. The .comment__body element itself is stable, so look
+    // it up fresh before each assertion/interaction.
+    const getBody = () =>
+      screen
+        .getByText(/a long enough comment body/)
+        .closest('.comment__body') as HTMLElement;
 
-    await userEvent.click(body);
-    expect(body).not.toHaveClass('comment__body--clamped');
+    expect(getBody()).toHaveClass('comment__body--clamped');
 
-    await userEvent.click(body);
-    expect(body).toHaveClass('comment__body--clamped');
+    await userEvent.click(getBody());
+    expect(getBody()).not.toHaveClass('comment__body--clamped');
+
+    await userEvent.click(getBody());
+    expect(getBody()).toHaveClass('comment__body--clamped');
   });
 
   it('renders the comment author as an internal link to /user/<by>', async () => {
