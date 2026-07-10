@@ -41,56 +41,6 @@ interface Props {
   periodicCheckMs?: number;
 }
 
-// Tracks a localStorage write that failed at runtime even though reads
-// keep working. Safari's quota-exceeded state (and some private modes)
-// rejects setItem while still answering getItem — so writeInstalledFlag()
-// throws-and-swallows, the flag never persists, and getItem keeps
-// returning null. Without this memory, readInstalledFlag() would report
-// `false` on every controllerchange, the first-ever-install guard would
-// fire forever, and real updates would be suppressed — the exact opposite
-// of the fail-open behavior this flag exists to guarantee. Remembering the
-// failure here lets readInstalledFlag() fail open instead.
-let installedFlagWriteFailed = false;
-
-// Resets the in-memory write-failure latch. Exported for tests so each
-// case starts from a clean fail-open baseline; not used by the component.
-// (Fast-refresh doesn't apply to a test-only helper, so the rule's
-// component-only-export warning is a false positive here.)
-// eslint-disable-next-line react-refresh/only-export-components
-export function resetInstalledFlagWriteFailureForTests() {
-  installedFlagWriteFailed = false;
-}
-
-// Fail open: when storage isn't usable (Safari private mode, disabled
-// cookies, quota exceeded), pretend the flag is set so the watcher
-// shows the toast on every controllerchange. The alternative — fail
-// closed and suppress every controllerchange — would silently
-// reintroduce the very stale-bundle bug this flag exists to fix on
-// browsers where storage just happens to be off. One spurious toast
-// per session on those browsers is the much better failure mode.
-function readInstalledFlag(): boolean {
-  if (installedFlagWriteFailed) return true;
-  try {
-    return localStorage.getItem(SW_INSTALLED_FLAG) === '1';
-  } catch {
-    return true;
-  }
-}
-
-function writeInstalledFlag() {
-  try {
-    localStorage.setItem(SW_INSTALLED_FLAG, '1');
-  } catch {
-    // Storage rejected the write (private mode, quota exceeded). If reads
-    // still work, getItem would keep returning null and readInstalledFlag
-    // would report `false` forever; latch the failure so reads fail open.
-    // The caller in the first-install branch also checks this latch
-    // directly so the *current* claim fails open too, not just future
-    // ones — exactly what we want.
-    installedFlagWriteFailed = true;
-  }
-}
-
 // Sits inside `ToastProvider` at the app root. Three passive surfaces
 // for SW updates that aren't covered by the PTR auto-reload path:
 //
@@ -119,11 +69,11 @@ function writeInstalledFlag() {
 //
 // First-ever-install guard: only suppress the toast if we have *no*
 // record of ever having seen a controller on this device (the
-// `SW_INSTALLED_FLAG` localStorage entry). The previous in-memory
-// "controller was null at mount" heuristic also fired on hard
+// `SW_INSTALLED_FLAG` localStorage entry). A naive in-memory
+// "controller was null at mount" heuristic also fires on hard
 // reloads, Chrome session-restore, and iOS PWA relaunches — all of
 // which can produce a transient null controller despite the SW
-// being installed long ago — so legitimate updates were getting
+// being installed long ago — so legitimate updates would get
 // silently swallowed. The flag persists across tabs and sessions,
 // so once we've installed once, every subsequent claim is treated
 // as a real update.
@@ -139,27 +89,63 @@ export function AppUpdateWatcher({
       return;
     }
 
+    // Fail open: when storage isn't usable (Safari private mode, disabled
+    // cookies, quota exceeded), treat the device as "already installed" so
+    // the watcher shows the toast on every controllerchange. Failing closed
+    // and suppressing every controllerchange would silently reintroduce the
+    // very stale-bundle bug this flag exists to fix on browsers where storage
+    // just happens to be off. One spurious toast per session on those
+    // browsers is the much better failure mode.
+    //
+    // We can only distinguish "first-ever install" (suppress) from "returning
+    // to a stale tab" (toast) if we can *persist* the flag. So probe
+    // writability up front with a throwaway key rather than waiting to
+    // discover a failed write — otherwise a tab that mounts with a transient
+    // null controller (the hard-reload / session-restore case) never attempts
+    // a write at mount, `getItem` reads null, and the first claim is wrongly
+    // taken as a first install and suppressed. `storageWritable` starts from
+    // the probe and is also downgraded if a real write later throws.
+    let storageWritable = (() => {
+      try {
+        const probe = '__newshacker_sw_probe__';
+        localStorage.setItem(probe, '1');
+        localStorage.removeItem(probe);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    const readInstalledFlag = (): boolean => {
+      if (!storageWritable) return true;
+      try {
+        return localStorage.getItem(SW_INSTALLED_FLAG) === '1';
+      } catch {
+        return true;
+      }
+    };
+    const writeInstalledFlag = () => {
+      try {
+        localStorage.setItem(SW_INSTALLED_FLAG, '1');
+      } catch {
+        storageWritable = false;
+      }
+    };
+
     let baselineController = navigator.serviceWorker.controller;
     if (baselineController) writeInstalledFlag();
 
     const onControllerChange = () => {
       const current = navigator.serviceWorker.controller;
       if (current === baselineController) return;
-      baselineController = current;
       if (!readInstalledFlag()) {
-        // No record of a prior install on this device. Try to record this
-        // claim as the first one and suppress the spurious toast — the
-        // bundle we're running was just fetched fresh, the SW claiming us
-        // precaches the same hashes, no reason to nudge. But only suppress
-        // if the write actually sticks: if storage rejects it (reads work,
-        // writes throw), we can never persist the flag and so can't tell a
-        // first install from a real update on the next load. Fail open on
-        // *this* claim — suppressing it would silently swallow the real
-        // update on every reload in that environment, which is the bug the
-        // flag exists to prevent.
+        // Truly first-ever install on this device: the bundle we're running
+        // was just fetched fresh, the SW that's claiming us precaches the
+        // same hashes — no reason to nudge.
+        baselineController = current;
         writeInstalledFlag();
-        if (!installedFlagWriteFailed) return;
+        return;
       }
+      baselineController = current;
       showToast({
         message: 'New version available',
         actionLabel: 'Reload',
