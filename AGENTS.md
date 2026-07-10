@@ -36,6 +36,7 @@ bites, not the third.
 npm install          # install deps
 npm run dev          # local dev server (Vite)
 npm test             # run Vitest in CI mode
+npm run test:coverage # tests + the coverage floor (what CI runs)
 npm run test:watch   # Vitest watch mode
 npm run lint         # lint
 npm run typecheck    # tsc --noEmit
@@ -49,7 +50,11 @@ If a command above doesn't exist yet (early in the project), add it to `package.
 - **Framework:** Vitest + React Testing Library + jsdom.
 - **Network mocking:** MSW for anything that hits the Firebase or HN endpoints.
 - **Serverless tests:** call the handler directly with a mocked `Request`/`Response`; mock `fetch` for outbound HN calls.
-- **Coverage floor:** 80% for files in `src/lib/` and `api/`.
+- **Coverage floor:** 80% for files in `src/lib/` and `api/`. Enforced in
+  CI by `npm run test:coverage` (vitest `coverage.thresholds`, aggregate
+  lines per area). `api/`'s branch/function coverage is still below the
+  floor — raise the enforced metrics as that gap closes; don't lower the
+  threshold.
 - **Required runs before marking a task done:**
   1. `npm test`
   2. `npm run lint`

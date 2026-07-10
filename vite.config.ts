@@ -238,5 +238,20 @@ export default defineConfig({
     // Auto-restore `vi.stubGlobal` between tests so confirm/scrollTo/etc.
     // don't leak from one test to the next.
     unstubGlobals: true,
+    // Enforce the AGENTS.md coverage floor (80% for src/lib/ and api/) in CI
+    // via `npm run test:coverage`; plain `npm test` skips instrumentation so
+    // the local loop stays fast. Lines is the enforced metric: both areas
+    // clear it today, while api/'s branch/function coverage does not — raise
+    // those (and consider per-file thresholds) as the gap closes rather than
+    // starting with a gate that's red on day one.
+    coverage: {
+      provider: 'v8',
+      include: ['src/lib/**', 'api/**'],
+      reporter: ['text-summary'],
+      thresholds: {
+        'src/lib/**': { lines: 80 },
+        'api/**': { lines: 80 },
+      },
+    },
   },
 });
