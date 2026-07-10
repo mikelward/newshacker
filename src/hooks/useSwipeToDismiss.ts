@@ -75,6 +75,10 @@ export function useSwipeToDismiss({
     (e: PointerEvent<HTMLElement>) => {
       if (!active || isDismissing) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
+      // A pointer is already tracked: a second finger must not clobber the
+      // in-flight gesture's start state (the first finger's swipe would
+      // freeze at its current offset and its release would be ignored).
+      if (startRef.current) return;
       justSwipedRef.current = false;
       const rect = e.currentTarget.getBoundingClientRect();
       startRef.current = {
@@ -102,6 +106,22 @@ export function useSwipeToDismiss({
   const onPointerMove = useCallback((e: PointerEvent<HTMLElement>) => {
     const start = startRef.current;
     if (!start || start.pointerId !== e.pointerId) return;
+    // Pointer capture is only taken once a swipe arms, so a mouse/pen press
+    // released OUTSIDE the row never delivers its pointerup and the start
+    // state goes stale. A hover-capable pointer moving with no button held
+    // is that stale case (a mouse keeps one pointerId for the whole
+    // session): resuming from it would drag the row under a button-less
+    // hover and let a later plain click commit a swipe action. Drop it.
+    // Touch is excluded — contact implies buttons=1 and implicit capture
+    // always delivers the touch's pointerup/pointercancel.
+    if (
+      e.buttons === 0 &&
+      (e.pointerType === 'mouse' || e.pointerType === 'pen')
+    ) {
+      startRef.current = null;
+      clearLongPressTimer();
+      return;
+    }
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
     if (
@@ -186,6 +206,19 @@ export function useSwipeToDismiss({
     const currentTarget = e.currentTarget as Node | null;
     const target = e.target as Node | null;
     if (currentTarget && target && !currentTarget.contains(target)) {
+      return;
+    }
+    // This guard exists to cancel an accidental activation of the row BODY
+    // (its link) at the tail of a swipe — not to eat a deliberate tap on an
+    // action control. The row's Pin/menu buttons stop their own pointerdown
+    // from reaching this hook (TooltipButton.handlePointerDown), so
+    // `justSwiped` never gets cleared by pressing them the way a row-body tap
+    // clears it. If a prior row-body gesture (a below-threshold scrub, a
+    // long-press) left `justSwiped` armed, swallowing the click here would
+    // make the *next* button tap a silent no-op. Let taps that land on a
+    // button through untouched (their own onClick handles them).
+    if (target instanceof Element && target.closest('button')) {
+      justSwipedRef.current = false;
       return;
     }
     e.preventDefault();
