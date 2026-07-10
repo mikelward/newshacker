@@ -7,6 +7,7 @@ import { usePinnedStories } from '../hooks/usePinnedStories';
 import { useDoneStories } from '../hooks/useDoneStories';
 import { useHiddenStories } from '../hooks/useHiddenStories';
 import { StoryListImpl } from '../components/StoryList';
+import { LoadingState } from '../components/States';
 import type { RowFlag } from '../components/StoryListItem';
 import {
   DEFAULT_HOT_THRESHOLDS,
@@ -120,7 +121,7 @@ export function ThresholdTuningPage() {
     return (
       <article className="admin-page">
         <h1 className="admin-page__title">Hot threshold tuning</h1>
-        <p aria-busy="true">Loading…</p>
+        <LoadingState showLabel />
       </article>
     );
   }

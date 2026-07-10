@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ME_QUERY_KEY, useAuth } from '../hooks/useAuth';
+import { LoadingState } from '../components/States';
 import './AdminPage.css';
 
 // Mirrors api/admin.ts AdminResponse. Kept local so we don't reach
@@ -701,7 +702,7 @@ export function AdminPage() {
     return (
       <article className="admin-page">
         <h1 className="admin-page__title">Admin</h1>
-        <p aria-busy="true">Loading…</p>
+        <LoadingState showLabel />
       </article>
     );
   }
@@ -761,7 +762,7 @@ export function AdminPage() {
       </p>
 
       {isLoading ? (
-        <p aria-busy="true">Loading status…</p>
+        <LoadingState showLabel label="Loading status…" />
       ) : isError || !data ? (
         <p role="alert">
           Could not load admin status.{' '}
