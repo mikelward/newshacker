@@ -178,4 +178,53 @@ describe('MarkdownText', () => {
       'The DeepSeek API is compatible with OpenAI and Anthropic SDKs, allowing developers to make API calls by configuring the <code>base_url</code> and obtaining an API key.',
     );
   });
+
+  it('renders a run of "-" bullet lines as a <ul>', () => {
+    const { container } = render(
+      <MarkdownText text={'- First point\n- Second point\n- Third point'} />,
+    );
+    expect(container.innerHTML).toBe(
+      '<ul class="markdown-list"><li>First point</li><li>Second point</li>' +
+        '<li>Third point</li></ul>',
+    );
+  });
+
+  it('renders "*" bullet lines as a <ul> without treating them as italic', () => {
+    const { container } = render(<MarkdownText text={'* one\n* two'} />);
+    expect(container.innerHTML).toBe(
+      '<ul class="markdown-list"><li>one</li><li>two</li></ul>',
+    );
+  });
+
+  it('applies inline formatting inside list items', () => {
+    const { container } = render(
+      <MarkdownText text={'- set the `base_url`\n- **enable** the *flag*'} />,
+    );
+    expect(container.innerHTML).toBe(
+      '<ul class="markdown-list"><li>set the <code>base_url</code></li>' +
+        '<li><strong>enable</strong> the <em>flag</em></li></ul>',
+    );
+  });
+
+  it('renders a lead-in paragraph followed by a bullet list', () => {
+    const { container } = render(
+      <MarkdownText text={'Here are the highlights:\n- alpha\n- beta'} />,
+    );
+    expect(container.innerHTML).toBe(
+      'Here are the highlights:<ul class="markdown-list">' +
+        '<li>alpha</li><li>beta</li></ul>',
+    );
+  });
+
+  it('does not treat a mid-sentence hyphen or asterisk as a bullet', () => {
+    const { container } = render(
+      <MarkdownText text="a well-known result and 2 * 3 math" />,
+    );
+    expect(container.innerHTML).toBe('a well-known result and 2 * 3 math');
+  });
+
+  it('leaves **bold** at the start of a line as bold, not a bullet', () => {
+    const { container } = render(<MarkdownText text="**heads up** everyone" />);
+    expect(container.innerHTML).toBe('<strong>heads up</strong> everyone');
+  });
 });

@@ -401,9 +401,11 @@ function SummaryCard({ storyId }: { storyId: number }) {
         </p>
       ) : null}
       {data ? (
-        <p className="thread__summary-body">
+        // A <div>, not a <p>: MarkdownText can emit a <ul> for a bulleted
+        // summary, which is invalid nested inside a <p>.
+        <div className="thread__summary-body">
           <MarkdownText text={data.summary} />
-        </p>
+        </div>
       ) : null}
       {offlineWithoutCache ? (
         <div className="thread__summary-error" data-testid="summary-offline">
