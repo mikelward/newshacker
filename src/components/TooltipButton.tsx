@@ -40,6 +40,8 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
       className,
       title,
       children,
+      disabled,
+      'aria-disabled': ariaDisabledProp,
       onPointerDown,
       onPointerMove,
       onPointerUp,
@@ -57,6 +59,17 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
     );
 
     const tooltipId = useId();
+
+    // A natively-`disabled` <button> receives NO pointer, hover, or focus
+    // events in real browsers, so its tooltip can never appear — the
+    // "Nothing to undo" / "Nothing to dismiss" hints were dead. Render the
+    // disabled state with `aria-disabled` instead so the control still
+    // surfaces its tooltip on hover / long-press / focus, and keep it inert
+    // to activation via the guard in handleClick below.
+    const inert =
+      Boolean(disabled) ||
+      ariaDisabledProp === true ||
+      ariaDisabledProp === 'true';
 
     const [open, setOpen] = useState(false);
     const [position, setPosition] = useState<{
@@ -319,9 +332,20 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
 
     const handleClick = useCallback(
       (e: MouseEvent<HTMLButtonElement>) => {
+        // Soft-disabled (aria-disabled): the control still shows its tooltip
+        // but must not activate — swallow the click / keyboard activation.
+        if (inert) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         // If the long-press tooltip fired, the user was inspecting the
-        // button, not invoking it — swallow the click.
-        if (activatedRef.current) {
+        // button, not invoking it — swallow the click. Only a POINTER click
+        // can be that gesture's tail: a keyboard activation (Enter/Space,
+        // detail === 0) has no pointerdown to reset a latch left stale by an
+        // abandoned long-press (finger slid off before release), so it must
+        // never be swallowed.
+        if (activatedRef.current && e.detail !== 0) {
           activatedRef.current = false;
           e.preventDefault();
           e.stopPropagation();
@@ -329,7 +353,7 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
         }
         onClick?.(e);
       },
-      [onClick],
+      [onClick, inert],
     );
 
     const mergedClassName = className
@@ -351,6 +375,7 @@ export const TooltipButton = forwardRef<HTMLButtonElement, TooltipButtonProps>(
           ref={buttonRef}
           className={mergedClassName}
           title={title}
+          aria-disabled={inert || undefined}
           aria-describedby={open ? tooltipId : undefined}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}

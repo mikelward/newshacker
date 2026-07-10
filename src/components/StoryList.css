@@ -105,18 +105,20 @@
 }
 
 @media (hover: hover) {
-  .back-to-top-btn--icon:not(:disabled):hover,
-  .list-footer__icon-btn:not(:disabled):hover {
+  .back-to-top-btn--icon:not([aria-disabled='true']):hover,
+  .list-footer__icon-btn:not([aria-disabled='true']):hover {
     background: var(--nh-bg);
   }
 }
 
-.back-to-top-btn--icon:not(:disabled):active,
-.list-footer__icon-btn:not(:disabled):active {
+.back-to-top-btn--icon:not([aria-disabled='true']):active,
+.list-footer__icon-btn:not([aria-disabled='true']):active {
   background: var(--nh-bg);
 }
 
-.list-footer__icon-btn:disabled {
+/* TooltipButtons go inert via aria-disabled (not the native `disabled`
+   attribute) so their tooltip still shows on hover/long-press. */
+.list-footer__icon-btn[aria-disabled='true'] {
   color: var(--nh-meta);
   cursor: default;
 }

@@ -38,8 +38,12 @@ describe('<ListToolbar>', () => {
     const sweep = screen.getByTestId('sweep-btn');
     expect(undo).toBeInTheDocument();
     expect(sweep).toBeInTheDocument();
-    expect(undo).toBeDisabled();
-    expect(sweep).toBeDisabled();
+    // Soft-disabled via aria-disabled (not the native attribute) so the
+    // "Nothing to undo" / "Nothing to hide" tooltips still surface.
+    expect(undo).toHaveAttribute('aria-disabled', 'true');
+    expect(sweep).toHaveAttribute('aria-disabled', 'true');
+    expect(undo).not.toBeDisabled();
+    expect(sweep).not.toBeDisabled();
     expect(undo).toHaveAccessibleName(/nothing to undo/i);
     expect(sweep).toHaveAccessibleName(/nothing to hide/i);
   });
