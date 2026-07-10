@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import {
-  AppUpdateWatcher,
-  SW_INSTALLED_FLAG,
-  resetInstalledFlagWriteFailureForTests,
-} from './AppUpdateWatcher';
+import { AppUpdateWatcher, SW_INSTALLED_FLAG } from './AppUpdateWatcher';
 import { ToastProvider } from './Toast';
 
 vi.mock('../lib/swUpdate', () => ({
@@ -64,9 +60,6 @@ describe('<AppUpdateWatcher>', () => {
     // the SW" baseline so the install-suppression behavior is
     // deterministic.
     localStorage.removeItem(SW_INSTALLED_FLAG);
-    // Clear the module-level write-failure latch so a test that tripped
-    // it doesn't leave the watcher permanently failing open for the next.
-    resetInstalledFlagWriteFailureForTests();
   });
 
   afterEach(() => {
@@ -145,10 +138,10 @@ describe('<AppUpdateWatcher>', () => {
     // The bug that stranded users on stale bundles: on a hard-reload
     // (Cmd/Ctrl+Shift+R), Chrome session-restore, or an iOS PWA
     // relaunch, `navigator.serviceWorker.controller` can read null at
-    // mount even though the SW was installed long ago. The previous
-    // in-memory "null at mount" heuristic suppressed the next
+    // mount even though the SW was installed long ago. A naive
+    // in-memory "null at mount" heuristic suppresses the next
     // controllerchange — i.e. the new SW claiming the stale tab —
-    // and the user kept running old code until they refreshed enough
+    // and the user keeps running old code until they refresh enough
     // times for the browser to background-update again.
     localStorage.setItem(SW_INSTALLED_FLAG, '1');
     const { fireControllerChange } = stubServiceWorker(null);
@@ -197,38 +190,61 @@ describe('<AppUpdateWatcher>', () => {
     // between tests automatically — no manual cleanup needed.
   });
 
-  it('fails open on the first claim when localStorage reads work but writes are rejected (quota exceeded)', () => {
-    // Safari quota-exceeded (and some private modes) answer getItem but
-    // throw on setItem. With controller=null at mount — the documented
-    // hard-reload / iOS-relaunch / session-restore case — the very first
-    // controllerchange is the real update for an already-installed SW, yet
-    // it enters the first-install branch (the flag never persisted, so
-    // getItem returns null). writeInstalledFlag() then fails; the watcher
-    // must fail open and toast on *this* claim, not suppress it and only
-    // recover on a hypothetical second claim in the same JS lifetime —
-    // every reload would otherwise swallow the real update.
-    const store = new Map<string, string>();
-    const writeRejecting: Storage = {
-      getItem: (key) => store.get(key) ?? null,
+  it('fails open when localStorage allows reads but rejects writes', () => {
+    // Quota-exceeded / some private modes let getItem succeed but throw
+    // on setItem. If the watcher only failed open on a read throw, the
+    // flag would never persist, getItem would keep returning null, and
+    // every controllerchange would read as a first-install — suppressing
+    // real update toasts in exactly the storage-degraded case we mean to
+    // fail open on. The up-front writability probe catches it. Mount *with*
+    // a controller so the at-mount write is the one that throws.
+    const readOnly: Storage = {
+      getItem: () => null,
       setItem: () => {
         throw new Error('QuotaExceededError');
       },
-      removeItem: (key) => {
-        store.delete(key);
-      },
-      clear: () => store.clear(),
+      removeItem: () => {},
+      clear: () => {},
       key: () => null,
       length: 0,
     };
-    vi.stubGlobal('localStorage', writeRejecting);
+    vi.stubGlobal('localStorage', readOnly);
+    const { fireControllerChange } = stubServiceWorker({ id: 'old' });
+    render(
+      <ToastProvider>
+        <AppUpdateWatcher reload={vi.fn()} />
+      </ToastProvider>,
+    );
+    fireControllerChange({ id: 'new' });
+    expect(screen.getByText(/new version available/i)).toBeInTheDocument();
+  });
+
+  it('fails open with read-only storage when controller is null at mount', () => {
+    // The hard-reload / session-restore case the guard exists for:
+    // controller reads null at mount, so no flag write is attempted
+    // there. If writability were only discovered via a failed write,
+    // this path would never learn storage is read-only — it would read
+    // getItem() === null, treat the claim as a first install, and
+    // suppress the real update toast. The up-front writability probe
+    // catches it so the toast still fires.
+    const readOnly: Storage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+      removeItem: () => {},
+      clear: () => {},
+      key: () => null,
+      length: 0,
+    };
+    vi.stubGlobal('localStorage', readOnly);
     const { fireControllerChange } = stubServiceWorker(null);
     render(
       <ToastProvider>
         <AppUpdateWatcher reload={vi.fn()} />
       </ToastProvider>,
     );
-    // First and only claim: write is rejected → fail open → toast now.
-    fireControllerChange({ id: 'first' });
+    fireControllerChange({ id: 'new' });
     expect(screen.getByText(/new version available/i)).toBeInTheDocument();
   });
 
