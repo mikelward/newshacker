@@ -41,11 +41,18 @@ function handlerFiles(): string[] {
 const IMPORT_RE =
   /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s*['"]([^'"]+)['"]/g;
 const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+// Side-effect imports (`import './x';`) carry no `from`, so they need their
+// own pattern — a subdirectory side-effect import is just as fatal on Vercel
+// as a `from` one.
+const SIDE_EFFECT_IMPORT_RE = /(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
 
 function importPaths(source: string): string[] {
   const paths: string[] = [];
   for (const match of source.matchAll(IMPORT_RE)) paths.push(match[1]);
   for (const match of source.matchAll(DYNAMIC_IMPORT_RE)) paths.push(match[1]);
+  for (const match of source.matchAll(SIDE_EFFECT_IMPORT_RE)) {
+    paths.push(match[1]);
+  }
   return paths;
 }
 
@@ -109,18 +116,16 @@ describe('api handler imports', () => {
       `import { bar } from "./sub/b";`,
       `export { baz } from '../c';`,
       `const m = await import('./_lib/d');`,
-      `import './ok-sibling';`, // no `from` — no path captured by our regex
+      `import './_lib/e';`, // side-effect import — same deploy trap
+      `import './ok-sibling';`, // sibling side-effect import — allowed
     ].join('\n');
     const bad = importPaths(source).filter(isDisallowedRelativeImport);
-    // Four disallowed paths captured across the four `from`-having lines.
-    // The bare side-effect import is not captured, which is fine — it's
-    // almost never used in this codebase, and adding it would require a
-    // second regex for marginal benefit.
     expect(bad).toEqual([
       './_lib/a',
       './sub/b',
       '../c',
       './_lib/d',
+      './_lib/e',
     ]);
   });
 });
