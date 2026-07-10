@@ -38,3 +38,7 @@ updates:
           - "react"
           - "react-dom"
           - "react-router-dom"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
