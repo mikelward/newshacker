@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
+import { LoadingState } from '../components/States';
 import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
 import { buildCommitTime } from '../lib/buildInfo';
 import { formatTimeAgo } from '../lib/format';
@@ -71,7 +72,7 @@ export function DebugPage() {
       <h1 className="debug-page__title">Debug</h1>
 
       {isLoading ? (
-        <p aria-busy="true">Loading status…</p>
+        <LoadingState showLabel label="Loading status…" />
       ) : isError || !data ? (
         <p role="alert">
           Could not load status.{' '}
