@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 import { _resetNetworkStatusForTests } from './src/lib/networkStatus';
+import { _clearFeedSnapshotsForTests } from './src/lib/feedSnapshot';
 
 // Only load DOM matchers when we're actually in a DOM environment.
 // Pure-logic tests run under the node environment (see
@@ -13,6 +14,11 @@ if (typeof window !== 'undefined') {
 // test doesn't leave the next one starting offline, and vice versa.
 beforeEach(() => {
   _resetNetworkStatusForTests();
+  // The feed materialization snapshot store is a per-session singleton
+  // (module-level Map, keyed by feed). Reset it around every test so one
+  // test's frozen set can't leak into the next — same rationale as
+  // networkStatus and localStorage.
+  _clearFeedSnapshotsForTests();
   // window.close() tears the whole document down in the DOM test environment,
   // cascading "document is not defined" into later tests. The thread's
   // Done/back ladder (closeArticleView) calls it when there's no back entry — a
@@ -25,4 +31,5 @@ beforeEach(() => {
 
 afterEach(() => {
   _resetNetworkStatusForTests();
+  _clearFeedSnapshotsForTests();
 });

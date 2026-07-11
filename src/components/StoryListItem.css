@@ -87,6 +87,21 @@
   font-weight: 400;
 }
 
+/* Pending dismiss: a story marked Done from another device (or another
+   surface) while the frozen feed set is on screen. It's dismissed but not
+   yet swept out, so the title reads struck-through and muted — a clear
+   "you're done with this" signal — while the row stays fully in place and
+   fully tappable (no pointer-events change; the whole row is still a live
+   link, and the pin/Done buttons still work). The next compact /
+   materialize is what actually removes it. */
+.story-row--dimmed .story-row__title-text {
+  text-decoration: line-through;
+  color: var(--nh-meta);
+}
+.story-row--dimmed .story-row__meta {
+  color: var(--nh-meta);
+}
+
 @media (hover: hover) {
   /* Row-wide hover tint on pointer devices so the whole row (body
      and pin-button column alike) signals that it's interactive. The

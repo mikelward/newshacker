@@ -5,16 +5,53 @@ import { AppHeader } from './AppHeader';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { addPinnedId } from '../lib/pinnedStories';
+import { PULL_TO_REFRESH_TRIGGER_PX } from './PullToRefresh';
 import {
   installIntersectionObserverMock,
   setVisibilityForTest,
   uninstallIntersectionObserverMock,
 } from '../test/intersectionObserver';
 
+// Drive a real pull-to-refresh gesture — the explicit "show me the latest"
+// action that full-materializes the frozen feed set.
+function pullToRefresh() {
+  const wrap = screen.getByTestId('pull-to-refresh');
+  const y = 100 + PULL_TO_REFRESH_TRIGGER_PX * 2 + 20;
+  for (const [type, clientY] of [
+    ['pointerdown', 100],
+    ['pointermove', y],
+    ['pointerup', y],
+  ] as const) {
+    const evt = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(evt, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: 100,
+      clientY,
+      button: 0,
+      isPrimary: true,
+    });
+    act(() => {
+      wrap.dispatchEvent(evt);
+    });
+  }
+}
+
+function currentTitles(): string[] {
+  return screen
+    .getAllByTestId('story-row')
+    .map((row) => row.querySelector('.story-row__title-text')?.textContent ?? '');
+}
+
 describe('<StoryList> pinned-to-top block', () => {
   beforeEach(() => {
     window.localStorage.clear();
     installIntersectionObserverMock();
+    Object.defineProperty(Element.prototype, 'setPointerCapture', {
+      value: vi.fn(),
+      configurable: true,
+    });
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
   });
   afterEach(() => {
     window.localStorage.clear();
@@ -299,17 +336,52 @@ describe('<StoryList> pinned-to-top block', () => {
     expect(titles).toEqual(['Story 1', 'Story 4']);
   });
 
-  it('a refetch consolidates an in-body pin into the top block — even when the data is byte-identical', async () => {
-    // The moment consolidation now happens: a feed refetch (PTR /
-    // focus / mount) releases every in-session hold so the pins surface
-    // at the top. This must hold even when the refetch returns the exact
+  it('pull-to-refresh consolidates an in-body pin into the top block — even when the data is byte-identical', async () => {
+    // Consolidation is a *full materialize* moment: pull-to-refresh (the
+    // explicit "show me the latest" gesture) lifts every in-body pin into
+    // the top block. This must hold even when the refetch returns the exact
     // same ids and items — React Query's structural sharing keeps the
-    // `items` array reference stable in that case, so consolidation is
-    // keyed off the query's fetch timestamp, not array identity. (This
-    // is the regression guard for the Codex "identical refetch" note.)
-    // The pinned row also stays within the loaded window across the
-    // refetch, yet still consolidates — the old rule only lifted it when
-    // it *left* the window.
+    // `items` array reference stable, so the materialize is keyed off the
+    // fetch landing (dataUpdatedAt), not array identity. (Regression guard
+    // for the Codex "identical refetch" note.)
+    const ids = [10, 20, 30];
+    const items = Object.fromEntries(
+      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
+    );
+    installHNFetchMock({ feeds: { topstories: [...ids] }, items });
+
+    renderWithProviders(<StoryList feed="top" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
+    });
+
+    // Pin Story 20 in body — stays at its natural index 1 (no jump).
+    const story20Row = () => screen.getByText('Story 20').closest('li')!;
+    fireEvent.click(within(story20Row()).getByTestId('pin-btn'));
+    await waitFor(() => {
+      expect(within(story20Row()).getByTestId('pin-btn')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    });
+    expect(currentTitles()).toEqual(['Story 10', 'Story 20', 'Story 30']);
+
+    // Pull to refresh: same ids, same items — yet Story 20 consolidates to
+    // the top block.
+    pullToRefresh();
+    await waitFor(() => {
+      expect(currentTitles()).toEqual(['Story 20', 'Story 10', 'Story 30']);
+    });
+  });
+
+  it('a background refetch does not reflow the frozen set — an in-body pin holds until pull-to-refresh', async () => {
+    // The frozen model: a background refetch (focus / mount / invalidate)
+    // refreshes row *content* but must not reorder the set. A pin made in
+    // the body keeps its natural position across such a refetch — only an
+    // explicit pull-to-refresh (or a ≥6h return) consolidates it to the
+    // top. This is the deliberate reversal of the old "any refetch
+    // consolidates" rule.
     const ids = [10, 20, 30];
     const items = Object.fromEntries(
       ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
@@ -322,7 +394,6 @@ describe('<StoryList> pinned-to-top block', () => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(3);
     });
 
-    // Pin Story 20 in body — stays at its natural index 1.
     const story20Row = () => screen.getByText('Story 20').closest('li')!;
     fireEvent.click(within(story20Row()).getByTestId('pin-btn'));
     await waitFor(() => {
@@ -331,28 +402,19 @@ describe('<StoryList> pinned-to-top block', () => {
         'true',
       );
     });
-    const titlesAfterPin = screen
-      .getAllByTestId('story-row')
-      .map(
-        (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
-      );
-    expect(titlesAfterPin).toEqual(['Story 10', 'Story 20', 'Story 30']);
+    expect(currentTitles()).toEqual(['Story 10', 'Story 20', 'Story 30']);
 
-    // Refetch with no data change at all (same ids, same items). The
-    // hold must still release and Story 20 snap to the top block.
+    // A background refetch lands — the set must stay frozen (no reorder).
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['storyIds', 'top'] });
       await client.invalidateQueries({ queryKey: ['feedItems', 'top'] });
     });
+    expect(currentTitles()).toEqual(['Story 10', 'Story 20', 'Story 30']);
 
+    // Now pull-to-refresh: the pin consolidates to the top block.
+    pullToRefresh();
     await waitFor(() => {
-      const titles = screen
-        .getAllByTestId('story-row')
-        .map(
-          (row) =>
-            row.querySelector('.story-row__title-text')?.textContent ?? '',
-        );
-      expect(titles).toEqual(['Story 20', 'Story 10', 'Story 30']);
+      expect(currentTitles()).toEqual(['Story 20', 'Story 10', 'Story 30']);
     });
   });
 
@@ -432,80 +494,5 @@ describe('<StoryList> pinned-to-top block', () => {
         (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
       );
     expect(titles).toEqual(['Story 10', 'Story 20', 'Story 30']);
-  });
-
-  it('drops the stay-in-body marker when a pinned row leaves the loaded feed, so a later return goes to the top block', async () => {
-    // Regression: pin a visible row → in-body marker set. Feed refresh
-    // drops the row from `items` → it surfaces in the top block (good).
-    // But the raw marker must also be GC'd, otherwise a *later* return
-    // of that id to `items` (loadMore landed a fresh page, cross-device
-    // sync brought the row back) silently re-routes the pin into the
-    // body via the stale marker. The intent was "just pinned, here and
-    // now"; once the row leaves the body it's no longer "here".
-    const ids = [10, 20, 30];
-    const items = Object.fromEntries(
-      ids.map((id) => [id, makeStory(id, { title: `Story ${id}` })]),
-    );
-    const fixtures: {
-      feeds: { topstories: number[] };
-      items: Record<number, ReturnType<typeof makeStory>>;
-    } = { feeds: { topstories: [...ids] }, items };
-    installHNFetchMock(fixtures);
-
-    const { client } = renderWithProviders(<StoryList feed="top" />);
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('story-row')).toHaveLength(3);
-    });
-
-    // Pin Story 20 in body — stays at its natural index 1 position.
-    const story20Row = () => screen.getByText('Story 20').closest('li')!;
-    fireEvent.click(within(story20Row()).getByTestId('pin-btn'));
-    await waitFor(() => {
-      expect(
-        within(story20Row()).getByTestId('pin-btn'),
-      ).toHaveAttribute('aria-pressed', 'true');
-    });
-    const titlesAfterPin = screen
-      .getAllByTestId('story-row')
-      .map(
-        (row) => row.querySelector('.story-row__title-text')?.textContent ?? '',
-      );
-    expect(titlesAfterPin).toEqual(['Story 10', 'Story 20', 'Story 30']);
-
-    // Refresh: HN no longer ranks Story 20 in the loaded window. It
-    // moves to the top block (still pinned, just no longer in body).
-    fixtures.feeds.topstories = [10, 30];
-    await act(async () => {
-      await client.invalidateQueries({ queryKey: ['storyIds', 'top'] });
-      await client.invalidateQueries({ queryKey: ['feedItems', 'top'] });
-    });
-    await waitFor(() => {
-      const titles = screen
-        .getAllByTestId('story-row')
-        .map(
-          (row) =>
-            row.querySelector('.story-row__title-text')?.textContent ?? '',
-        );
-      expect(titles).toEqual(['Story 20', 'Story 10', 'Story 30']);
-    });
-
-    // Refresh again: Story 20 returns to the loaded feed window. The
-    // stale "stay in body" marker must have been GC'd; 20 stays in the
-    // top block instead of jumping back to its natural feed position.
-    fixtures.feeds.topstories = [10, 20, 30];
-    await act(async () => {
-      await client.invalidateQueries({ queryKey: ['storyIds', 'top'] });
-      await client.invalidateQueries({ queryKey: ['feedItems', 'top'] });
-    });
-    await waitFor(() => {
-      const titles = screen
-        .getAllByTestId('story-row')
-        .map(
-          (row) =>
-            row.querySelector('.story-row__title-text')?.textContent ?? '',
-        );
-      expect(titles).toEqual(['Story 20', 'Story 10', 'Story 30']);
-    });
   });
 });

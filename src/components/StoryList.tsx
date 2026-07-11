@@ -38,6 +38,16 @@ import {
 } from '../lib/feedStoryPrefetch';
 import { warmFeedSummaries } from '../lib/feedSummaryWarm';
 import { recordFirstAction } from '../lib/telemetry';
+import {
+  MATERIALIZE_MAX_AGE_MS,
+  appendMore,
+  compact,
+  getFeedSnapshot,
+  materialize,
+  removeId,
+  setFeedSnapshot,
+  type FeedSnapshot,
+} from '../lib/feedSnapshot';
 import { useAuth } from '../hooks/useAuth';
 import { pullNow as cloudSyncPullNow } from '../lib/cloudSync';
 import { checkForServiceWorkerUpdate } from '../lib/swUpdate';
@@ -74,11 +84,6 @@ const DISMISS_BATCH_WINDOW_MS = 2000;
 // feed B's first burst would reuse feed A's stale key and append to its undo
 // batch. A global sequence makes every burst's key unique across all lists.
 let scrollBurstSeq = 0;
-
-// Reused for "no in-body-pinned ids right now" so the `useMemo` below
-// returns the same Set instance across renders — callers (isRowVisible,
-// pinnedTopStories) can rely on reference equality to skip re-derivation.
-const EMPTY_ID_SET: ReadonlySet<number> = new Set();
 
 interface Props {
   feed: Feed;
@@ -321,7 +326,7 @@ export function StoryListImpl({
   const isRestoring = useIsRestoring();
   const { isAuthenticated } = useAuth();
   const { hiddenIds, hide, hideMany } = useHiddenStories();
-  const { doneIds } = useDoneStories();
+  const { doneIds, markDone } = useDoneStories();
   const { articleOpenedIds, commentsOpenedIds, seenCommentCounts, unopen } =
     useOpenedStories();
   const { pinnedIds, pin, unpin } = usePinnedStories();
@@ -351,8 +356,10 @@ export function StoryListImpl({
 
   const {
     items,
+    allIds,
     hasMore,
     isFetchingMore,
+    isPending,
     loadMore,
     refetch,
     isError,
@@ -360,6 +367,28 @@ export function StoryListImpl({
     refreshFailed,
     dataUpdatedAt,
   } = feedItems;
+  // True while the loaded page hasn't caught up to the current id list —
+  // i.e. an id-list refetch landed a new ranking but the items page is
+  // still mid-refetch (the open refresh's two-step refetch). The
+  // materialize effect waits this out so it freezes the settled ranking,
+  // not a transient page. A *subset* test (does every loaded row still
+  // belong to the ranking?) rather than head-equality, so it holds on
+  // `/hot` too, where `items` is the hot-filtered subset of `allIds`
+  // (the loaded candidate union) — a head compare would never match there
+  // and would wedge `feedReconciling` permanently true.
+  const feedReconciling = useMemo(() => {
+    if (!allIds || allIds.length === 0) return false;
+    const idSet = new Set(allIds);
+    let sawItem = false;
+    for (const it of items) {
+      if (!it) continue;
+      sawItem = true;
+      if (!idSet.has(it.id)) return true; // a loaded row left the ranking
+    }
+    // Ranking has ids but the page is still empty (mid-refetch) — don't
+    // freeze that transient. A genuinely empty feed has `items.length === 0`.
+    return !sawItem && items.length > 0;
+  }, [allIds, items]);
   const { stories: rawPinnedStories } = usePinnedFeedStories(
     items,
     includeOffFeedPinned,
@@ -372,136 +401,62 @@ export function StoryListImpl({
     if (isRestoring) return;
     syncPinnedStoriesForOffline(queryClient);
   }, [includeOffFeedPinned, isRestoring, pinnedIds, queryClient]);
-  // Ids the reader has pinned while the row was rendered in the feed
-  // body. Pinning shouldn't yank a story you're looking at into the
-  // top block — keep it at its natural feed position and let the next
-  // feed refetch (pull-to-refresh, window-focus, mount, or More) be
-  // the moment all in-body pins consolidate into the top block (see
-  // the reconcile effect below). A local action like Sweep deliberately
-  // does *not* consolidate — nothing reorders under the reader until
-  // fresh data reflows the list anyway. On a fresh mount this set is
-  // empty, so pre-existing pins still surface at the top as before.
-  // The intent is "just pinned, here-and-now", so a stale marker can't
-  // silently re-route a re-fetched pin into the body instead of the
-  // top block — the reconcile effect below releases every hold the
-  // moment a feed refetch lands.
-  const [stayInBodyIds, setStayInBodyIds] = useState<Set<number>>(
-    () => new Set(),
+  // The "materialized feed set" — a frozen ordered snapshot of which
+  // rows this feed renders and where. See `src/lib/feedSnapshot.ts` for
+  // the model. The whole snapshot layer only engages on real reading
+  // surfaces (`materializeEnabled`); the /tuning Preview (`readOnly` /
+  // `includeOffFeedPinned: false`) renders the live filtered set as
+  // before, so a tuning experiment always reflects the current rule
+  // output rather than a frozen snapshot.
+  const materializeEnabled = includeOffFeedPinned && !readOnly;
+  const [snapshot, setSnapshotState] = useState<FeedSnapshot | null>(() =>
+    materializeEnabled ? getFeedSnapshot(sourceFeed) : null,
+  );
+  const commitSnapshot = useCallback(
+    (next: FeedSnapshot) => {
+      setFeedSnapshot(sourceFeed, next);
+      setSnapshotState(next);
+    },
+    [sourceFeed],
   );
 
-  // Reconcile stayInBodyIds with the external feed/pinned state. Two
-  // distinct triggers, told apart by whether a feed *refetch* just
-  // landed — detected via the items query's `dataUpdatedAt`, which
-  // bumps on every completed fetch even when the returned data is
-  // byte-identical (React Query's structural sharing would keep the
-  // `items` array reference stable across such a refetch, so array
-  // identity would silently miss it — see the Codex note on this file):
-  //
-  //  - A refetch landed (pull-to-refresh, window-focus, mount, More).
-  //    The reader asked for fresh data, so this is the moment to
-  //    consolidate: release *every* in-session hold and let the pins
-  //    surface in the top block — whether or not the row survived and
-  //    whether or not the data changed.
-  //  - No refetch, but `items` or the pinned set moved. This covers a
-  //    pin/unpin, a cross-tab/cross-device sync, *and* a client-side
-  //    re-filter of the visible set with no refetch behind it — most
-  //    notably `/hot` Customize re-running the predicate over cached
-  //    pages (which changes `items` without touching `dataUpdatedAt`).
-  //    Keep the held rows in body — a local action must not reorder
-  //    under the reader — but GC any id that's no longer pinned OR no
-  //    longer present in the visible items. Without the membership half,
-  //    a stale hold could survive a row leaving the filtered set and
-  //    then route it back into the body (reordering on a local action)
-  //    when the filter later readmits it.
-  //
-  // The lint rule usually warns about derived state — but here the
-  // state really is reconciliation history with external sources
-  // (React Query's items + fetch timestamp, the pinned-stories store),
-  // exactly the "subscribe for updates from some external system" case
-  // the rule's own docs call out. The updater returns `prev` unchanged
-  // when nothing dropped out, so a re-run with no change can't cascade;
-  // the `[items, dataUpdatedAt, pinnedIds]` deps mean it only fires when
-  // one of those external sources actually moved.
-  const prevDataUpdatedAtRef = useRef(dataUpdatedAt);
-  useEffect(() => {
-    const refetched = prevDataUpdatedAtRef.current !== dataUpdatedAt;
-    prevDataUpdatedAtRef.current = dataUpdatedAt;
-    setStayInBodyIds((prev) => {
-      if (prev.size === 0) return prev;
-      if (refetched) return new Set();
-      const itemIds = new Set<number>();
-      for (const item of items) {
-        if (item) itemIds.add(item.id);
-      }
-      const next = new Set<number>();
-      let changed = false;
-      for (const id of prev) {
-        if (itemIds.has(id) && pinnedIds.has(id)) next.add(id);
-        else changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [items, dataUpdatedAt, pinnedIds]);
-
-  const inBodyPinnedIds = useMemo<ReadonlySet<number>>(() => {
-    if (stayInBodyIds.size === 0) return EMPTY_ID_SET;
-    // Defense-in-depth for the one render between `items` / `pinnedIds`
-    // changing and the GC effect above committing — the body filter and
-    // top-block filter both consult this, so excluding stale entries
-    // here keeps a row from briefly rendering in neither place.
-    const itemIds = new Set<number>();
-    for (const item of items) {
-      if (item) itemIds.add(item.id);
-    }
-    const result = new Set<number>();
-    for (const id of stayInBodyIds) {
-      if (itemIds.has(id) && pinnedIds.has(id)) result.add(id);
-    }
-    return result;
-  }, [stayInBodyIds, items, pinnedIds]);
-
-  // Pin is a shield against Hide, so new state can't produce a pin ∩
-  // hidden collision (swipe-right and menu "Hide" are blocked on
-  // pinned rows; see StoryListItem). The hidden-collision filter is
-  // defense-in-depth for legacy storage that predates that rule and
-  // for brief cross-device-sync windows where the two stores could
-  // disagree. The `inBodyPinnedIds` filter keeps in-session pins out
-  // of the top block until the next refetch consolidates them.
-  const pinnedTopStories = useMemo(() => {
-    if (!includeOffFeedPinned) return [];
-    return rawPinnedStories.filter(
-      (s) => !hiddenIds.has(s.id) && !inBodyPinnedIds.has(s.id),
-    );
-  }, [rawPinnedStories, hiddenIds, includeOffFeedPinned, inBodyPinnedIds]);
+  // Live lookups shared by the render + the materialize/compact inputs.
+  const liveById = useMemo<Map<number, HNItem>>(() => {
+    const m = new Map<number, HNItem>();
+    for (const it of items) if (it) m.set(it.id, it);
+    return m;
+  }, [items]);
+  const pinnedById = useMemo<Map<number, HNItem>>(() => {
+    const m = new Map<number, HNItem>();
+    for (const s of rawPinnedStories) m.set(s.id, s);
+    return m;
+  }, [rawPinnedStories]);
+  const isBodyRenderable = useCallback(
+    (id: number): boolean => {
+      const it = liveById.get(id);
+      return !!it && !it.deleted && !it.dead && (it.score ?? 0) > 1;
+    },
+    [liveById],
+  );
 
   // Pin/hide can target either an in-feed row or one of the pinned rows
   // that prepend the list. Look in both collections so the telemetry
   // call doesn't silently miss a story that's only in the top block
   // (e.g. a pin whose feed page hasn't been loaded).
   const lookupStory = useCallback(
-    (id: number) =>
-      items.find((it): it is NonNullable<typeof it> => it?.id === id) ??
-      pinnedTopStories.find((s) => s.id === id) ??
-      null,
-    [items, pinnedTopStories],
+    (id: number) => liveById.get(id) ?? pinnedById.get(id) ?? null,
+    [liveById, pinnedById],
   );
 
   const handlePin = useCallback(
     (id: number) => {
+      // Pinning never reorders the frozen set: the row stays exactly
+      // where it is (a body pin keeps its feed position, a top pin stays
+      // pinned) and just picks up the badge — consolidation to the top
+      // block waits for the next full materialize (PTR / ≥6h return).
+      // This is identical to how a pin from another device is treated;
+      // the freeze, not a per-action hold, is what keeps it in place.
       pin(id);
-      // Keep the row at its natural feed position if it's currently
-      // rendered in the body — pinning shouldn't jump it into the top
-      // block under the reader's eye. The next refetch is what
-      // consolidates (see the reconcile effect above).
-      const inLoadedFeed = items.some((it) => it?.id === id);
-      if (inLoadedFeed) {
-        setStayInBodyIds((prev) => {
-          if (prev.has(id)) return prev;
-          const next = new Set(prev);
-          next.add(id);
-          return next;
-        });
-      }
       const story = lookupStory(id);
       if (story) {
         prefetchPinnedStory(queryClient, story);
@@ -511,28 +466,25 @@ export function StoryListImpl({
         });
       }
     },
-    [
-      pin,
-      items,
-      lookupStory,
-      queryClient,
-      sourceFeed,
-      isAuthenticated,
-      articleOpenedIds,
-    ],
+    [pin, lookupStory, queryClient, sourceFeed, isAuthenticated, articleOpenedIds],
   );
 
-  const handleUnpin = useCallback(
+  const handleUnpin = useCallback((id: number) => unpin(id), [unpin]);
+
+  // The reader's own dismiss (Done) from a feed row: record Done (which
+  // also unpins) and collapse the row out of the frozen set immediately.
+  // This is the one local mutation that removes a row on the spot — a
+  // *remote* dismiss (Done synced from another device) instead grays the
+  // row in place until the next compact/materialize. See feedSnapshot.ts.
+  const handleMarkDone = useCallback(
     (id: number) => {
-      unpin(id);
-      setStayInBodyIds((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      markDone(id);
+      const current =
+        getFeedSnapshot(sourceFeed) ??
+        ({ topPinIds: [], bodyIds: [], materializedAt: Date.now() } as FeedSnapshot);
+      commitSnapshot(removeId(current, id));
     },
-    [unpin],
+    [markDone, sourceFeed, commitSnapshot],
   );
 
   const handleHideOne = useCallback(
@@ -616,32 +568,218 @@ export function StoryListImpl({
       (it.score ?? 0) > 1 &&
       (includeHidden || !hiddenIds.has(it.id)) &&
       (includeDone || !doneIds.has(it.id)) &&
-      // Pinned rows render exactly once: either at their natural feed
-      // position (pinned in-session, see stayInBodyIds) or in the top
-      // block (the default — pre-existing pins, off-feed pins). The
-      // /tuning Preview opts out of the top block entirely, so it
-      // leaves pinned rows in place.
-      (!includeOffFeedPinned ||
-        !pinnedIds.has(it.id) ||
-        inBodyPinnedIds.has(it.id)),
-    [
-      hiddenIds,
-      doneIds,
-      includeHidden,
-      includeDone,
-      includeOffFeedPinned,
-      pinnedIds,
-      inBodyPinnedIds,
-    ],
+      // Pinned rows belong to the top block, so they're excluded from the
+      // body candidates (the /tuning Preview opts out of the top block
+      // entirely and leaves pinned rows in place).
+      (!includeOffFeedPinned || !pinnedIds.has(it.id)),
+    [hiddenIds, doneIds, includeHidden, includeDone, includeOffFeedPinned, pinnedIds],
   );
 
-  const visibleStories = useMemo(
+  // Live filtered set — the body candidates for a materialize, and the
+  // rendered body itself on the non-materialized (/tuning) path.
+  const liveVisibleStories = useMemo(
     () =>
       items.filter(
         (it): it is NonNullable<typeof it> => it != null && isRowVisible(it),
       ),
     [items, isRowVisible],
   );
+
+  // Materialize inputs, in render order. Pins (oldest-first, minus hidden)
+  // form the top block; the live filtered feed forms the body.
+  const pinnedTopIds = useMemo(
+    () =>
+      materializeEnabled
+        ? rawPinnedStories.filter((s) => !hiddenIds.has(s.id)).map((s) => s.id)
+        : [],
+    [materializeEnabled, rawPinnedStories, hiddenIds],
+  );
+  const bodyCandidateIds = useMemo(
+    () => liveVisibleStories.map((s) => s.id),
+    [liveVisibleStories],
+  );
+
+  // Latest materialize inputs, mirrored into a ref so the pull-to-refresh
+  // and More effects can read *post-refetch* values without threading them
+  // through a stale callback closure.
+  const materializeInputsRef = useRef({ pinnedTopIds, bodyCandidateIds });
+  useEffect(() => {
+    materializeInputsRef.current = { pinnedTopIds, bodyCandidateIds };
+  }, [pinnedTopIds, bodyCandidateIds]);
+
+  // Initialize / reconcile the snapshot on mount (and on any remount — a
+  // navigation return, e.g. article → back). Three outcomes, once the
+  // first page of data is in hand:
+  //   - no snapshot yet (first load this session) → full materialize.
+  //   - snapshot older than the 6 h clock → full materialize (a return
+  //     after a while brings in new articles + consolidates pins).
+  //   - otherwise → compact: drop rows the reader finished with (Done /
+  //     Hidden) and collapse in place, but don't reorder or add. This is
+  //     the "any navigation compacts pending dismisses" moment.
+  // On a *full* materialize (cold launch / ≥6h return) the first paint may
+  // come from a stale persisted cache, so we re-materialize once the
+  // stale-gated open refresh settles (see the isRefreshing effect below) —
+  // that's how a cold launch ends up on the current ranking rather than
+  // yesterday's. A compact (sub-6h navigation return) never arms this.
+  // While true, the frozen set tracks the live ranking on each refetch and
+  // locks once the refresh settles. Armed in two places: a full materialize
+  // whose first paint may be a stale persisted cache (re-materialize onto
+  // the current ranking when the open refresh lands), and pull-to-refresh
+  // (the explicit "show me the latest"). Every *other* background refetch
+  // leaves it false, so the set stays frozen.
+  const awaitOpenRefreshRef = useRef(false);
+  // Tracks the last dataUpdatedAt we reconciled against. A full-materialize
+  // init syncs it to the current value so the init's own data isn't
+  // mistaken for a later refetch.
+  const prevDataUpdatedAtRef = useRef(dataUpdatedAt);
+  const didInitRef = useRef(false);
+  useEffect(() => {
+    if (!materializeEnabled) return;
+    if (didInitRef.current) return;
+    if (isPending) return; // wait for the first page before materializing
+    didInitRef.current = true;
+    const existing = getFeedSnapshot(sourceFeed);
+    const now = Date.now();
+    const needsFullMaterialize =
+      !existing || now - existing.materializedAt >= MATERIALIZE_MAX_AGE_MS;
+    if (needsFullMaterialize) {
+      // The first paint might be a stale cache; re-materialize on the next
+      // refetch (the open refresh) so a cold launch lands the current
+      // ranking. Sync the dataUpdatedAt baseline so this init's own data
+      // doesn't count as that refetch.
+      awaitOpenRefreshRef.current = true;
+      prevDataUpdatedAtRef.current = dataUpdatedAt;
+    }
+    const next = needsFullMaterialize
+      ? materialize({ pinnedTopIds, bodyCandidateIds, now })
+      : compact(existing, { doneIds, hiddenIds, isBodyRenderable });
+    // Deriving the frozen set from external systems (React Query's first
+    // page plus the pinned/done stores and the per-session snapshot store)
+    // the moment data lands is exactly the effect-synchronizes-with-an-
+    // external-system case the rule's docs bless; guarded to run once per
+    // mount, so the extra commit is bounded to the initial materialize.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    commitSnapshot(next);
+  }, [
+    materializeEnabled,
+    isPending,
+    dataUpdatedAt,
+    sourceFeed,
+    pinnedTopIds,
+    bodyCandidateIds,
+    doneIds,
+    hiddenIds,
+    isBodyRenderable,
+    commitSnapshot,
+  ]);
+
+  // A refetch just landed (dataUpdatedAt bumps on every completed fetch,
+  // even a byte-identical one — structural sharing keeps the `items` array
+  // reference stable, so array identity would miss it). Only a *tracked*
+  // refresh (pull-to-refresh, or the open refresh after a full materialize)
+  // re-materializes; every other background refetch (focus/reconnect)
+  // refreshes row content but leaves the set frozen. An open refresh can
+  // land in several bumps (the id-list refetch drives a follow-up items
+  // refetch), so we re-materialize on each bump and lock only once the
+  // refresh has fully settled — otherwise an intermediate bump would freeze
+  // the wrong (transient) ranking.
+  useEffect(() => {
+    if (!materializeEnabled) return;
+    const bumped = prevDataUpdatedAtRef.current !== dataUpdatedAt;
+    prevDataUpdatedAtRef.current = dataUpdatedAt;
+    if (!awaitOpenRefreshRef.current) return; // background refetch: freeze
+    // `feedReconciling` guards the multi-refetch open refresh: the id-list
+    // refetch lands first and triggers a follow-up items refetch, so the
+    // loaded page is briefly out of sync with the ranking (and can bump
+    // dataUpdatedAt with transient/empty data). Only adopt a bump once the
+    // loaded head matches the id list, and only lock once that settled
+    // ranking is in hand — otherwise an intermediate bump would freeze the
+    // wrong page.
+    if (bumped && !feedReconciling) {
+      const { pinnedTopIds: p, bodyCandidateIds: b } =
+        materializeInputsRef.current;
+      commitSnapshot(
+        materialize({ pinnedTopIds: p, bodyCandidateIds: b, now: Date.now() }),
+      );
+    }
+    if (!isRefreshing && !feedReconciling) awaitOpenRefreshRef.current = false;
+  }, [
+    materializeEnabled,
+    dataUpdatedAt,
+    isRefreshing,
+    feedReconciling,
+    commitSnapshot,
+  ]);
+
+  // A More page landed: append its new qualifying rows to the tail of the
+  // body, below everything already placed. `pendingAppendRef` is armed by
+  // `handleLoadMore` and consumed once the page has settled (isFetchingMore
+  // back to false) — gating on it means a *background* refetch (which never
+  // sets isFetchingMore) can't sneak new head stories in via this path.
+  // Keyed on bodyCandidateIds too, so a fetch that resolves before we ever
+  // observe the fetching state still appends when the new ids arrive.
+  const pendingAppendRef = useRef(false);
+  useEffect(() => {
+    if (!materializeEnabled) return;
+    if (!pendingAppendRef.current) return;
+    if (isFetchingMore) return; // page still loading — wait for it to settle
+    pendingAppendRef.current = false;
+    const existing = getFeedSnapshot(sourceFeed);
+    // Extends the frozen set with the page React Query just fetched — an
+    // external-system sync driven by the More gesture, not derived render
+    // state. Bounded to one append per settled More page.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (existing) commitSnapshot(appendMore(existing, bodyCandidateIds));
+  }, [
+    materializeEnabled,
+    isFetchingMore,
+    bodyCandidateIds,
+    sourceFeed,
+    commitSnapshot,
+  ]);
+
+  const handleLoadMore = useCallback(
+    (rowVisible: (item: HNItem) => boolean) => {
+      // Arm the append before the fetch so the effect above extends the
+      // body when the new page lands (a full materialize / compact is not
+      // wanted here — More only ever grows the body).
+      pendingAppendRef.current = true;
+      loadMore(rowVisible);
+    },
+    [loadMore],
+  );
+
+  // Rendered top block: the snapshot's pinned ids, mapped back to live
+  // item data. A row grays (strikethrough) in place if it's since been
+  // dismissed from another device; hidden rows drop out immediately.
+  const pinnedTopStories = useMemo<HNItem[]>(() => {
+    if (!materializeEnabled || !snapshot) return [];
+    return snapshot.topPinIds
+      .map((id) => pinnedById.get(id) ?? liveById.get(id))
+      .filter(
+        (s): s is HNItem =>
+          !!s && !s.deleted && !s.dead && !hiddenIds.has(s.id),
+      );
+  }, [materializeEnabled, snapshot, pinnedById, liveById, hiddenIds]);
+
+  // Rendered body: the snapshot's body ids on a real feed, or the live
+  // filtered set on the /tuning Preview. A snapshot row that's since been
+  // pinned keeps its place with a badge; a remotely-dismissed row keeps
+  // its place struck-through; a hidden or no-longer-renderable row drops.
+  const visibleStories = useMemo<HNItem[]>(() => {
+    if (!materializeEnabled) return liveVisibleStories;
+    if (!snapshot) return [];
+    return snapshot.bodyIds
+      .map((id) => liveById.get(id))
+      .filter(
+        (s): s is HNItem =>
+          !!s &&
+          !s.deleted &&
+          !s.dead &&
+          (s.score ?? 0) > 1 &&
+          !hiddenIds.has(s.id),
+      );
+  }, [materializeEnabled, snapshot, liveById, hiddenIds, liveVisibleStories]);
 
   // Opportunistically warm the thread/comment cache for currently-trending
   // stories so tapping one feels instant. We only fire once per story id
@@ -838,9 +976,12 @@ export function StoryListImpl({
               (id) =>
                 inViewIds.has(id) &&
                 !pinnedIds.has(id) &&
-                !hiddenIds.has(id),
+                !hiddenIds.has(id) &&
+                // A pending remote-dismiss row (struck-through) is already
+                // on its way out — don't also hide it under Sweep.
+                !doneIds.has(id),
             ),
-    [readOnly, visibleStories, inViewIds, pinnedIds, hiddenIds],
+    [readOnly, visibleStories, inViewIds, pinnedIds, hiddenIds, doneIds],
   );
 
   // Visual "whoosh" when sweep fires: every unpinned, fully-visible row
@@ -888,12 +1029,10 @@ export function StoryListImpl({
       for (const id of ids) next.delete(id);
       return next;
     });
-    // Sweep deliberately does *not* consolidate in-session body pins
-    // into the top block — a local action must not reorder rows under
-    // the reader. The pinned rows stay at their natural feed position
-    // (their swept neighbors simply leave around them); the next feed
-    // refetch is what snaps them up (see stayInBodyIds / the reconcile
-    // effect).
+    // Sweep hides its unpinned neighbors but never reflows the frozen
+    // set — pinned rows stay exactly where they are (their swept
+    // neighbors just leave around them). Pins consolidate to the top
+    // only on the next full materialize (PTR / ≥6h return).
   }, [hideMany, recordHide]);
 
   // If the list unmounts (route change, etc.) while a sweep is still
@@ -929,8 +1068,8 @@ export function StoryListImpl({
     if (reducedMotion) {
       hideMany(ids);
       recordHide(ids);
-      // No stayInBodyIds clear here either — consolidation is the next
-      // refetch's job, not Sweep's (see commitSweep).
+      // No materialize here either — consolidation is the next full
+      // materialize's job, not Sweep's (see commitSweep).
       return;
     }
     sweepPendingIdsRef.current = ids;
@@ -1029,11 +1168,19 @@ export function StoryListImpl({
   // session parked on one route stays on the old bundle — the
   // failure mode that made Vercel preview testing after a
   // force-push unreliable.
-  const handleRefresh = useCallback(
-    () =>
-      Promise.all([refetch(), cloudSyncPullNow(), checkForServiceWorkerUpdate()]),
-    [refetch],
-  );
+  const handleRefresh = useCallback(() => {
+    // Pull-to-refresh is an explicit "show me the latest" gesture, so it
+    // full-materializes the frozen set once the refetch settles: new
+    // articles come in, pins consolidate to the top, dismissed rows drop.
+    // Same tracking flag the open refresh uses (dataUpdatedAt effect); a
+    // background refetch never arms it, so it stays frozen.
+    awaitOpenRefreshRef.current = true;
+    return Promise.all([
+      refetch(),
+      cloudSyncPullNow(),
+      checkForServiceWorkerUpdate(),
+    ]);
+  }, [refetch]);
 
   // Snapshot the current comment count so later visits can show a
   // "N new" badge for anything posted since. Look the story up in both
@@ -1116,8 +1263,13 @@ export function StoryListImpl({
   // in-flight first fetch and the PersistQueryClientProvider rehydrate
   // window. The narrower `isLoading` (= `isPending && isFetching`)
   // would be false during rehydrate and let "No stories yet." flash
-  // on first paint.
-  if (!hasAnyItems && feedItems.isPending) {
+  // on first paint. The second clause keeps the skeleton up for the one
+  // tick between the first page landing and the mount effect deriving
+  // the frozen set, so a real feed never flashes an empty list first.
+  if (
+    (!hasAnyItems && isPending) ||
+    (materializeEnabled && snapshot === null && !isError)
+  ) {
     return (
       <>
         {toolbar}
@@ -1180,13 +1332,24 @@ export function StoryListImpl({
               articleOpened={articleOpenedIds.has(story.id)}
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
-              pinned
+              // Reflect the live pin state, not the frozen membership: a
+              // top-block row the reader just unpinned stays in place until
+              // the next materialize, but its button must flip to "Pin" so
+              // the action registers and it can be re-pinned from the row.
+              pinned={pinnedIds.has(story.id)}
+              // A pinned row that's since been dismissed from another
+              // device reads struck-through in place until the next
+              // compact/materialize drops it. Only on real reading
+              // surfaces — the /tuning Preview shows Done rows as rule
+              // output, not pending dismisses.
+              dimmed={materializeEnabled && doneIds.has(story.id)}
               flag={computeFlag(story)}
               rightAction={rightActionFor?.(story.id)}
               showVelocity={showVelocity}
               onHide={readOnly ? undefined : handleHideOne}
               onPin={readOnly ? undefined : handlePin}
               onUnpin={readOnly ? undefined : handleUnpin}
+              onMarkDone={readOnly ? undefined : handleMarkDone}
               onShare={readOnly ? undefined : shareStory}
               onMarkUnread={readOnly ? undefined : handleMarkUnread}
               onOpenThread={handleOpenThread}
@@ -1215,6 +1378,11 @@ export function StoryListImpl({
               commentsOpened={commentsOpenedIds.has(story.id)}
               seenCommentCount={seenCommentCounts.get(story.id)}
               pinned={pinnedIds.has(story.id)}
+              // A body row dismissed from another device reads
+              // struck-through in place (the reader's own dismiss
+              // removes the row outright, so it's never dimmed). Not on
+              // the /tuning Preview, where Done rows are rule output.
+              dimmed={materializeEnabled && doneIds.has(story.id)}
               // The `hidden` prop only drives the swipe-hint
               // label and the right-edge "Hidden" rubber-band —
               // the actual pin shield is enforced by the caller
@@ -1236,6 +1404,7 @@ export function StoryListImpl({
               onUnpin={
                 readOnly || hiddenIds.has(story.id) ? undefined : handleUnpin
               }
+              onMarkDone={readOnly ? undefined : handleMarkDone}
               onShare={readOnly ? undefined : shareStory}
               onMarkUnread={readOnly ? undefined : handleMarkUnread}
               onOpenThread={handleOpenThread}
@@ -1263,7 +1432,7 @@ export function StoryListImpl({
         <button
           type="button"
           className="load-more-btn"
-          onClick={hasMore ? () => loadMore(isRowVisible) : undefined}
+          onClick={hasMore ? () => handleLoadMore(isRowVisible) : undefined}
           disabled={!hasMore || isFetchingMore}
           aria-disabled={!hasMore || undefined}
         >
