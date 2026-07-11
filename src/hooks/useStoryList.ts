@@ -141,6 +141,16 @@ export interface FeedItemsState {
   // single page per tap and ignore the predicate.
   loadMore: (isRowVisible?: (item: HNItem) => boolean) => void;
   refetch: () => Promise<unknown>;
+  // Stale-gated background refresh, fired when the reader opens a story.
+  // It refetches the feed's queries *only if* they've passed the TTL (the
+  // 5-min `staleTime`), so a list that has gone stale refreshes while the
+  // reader is in the thread and is ready — no "Checking…" strip — when they
+  // come back. A still-fresh feed is left untouched, so this adds no fetch
+  // beyond what the TTL already permits. Distinct from `refetch`, which
+  // forces unconditionally (pull-to-refresh / Retry). Relies on
+  // `<FeedKeepWarm>` keeping a second observer on the feed queries, else
+  // React Query aborts the fetch when the feed unmounts on navigation.
+  refreshStale: () => Promise<unknown>;
   // React Query's timestamp of the most recent *successful* items fetch.
   // It bumps on every completed fetch — initial load, pull-to-refresh,
   // window-focus/reconnect refetch, and each "More" page — even when the
@@ -209,6 +219,19 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     [idsRefetch, pagesRefetch],
   );
 
+  // Stale-gated sibling of `refetch`: only refetch the queries React Query
+  // already considers stale (each query's own `isStale`, which respects the
+  // TTL). Fired on story-open so a stale feed refreshes in the background
+  // while the reader is away and no fetch fires for a still-fresh one.
+  const idsStale = ids.isStale;
+  const pagesStale = pages.isStale;
+  const refreshStale = useCallback(() => {
+    const tasks: Array<Promise<unknown>> = [];
+    if (idsStale) tasks.push(idsRefetch());
+    if (pagesStale) tasks.push(pagesRefetch());
+    return Promise.all(tasks);
+  }, [idsStale, pagesStale, idsRefetch, pagesRefetch]);
+
   // If the id list changes (e.g. storyIds.refetchOnMount landed a fresh
   // ranking after a reload), the pages cache — whose queryKey is
   // ['feedItems', feed] and intentionally doesn't include the id list
@@ -268,6 +291,7 @@ export function useFeedItems(feed: Feed): FeedItemsState {
     refreshFailed,
     loadMore,
     refetch,
+    refreshStale,
     dataUpdatedAt: pages.dataUpdatedAt,
   };
 }

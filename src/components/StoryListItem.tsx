@@ -45,7 +45,7 @@ interface Props {
   onUnpin?: (id: number) => void;
   onShare?: (story: HNItem) => void;
   onMarkUnread?: (id: number) => void;
-  onOpenThread?: (id: number) => void;
+  onOpenThread?: (id: number, opts?: { navigatesSameTab: boolean }) => void;
   /**
    * Per-row override for the trailing flag segment in the meta line.
    * Default behavior (prop omitted or `undefined`): the row auto-
@@ -204,9 +204,24 @@ export function StoryListItem({
   }, []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
-  const handleOpenThread = useCallback(() => {
-    onOpenThread?.(story.id);
-  }, [onOpenThread, story.id]);
+  const handleOpenThread = useCallback(
+    (e: MouseEvent<HTMLAnchorElement>) => {
+      // A modified or non-primary click (Cmd/Ctrl/Shift/Alt, or middle-click)
+      // opens the thread in a new/background tab and does NOT navigate this
+      // tab — same gate React Router's `<Link>` uses to decide whether to
+      // handle the click. Report it so the handler can skip the on-open feed
+      // refresh, which would otherwise reorder rows under a reader who never
+      // left the feed.
+      const navigatesSameTab =
+        e.button === 0 &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey;
+      onOpenThread?.(story.id, { navigatesSameTab });
+    },
+    [onOpenThread, story.id],
+  );
 
   const handleTogglePin = useCallback(() => {
     if (pinned) onUnpin?.(story.id);
