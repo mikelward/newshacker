@@ -67,6 +67,13 @@
 .thread__actions {
   display: flex;
   flex-wrap: wrap;
+  /* Right-align the row so the icon buttons stay anchored to the right
+     edge. On URL-backed stories the primary/stretch slot's `flex: 1`
+     already consumes all the free space, so this is a no-op there; but
+     on Ask HN / self-posts there's no primary button, and without this
+     the icon buttons (Upvote/Pin/Done/⋮) would sit flush-left. The bar
+     should read the same either way — actions on the right. */
+  justify-content: flex-end;
   gap: 12px;
   margin-bottom: 12px;
 }

@@ -153,6 +153,39 @@ describe('<Thread> action bar structural parity (rendered)', () => {
     expect(label!.textContent).toBe('Back to top');
   });
 
+  it('Ask HN top bar has no stretch slot, so alignment must come from the row', async () => {
+    // Self-post (no url): the top bar renders neither Read article
+    // (--primary) nor Back to top (--stretch), so nothing with `flex: 1`
+    // holds the icon buttons over to the right. Right-alignment has to
+    // come from `.thread__actions { justify-content: flex-end }` instead
+    // — asserted as a CSS invariant below. This test pins the precondition
+    // (no stretch slot on an Ask HN top bar) so that invariant stays load-
+    // bearing.
+    installHNFetchMock({
+      items: {
+        9130: makeStory(9130, { title: 'Ask HN: no url', url: undefined }),
+      },
+    });
+
+    renderWithProviders(<Thread id={9130} />, { route: '/item/9130' });
+    await screen.findByText('Ask HN: no url');
+
+    const header = document.querySelector('.thread__header');
+    expect(header).not.toBeNull();
+    // No primary/stretch button in the top bar for a self-post.
+    expect(
+      header!.querySelector('.thread__action--primary'),
+    ).toBeNull();
+    expect(
+      header!.querySelector('.thread__action--stretch'),
+    ).toBeNull();
+    // The icon buttons are still present — they just need right-aligning.
+    expect(screen.getByTestId('thread-vote')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-pin')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-done')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-more')).toBeInTheDocument();
+  });
+
   it('both bars contain the same number of tap targets', async () => {
     installHNFetchMock({
       items: {
@@ -195,6 +228,24 @@ describe('<Thread> action bar CSS invariants', () => {
     // Also guard the @media-scoped variant explicitly.
     expect(css).not.toMatch(
       /@media[^{]*\{\s*\.thread__action--(?:primary|stretch)\s*\{[^}]*flex-basis:\s*100%/s,
+    );
+  });
+
+  // The action row must right-align its contents. On URL-backed stories
+  // the primary/stretch slot's `flex: 1` fills the free space, so
+  // justify-content is a no-op; but on Ask HN / self-posts there's no
+  // such slot, and without `justify-content: flex-end` the icon buttons
+  // (Upvote/Pin/Done/⋮) fall back to flex-start and sit flush-left. Pin
+  // the declaration on `.thread__actions` so the self-post bar keeps its
+  // actions on the right.
+  it('right-aligns the action row via justify-content: flex-end', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(resolve(here, 'Thread.css'), 'utf8');
+    expect(css).toMatch(
+      /\.thread__actions\s*\{[^}]*justify-content:\s*flex-end/s,
     );
   });
 
