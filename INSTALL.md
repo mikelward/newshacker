@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js `^20.19.0 || >=22.12.0` (the `engines` in `package.json`; matches `@vitejs/plugin-react` 5.x)
+- Node.js `^22.13.0 || >=24` (the `engines` in `package.json`; the React Compiler build tooling — `@rolldown/plugin-babel` — requires Node `>=22.12`, so Node 20 is no longer supported)
 - npm
 - Git
 

@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
+import babel from '@rolldown/plugin-babel';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // `process.env.VITEST` is set when vitest boots; we skip the PWA plugin
@@ -54,6 +55,21 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // React Compiler auto-memoizes every component and hook so we no
+    // longer hand-write useMemo/useCallback/React.memo. `@vitejs/plugin-react`
+    // v6 runs the JSX transform through oxc and no longer accepts a `babel`
+    // option, so the compiler is wired as a separate `@rolldown/plugin-babel`
+    // pass using the plugin's own `reactCompilerPreset` helper (which carries
+    // a preconfigured JSX/TSX filter). Default 'infer' mode compiles the whole
+    // tree; the healthcheck reports 176/176 components compiling cleanly, so
+    // there's nothing to gate or opt out of. No `target` override — the
+    // default targets React 19 and pulls the runtime from `react/compiler-runtime`
+    // (no react-compiler-runtime shim). The Rules-of-React ESLint rules
+    // (eslint-plugin-react-hooks `recommended-latest`) are the compile-time
+    // guard that keeps new code compilable; run `npm run react-compiler:check`
+    // to re-audit after big changes. Skipped under Vitest — the transform adds
+    // per-worker cost and the tests assert behavior, not memoization.
+    !isTest && babel({ presets: [reactCompilerPreset()] }),
     !isTest && VitePWA({
       // autoUpdate silently activates a new service worker on the next
       // navigation (no prompt, no toast). Previously 'prompt' required an

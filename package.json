@@ -11,12 +11,13 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "eslint .",
+    "react-compiler:check": "react-compiler-healthcheck",
     "typecheck": "tsc -b --noEmit",
     "icons:generate": "node scripts/generate-icons.mjs",
     "analyze:telemetry": "node --env-file-if-exists=.env.local scripts/analyze-summary-layout.mjs"
   },
   "engines": {
-    "node": "^20.19.0 || ^22.13.0 || >=24"
+    "node": "^22.13.0 || >=24"
   },
   "dependencies": {
     "@fontsource-variable/roboto": "^5.2.10",
@@ -35,10 +36,13 @@
     "workbox-window": "^7.4.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
     "@eslint/js": "^10.0.1",
+    "@rolldown/plugin-babel": "^0.2.3",
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
+    "@types/babel__core": "^7.20.5",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/sanitize-html": "^2.13.0",
@@ -46,6 +50,7 @@
     "@typescript-eslint/parser": "^8.62.1",
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.9",
+    "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
@@ -53,6 +58,7 @@
     "globals": "^15.11.0",
     "happy-dom": "^20.10.6",
     "msw": "^2.14.6",
+    "react-compiler-healthcheck": "^1.0.0",
     "sharp": "^0.34.5",
     "typescript": "^5.6.2",
     "typescript-eslint": "^8.62.1",
