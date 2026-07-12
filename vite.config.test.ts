@@ -41,6 +41,17 @@ describe('vite.config service worker runtimeCaching', () => {
     expect(block).toMatch(/handler:\s*'NetworkFirst'/);
   });
 
+  it('wires the React Compiler into the build in default infer mode', () => {
+    // React Compiler adoption: the compiler must run so every component is
+    // auto-memoized. A silent drop here (bad merge, refactor) would ship an
+    // un-compiled bundle that still passes every other check, so guard the
+    // wiring from source. `infer` is the default mode — the absence of a
+    // `compilationMode` override is what keeps the whole tree compiling, so
+    // assert we haven't accidentally narrowed it to annotation/opt-in.
+    expect(source).toMatch(/babel\(\{\s*presets:\s*\[reactCompilerPreset\(\)\]/);
+    expect(source).not.toMatch(/compilationMode/);
+  });
+
   it('keeps hedge < SW cache-fallback window < client read cap', () => {
     // The connectivity tracker's timings only work if the service worker's
     // NetworkFirst fallback window sits strictly between the hedge probe and
