@@ -76,6 +76,23 @@ describe('<HelpPage>', () => {
     );
   });
 
+  it('describes marking a thread done via the check in the action bar', () => {
+    renderWithProviders(<HelpPage />, { route: '/help' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /marking stories done/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/check/i, { selector: 'strong' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/unpins/i, { selector: 'strong' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^done$/i })).toHaveAttribute(
+      'href',
+      '/done',
+    );
+  });
+
   it('covers the long-press story actions menu including share', () => {
     renderWithProviders(<HelpPage />, { route: '/help' });
     expect(

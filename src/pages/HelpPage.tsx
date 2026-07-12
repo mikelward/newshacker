@@ -43,6 +43,30 @@ export function HelpPage() {
         They live in <Link to="/favorites">Favorites</Link> in the menu.
       </p>
 
+      <h2 className="about-page__heading">Marking stories done</h2>
+      <p>
+        Mark a thread <strong>done</strong> once you&rsquo;ve finished
+        reading it — a completion log for things you&rsquo;re through with,
+        separate from your pin-for-later list.
+      </p>
+      <ul>
+        <li>
+          Open a thread and tap the <strong>check</strong> in the thread
+          action bar. Done stories drop out of every feed, so the ones
+          you&rsquo;ve read stop cluttering the list.
+        </li>
+        <li>
+          Marking done also <strong>unpins</strong> the story and closes
+          the thread — Pin is your active queue, Done is where reads go
+          when they leave it, so a story is never in both at once.
+        </li>
+      </ul>
+      <p>
+        Done stories live in <Link to="/done">Done</Link> in the menu. Tap
+        the check on any row there to unmark it. Favoriting is independent:
+        you can favorite a story whether or not it&rsquo;s done.
+      </p>
+
       <h2 className="about-page__heading">Hiding stories</h2>
       <p>
         Hiding removes a story you don&rsquo;t want to see in your feeds:
@@ -180,14 +204,16 @@ export function HelpPage() {
         System follows your device setting and is the default.
       </p>
 
-      <h2 className="about-page__heading">Pinned, favorite, hidden</h2>
+      <h2 className="about-page__heading">Pinned, favorite, done, hidden</h2>
       <p>
         <strong>Pin</strong> keeps a story in your short-term reading
         list. <strong>Favorite</strong> keeps it for good.{' '}
-        <strong>Hide</strong> removes it from the feed. They&rsquo;re
-        independent — you can pin and hide the same story (it stays
-        pinned even though it&rsquo;s gone from the feed), and you can
-        favorite a story whether or not it&rsquo;s pinned.
+        <strong>Done</strong> marks it finished and clears it from your
+        feeds. <strong>Hide</strong> removes one you don&rsquo;t want to
+        see. Pin and Done are mutually exclusive — marking done unpins —
+        but the rest are independent: you can favorite a story whether or
+        not it&rsquo;s pinned or done, and hiding never touches the other
+        three.
       </p>
 
       <p className="about-page__back">
