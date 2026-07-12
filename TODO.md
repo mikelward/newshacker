@@ -911,14 +911,13 @@ ends up on the front page on a given day.
   Done coverage, and **(b)** discoverability of Pin/Done for a
   user who hasn't yet tapped either. Options to weigh, cheapest
   → most intrusive:
-  1. **Add Done to `HelpPage`.** Two paragraphs alongside the
-     existing Pin sections — what Done means (filtered out of
-     every feed, lives at `/done`, mutually exclusive with Pin
-     — see `SPEC.md` *Pinned vs. Favorite vs. Done*) and the
-     gesture (check button on the thread action bar). Zero
-     intrusion, only reaches users who visit Help. **Treat this
-     as unconditional** — it's a documentation bug, not an
-     onboarding decision.
+  1. ~~**Add Done to `HelpPage`.**~~ **Done.** `HelpPage` now has a
+     *Marking stories done* section (what Done means — filtered out
+     of every feed, lives at `/done`, mutually exclusive with Pin —
+     plus the check-in-the-action-bar gesture), and the summary
+     section is retitled *Pinned, favorite, done, hidden*. Closed
+     the documentation gap; leaves gap (b), discoverability for a
+     user who hasn't tapped either, still open below.
   2. **First-thread bottom hint.** On the user's first ever
      thread open (no `newshacker:openedStoryIds` entries yet),
      render a single sentence under the thread action bar:
@@ -945,7 +944,7 @@ ends up on the front page on a given day.
      stated tone — defer unless real data shows users never
      find Pin.
 
-  Rough phasing: ship (1) on its own because it's a doc gap, then
+  Rough phasing: (1) shipped on its own as the doc-gap fix; next,
   pair (2) + (3) as the first onboarding pass — both are passive,
   both fade as soon as the user gives any signal that they
   already know, and neither adds a new tap target. Hold (4) and
