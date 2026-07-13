@@ -826,6 +826,26 @@ ends up on the front page on a given day.
 
 ## Sync
 
+- **Atomic `/api/sync` merge (unblocks unload-flush for in-flight
+  edits).** `handleSyncRequest`'s POST path is a non-atomic
+  get → merge → set, which is only safe today because the client
+  never issues two POSTs at once (the `pushInFlight` lock in
+  `cloudSync.ts`). That invariant is what forced the flush-on-hide
+  path to *skip* flushing when a POST is already in flight (see the
+  `flushPendingPush` comment): an overlapping keepalive flush would
+  race the in-flight request's `set` and could clobber the very edit
+  it's trying to save. Consequence: an edit made *during* an in-flight
+  sync POST that's immediately followed by a tab close syncs on the
+  next app open rather than during that unload (never lost locally —
+  localStorage keeps it). To close that last window, make the merge
+  atomic — optimistic concurrency (store a `version`/`rev` and
+  compare-and-set, retrying on mismatch) or a Redis Lua script /
+  WATCH-MULTI that does the read-merge-write in one round. Then a
+  hide flush could safely fire an overlapping keepalive POST. Cost:
+  same Upstash store, one extra field or a Lua eval per POST; no new
+  infra. Only worth it if the in-flight-then-immediate-close edge
+  proves to matter in practice.
+
 - **Opened/read sync (maybe; notes only).** Cross-device sync v1
   covers Pinned / Favorite / Hidden. Opened (`newshacker:openedStoryIds`)
   may never ship — it grows fast, the semantics are "noisy recent
