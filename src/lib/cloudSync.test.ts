@@ -28,6 +28,7 @@ import {
   getAllDoneEntries,
   getDoneIds,
   removeDoneId,
+  replaceDoneEntries,
 } from './doneStories';
 import {
   AVATAR_PREFS_STORAGE_KEY,
@@ -1126,6 +1127,200 @@ describe('visibility-change pull', () => {
     setVisibility('hidden');
     await drain();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes a pending debounced push when the tab hides', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // initial GET
+      {
+        matcher: (input, init) =>
+          String(input) === '/api/sync' && init?.method === 'POST',
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      }, // flushed POST on hide
+    ]);
+    // Long debounce so the timer can't fire on its own — the hide is the
+    // only thing that can send the delta.
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 10_000 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    addDoneId(42, T.T5); // schedules a push behind the 10s debounce
+    setVisibility('hidden');
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.done).toEqual([{ id: 42, at: T.T5 }]);
+  });
+
+  it('sends the flushed push with keepalive so unload cannot cancel it', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) },
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 10_000 });
+    await drain();
+
+    addDoneId(7, T.T5);
+    setVisibility('hidden');
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[1][1] as RequestInit).keepalive).toBe(true);
+  });
+
+  it('does not set keepalive on a normal debounced POST', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // GET
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      }, // debounced POST
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    addDoneId(1, T.T5); // fires via the (zero) debounce, not a hide flush
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[1][1] as RequestInit).keepalive).toBeUndefined();
+  });
+
+  it('falls back to a normal POST when the flush delta exceeds the keepalive cap', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) }, // GET
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      }, // flushed POST
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 10_000 });
+    await drain();
+
+    // Enough Done entries that the serialized delta blows past the ~60 KB
+    // keepalive ceiling (~35 bytes/entry → 2500 entries ≈ 85 KB). Seed in
+    // one bulk write (replaceEntries fires a single change event, which
+    // arms the debounce) — looping addDoneId is O(n²) on localStorage and
+    // times out on CI.
+    replaceDoneEntries(
+      Array.from({ length: 2500 }, (_, i) => ({ id: 1_000_000 + i, at: T.T5 })),
+    );
+    setVisibility('hidden');
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const init = fetchMock.mock.calls[1][1] as RequestInit;
+    expect((init.body as string).length).toBeGreaterThan(60_000);
+    // Too big for keepalive — must fall back to a plain POST.
+    expect(init.keepalive).toBeUndefined();
+  });
+
+  it('does not POST on hide when there is nothing pending', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    setVisibility('hidden'); // no local change scheduled → no-op
+    await drain();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes a pending push on pagehide (bfcache / unload)', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ pinned: [], favorite: [], hidden: [] }) },
+      {
+        response: (init) => {
+          const body = JSON.parse(init?.body as string) as SyncState;
+          return jsonResponse(body);
+        },
+      },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 10_000 });
+    await drain();
+
+    addDoneId(9, T.T5);
+    window.dispatchEvent(new Event('pagehide'));
+    await drain();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as SyncState;
+    expect(body.done).toEqual([{ id: 9, at: T.T5 }]);
+  });
+
+  it('does not start a concurrent POST on hide while one is already in flight', async () => {
+    // `/api/sync` merges with a non-atomic get/merge/set, so the client
+    // must never have two POSTs in flight at once — an unload flush racing
+    // the in-flight request could clobber the edit it's meant to save.
+    // When a POST is already in flight the hide is a no-op; the pending
+    // edit stays local and flushes serially once the first POST completes
+    // (on a real unload, on the next app open instead).
+    let releaseFirst!: (r: Response) => void;
+    const firstPost = new Promise<Response>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let posts = 0;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'GET') {
+          return jsonResponse({ pinned: [], favorite: [], hidden: [] });
+        }
+        posts += 1;
+        if (posts === 1) return firstPost; // hold the first POST in flight
+        return jsonResponse(JSON.parse(init?.body as string) as SyncState);
+      },
+    ) as FetchMock;
+
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    // First change → its 0 ms debounce fires → a POST is in flight (gated).
+    addDoneId(1, T.T3);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await _flushCloudSyncForTests();
+    expect(posts).toBe(1);
+
+    // Edit behind the in-flight POST, then hide — must NOT fire a 2nd POST.
+    addDoneId(2, T.T4);
+    setVisibility('hidden');
+    await _flushCloudSyncForTests();
+    expect(posts).toBe(1);
+
+    // Releasing the in-flight POST lets the queued edit flush serially.
+    releaseFirst(
+      jsonResponse({
+        pinned: [],
+        favorite: [],
+        hidden: [],
+        done: [{ id: 1, at: T.T3 }],
+      }),
+    );
+    await drain();
+
+    const postBodies = fetchMock.mock.calls
+      .filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+      .map((c) => JSON.parse((c[1] as RequestInit).body as string) as SyncState);
+    expect(posts).toBe(2); // serial, never concurrent
+    expect(postBodies[1].done).toEqual([{ id: 2, at: T.T4 }]);
   });
 
   it('gate: two quick visibility→visible transitions only trigger one pull', async () => {

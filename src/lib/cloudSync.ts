@@ -49,6 +49,11 @@ import {
 } from './hotThresholds';
 
 export const SYNC_DEBOUNCE_MS = 2000;
+// Body-size ceiling for a keepalive POST. The fetch keepalive budget is
+// ~64 KB shared across in-flight keepalive requests; stay comfortably
+// under it so a flush-on-hide POST that fits sends with keepalive and a
+// larger one falls back to a normal POST rather than failing outright.
+export const KEEPALIVE_MAX_BODY_BYTES = 60_000;
 // Visibility-triggered pulls are gated: tab-switching shouldn't hammer
 // /api/sync. One pull per half-minute of visibility change is plenty
 // for the "I switched to this tab, show me the latest" case.
@@ -441,7 +446,7 @@ async function pull(): Promise<void> {
   notifyDebug();
 }
 
-async function push(): Promise<void> {
+async function push(opts: { keepalive?: boolean } = {}): Promise<void> {
   if (!runtime) return;
   // Snapshot for the same reason as pull(): the runtime can be nulled
   // (sign-out) or replaced (different user) during the POST, and the
@@ -474,14 +479,27 @@ async function push(): Promise<void> {
   const deltaAvatarAt = delta.avatar ? delta.avatar.at : 0;
   const deltaHotAt = delta.hotThresholds ? delta.hotThresholds.at : 0;
   const startedAt = Date.now();
+  const body = JSON.stringify(delta);
+  // keepalive lets the flush-on-hide/pagehide POST outlive a page that's
+  // being backgrounded or discarded (a normal fetch can be cancelled on
+  // unload). But keepalive bodies share a ~64 KB browser budget, far
+  // below the 256 KiB api/sync.ts accepts — a heavy reader's initial or
+  // retried delta (thousands of Pinned/Done/Favorite entries) can exceed
+  // it. So only set keepalive when the caller asked for it AND the body
+  // fits; an oversized flush falls back to a normal POST, which still
+  // completes when the page merely backgrounds (the common case) rather
+  // than truly unloading.
+  const keepalive = !!opts.keepalive && body.length <= KEEPALIVE_MAX_BODY_BYTES;
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+  };
+  if (keepalive) init.keepalive = true;
 
   let res: Response;
   try {
-    res = await rt.fetchImpl('/api/sync', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(delta),
-    });
+    res = await rt.fetchImpl('/api/sync', init);
   } catch (e) {
     lastPush = {
       at: startedAt,
@@ -659,7 +677,7 @@ function schedulePush(delayOverride?: number): void {
   notifyDebug();
 }
 
-async function runPush(): Promise<void> {
+async function runPush(opts: { keepalive?: boolean } = {}): Promise<void> {
   if (!runtime) return;
   const rt = runtime;
   if (rt.pushInFlight) {
@@ -670,7 +688,7 @@ async function runPush(): Promise<void> {
   rt.pushInFlight = true;
   notifyDebug();
   try {
-    await push();
+    await push(opts);
   } finally {
     // Identity check, not just null: a stop/start swap mid-push means
     // the live runtime's flags are not ours to touch.
@@ -693,23 +711,67 @@ export interface StartOptions {
   debounceMs?: number;
 }
 
-// Wire a document.visibilitychange listener that calls pullNow() when
-// the tab transitions to visible, gated so rapid tab-switching doesn't
-// flood /api/sync. Lives inside the runtime so stopCloudSync tears it
-// down cleanly.
+// Flush a pending debounced push right now, cancelling the timer. Used
+// when the tab is about to background or unload: a change made moments
+// earlier (e.g. marking a story done, which navigates the reader back to
+// the list) would otherwise sit in the ~2 s debounce window and be lost
+// if the browser freezes or discards the page before the timer fires.
+// No-op when nothing is scheduled — every tab-hide would otherwise kick
+// an empty POST.
+function flushPendingPush(): void {
+  if (!runtime) return;
+  const rt = runtime;
+  // Never start a second concurrent POST. `/api/sync` merges with a
+  // non-atomic get/merge/set, which is only safe because the client
+  // issues at most one POST at a time (the `pushInFlight` lock). Racing
+  // an unload flush against the in-flight request could let the older
+  // request's `set` land last and clobber the very edit we're trying to
+  // save. So when a POST is already in flight — or there's nothing
+  // pending — we do nothing here: the queued change stays in
+  // localStorage and flushes on the next change / reconnect / app open.
+  // It's never lost locally, just not guaranteed to reach the server
+  // before this particular unload.
+  //
+  // TODO(atomic-merge): closing that last window would need an atomic
+  // server-side merge (compare-and-set / Lua) so an overlapping keepalive
+  // flush is safe to fire. See TODO.md § "Atomic /api/sync merge".
+  if (rt.pushInFlight || !rt.pushTimer) return;
+  clearTimeout(rt.pushTimer);
+  rt.pushTimer = null;
+  // keepalive so the request survives the page being frozen/discarded;
+  // an oversized delta falls back to a normal POST inside push().
+  void runPush({ keepalive: true });
+}
+
+// Wire a document.visibilitychange listener that (a) flushes any pending
+// push the instant the tab hides, and (b) calls pull() when the tab
+// transitions back to visible, gated so rapid tab-switching doesn't
+// flood /api/sync. A pagehide listener covers unload / bfcache paths
+// where visibilitychange may not fire (notably iOS Safari). Lives inside
+// the runtime so stopCloudSync tears it down cleanly.
 function subscribeVisibility(): () => void {
   if (typeof document === 'undefined') return () => {};
   const handler = () => {
-    if (document.visibilityState !== 'visible') return;
     if (!runtime) return;
+    if (document.visibilityState !== 'visible') {
+      // Hidden: the page may be frozen or reclaimed next — get whatever
+      // just changed to the server before that can happen.
+      flushPendingPush();
+      return;
+    }
     const now = Date.now();
     if (now - runtime.lastPullAttemptAt < VISIBILITY_PULL_MIN_INTERVAL_MS) {
       return;
     }
     void pull().then(() => schedulePush(0));
   };
+  const pagehideHandler = () => flushPendingPush();
   document.addEventListener('visibilitychange', handler);
-  return () => document.removeEventListener('visibilitychange', handler);
+  window.addEventListener('pagehide', pagehideHandler);
+  return () => {
+    document.removeEventListener('visibilitychange', handler);
+    window.removeEventListener('pagehide', pagehideHandler);
+  };
 }
 
 export async function startCloudSync(

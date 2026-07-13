@@ -527,9 +527,30 @@ server-side with most-recent-first eviction.
    my laptop but my phone still shows the default GitHub handle."
    The client pulls on sign-in and on reconnect, and debounces local
    changes (~2 s) into a single POST for whatever changed since the
-   last successful push. Fails open: if the sync endpoint is down,
-   `localStorage` keeps working exactly as today — sync is purely
-   additive.
+   last successful push. **The debounce is flushed the instant the tab
+   hides** (`visibilitychange` → `hidden`, plus a `pagehide` fallback
+   for iOS/bfcache): a change made moments before the reader leaves —
+   e.g. marking a story done, which navigates back to the list and
+   often precedes a tab-switch — is POSTed right away instead of being
+   lost in the debounce window if the browser freezes or discards the
+   page. Only the flush POST is sent with `keepalive: true` (so an
+   in-flight request survives unload); the regular debounced POST is a
+   normal fetch. keepalive bodies share a ~64 KB browser budget — far
+   below the 256 KiB the endpoint accepts — so an oversized flush delta
+   (a heavy reader with thousands of entries) falls back to a normal
+   POST rather than failing client-side; that still completes when the
+   page merely backgrounds. A hide with nothing pending sends nothing.
+   The flush deliberately does **not** fire when a sync POST is already
+   in flight: `/api/sync` merges with a non-atomic get/merge/set, so the
+   client keeps at most one POST in flight at a time (the `pushInFlight`
+   lock), and a second overlapping request could clobber the edit it's
+   meant to save. The narrow consequence — an edit made *during* an
+   in-flight push, immediately followed by a tab close — syncs on the
+   next app open instead of during that unload; it's never lost locally.
+   Closing that window would need an atomic server-side merge (see
+   `TODO.md` § "Atomic /api/sync merge"). Fails open: if the sync
+   endpoint is down, `localStorage` keeps working exactly as today —
+   sync is purely additive.
    - **Opened/read history is out of scope for v1, and may stay that
      way.** The `newshacker:openedStoryIds` store grows fast (one
      entry per story tapped, unbounded in principle) and its
