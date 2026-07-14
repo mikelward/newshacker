@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react';
 
-const SWIPE_RATIO = 0.25;
-const SWIPE_MIN_PX = 56;
+// Commit threshold = max(SWIPE_MIN_PX, SWIPE_RATIO·row width). Kept lighter
+// than a full-quarter drag so a card dismisses without a long deliberate swipe;
+// arming (START_THRESHOLD_PX / ANGLE_RATIO) stays put so it doesn't fight
+// vertical scroll. Readmo mirrors these values — keep the two in sync.
+const SWIPE_RATIO = 0.2;
+const SWIPE_MIN_PX = 48;
 const ANGLE_RATIO = 1.2;
 const START_THRESHOLD_PX = 8;
 const EXIT_DURATION_MS = 200;
