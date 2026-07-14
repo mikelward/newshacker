@@ -147,6 +147,48 @@ describe('useSwipeToDismiss', () => {
     expect(onSwipeRight).not.toHaveBeenCalled();
   });
 
+  // Boundary tests pinning the lighter commit threshold. On the default 300px
+  // row (mockRowWidth above) the threshold is max(SWIPE_MIN_PX 48, 300·0.2) =
+  // 60px. Both cases sit in the 60–75px band, so they'd behave the opposite way
+  // under the old max(56, 25%) = 75px threshold — guarding against a silent
+  // revert of the lighter feel.
+  it('commits a swipe just past the lighter threshold (would snap back under the old 75px)', () => {
+    vi.useFakeTimers();
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} />);
+    const row = screen.getByTestId('row');
+
+    // 65px right of start: ≥ new 60px threshold, < old 75px.
+    dispatch(row, 'pointerdown', 100, 100);
+    dispatch(row, 'pointermove', 165, 105);
+    dispatch(row, 'pointerup', 165, 105);
+
+    expect(row.getAttribute('data-dismissing')).toBe('true');
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(onSwipeRight).toHaveBeenCalledTimes(1);
+  });
+
+  it('snaps back below the lighter threshold (no commit)', () => {
+    vi.useFakeTimers();
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} />);
+    const row = screen.getByTestId('row');
+
+    // 55px right of start: < new 60px threshold, so the swipe does not commit.
+    dispatch(row, 'pointerdown', 100, 100);
+    dispatch(row, 'pointermove', 155, 105);
+    dispatch(row, 'pointerup', 155, 105);
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(onSwipeRight).not.toHaveBeenCalled();
+    expect(row.getAttribute('data-dismissing')).toBe('false');
+    expect(row.getAttribute('data-offset')).toBe('0');
+  });
+
   it('does not call a handler for a direction with no handler wired', () => {
     vi.useFakeTimers();
     const onSwipeRight = vi.fn();
