@@ -374,6 +374,23 @@ server-side with most-recent-first eviction.
      returns `{ username }` when the session cookie is present, `401`
      otherwise — used on client boot to rehydrate auth state without a
      round trip to HN.
+   - **Auth survives transient failures and refreshes in the background.**
+     The `['me']` query is persisted, so a returning reader paints
+     signed-in instantly. Only a real `401` (the origin's proof the
+     session cookie is gone) flips them to signed-out; any *ambiguous*
+     `/api/me` failure — offline, a deploy-window 5xx, a service-worker
+     error page mid-update — keeps the last known-good user instead of
+     blanking the header to the anonymous avatar. (Previously a single
+     failed `/api/me` overwrote the signed-in state with "anonymous" and,
+     because the query was fresh for an hour with no background re-check,
+     stayed stuck there until the reader manually signed in again.)
+     Recovery needs no user action: the query re-checks on tab refocus and
+     on reconnect (both stale-gated to at most once an hour), and the
+     reconnect refetch rides the same connectivity-recovery probe the feed
+     uses, so a logged-in state a boot-time blip couldn't confirm self-heals
+     the moment the network returns. A cached, pinned thread renders from
+     the persisted cache regardless of auth state — reading offline never
+     depends on `/api/me` answering.
    - `POST /api/logout` clears the cookie. Since the HN cookie lives on
      news.ycombinator.com, logging out of newshacker does not log you out
      of HN itself (by design).

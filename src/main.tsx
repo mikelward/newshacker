@@ -9,6 +9,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import App from './App';
 import { feedQueryRetry, feedQueryRetryDelay } from './hooks/useStoryList';
+import { shouldDehydrateAppQuery } from './hooks/useAuth';
 import {
   isRetryableFetchError,
   setConnectivityProbeUrl,
@@ -155,7 +156,17 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister, maxAge: PERSIST_MAX_AGE, buster: CACHE_BUSTER }}
+      persistOptions={{
+        persister,
+        maxAge: PERSIST_MAX_AGE,
+        buster: CACHE_BUSTER,
+        // Persist a data-bearing `['me']` query even in its error state, so
+        // a signed-in user retained through a failed background /api/me
+        // refetch survives a reload during the same failure window instead
+        // of being dropped from IndexedDB (the default persists only
+        // successful queries). See shouldDehydrateAppQuery in useAuth.
+        dehydrateOptions: { shouldDehydrateQuery: shouldDehydrateAppQuery },
+      }}
       onSuccess={() => {
         // Persister rehydrate creates queries with the queryClient's
         // default gcTime (1 h); without this, any pinned-story query
