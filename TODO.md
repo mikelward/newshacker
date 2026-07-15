@@ -149,40 +149,39 @@ extraction and rendering. Zero content-distribution liability for
 us — the redistribution question belongs to whoever runs the
 destination service.
 
-- **Web Share API (already shipped).** Every iOS / Android reading
-  app registers as a share target, so users who already own
-  Instapaper / Readwise Reader / Raindrop / successor apps can
-  route there today via the `⋮ → Share article` path. Cost: zero;
-  reliability: best of the options — we're not on the hot path.
-  Missing piece is *discoverability* — most users don't think of
-  the share sheet as "add to reading list". A `Read later` entry
-  in the overflow menu that just calls `navigator.share({ url })`
-  with nothing else changed would fix the framing at zero
-  engineering cost. Desktop browsers without Web Share fall back
-  to the clipboard copy we already do.
-- **Dedicated "Send to Instapaper".** The bookmarklet URL
-  `https://www.instapaper.com/hello2?url=<enc>&title=<enc>` still
-  works; unauthenticated users get bounced through login, then land
-  on a confirmation page. A same-tap `window.open(..., '_blank')`
-  avoids iOS's popup blocker. Coverage: Instapaper's extractor is
-  Readability-class plus per-site rules — ~90% of HN link posts
-  parse clean; SPAs / JS-only sites (Bloomberg, some Substacks, a
-  chunk of Ghost themes) degrade to a link-only save. TOS: we're
-  a link emitter, zero exposure for us. Failure modes: Instapaper
-  outages (a few hours a year), account required, iOS PWA pops
-  the destination out of `standalone`. Cost: zero — no API key,
-  no server involvement.
-- **Dedicated "Send to Readwise Reader".** `https://read.readwise
-  .io/save?url=<enc>` is the equivalent deep link. Coverage is a
-  notch better than Instapaper (they render JS server-side for
-  extraction) — ~95% of link posts. Same TOS posture (link
-  emitter). Paid-only service, but the subscriber base overlaps
-  heavily with HN readers, so an entry earns its shelf space.
-  Cost: zero to us.
-- **Dedicated "Send to Raindrop".** `https://raindrop.io/collection
-  /0?url=<enc>` — smaller audience and closer to a bookmark
-  manager than a long-form reader, but zero cost to add. Only
-  worth wiring if a user asks.
+- **Web Share API — considered, not used.** A generic `⋮` entry that
+  hands the article URL to `navigator.share` was the first sketch, but
+  Web Share is unavailable on most desktop browsers, so it wouldn't
+  work for a big slice of readers. We went with named per-service
+  deep links instead (shipped below), matching how the companion
+  Readmo app does it — a save URL works everywhere. The OS share
+  sheet remains reachable for stories via the existing **Share**
+  overflow entry (which shares the `/item/:id` discussion URL, a
+  different intent).
+- **Dedicated read-later save links — shipped (opt-in, one service).**
+  A single **Save to <service>** entry in the thread `⋮` overflow menu,
+  behind a per-device **Settings → Read later → Save to**
+  single-select dropdown (None / Instapaper / Readwise Reader /
+  Raindrop), **defaulting to None** so nothing shows until the reader
+  picks their app; at most one is active. `src/lib/readLater.ts`
+  (`readLaterStore` + `readLaterTarget`) builds the chosen service's
+  deep link — Instapaper `https://www.instapaper.com/hello2?url=<enc>&title=<enc>`,
+  Readwise Reader `https://wise.readwise.io/save?url=<enc>`, Raindrop
+  `https://app.raindrop.io/add?link=<enc>&title=<enc>` (the save
+  dialog, not the collection viewer) — opened via
+  `window.open(href, '_blank', 'noopener,noreferrer')` (see SPEC.md
+  § *Thread action bar*). Each is a plain deep link to the service's
+  own save/confirmation page (login/signup prompt if the reader isn't
+  signed in) — no API key, no credentials, no server involvement,
+  zero cost. Shown only for stories with a safe http(s) article URL
+  (self-posts are omitted). Coverage (unchanged from the analysis
+  below): Instapaper's Readability-class extractor parses ~90% of HN
+  link posts clean, degrading to a link-only save on SPA / JS-only
+  sites; Readwise Reader renders JS server-side so it's a notch better
+  (~95%). TOS: we're a link emitter, zero exposure. Failure modes:
+  service outages (a few hours a year), account required, iOS PWA pops
+  the destination out of `standalone`. Adding another service is one
+  entry in the `readLater` service list plus its dropdown option.
 - **Pocket — skip.** Mozilla announced the Pocket shutdown in May
   2025; the service wound down mid-2025. Don't wire a save path
   to a dying product.

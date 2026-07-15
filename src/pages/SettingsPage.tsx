@@ -17,7 +17,9 @@ import {
   useHideOnScroll,
   useStickyBottomBar,
 } from '../hooks/useFeedSettings';
+import { useReadLaterService } from '../hooks/useReadLaterService';
 import { HOME_FEED_OPTIONS } from '../lib/homeFeed';
+import { READ_LATER_OPTIONS, type ReadLaterPref } from '../lib/readLater';
 import './SettingsPage.css';
 
 export function SettingsPage() {
@@ -27,6 +29,8 @@ export function SettingsPage() {
   const { homeFeed, setHomeFeed } = useHomeFeed();
   const { hideOnScroll, setHideOnScroll } = useHideOnScroll();
   const { stickyBottomBar, setStickyBottomBar } = useStickyBottomBar();
+  const { readLaterService, setReadLaterService } = useReadLaterService();
+  const readLaterId = useId();
   const hotPanelId = useId();
 
   return (
@@ -194,6 +198,31 @@ export function SettingsPage() {
           on <code>/hot</code>.
         </p>
         <HotRuleEditor panelId={hotPanelId} />
+      </section>
+
+      <section className="settings-page__section">
+        <h2 className="settings-page__heading">Read later</h2>
+        <label className="settings-page__field-label" htmlFor={readLaterId}>
+          Save to
+        </label>
+        <select
+          id={readLaterId}
+          className="settings-page__select"
+          value={readLaterService}
+          onChange={(e) =>
+            setReadLaterService(e.target.value as ReadLaterPref)
+          }
+        >
+          {READ_LATER_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <p className="settings-page__section-desc">
+          Adds a “Save to …” entry to the story ⋮ menu that sends the article
+          to your reading app. Choose one, or None to hide it.
+        </p>
       </section>
 
       <ConnectedApps />
