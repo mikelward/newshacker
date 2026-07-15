@@ -125,6 +125,37 @@ describe('<SettingsPage>', () => {
     expect(window.localStorage.getItem('newshacker:hideOnScroll')).toBeNull();
   });
 
+  it('read-later picker defaults to None and persists a chosen service', () => {
+    renderWithProviders(<SettingsPage />, { route: '/settings' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /read later/i }),
+    ).toBeInTheDocument();
+    const select = screen.getByRole('combobox', {
+      name: /^save to$/i,
+    }) as HTMLSelectElement;
+    // Default None → nothing stored, no menu entry elsewhere.
+    expect(select.value).toBe('none');
+    expect(
+      screen.getByRole('option', { name: 'Readwise Reader' }),
+    ).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.change(select, { target: { value: 'instapaper' } });
+    });
+    expect(window.localStorage.getItem('newshacker:readLaterService')).toBe(
+      'instapaper',
+    );
+    expect(select.value).toBe('instapaper');
+
+    // Back to None clears the key (baseline represents it).
+    act(() => {
+      fireEvent.change(select, { target: { value: 'none' } });
+    });
+    expect(
+      window.localStorage.getItem('newshacker:readLaterService'),
+    ).toBeNull();
+  });
+
   it('hosts the Hot rule editor (New branch + reset)', () => {
     renderWithProviders(<SettingsPage />, { route: '/settings' });
     // "New" is unique to the Hot rule's branch legends (the Home feed picker

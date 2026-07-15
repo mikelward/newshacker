@@ -11,6 +11,7 @@ import { useInternalLinkClick } from '../hooks/useInternalLinkClick';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useOpenedStories } from '../hooks/useOpenedStories';
 import { usePinnedStories } from '../hooks/usePinnedStories';
+import { useReadLaterService } from '../hooks/useReadLaterService';
 import { useShareStory } from '../hooks/useShareStory';
 import { useThreadKeyboardNav } from '../hooks/useThreadKeyboardNav';
 import { useVote } from '../hooks/useVote';
@@ -32,6 +33,7 @@ import {
 } from '../lib/openedStories';
 import { closeArticleView } from '../lib/closeArticleView';
 import { prefetchCommentBatch } from '../lib/commentPrefetch';
+import { readLaterTarget } from '../lib/readLater';
 import { prefetchPinnedStory } from '../lib/pinnedStoryPrefetch';
 import { recordFirstAction } from '../lib/telemetry';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
@@ -884,6 +886,7 @@ export function Thread({ id }: Props) {
   });
   const handleLinkClick = useInternalLinkClick();
   const shareStory = useShareStory();
+  const { readLaterService } = useReadLaterService();
   const wide = useWideViewport();
   const handleShare = useCallback(() => {
     if (item) void shareStory(item);
@@ -928,6 +931,23 @@ export function Thread({ id }: Props) {
         },
       });
     }
+    // Save to the reader's chosen read-later service (Settings → Reading →
+    // "Save to reading app"; default None → nothing shown). At most one entry:
+    // a plain deep link to the service's own save page opened in a new tab —
+    // no Web Share API (desktop browsers mostly lack it), no API call, no
+    // credentials (see src/lib/readLater.ts). Unlike Share (which shares our
+    // /item discussion URL), it saves the *external article URL*, so it's
+    // omitted for self-posts, which have no article. Always in the menu at
+    // every width when a service is selected.
+    const readLater = readLaterTarget(readLaterService, item?.url, item?.title);
+    if (readLater) {
+      const href = readLater.href;
+      items.push({
+        key: `save-${readLater.service}`,
+        label: readLater.label,
+        onSelect: () => window.open(href, '_blank', 'noopener,noreferrer'),
+      });
+    }
     items.push({
       key: 'open-on-hn',
       label: 'Open on Hacker News',
@@ -940,7 +960,7 @@ export function Thread({ id }: Props) {
       },
     });
     return items;
-  }, [id, item, wide, favorited, handleToggleFavorite, shareStory]);
+  }, [id, item, wide, favorited, readLaterService, handleToggleFavorite, shareStory]);
 
   // When /item/:id resolves to a comment (HN's API treats every node
   // uniformly, so it can — links from /threads, /user, and /from

@@ -749,6 +749,7 @@ Tapping ⋮ opens the overflow menu (the same `StoryRowMenu` component used for 
 
 - **Favorite / Unfavorite** — the keepsake toggle (heart). On wide viewports this is an inline icon on the bar (see row order above); below 960px it lives here in the overflow. See *Pinned vs. Favorite vs. Done* above for the distinction between queue (Pin), keepsake (Favorite), and completion (Done).
 - **Share** — invokes the Web Share API (or copies the link to the clipboard as a fallback) via the `useShareStory` hook. Always shares the on-site `/item/:id` thread URL (never the external article source), for every story including self-posts — this routes recipients to newshacker and gives the rich `/item/:id` Open Graph preview, which a raw article URL would bypass. On wide viewports this is an inline icon on the bar; below 960px it lives here in the overflow.
+- **Save to reading app** (opt-in, one service) — a single read-later entry, labeled **Save to Instapaper** / **Save to Readwise Reader** / **Save to Raindrop** depending on the reader's choice. It opens the chosen service's own public "save this page" deep link (`https://www.instapaper.com/hello2?url=…&title=…`, `https://wise.readwise.io/save?url=…`, `https://app.raindrop.io/add?link=…&title=…`) in a new tab via `window.open`, resolved by `readLaterTarget` in `src/lib/readLater.ts`. The service's page saves the article (prompting login/signup if the reader isn't signed in). This is deliberately a **plain deep link, not the Web Share API** — `navigator.share` is unavailable on most desktop browsers, whereas a save URL works everywhere — and it saves the **external article URL** (unlike Share, which shares our `/item/:id` discussion URL), because the target is a reading app that renders the article itself, not a person. **Which service appears (if any) is a per-device setting** — a single-select dropdown on the Settings page (**Read later → Save to**: None / Instapaper / Readwise Reader / Raindrop), **defaulting to None**, so no read-later entry shows until the reader opts in by picking their app. At most one service is ever active. The entry is also **only shown for stories with a safe http(s) article URL** — self-posts (Ask/Show HN) have nothing to save, so `readLaterTarget` returns null and the caller omits it. **Stays in the overflow menu at every width** — a low-frequency action that doesn't earn a permanent bar slot. Zero infrastructure, no API call, no stored credentials, no cost. Pocket is intentionally not offered (Mozilla shut it down in July 2025); more services slot in by extending the `readLater` service list. The setting persists under `newshacker:readLaterService` (see *Reading settings*).
 - **Open on Hacker News** — opens `https://news.ycombinator.com/item?id=:id` in a new tab. Lets users jump to the canonical HN page (e.g. to upvote/comment from their HN account, while we don't yet support write actions). **Stays in the overflow menu at every width** — it's a low-frequency "go to the source" escape hatch, not worth a permanent slot on the bar.
 
 There is no app-wide "Share page" button — sharing a story is reachable from the thread bar / overflow here, and per-story share on feeds lives in the row long-press menu (`StoryListItem`). The header carries only Menu, Search, the offline pill, and the account menu.
@@ -982,6 +983,15 @@ the hooks live in `src/hooks/useFeedSettings.ts` over `src/lib/feedSettings.ts`.
 Both settings are independent and apply to every scrolling feed view. Matches
 readmo's *Reading* / *Bottom toolbar* settings (same defaults), so the two apps
 stay behavior-equivalent.
+
+A separate **Read later** section (placed just above the companion-app
+connection, see *Connecting a companion app*) carries the **Save to**
+single-select dropdown (`newshacker:readLaterService`, a string-enum pref over
+`createPersistentValue`, not a checkbox flag): None (default) / Instapaper /
+Readwise Reader / Raindrop. It governs whether the thread overflow menu shows a
+read-later "Save to …" entry, and for which service — see *Thread action bar*.
+Default None means no entry until the reader opts in; at most one service is
+active at a time. (Matches readmo's *Read later* settings section.)
 
 The appearance pickers — mode (light/dark/system), app-bar style
 (mono/duo/classic), and text size (small/medium/large) — plus the Home feed

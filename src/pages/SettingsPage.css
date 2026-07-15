@@ -134,6 +134,20 @@
   color: var(--nh-meta);
 }
 
+/* Native dropdown (read-later service picker), sized to the touch floor and
+   styled to match the card. Keeps the browser's own open/close affordance. */
+.settings-page__select {
+  width: 100%;
+  min-height: var(--tap-min);
+  margin: 0 0 4px;
+  padding: 8px 10px;
+  font-size: 15px;
+  color: var(--nh-text);
+  background: var(--nh-bg-card);
+  border: 1px solid var(--nh-border);
+  border-radius: 8px;
+}
+
 /* The Hot rule editor is shared with the compact, opt-in `/hot` toolbar panel.
    On this primary mobile settings surface its controls are bumped to the 44px
    touch floor (Golden rule 5) without disturbing the toolbar instance. */

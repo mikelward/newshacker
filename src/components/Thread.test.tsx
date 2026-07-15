@@ -1116,6 +1116,108 @@ describe('<Thread>', () => {
     expect(screen.getByTestId('story-row-menu-share')).toBeInTheDocument();
   });
 
+  it('shows no read-later entry by default (setting is None)', async () => {
+    setViewportWide(false);
+    installHNFetchMock({
+      items: {
+        749: makeStory(749, {
+          title: 'Default off',
+          url: 'https://example.com/article-749',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={749} />);
+    await waitFor(() => {
+      expect(screen.getByText('Default off')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId('thread-more'));
+    // No service selected → no "Save to …" entry at all.
+    expect(screen.queryByTestId('story-row-menu-save-instapaper')).toBeNull();
+    expect(screen.queryByTestId('story-row-menu-save-readwise')).toBeNull();
+    expect(screen.queryByTestId('story-row-menu-save-raindrop')).toBeNull();
+  });
+
+  it('offers the selected read-later service, opening its save URL for the article', async () => {
+    setViewportWide(false);
+    // Reader picked Instapaper in Settings.
+    window.localStorage.setItem('newshacker:readLaterService', 'instapaper');
+    installHNFetchMock({
+      items: {
+        750: makeStory(750, {
+          title: 'Readable & Co',
+          url: 'https://example.com/article-750',
+        }),
+      },
+    });
+
+    const openSpy = vi.fn();
+    vi.stubGlobal('open', openSpy);
+
+    renderWithProviders(<Thread id={750} />);
+    await waitFor(() => {
+      expect(screen.getByText('Readable & Co')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId('thread-more'));
+    // Only the chosen service appears; Readwise/Raindrop do not.
+    expect(screen.queryByTestId('story-row-menu-save-readwise')).toBeNull();
+    // Instapaper deep link carries the encoded article URL + title (not our
+    // /item discussion URL).
+    await userEvent.click(screen.getByTestId('story-row-menu-save-instapaper'));
+    expect(openSpy).toHaveBeenLastCalledWith(
+      'https://www.instapaper.com/hello2' +
+        '?url=https%3A%2F%2Fexample.com%2Farticle-750' +
+        '&title=Readable%20%26%20Co',
+      '_blank',
+      'noopener,noreferrer',
+    );
+  });
+
+  it('omits the read-later entry on self-posts (no article to save)', async () => {
+    setViewportWide(false);
+    window.localStorage.setItem('newshacker:readLaterService', 'readwise');
+    installHNFetchMock({
+      items: {
+        751: makeStory(751, { title: 'Ask HN: thoughts?', url: undefined }),
+      },
+    });
+
+    renderWithProviders(<Thread id={751} />);
+    await waitFor(() => {
+      expect(screen.getByText('Ask HN: thoughts?')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId('thread-more'));
+    expect(screen.queryByTestId('story-row-menu-save-readwise')).toBeNull();
+  });
+
+  it('shows the read-later entry in the overflow menu on wide viewports too', async () => {
+    setViewportWide(true);
+    window.localStorage.setItem('newshacker:readLaterService', 'readwise');
+    installHNFetchMock({
+      items: {
+        752: makeStory(752, {
+          title: 'Wide readable',
+          url: 'https://example.com/article-752',
+        }),
+      },
+    });
+
+    renderWithProviders(<Thread id={752} />);
+    await waitFor(() => {
+      expect(screen.getByText('Wide readable')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId('thread-more'));
+    // Favorite/Share are inline icons on wide, but the read-later entry
+    // always lives in the overflow.
+    expect(
+      screen.getByTestId('story-row-menu-save-readwise'),
+    ).toBeInTheDocument();
+  });
+
   it('auto-fetches and displays the summary card on mount', async () => {
     installHNFetchMock({
       items: {
