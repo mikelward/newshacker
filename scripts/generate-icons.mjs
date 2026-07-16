@@ -39,6 +39,12 @@ const TARGETS = [
   { name: 'favicon-32.png', size: 32, source: 'favicon.svg' },
   { name: 'apple-touch-icon.png', size: 180, source: 'favicon.svg' },
   { name: 'icon-192.png', size: 192, source: 'favicon.svg' },
+  // 256px is the link-preview (og:image) size: at/above Facebook's
+  // documented 200×200 minimum so Messenger/Facebook don't drop the
+  // thumbnail, yet below WhatsApp's ~300px "large card" threshold so
+  // WhatsApp still renders the compact left-thumbnail layout instead of
+  // a giant hero banner. See "Link preview metadata" in SPEC.md.
+  { name: 'icon-256.png', size: 256, source: 'favicon.svg' },
   { name: 'icon-512.png', size: 512, source: 'favicon.svg' },
   { name: 'icon-512-maskable.png', size: 512, source: 'favicon-maskable.svg' },
 ];

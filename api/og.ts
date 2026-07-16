@@ -15,14 +15,27 @@
 // than imported from outside api/.
 
 const HN_API_BASE = 'https://hacker-news.firebaseio.com/v0';
-// Static brand image — a square 512×512 PNG already shipped for the
-// PWA. We pair it with twitter:card="summary" so platforms render
-// the smaller-thumbnail layout instead of letterboxing a square into
-// a wide hero slot. Dynamic story-title-on-cream renders were prototyped
-// with @vercel/og but pulled — Vercel's Edge bundler doesn't ship the
-// module for non-Next.js Vite projects ("unsupported modules"). Can
-// revisit with a build-time prerender or a different Edge config later.
-const OG_IMAGE_PATH = '/icon-512.png';
+// Static brand image — the 256×256 PWA icon. We pair it with
+// twitter:card="summary" so platforms render the smaller-thumbnail
+// layout instead of letterboxing a square into a wide hero slot.
+// We deliberately use the 256px icon, not the 512px one: WhatsApp
+// ignores twitter:card and sizes its preview from the image's pixels,
+// so a 512² square trips its "hero banner" threshold and fills a giant
+// box. A sub-300px image drops WhatsApp to its compact left-thumbnail
+// card, which matches what the summary card gives everyone else. 256
+// (rather than a smaller icon) stays at/above Facebook's documented
+// 200×200 og:image minimum, so Messenger/Facebook don't reject or omit
+// the thumbnail, while still sitting under WhatsApp's ~300px threshold.
+// Dynamic story-title-on-cream renders were prototyped with @vercel/og
+// but pulled — Vercel's Edge bundler doesn't ship the module for
+// non-Next.js Vite projects ("unsupported modules"). Can revisit with a
+// build-time prerender or a different Edge config later.
+// TODO: consider fetching the linked article's own og:image (its hero
+// image) for link-type stories and using that here, falling back to this
+// brand icon for self-posts / articles with no usable image. Adds an
+// external fetch per crawler hit (crawler-only, ~$0/mo per rule 11) and
+// new failure modes, so it's a follow-up, not part of this change.
+const OG_IMAGE_PATH = '/icon-256.png';
 
 interface HNItem {
   id?: number;
@@ -98,8 +111,8 @@ function renderHtml(args: RenderArgs): string {
 <meta property="og:title" content="${t}" />
 <meta property="og:description" content="${d}" />
 <meta property="og:image" content="${i}" />
-<meta property="og:image:width" content="512" />
-<meta property="og:image:height" content="512" />
+<meta property="og:image:width" content="256" />
+<meta property="og:image:height" content="256" />
 <meta property="og:url" content="${u}" />
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="${t}" />

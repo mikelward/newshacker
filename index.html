@@ -27,19 +27,31 @@
          /item/:id we route bot user-agents to /api/og (see vercel.json)
          which renders item-specific tags (title, age). Everything else
          falls back to these defaults. og:image is the static brand
-         icon paired with twitter:card="summary" (small square card). -->
+         icon paired with twitter:card="summary" (small square card).
+         We point it at the 256px icon, not the 512px one: WhatsApp
+         ignores twitter:card entirely and picks its layout from the
+         image's pixel size — a 512² square trips its "big enough for a
+         hero banner" threshold and fills a giant box, whereas a sub-300px
+         image falls back to the compact left-thumbnail card we actually
+         want. 256 is the sweet spot: at/above Facebook's documented
+         200×200 minimum (so Messenger/Facebook don't drop the thumbnail)
+         yet still under WhatsApp's ~300px large-card threshold. Platforms
+         that honor twitter:card (iMessage, Slack, …) get a crisp square
+         thumbnail either way.
+         TODO: consider rendering the linked article's hero image for
+         /item/:id previews (see api/og.ts) instead of the brand icon. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="newshacker" />
     <meta property="og:title" content="newshacker — a reader for Hacker News" />
     <meta property="og:description" content="A mobile-friendly, unofficial reader for Hacker News." />
     <meta property="og:url" content="https://newshacker.app/" />
-    <meta property="og:image" content="https://newshacker.app/icon-512.png" />
-    <meta property="og:image:width" content="512" />
-    <meta property="og:image:height" content="512" />
+    <meta property="og:image" content="https://newshacker.app/icon-256.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="newshacker — a reader for Hacker News" />
     <meta name="twitter:description" content="A mobile-friendly, unofficial reader for Hacker News." />
-    <meta name="twitter:image" content="https://newshacker.app/icon-512.png" />
+    <meta name="twitter:image" content="https://newshacker.app/icon-256.png" />
     <script>
       // Apply stored mode + app-bar theme before first paint to avoid a
       // flash. The chrome whitelist is explicit (mono-a / mono-b) rather
