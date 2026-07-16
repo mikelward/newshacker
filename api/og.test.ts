@@ -75,6 +75,10 @@ describe('handleOgRequest', () => {
     expect(body).toContain('newshacker — a reader for Hacker News');
     expect(body).toContain('og:title');
     expect(body).toContain('twitter:card');
+    // Fallback preview uses the small brand icon too, so WhatsApp keeps
+    // the compact card rather than blowing the logo up to a hero banner.
+    expect(body).toContain('https://newshacker.app/icon-256.png');
+    expect(body).not.toContain('icon-512');
   });
 
   it('returns the default site preview for a non-numeric id', async () => {
@@ -109,10 +113,15 @@ describe('handleOgRequest', () => {
     expect(body).not.toContain('alice');
     expect(body).not.toContain('100 points');
     expect(body).not.toContain('20 comments');
-    expect(body).toContain('https://newshacker.app/icon-512.png');
+    expect(body).toContain('https://newshacker.app/icon-256.png');
     expect(body).toContain('https://newshacker.app/item/42');
     expect(body).toContain('twitter:card" content="summary"');
     expect(body).toContain('og:type" content="article"');
+    // Sub-300px image so WhatsApp (which ignores twitter:card) renders
+    // its compact card instead of a giant hero banner.
+    expect(body).not.toContain('icon-512');
+    expect(body).toContain('og:image:width" content="256"');
+    expect(body).toContain('og:image:height" content="256"');
   });
 
   it('escapes HTML in the story title to block injection', async () => {
