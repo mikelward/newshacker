@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useReducer } from 'react';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
 import { LoadingState } from '../components/States';
 import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
@@ -58,7 +59,11 @@ function serviceBadgeState(status: ServiceStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
+const parsedBuildTime = parseBuildTime(buildCommitTime);
+const parsedBuildTimeMs = parsedBuildTime?.getTime() ?? null;
+
 export function DebugPage() {
+  const [, forceTick] = useReducer((n: number) => n + 1, 0);
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['debug-status'],
     queryFn: ({ signal }) => fetchStatus(signal),
@@ -66,6 +71,14 @@ export function DebugPage() {
     gcTime: 0,
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    if (parsedBuildTimeMs === null) return;
+    const id = window.setInterval(() => {
+      forceTick();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   return (
     <article className="debug-page">
@@ -105,21 +118,18 @@ export function DebugPage() {
             <div>
               <dt>Built</dt>
               <dd>
-                {(() => {
-                  const built = parseBuildTime(buildCommitTime);
-                  if (!built) return <em>unknown</em>;
-                  return (
-                    <>
-                      <time dateTime={built.toISOString()}>
-                        {built.toLocaleString()}
-                      </time>{' '}
-                      <span className="debug-page__muted">
-                        ({formatTimeAgo(Math.floor(built.getTime() / 1000))}{' '}
-                        ago)
-                      </span>
-                    </>
-                  );
-                })()}
+                {parsedBuildTimeMs === null ? (
+                  <em>unknown</em>
+                ) : (
+                  <>
+                    <time dateTime={parsedBuildTime!.toISOString()}>
+                      {parsedBuildTime!.toLocaleString()}
+                    </time>{' '}
+                    <span className="debug-page__muted">
+                      ({formatTimeAgo(Math.floor(parsedBuildTimeMs / 1000))} ago)
+                    </span>
+                  </>
+                )}
               </dd>
             </div>
           </dl>
