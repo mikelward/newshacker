@@ -189,6 +189,26 @@ describe('MarkdownText', () => {
     );
   });
 
+  it('keeps a blank-line-separated (loose) bullet run as one <ul>', () => {
+    const { container } = render(
+      <MarkdownText text={'- First point\n\n- Second point\n\n\n- Third'} />,
+    );
+    expect(container.innerHTML).toBe(
+      '<ul class="markdown-list"><li>First point</li><li>Second point</li>' +
+        '<li>Third</li></ul>',
+    );
+  });
+
+  it('still splits a bullet run when real text sits between the items', () => {
+    const { container } = render(
+      <MarkdownText text={'- alpha\naside\n- beta'} />,
+    );
+    expect(container.innerHTML).toBe(
+      '<ul class="markdown-list"><li>alpha</li></ul>aside' +
+        '<ul class="markdown-list"><li>beta</li></ul>',
+    );
+  });
+
   it('renders "*" bullet lines as a <ul> without treating them as italic', () => {
     const { container } = render(<MarkdownText text={'* one\n* two'} />);
     expect(container.innerHTML).toBe(
