@@ -74,7 +74,14 @@ export function formatTimeAgo(unixSeconds: number, nowMs: number): string {
   if (diff < HR) return `${Math.floor(diff / MIN)}m ago`;
   if (diff < DAY) return `${Math.floor(diff / HR)}h ago`;
   if (diff < MO) return `${Math.floor(diff / DAY)}d ago`;
-  if (diff < YR) return `${Math.floor(diff / MO)}mo ago`;
+  if (diff < YR) {
+    // 30-day months × 365-day year means 360–365 days floors to 12 —
+    // roll that over to "1y" rather than render a nonsensical "12mo".
+    // Same rollover as the src/lib/format.ts twin.
+    const mo = Math.floor(diff / MO);
+    if (mo >= 12) return '1y ago';
+    return `${mo}mo ago`;
+  }
   return `${Math.floor(diff / YR)}y ago`;
 }
 

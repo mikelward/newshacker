@@ -43,6 +43,15 @@ describe('formatTimeAgo', () => {
   it('clamps negative diffs (future timestamps) to "just now"', () => {
     expect(formatTimeAgo(NOW_S + 60, NOW_MS)).toBe('just now');
   });
+
+  it('rolls 360–365 days over to "1y ago" instead of "12mo ago"', () => {
+    // 30-day months against a 365-day year leave a 5-day window that floors to
+    // 12 months. Same rollover as the src/lib/format.ts twin.
+    expect(formatTimeAgo(NOW_S - 360 * 86400, NOW_MS)).toBe('1y ago');
+    expect(formatTimeAgo(NOW_S - 364 * 86400, NOW_MS)).toBe('1y ago');
+    expect(formatTimeAgo(NOW_S - 359 * 86400, NOW_MS)).toBe('11mo ago');
+    expect(formatTimeAgo(NOW_S - 365 * 86400, NOW_MS)).toBe('1y ago');
+  });
 });
 
 describe('buildItemDescription', () => {
