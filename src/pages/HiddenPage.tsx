@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   HIDDEN_STORIES_CHANGE_EVENT,
-  clearHiddenIds,
+  forgetAllHiddenIds,
   getHiddenEntries,
   removeHiddenId,
 } from '../lib/hiddenStories';
@@ -57,7 +57,7 @@ export function HiddenPage() {
       `Forget all ${count} hidden ${noun}? They can reappear in your feeds.`,
     );
     if (!ok) return;
-    clearHiddenIds();
+    forgetAllHiddenIds();
   }, [ids.length]);
 
   return (

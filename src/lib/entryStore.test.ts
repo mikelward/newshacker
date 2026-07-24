@@ -48,6 +48,127 @@ describe('createEntryStore', () => {
     window.removeEventListener(EVENT, fired);
   });
 
+  it('removeIds tombstones a batch in one write, preserving existing tombstones', () => {
+    const s = make();
+    const fired = vi.fn();
+    s.replaceEntries([
+      { id: 1, at: 100 },
+      { id: 2, at: 100 },
+      { id: 3, at: 50, deleted: true },
+      { id: 4, at: 100 },
+    ]);
+    window.addEventListener(EVENT, fired);
+
+    s.removeIds([1, 2, 3], 900);
+
+    expect(fired).toHaveBeenCalledTimes(1); // one write for the whole batch
+    const all = s.getAllEntries().sort((a, b) => a.id - b.id);
+    expect(all).toEqual([
+      { id: 4, at: 100 },
+      { id: 1, at: 900, deleted: true },
+      { id: 2, at: 900, deleted: true },
+      { id: 3, at: 50, deleted: true }, // untouched `at`
+    ].sort((a, b) => a.id - b.id));
+    window.removeEventListener(EVENT, fired);
+  });
+
+  it('removeIds is a no-op for an empty batch', () => {
+    const s = make();
+    const fired = vi.fn();
+    s.addId(1, 100);
+    window.addEventListener(EVENT, fired);
+    s.removeIds([]);
+    expect(fired).not.toHaveBeenCalled();
+    expect([...s.getIds()]).toEqual([1]);
+    window.removeEventListener(EVENT, fired);
+  });
+
+  // Regression: forgetAll used to be a bare `writeRaw([])`, which looked right
+  // locally but left the sync layer nothing to merge against — cloudSync's next
+  // pull merged the server's still-live entries into an empty local list and the
+  // whole list came back, silently undoing the user's "Forget all".
+  it('forgetAll tombstones every live id instead of wiping the list', () => {
+    const s = make();
+    s.addId(1, 100);
+    s.addId(2, 200);
+    s.removeId(3, 150); // pre-existing tombstone
+
+    s.forgetAll(900);
+
+    expect([...s.getIds()]).toEqual([]);
+    const all = s.getAllEntries().sort((a, b) => a.id - b.id);
+    expect(all).toEqual([
+      { id: 1, at: 900, deleted: true },
+      { id: 2, at: 900, deleted: true },
+      { id: 3, at: 150, deleted: true },
+    ]);
+  });
+
+  it('forgetAll does not write when nothing is live', () => {
+    const s = make();
+    const fired = vi.fn();
+    s.removeId(7, 100);
+    window.addEventListener(EVENT, fired);
+    s.forgetAll(900);
+    expect(fired).not.toHaveBeenCalled();
+    expect(s.getAllEntries()).toEqual([{ id: 7, at: 100, deleted: true }]);
+    window.removeEventListener(EVENT, fired);
+  });
+
+  // Regression (clock skew): `at` is wall-clock Date.now() from whichever device
+  // wrote the entry, so an entry synced from a device running ahead can sit in
+  // this device's future. Both mergeEntries implementations accept only a
+  // STRICTLY newer entry, so a tombstone stamped at our `now` would lose the
+  // merge and the id would come back.
+  describe('tombstones out-date the live entry they replace', () => {
+    const NOW = 1_000;
+    const FUTURE = NOW + 60_000; // entry from a device whose clock runs ahead
+
+    it('removeId stamps past a future-dated live entry', () => {
+      const s = make();
+      s.replaceEntries([{ id: 1, at: FUTURE }]);
+      s.removeId(1, NOW);
+      expect(s.getAllEntries()).toEqual([
+        { id: 1, at: FUTURE + 1, deleted: true },
+      ]);
+    });
+
+    it('removeIds stamps past each future-dated live entry independently', () => {
+      const s = make();
+      s.replaceEntries([
+        { id: 1, at: FUTURE },
+        { id: 2, at: NOW - 500 }, // normal, in the past
+      ]);
+      s.removeIds([1, 2], NOW);
+      const all = s.getAllEntries().sort((a, b) => a.id - b.id);
+      expect(all).toEqual([
+        { id: 1, at: FUTURE + 1, deleted: true },
+        // Untouched by id 1's bump — a past-dated entry still tombstones at `now`.
+        { id: 2, at: NOW, deleted: true },
+      ]);
+    });
+
+    it('forgetAll survives a merge against the future-dated server copy', () => {
+      const s = make();
+      s.replaceEntries([{ id: 1, at: FUTURE }]);
+      s.forgetAll(NOW);
+      // Replay the exact merge rule both cloudSync.ts and api/sync.ts use:
+      // incoming wins only when strictly newer.
+      const local = s.getAllEntries()[0];
+      const server = { id: 1, at: FUTURE };
+      expect(server.at > local.at).toBe(false); // tombstone holds
+      expect([...s.getIds()]).toEqual([]);
+    });
+  });
+
+  it('clearIds stays the hard wipe (tombstones included)', () => {
+    const s = make();
+    s.addId(1, 100);
+    s.removeId(2, 100);
+    s.clearIds();
+    expect(s.getAllEntries()).toEqual([]);
+  });
+
   it('fires the change event on every write', () => {
     const s = make();
     const fired = vi.fn();

@@ -25,6 +25,11 @@ export const getHiddenEntries = store.getEntries;
 export const getAllHiddenEntries = store.getAllEntries;
 export const addHiddenId = store.addId;
 export const removeHiddenId = store.removeId;
+export const removeHiddenIds = store.removeIds;
+// Tombstoning "forget all" — what the /hidden toolbar button uses. `clearHiddenIds`
+// is the hard local wipe and must not be used for a user-facing bulk forget: with
+// no tombstones left, the next /api/sync pull merges the server's copy back in.
+export const forgetAllHiddenIds = store.forgetAll;
 export const clearHiddenIds = store.clearIds;
 export const replaceHiddenEntries = store.replaceEntries;
 

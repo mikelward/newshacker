@@ -21,5 +21,10 @@ export const getDoneEntries = store.getEntries;
 export const getAllDoneEntries = store.getAllEntries;
 export const addDoneId = store.addId;
 export const removeDoneId = store.removeId;
+export const removeDoneIds = store.removeIds;
+// Tombstoning "forget all" — what the /done toolbar button uses. `clearDoneIds`
+// is the hard local wipe and must not be used for a user-facing bulk forget: with
+// no tombstones left, the next /api/sync pull merges the server's copy back in.
+export const forgetAllDoneIds = store.forgetAll;
 export const clearDoneIds = store.clearIds;
 export const replaceDoneEntries = store.replaceEntries;
