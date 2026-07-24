@@ -3,7 +3,14 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { HiddenPage } from './HiddenPage';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
-import { addHiddenId } from '../lib/hiddenStories';
+import {
+  addHiddenId,
+  getAllHiddenEntries,
+  getHiddenIds,
+  replaceHiddenEntries,
+  type HiddenEntry,
+} from '../lib/hiddenStories';
+import { mergeEntries } from '../lib/cloudSync';
 import { addOpenedId } from '../lib/openedStories';
 
 describe('<HiddenPage>', () => {
@@ -109,9 +116,52 @@ describe('<HiddenPage>', () => {
     await waitFor(() => {
       expect(screen.getByText(/Nothing hidden/i)).toBeInTheDocument();
     });
+    // Tombstones, not a wipe: a bare `[]` would leave cloudSync's next pull
+    // nothing to merge against and the whole list would come straight back.
+    expect(getHiddenIds().size).toBe(0);
     expect(
-      window.localStorage.getItem('newshacker:hiddenStoryIds'),
-    ).toBe('[]');
+      getAllHiddenEntries()
+        .map((e) => ({ id: e.id, deleted: e.deleted }))
+        .sort((a, b) => a.id - b.id),
+    ).toEqual([
+      { id: 1, deleted: true },
+      { id: 2, deleted: true },
+    ]);
+  });
+
+  // Regression: "Forget all" used to hard-wipe localStorage. With no tombstones
+  // left, cloudSync's per-id last-write-wins merge handed the server's still-live
+  // entries straight back on the next pull and the list reappeared.
+  it('Forget all survives a cloudSync merge against the server copy', async () => {
+    installHNFetchMock({
+      items: { 1: makeStory(1, { title: 'Alpha' }) },
+    });
+    // Hidden entries carry a 7-day TTL, so the server copy has to be recent
+    // enough to survive the read-time prune — otherwise the merge would be a
+    // no-op for the wrong reason.
+    const hiddenAt = Date.now();
+    addHiddenId(1, hiddenAt);
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
+    renderWithProviders(<HiddenPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Alpha')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(
+        screen.getByRole('button', { name: /forget all hidden/i }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/Nothing hidden/i)).toBeInTheDocument();
+    });
+
+    const merged = mergeEntries(getAllHiddenEntries(), [
+      { id: 1, at: hiddenAt },
+    ]);
+    replaceHiddenEntries(merged as HiddenEntry[]);
+    expect([...getHiddenIds()]).toEqual([]);
   });
 
   it('Forget all is a no-op when the user cancels the confirmation', async () => {

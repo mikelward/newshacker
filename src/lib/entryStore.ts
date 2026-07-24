@@ -30,6 +30,16 @@ export interface EntryStore {
   getAllEntries(now?: number): StoreEntry[];
   addId(id: number, now?: number): void;
   removeId(id: number, now?: number): void;
+  /** Batched `removeId`: tombstone many ids with a single read, write, and change
+   * event. Ids that already carry a tombstone keep it (no `at` bump). */
+  removeIds(ids: readonly number[], now?: number): void;
+  /** Tombstone every currently-live id — the "forget all" the library pages
+   * offer. NOT the same as `clearIds`: this keeps the resurrect-guard so a
+   * cloudSync pull can't hand the whole list straight back. */
+  forgetAll(now?: number): void;
+  /** Hard wipe: drop every entry INCLUDING tombstones. Local-only reset (tests,
+   * sign-out cleanup) — for a synced store use `forgetAll`, since a wipe leaves
+   * nothing to stop the next `/api/sync` pull resurrecting the list. */
   clearIds(): void;
   /** Overwrite wholesale after a sync merge — one change event for a batch read. */
   replaceEntries(entries: StoreEntry[]): void;
@@ -148,6 +158,17 @@ export function createEntryStore(config: EntryStoreConfig): EntryStore {
     writeRaw(entries);
   }
 
+  // Both merge sides (src/lib/cloudSync.ts and api/sync.ts `mergeEntries`) accept
+  // an incoming entry only when it is STRICTLY newer. `at` is wall-clock
+  // `Date.now()` from whichever device wrote the entry, so a live entry synced
+  // from a device whose clock runs ahead can carry an `at` in this device's
+  // future — and a tombstone stamped at our `now` would then lose the merge and
+  // the removed id would come straight back. Stamp the tombstone one tick past
+  // the live entry it replaces so removal always wins its own merge.
+  function tombstoneAt(existing: StoreEntry | undefined, now: number): number {
+    return existing ? Math.max(now, existing.at + 1) : now;
+  }
+
   function removeId(id: number, now: number = Date.now()): void {
     const before = readRaw(now);
     const existing = before.find((e) => e.id === id);
@@ -157,8 +178,50 @@ export function createEntryStore(config: EntryStoreConfig): EntryStore {
     // tombstone is already there (nothing to bump).
     if (existing && existing.deleted) return;
     const after = before.filter((e) => e.id !== id);
-    after.push({ id, at: now, deleted: true });
+    after.push({ id, at: tombstoneAt(existing, now), deleted: true });
     writeRaw(after);
+  }
+
+  function removeIds(ids: readonly number[], now: number = Date.now()): void {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const before = readRaw(now);
+    const after: StoreEntry[] = [];
+    const kept = new Set<number>();
+    const replaced = new Map<number, StoreEntry>();
+    for (const e of before) {
+      if (!idSet.has(e.id)) {
+        after.push(e);
+      } else if (e.deleted) {
+        // Preserve the existing tombstone rather than bumping its `at`, matching
+        // removeId's early return for already-deleted ids.
+        after.push(e);
+        kept.add(e.id);
+      } else {
+        // Live entries that match are dropped here and re-added as tombstones
+        // below — keep the entry so the tombstone can out-date it (see
+        // `tombstoneAt`).
+        replaced.set(e.id, e);
+      }
+    }
+    for (const id of idSet) {
+      if (kept.has(id)) continue;
+      after.push({ id, at: tombstoneAt(replaced.get(id), now), deleted: true });
+    }
+    writeRaw(after);
+  }
+
+  function forgetAll(now: number = Date.now()): void {
+    // Tombstone rather than wipe. A bare `writeRaw([])` looks right locally but
+    // leaves the sync layer nothing to merge against: cloudSync's next pull
+    // merges the server's still-live entries into an empty local list and the
+    // whole list reappears, silently undoing the user's "Forget all".
+    const live = readRaw(now).filter((e) => !e.deleted);
+    if (live.length === 0) return;
+    removeIds(
+      live.map((e) => e.id),
+      now,
+    );
   }
 
   function clearIds(): void {
@@ -178,6 +241,8 @@ export function createEntryStore(config: EntryStoreConfig): EntryStore {
     getAllEntries,
     addId,
     removeId,
+    removeIds,
+    forgetAll,
     clearIds,
     replaceEntries,
   };

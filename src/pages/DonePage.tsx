@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DONE_STORIES_CHANGE_EVENT,
-  clearDoneIds,
+  forgetAllDoneIds,
   getDoneEntries,
   removeDoneId,
 } from '../lib/doneStories';
@@ -49,7 +49,7 @@ export function DonePage() {
       `Forget all ${count} done ${noun}? They can reappear in your feeds.`,
     );
     if (!ok) return;
-    clearDoneIds();
+    forgetAllDoneIds();
   }, [ids.length]);
 
   return (
