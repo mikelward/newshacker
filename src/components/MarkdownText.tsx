@@ -92,9 +92,20 @@ function splitBlocks(text: string): Block[] {
       textLines.push(line);
       continue;
     }
-    flushText();
+    // A blank line between two bullet lines is markdown's "loose list" — still
+    // one list. Drop the pending blank run instead of flushing it, or the empty
+    // text block between the two bullets would split them into two <ul>s (the
+    // second one re-starting the list margins mid-run).
+    const onlyBlankPending = textLines.every((l) => l.trim() === '');
     const last = blocks[blocks.length - 1];
-    if (last && last.type === 'list') last.items.push(match[1]);
+    if (onlyBlankPending && last?.type === 'list') {
+      textLines = [];
+      last.items.push(match[1]);
+      continue;
+    }
+    flushText();
+    const tail = blocks[blocks.length - 1];
+    if (tail && tail.type === 'list') tail.items.push(match[1]);
     else blocks.push({ type: 'list', items: [match[1]] });
   }
   flushText();
