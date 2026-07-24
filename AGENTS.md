@@ -171,8 +171,8 @@ If any of the above fails, fix it — don't disable the check.
   risky action), and the Copilot-review round-trip on your own PRs:
   `mcp__github__request_copilot_review`,
   `mcp__github__add_reply_to_pull_request_comment`, and
-  `mcp__github__resolve_review_thread` (currently broken via MCP — see
-  *Copilot reviews* below).
+  `mcp__github__resolve_review_thread` (see *Copilot reviews* below for
+  where the `threadId` comes from).
 - Ask first before: force-pushing to `main`/`master` or to a merged
   branch, rewriting history on shared branches, deleting branches
   you didn't create, changing Vercel project settings, changing CI
@@ -198,10 +198,12 @@ If any of the above fails, fix it — don't disable the check.
 Copilot reviews are triggered automatically — do not call `mcp__github__request_copilot_review`.
 
 - **Address Copilot comments automatically — don't wait to be asked.** When a Copilot review lands, treat each comment like a real review note: read it, decide whether it's a real issue or a false positive, and if it's real, fix it in the same PR. Fold the fix into the commit it belongs to (rebase / `--fixup`) rather than tacking on an "address review" commit, per the *one commit per logical surviving change* rule in *Branching*. Group several small fixes into one commit when they share a topic.
-- **Reply to (and, when possible, resolve) every addressed Copilot comment.** When you land a commit that addresses a Copilot review comment, post a short reply on that comment via `mcp__github__add_reply_to_pull_request_comment` (one or two sentences — what you did, e.g. ``Fixed in `abc1234` — switched to `useSyncExternalStore` as suggested.``) and then resolve the thread with `mcp__github__resolve_review_thread` if it's working (see the known-limitation bullet below). Do this for each addressed comment, not in bulk.
+- **Reply to (and, when possible, resolve) every addressed Copilot comment.** When you land a commit that addresses a Copilot review comment, post a short reply on that comment via `mcp__github__add_reply_to_pull_request_comment` (one or two sentences — what you did, e.g. ``Fixed in `abc1234` — switched to `useSyncExternalStore` as suggested.``) and then resolve the thread with `mcp__github__resolve_review_thread` (see the resolve bullet below for where the `threadId` comes from). Do this for each addressed comment, not in bulk.
 - **Don't resolve threads you haven't addressed.** If you disagree with a Copilot suggestion or are deferring it, leave the thread open and reply explaining why — don't silently resolve. If a comment is a false positive, say so in the reply before resolving.
-- **Order of operations on a push that addresses review comments:** (1) push the fix commit, (2) reply on each addressed thread referencing the new sha (and resolve when possible — see the known-limitation bullet below). Doing (2) before (1) means the sha you cite doesn't exist yet.
-- **Known limitation: `resolve_review_thread` is currently broken via MCP.** The `mcp__github__pull_request_read` / `get_review_comments` response intentionally strips the thread node ID (`PRRT_*`), so there is no way to obtain the `threadId` that `mcp__github__resolve_review_thread` requires — passing the comment's node ID (`PRRC_*`) fails with `Could not resolve to PullRequestReviewThread node`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (open fix). Until that fix ships, post the reply via `mcp__github__add_reply_to_pull_request_comment` as usual and skip the resolve step — flag in the end-of-turn summary that the threads are replied-but-unresolved so the user can resolve them in the GitHub UI. Recheck whether the upstream fix has shipped before assuming the resolve still fails.
+- **Order of operations on a push that addresses review comments:** (1) push the fix commit, (2) reply on each addressed thread referencing the new sha, then resolve it. Doing (2) before (1) means the sha you cite doesn't exist yet.
+- **`resolve_review_thread` works — the old MCP limitation is fixed.** `mcp__github__pull_request_read` / `get_review_comments` now returns each thread's node ID (`PRRT_*`) on the `review_threads[].id` field, alongside `is_resolved` / `is_outdated` / `is_collapsed`. Pass that `PRRT_*` value straight to `mcp__github__resolve_review_thread` as `threadId`. Do NOT pass a comment's node ID (`PRRC_*`) — that still fails with `Could not resolve to PullRequestReviewThread node`; the thread ID and the comment ID are different objects. So the full round-trip is available: reply, then resolve, with no "replied-but-unresolved, please resolve in the UI" caveat in the end-of-turn summary.
+
+  > **History.** This was previously documented as broken: the response stripped the thread node ID, leaving no way to obtain a `threadId`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (fix). Verified working against a real Codex review thread on PR #406 (2026-07-24). Kept as a note rather than deleted so the next agent that hits a resolve failure knows this was a real, since-fixed upstream bug and doesn't re-derive it.
 
 ## Pull requests and reviews
 
