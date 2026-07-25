@@ -250,10 +250,12 @@ Copilot reviews are triggered automatically — do not call `mcp__github__reques
   or PRs by default`. Renovate does the full run — clone, vulnerability
   alerts, dependency extraction — and then creates nothing: no PRs, no
   `renovate/*` branches, no Dependency Dashboard, and no onboarding PR either
-  (`Silent mode enabled so repo is considered onboarded`). Nothing in
-  `renovate.json` can override it; it's toggled per-repo in the Mend
-  Developer Portal. That gap is how the tree accumulated four fixable
-  high-severity advisories unnoticed.
+  (`Silent mode enabled so repo is considered onboarded`). That gap is how the
+  tree accumulated four fixable high-severity advisories unnoticed.
+  `renovate.json` now states `"mode": "full"` — that's the repo-side intent
+  (and what a self-hosted or CLI run honors), but the **injected value wins**,
+  so it's belt-and-braces, not the fix. The authoritative switch is per-repo
+  in the Mend Developer Portal (developer.mend.io → repo/org → Interactive).
 - **A `DONE` job on the Mend dashboard does not mean Renovate did anything.**
   A silent-mode run completes normally and reports `DONE`. So "jobs are
   running and succeeding" and "the repo is producing nothing" look identical
@@ -269,6 +271,54 @@ Copilot reviews are triggered automatically — do not call `mcp__github__reques
   Saturday-morning window was the first suspect and it was the wrong one.
   Noise is bounded by `prConcurrentLimit` plus the `minimumReleaseAge`
   cooldowns, which is the better lever anyway.
+- **Deleting `lockFileMaintenance.schedule` does not mean "any time".** That
+  option's own default is `before 4am on monday`, so dropping the key silently
+  restores a weekly window instead of removing one. `renovate.test.ts` guards
+  that, along with `mode` and the top-level `schedule` — all three are
+  settings whose wrong value produces no error, just less output.
+- **Minors and patches auto-merge on green CI; majors always wait for review.**
+  Pre-1.0 (`0.x`) packages are excluded from auto-merge — SemVer permits
+  breaking changes in a 0.x minor. Auto-merge is only as safe as CI, so a red
+  or skipped check is a stop sign, not noise to route around.
+
+## Node version
+
+- **The Node major is named in three places and they move together or not at
+  all:** `.nvmrc` (CI's `setup-node@v6` via `node-version-file`, `nvm use`, and
+  the web sandbox's session-start hook), `engines.node` in `package.json`
+  (Vercel's build image and function runtime, plus npm's EBADENGINE warning),
+  and `@types/node` (what `tsc` believes the runtime's stdlib looks like).
+  `nodeVersion.test.ts` fails CI on a mismatch.
+- **A split is quiet in the worst way** — the suite goes green on one runtime
+  while production serves another, or `tsc` type-checks against APIs the
+  deployed Node doesn't have.
+- **Not declaring `@types/node` does not mean not having it.** `vite`,
+  `vitest` and `happy-dom` all depend on it with ranges permissive enough to
+  resolve any newer major, and `tsconfig.node.json` doesn't narrow
+  `compilerOptions.types` — so with no direct dependency, `vite.config.ts` was
+  type-checked against **Node 26** types on a Node 24 runtime. It is now pinned
+  directly, and `nodeVersion.test.ts` asserts the version **resolved in the
+  lockfile**, not just the declared range: a declared-range check stays green
+  through exactly this, because what `tsc` loads is whatever npm hoisted.
+- **The web sandbox is the consumer that can't follow on its own.** Its image
+  ships whatever Node it ships (22 today), so `.claude/hooks/session-start.sh`
+  provisions the `.nvmrc` major before `npm install` — before any native dep
+  builds against an ABI. It re-resolves the newest release of that major every
+  run rather than trusting the container's cached copy, because container state
+  survives between sessions and an existence-only check would pin the first
+  version ever installed. Best-effort: an unreachable nodejs.org keeps the
+  cached toolchain and says so, rather than failing session startup.
+- **The hook is identical in all three repos, and so is its test.**
+  `scripts/session-start-hook.test.ts` runs the real hook end to end against a
+  temp install root and a `file://` release fixture, via the `SESSION_NODE_ROOT`
+  and `SESSION_NODE_DIST_URL` seams — no network, no stubbed internals. Its
+  failure mode is a *false pass*, so behavior is asserted, not structure. When
+  you change the hook, change it everywhere and keep the Node block byte-identical.
+- **A `@types/node` major is a runtime migration, not a dependency update.**
+  Renovate is configured not to offer it, so it stops arriving as an
+  unmergeable weekly PR. Move the runtime deliberately, all pins at once.
+- Currently Node **24** (the active LTS; 22 dropped to maintenance when 26
+  shipped).
 
 ## When in doubt
 
