@@ -339,7 +339,7 @@ If any of the above fails, fix it — don't disable the check.
 ## Node version
 
 - **The Node major is named in three places and they move together or not at
-  all:** `.nvmrc` (CI's `setup-node@v6` via `node-version-file`, `nvm use`, and
+  all:** `.nvmrc` (CI's `setup-node` via `node-version-file`, `nvm use`, and
   the web sandbox's session-start hook), `engines.node` in `package.json`
   (Vercel's build image and function runtime, plus npm's EBADENGINE warning),
   and `@types/node` (what `tsc` believes the runtime's stdlib looks like).
