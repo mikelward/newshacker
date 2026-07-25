@@ -192,6 +192,7 @@ If any of the above fails, fix it — don't disable the check.
 
 - **Branch naming.** Feature branches are prefixed with the agent's own short name: `<agent>/<short-topic>` (e.g. `claude/...` for Claude Code, `codex/...` for Codex, `cursor/...` for Cursor, etc.). Human contributors pick a name that identifies them. The placeholder `<agent>` below stands in for whichever prefix you use — don't hard-code `claude/` unless you *are* Claude Code.
 - **Workflow.** `<agent>/<short-topic>` branch off `origin/main` → PR → merge via rebase or squash. One topic per branch. Follow-up work after a merge goes on a new branch. Never commit to `main` / `master`.
+- **Use `git worktree` when it's available.** Give each branch its own worktree instead of switching branches in place, so work in progress on one branch isn't disturbed by work on another.
 - **One commit per logical surviving change on the branch.** Rewrite unmerged commits freely (squash, amend, reorder, split with `git rebase -i` / `git reset --soft`) so each landing commit is one coherent change, with fix-ups and review responses folded into the commit they belong to. A PR can be a single commit or a short series — but review-fix noise doesn't survive into `main`.
 - **Check state before you push or branch.** Query the branch's PR via the GitHub MCP first.
   - No PR yet, or PR open → `git push` (`--force-with-lease` to your own feature branch after a rebase is fine; don't ask).
@@ -217,6 +218,10 @@ Copilot reviews are triggered automatically — do not call `mcp__github__reques
 
 ## Pull requests and reviews
 
+- **"Drive to merge"** is shorthand for the whole loop: open the PR, send it
+  for Codex review, address every review comment — fix it if you agree, reply
+  on the thread saying why if you don't — and merge once CI is green and Codex
+  has left its thumbs up.
 - Open PRs ready for review (not draft) unless asked otherwise.
 - **Wait for a 👍 reaction and no open comments before merging.** Don't merge to `main` (via rebase) until the reviewer has left a top-level thumbs-up reaction on the PR AND there are no open review comments. Don't ask whether it's okay to merge — wait for the signal.
 - When a feature has multiple open PRs, list **every** open PR by URL,
