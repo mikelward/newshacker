@@ -58,6 +58,7 @@
     "fake-indexeddb": "^6.2.5",
     "globals": "^17.7.0",
     "happy-dom": "^20.10.6",
+    "minimatch": "^10.2.5",
     "msw": "^2.14.6",
     "react-compiler-healthcheck": "^1.0.0",
     "sharp": "^0.35.3",
