@@ -126,22 +126,31 @@ function runHook(env: Record<string, string> = {}): RunResult {
 
 // execFileSync only captures stdout on success, so run through a wrapper that
 // merges both streams into stdout for assertion purposes.
-function runHookCapturingAll(env: Record<string, string> = {}): string {
+function runHookCapturingAll(
+  env: Record<string, string> = {},
+  /** Variables to unset entirely — the harness always sets CLAUDE_ENV_FILE, so
+   *  the unset case needs removal rather than an empty value. */
+  omit: string[] = [],
+): string {
   const merged = execFileSync(
     'bash',
     ['-c', `bash "${HOOK}" 2>&1`],
     {
       encoding: 'utf-8',
-      env: {
-        PATH: process.env.PATH ?? '',
-        HOME: process.env.HOME ?? '',
-        CLAUDE_CODE_REMOTE: 'true',
-        CLAUDE_PROJECT_DIR: projectDir,
-        CLAUDE_ENV_FILE: envFile,
-        SESSION_NODE_ROOT: nodeRoot,
-        SESSION_NODE_DIST_URL: `file://${distDir}`,
-        ...env,
-      },
+      env: Object.fromEntries(
+        Object.entries({
+          PATH: process.env.PATH ?? '',
+          // HOME points into the fixture so nothing the hook does can touch the
+          // developer's real home directory.
+          HOME: work,
+          CLAUDE_CODE_REMOTE: 'true',
+          CLAUDE_PROJECT_DIR: projectDir,
+          CLAUDE_ENV_FILE: envFile,
+          SESSION_NODE_ROOT: nodeRoot,
+          SESSION_NODE_DIST_URL: `file://${distDir}`,
+          ...env,
+        }).filter(([key]) => !omit.includes(key)),
+      ),
     },
   );
   return merged;
@@ -290,6 +299,75 @@ describe('session-start hook: Node provisioning', () => {
     expect(out).toContain(`provisioned Node ${LATEST}`);
     expect(out).not.toContain('floor in engines');
     expect(out).not.toContain('WARNING');
+  });
+
+  it('reports a malformed release index distinctly from an outage', () => {
+    // Both resolve to no version and both reach the same "could not resolve"
+    // warning, so without its own line a parser regression — or a schema change
+    // upstream — is indistinguishable from nodejs.org being down.
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(join(distDir, 'index.json'), '{"releases":');
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    writeFakeToolchain(cacheBin, LATEST);
+
+    const out = runHookCapturingAll();
+
+    expect(out).toContain('could not parse the Node release index');
+    // Still fails open onto the cache, like every other failure here.
+    expect(readFileSync(envFile, 'utf-8')).toContain(cacheBin);
+  });
+
+  it('does not report a parse error when the index is simply unreachable', () => {
+    // The empty-stdin guard: JSON.parse('') throws too, so without it every
+    // ordinary outage would also claim the index was malformed — reintroducing
+    // the conflation from the other direction.
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    writeFakeToolchain(cacheBin, LATEST);
+
+    const out = runHookCapturingAll();
+
+    expect(out).toContain(`could not resolve latest Node ${MAJOR}.x`);
+    expect(out).not.toContain('could not parse the Node release index');
+  });
+
+  it('does not activate a cached toolchain that fails its version probe', () => {
+    // The cache is executable but unrunnable, and the replacement can't be
+    // fetched (no dist fixture). The directory is still there and still passes
+    // an `-x` test, so an executable-bit check would publish it — handing npm a
+    // Node that cannot run, which fails the hook under `set -e` instead of
+    // degrading to the system runtime like every other failure here does.
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    mkdirSync(cacheBin, { recursive: true });
+    writeFileSync(join(cacheBin, 'node'), '#!/bin/sh\nexit 1\n');
+    chmodSync(join(cacheBin, 'node'), 0o755);
+
+    const out = runHookCapturingAll();
+
+    expect(readFileSync(envFile, 'utf-8')).not.toContain(cacheBin);
+    expect(out).toContain('session-start: node ');
+  });
+
+  it('completes when CLAUDE_ENV_FILE is not set', () => {
+    // CLAUDE_ENV_FILE is supplied by the harness, not guaranteed. Under
+    // `set -u` an unguarded write to it aborts the hook mid-run — after the
+    // Node provisioning but before `npm install` and the Deno section — so the
+    // session ends up with neither dependencies nor an Edge runtime, and the
+    // only clue is one "unbound variable" line.
+    writeDistFixture([LATEST], LATEST);
+
+    const out = runHookCapturingAll({}, ['CLAUDE_ENV_FILE']);
+
+    expect(out).not.toContain('unbound variable');
+    expect(out).toContain(`provisioned Node ${LATEST}`);
+    // Printed by the shared Node block *after* the guarded write, so reaching
+    // it proves the hook didn't abort there.
+    expect(out).toContain('session-start: node ');
+    // ...but not quietly. The `export` above reaches only this process, and the
+    // harness runs the hook as its own command, so with nowhere to persist,
+    // later agent shells drop back to the system Node. Completing "successfully"
+    // while that happens is the silent-wrong-runtime failure the hook exists to
+    // prevent, so the missing seam has to be said out loud.
+    expect(out).toContain('WARNING CLAUDE_ENV_FILE is unset');
   });
 
   it('is a no-op outside Claude Code on the web', () => {

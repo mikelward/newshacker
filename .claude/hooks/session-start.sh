@@ -93,10 +93,24 @@ else
           process.stdin.on("data", (d) => (raw += d));
           process.stdin.on("end", () => {
             const major = process.argv[1];
+            // Nothing arrived: curl already failed, and the caller warns about
+            // an unresolved version. Parsing "" here would report a bogus
+            // syntax error on every ordinary network outage, which is the
+            // conflation the catch below exists to remove.
+            if (!raw.trim()) return;
             try {
               const hit = JSON.parse(raw).find((r) => r.version.startsWith(`v${major}.`));
               if (hit) process.stdout.write(hit.version);
-            } catch {}
+            } catch (err) {
+              // A malformed index or a changed schema resolves to nothing, same
+              // as an outage — and the caller warning reads as a network
+              // problem either way, so a parser regression would be invisible.
+              // Message and byte count only: never the body, which is
+              // unbounded upstream text. stderr because stdout is the result.
+              process.stderr.write(
+                `session-start: could not parse the Node release index (${raw.length} bytes): ${err.message}\n`,
+              );
+            }
           });
         ' "$NODE_MAJOR" || true
     )"
@@ -135,10 +149,31 @@ else
     rm -rf "$TMP_DIR"
   fi
 
-  if [ -x "${NODE_DIR}/bin/node" ]; then
+  # Probe the binary again rather than reusing the executable-bit test. The
+  # cache may have been rejected above as unrunnable and the replacement may
+  # then have failed to arrive, leaving the same directory in place — still
+  # present, still executable, still broken. Publishing it hands `npm install` a
+  # Node that cannot run, so the hook dies under `set -e` instead of degrading
+  # to the system runtime the way every other failure here does.
+  PROVISIONED_VERSION="$("${NODE_DIR}/bin/node" -v 2>/dev/null || true)"
+  if [ -n "$PROVISIONED_VERSION" ]; then
     export PATH="${NODE_DIR}/bin:${PATH}"
-    # Persist for the rest of the session, including tools the agent shells out to.
-    echo "export PATH=\"${NODE_DIR}/bin:\$PATH\"" >>"$CLAUDE_ENV_FILE"
+    # Persist for the rest of the session, including tools the agent shells out
+    # to. Guarded because CLAUDE_ENV_FILE comes from the harness and isn't
+    # guaranteed: under `set -u` an unset one aborts the hook right here — after
+    # Node is provisioned but before `npm install` and anything below — leaving
+    # the session with no dependencies and one "unbound variable" line to explain
+    # it. The current-process export above still stands either way.
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      echo "export PATH=\"${NODE_DIR}/bin:\$PATH\"" >>"$CLAUDE_ENV_FILE"
+    else
+      # Not silently: the export above reaches only this hook and its children,
+      # and the harness runs the hook as its own command — so with nowhere to
+      # persist, every later agent shell falls back to the system Node. That is
+      # the silent-wrong-runtime failure this whole block exists to prevent, and
+      # skipping the write quietly would produce it while reporting success.
+      echo "session-start: WARNING CLAUDE_ENV_FILE is unset, so ${NODE_VERSION:-the provisioned Node} will not be on PATH for later commands — they will run on the system Node and may not match CI" >&2
+    fi
   fi
 fi
 
