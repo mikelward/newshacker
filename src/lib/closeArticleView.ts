@@ -1,4 +1,4 @@
-import type { NavigateFunction } from 'react-router-dom';
+import type { NavigateFunction } from 'react-router';
 
 /**
  * Leave the thread/reader view the way the browser's Back button would:

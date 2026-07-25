@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
 import { LoadingState } from '../components/States';

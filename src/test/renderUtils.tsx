@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FeedBarProvider } from '../components/FeedBarContext';
 import { LoginDialogProvider } from '../components/LoginDialog';

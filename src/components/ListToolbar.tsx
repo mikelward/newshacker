@@ -1,5 +1,5 @@
 import { useCallback, useId, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useFeedBar } from '../hooks/useFeedBar';
 import { useHotThresholds } from '../hooks/useHotThresholds';
 import {

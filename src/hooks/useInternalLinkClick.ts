@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import type { MouseEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 
 export function useInternalLinkClick() {
   const navigate = useNavigate();

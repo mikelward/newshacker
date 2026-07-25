@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useLocation, useNavigationType } from 'react-router-dom';
+import { useLocation, useNavigationType } from 'react-router';
 
 // Scrolls to the top of the page on forward (PUSH/REPLACE) navigation.
 // POP (browser back/forward) is left alone so the browser's native scroll
