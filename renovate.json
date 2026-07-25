@@ -5,8 +5,6 @@
     ":dependencyDashboard",
     ":semanticCommits"
   ],
-  "timezone": "UTC",
-  "schedule": ["after 6am and before 12pm on saturday"],
   "prConcurrentLimit": 5,
   "prHourlyLimit": 0,
   "packageRules": [
