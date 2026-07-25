@@ -10,7 +10,9 @@ cd "$CLAUDE_PROJECT_DIR"
 
 # --- Node toolchain ---------------------------------------------------------
 # The repo pins a Node major in .nvmrc, and package.json `engines` narrows to
-# that same major (see INSTALL.md for why it's capped rather than open-ended).
+# that same major — capped rather than open-ended on purpose, because moving
+# the major is a runtime migration that has to move every pin at once, not a
+# dependency bump. nodeVersion.test fails CI if the two ever disagree.
 # The web sandbox ships its own default Node, which will not track that pin —
 # so provision the pinned major and put it first on PATH.
 #
@@ -34,12 +36,28 @@ cd "$CLAUDE_PROJECT_DIR"
 # says so, not one that cannot start. Nothing here touches the app's runtime or
 # production path; it is developer tooling only.
 #
-# NH_NODE_ROOT and NH_NODE_DIST_URL exist so the provisioning branches below can
-# be exercised by scripts/session-start-hook.test.ts against a temp dir and a
-# file:// fixture. They are test seams only — production never sets them.
-NODE_ROOT="${NH_NODE_ROOT:-/opt}"
-DIST_URL="${NH_NODE_DIST_URL:-https://nodejs.org/dist}"
+# SESSION_NODE_ROOT and SESSION_NODE_DIST_URL exist so the provisioning
+# branches below can be exercised by scripts/session-start-hook.test.ts against
+# a temp dir and a file:// fixture. They are test seams only — production never
+# sets them. Named without a repo prefix because this hook is kept identical
+# across readmo, newshacker and gedmap.
+NODE_ROOT="${SESSION_NODE_ROOT:-/opt}"
+DIST_URL="${SESSION_NODE_DIST_URL:-https://nodejs.org/dist}"
 NODE_MAJOR="$(tr -cd '0-9' < .nvmrc)"
+
+# Lowest version engines.node accepts ("" when it declares no floor beyond the
+# major), used by the mismatch check at the end.
+#
+# Only the caret and bare-major forms are read as a floor (`^24.11.0`, `^24`,
+# `24`) — those are the ones where "at or above this" is what the range means.
+# An exact pin (`24.11.0`) or an x-range is NOT a floor, and treating it as one
+# would accept 24.12.0 for a `24.11.0` pin that npm rejects: wrong in the lax
+# direction, which is the direction that stays silent. nodeVersion.test.ts
+# rejects those forms outright, so restricting the syntax here is what lets this
+# be a string comparison rather than a semver implementation in bash.
+NODE_MIN="$(node -e 'const t=(((require("./package.json").engines||{}).node)||"").trim();
+  const m=/^\^(\d+(?:\.\d+){0,2})$|^(\d+)$/.exec(t);
+  process.stdout.write(m ? (m[1] || m[2]) : "")' 2>/dev/null || true)"
 
 if [ -z "$NODE_MAJOR" ]; then
   echo "session-start: could not read a Node major from .nvmrc; using system node" >&2
@@ -67,7 +85,9 @@ else
     echo "session-start: unsupported arch $(uname -m); using system node" >&2
   else
     NODE_VERSION="$(
-      curl -fsSL --retry 3 --retry-delay 2 "${DIST_URL}/index.json" 2>/dev/null |
+      curl -fsSL --retry 3 --retry-delay 2 \
+        --connect-timeout 10 --max-time 60 --retry-max-time 90 \
+        "${DIST_URL}/index.json" 2>/dev/null |
         node -e '
           let raw = "";
           process.stdin.on("data", (d) => (raw += d));
@@ -94,8 +114,16 @@ else
     # Stage under a temp path and swap in only on success, so an interrupted
     # download can't leave a half-populated /opt/nodeNN behind.
     if curl -fsSL --retry 3 --retry-delay 2 \
+      --connect-timeout 10 --max-time 300 --retry-max-time 420 \
       "${DIST_URL}/${NODE_VERSION}/${TARBALL}" -o "${TMP_DIR}/node.tar.xz" &&
-      tar -xf "${TMP_DIR}/node.tar.xz" -C "${TMP_DIR}"; then
+      tar -xf "${TMP_DIR}/node.tar.xz" -C "${TMP_DIR}" &&
+      # Ask the extracted binary what it is before swapping it in. tar exiting 0
+      # means the archive unpacked, not that the result runs: a tarball for
+      # another arch, or one truncated at a boundary tar tolerates, still gets
+      # here. Publishing it would replace a working cache with one that can't
+      # run npm, and the swap below is destructive.
+      [ "$("${TMP_DIR}/node-${NODE_VERSION}-linux-${NODE_ARCH}/bin/node" -v 2>/dev/null || true)" \
+        = "$NODE_VERSION" ]; then
       rm -rf "${NODE_DIR}.tmp"
       mv "${TMP_DIR}/node-${NODE_VERSION}-linux-${NODE_ARCH}" "${NODE_DIR}.tmp"
       rm -rf "$NODE_DIR"
@@ -116,27 +144,26 @@ fi
 
 # Loud on mismatch, because running the suite on the wrong runtime yields green
 # results that mean nothing — the failure mode is a false pass, not an error.
-ACTIVE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo '?')"
+#
+# The full version is checked, not just the major, because the major alone
+# misses the case that actually bit: a cached toolchain on the right major but
+# below a raised minor floor (Babel 8 needed >=24.11), which npm reports only as
+# an EBADENGINE warning. This used to be done with `semver.satisfies` from
+# node_modules, which is silent on a cold container — precisely when a stale
+# cache matters most. Comparing in the shell instead means it always reports.
+#
+# `sort -V` orders version strings, so the floor sorts first iff the active
+# version is at or above it. That works because NODE_MIN is only derived from
+# ranges that genuinely denote a floor (below), rather than reimplementing
+# semver here.
+ACTIVE_VERSION="$(node -p 'process.versions.node' 2>/dev/null || true)"
+ACTIVE_MAJOR="${ACTIVE_VERSION%%.*}"
 if [ -n "${NODE_MAJOR:-}" ] && [ "$ACTIVE_MAJOR" != "$NODE_MAJOR" ]; then
-  echo "session-start: WARNING active Node is ${ACTIVE_MAJOR}.x but this repo pins ${NODE_MAJOR}.x — results will not match CI" >&2
+  echo "session-start: WARNING active Node is ${ACTIVE_MAJOR:-?}.x but this repo pins ${NODE_MAJOR}.x — results will not match CI" >&2
+elif [ -n "$NODE_MIN" ] && [ -n "$ACTIVE_VERSION" ] &&
+  [ "$(printf '%s\n%s\n' "$NODE_MIN" "$ACTIVE_VERSION" | sort -V | head -1)" != "$NODE_MIN" ]; then
+  echo "session-start: WARNING active Node ${ACTIVE_VERSION} is below the ${NODE_MIN} floor in engines — results will not match CI or Vercel" >&2
 fi
-
-# Also check the full version against `engines`, which catches the case the
-# major check cannot: a cached toolchain that is the right major but below a
-# raised minor floor (Babel 8 needs >=24.11). Best-effort — semver comes from
-# node_modules, so this is silent on a cold container and reports from the
-# second run onward, which is exactly when a stale cache would matter.
-node -e '
-  const { engines } = require("./package.json");
-  const range = engines && engines.node;
-  if (!range) process.exit(0);
-  let semver;
-  try { semver = require("semver"); } catch { process.exit(0); }
-  const v = process.versions.node;
-  if (!semver.satisfies(v, range)) {
-    console.error(`session-start: WARNING active Node ${v} does not satisfy engines "${range}" — results will not match CI or Vercel`);
-  }
-' 2>&1 || true
 
 echo "session-start: node $(node -v), npm $(npm -v)"
 

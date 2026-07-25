@@ -5,11 +5,25 @@
     ":dependencyDashboard",
     ":semanticCommits"
   ],
+  "timezone": "UTC",
+  "description": [
+    "Renovate is eligible to run at any time. Update volume is paced by the per-update-type minimumReleaseAge cooldowns and prConcurrentLimit below, not by a weekly window — a window only delays PRs that have already cooled down, and it never applies to vulnerability alerts (Renovate forces schedule: [] and prCreation: immediate on those).",
+    "mode=full is stated explicitly because the Mend-hosted app defaults an 'All repositories' install to silent mode, in which Renovate opens no PRs and no dependency dashboard issue — indistinguishable from 'nothing needs updating'. This repo ran that way for its first twelve days. The Mend-side setting is injected via RENOVATE_CONFIG and wins over this file, so if PRs stop appearing again the remaining switch is developer.mend.io → repo/org → Interactive, not here."
+  ],
+  "mode": "full",
+  "schedule": ["at any time"],
+  "assignees": ["mikelward"],
   "prConcurrentLimit": 5,
   "prHourlyLimit": 0,
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["at any time"]
+  },
+  "platformAutomerge": true,
   "packageRules": [
     {
-      "description": "Cooldown before opening a PR, matching the old Dependabot cooldown",
+      "description": "Cooldown before an update is offered.",
       "matchUpdateTypes": ["major"],
       "minimumReleaseAge": "14 days"
     },
@@ -22,6 +36,22 @@
       "minimumReleaseAge": "5 days"
     },
     {
+      "description": "Auto-merge every patch and minor once CI is green; majors always wait for review. Pre-1.0 (0.x) packages are excluded — SemVer permits breaking changes in a 0.x minor, so they still open a PR for review.",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
+    },
+    {
+      "description": "Lock file maintenance auto-merges too, but as its own rule: a lockFileMaintenance branch refreshes the whole lockfile and has no single dependency behind it, so it has no current version for matchCurrentVersion to test. Folded into the rule above it would silently never match, and those PRs would pile up unmerged.",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Grouping keeps peer-related packages in one PR.",
       "groupName": "tanstack",
       "matchPackageNames": ["@tanstack/**"]
     },
@@ -30,11 +60,18 @@
       "matchPackageNames": ["@types/**"]
     },
     {
+      "description": "@types/node tracks the Node major we actually run (.nvmrc / engines.node), so a major bump here is a runtime migration, not a dependency update — nodeVersion.test.ts fails CI on the mismatch. Renovate would otherwise re-offer it every week for a PR that can't be merged on its own.",
+      "matchPackageNames": ["@types/node"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "groupName": "eslint",
       "matchPackageNames": [
         "eslint",
         "eslint-**",
         "@eslint/**",
+        "@eslint-community/**",
         "@typescript-eslint/**",
         "typescript-eslint"
       ]
@@ -46,7 +83,9 @@
         "vitest",
         "@vitest/**",
         "msw",
-        "happy-dom"
+        "happy-dom",
+        "jsdom",
+        "fake-indexeddb"
       ]
     },
     {
@@ -56,6 +95,11 @@
     {
       "groupName": "react",
       "matchPackageNames": ["react", "react-dom", "react-router"]
+    },
+    {
+      "description": "GitHub Actions get their own group. No minimumReleaseAge here on purpose: the per-update-type cooldowns above already apply to every manager, and repeating one here would override the 14-day major cooldown with 7 days for actions majors (later rules win on scalar fields).",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
     }
   ]
 }
