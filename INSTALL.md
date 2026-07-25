@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js `^22.13.0 || >=24` (the `engines` in `package.json`; the React Compiler build tooling — `@rolldown/plugin-babel` — requires Node `>=22.12`, so Node 20 is no longer supported)
+- Node.js `^24` (the `engines` in `package.json`, matching the `24` in `.nvmrc` — CI resolves its version from that file via `node-version-file`). Node 24 is the active LTS line ("Krypton"); 22 was dropped when the floor moved up, and 20 went earlier because the React Compiler build tooling (`@rolldown/plugin-babel`) requires Node `>=22.12`. The range is deliberately capped at one major rather than left open-ended: Vercel picks its function runtime from `engines.node`, so an open range would let production drift onto a newer major than CI runs. Moving to the next LTS means bumping `.nvmrc` and `engines` together.
 - npm
 - Git
 
