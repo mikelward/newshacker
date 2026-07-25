@@ -222,6 +222,39 @@ Copilot reviews are triggered automatically — do not call `mcp__github__reques
   on a job under ~5min). Don't narrate routine wobble. Name the likely
   cause: heavy new dependency, slow new test, cache invalidation.
 
+## Dependency updates
+
+- **Renovate (Mend-hosted app) owns dependency bumps.** Dependabot is gone —
+  `.github/dependabot.yml` was removed in `a474df7`. Config lives in
+  `renovate.json` at the repo root; validate changes with
+  `npx --package renovate renovate-config-validator`.
+- **`mode=silent` is set on Mend's side, and it suppresses everything.** The
+  Mend-hosted app injects its own config via `RENOVATE_CONFIG`, and this repo
+  ran with `"mode": "silent"` for its first twelve days. The job log says it
+  outright: `Repository is running with mode=silent and will not make Issues
+  or PRs by default`. Renovate does the full run — clone, vulnerability
+  alerts, dependency extraction — and then creates nothing: no PRs, no
+  `renovate/*` branches, no Dependency Dashboard, and no onboarding PR either
+  (`Silent mode enabled so repo is considered onboarded`). Nothing in
+  `renovate.json` can override it; it's toggled per-repo in the Mend
+  Developer Portal. That gap is how the tree accumulated four fixable
+  high-severity advisories unnoticed.
+- **A `DONE` job on the Mend dashboard does not mean Renovate did anything.**
+  A silent-mode run completes normally and reports `DONE`. So "jobs are
+  running and succeeding" and "the repo is producing nothing" look identical
+  from the job list — you have to open a job's log to tell them apart.
+- **Renovate silence is not success.** If no Renovate PR or Dependency
+  Dashboard issue has appeared in a while, open the per-repo job log at
+  developer.mend.io before assuming there's nothing to update — every failure
+  mode here is silent, by construction.
+- **A top-level `schedule` is a delay, not a gate — and it never applies to
+  security fixes.** Renovate forces `schedule: []` and `prCreation: immediate`
+  on vulnerability-alert branches, so advisories are never held back by a
+  window. Worth knowing before blaming a schedule for missing PRs: this repo's
+  Saturday-morning window was the first suspect and it was the wrong one.
+  Noise is bounded by `prConcurrentLimit` plus the `minimumReleaseAge`
+  cooldowns, which is the better lever anyway.
+
 ## When in doubt
 
 - Check `SPEC.md` for product decisions.
