@@ -9,6 +9,8 @@
 - npm
 - Git
 
+Local and CI setups install Node however they normally would. **Claude Code on the web** provisions it automatically: `.claude/hooks/session-start.sh` reads the major from `.nvmrc`, fetches the newest release of that line from nodejs.org, and puts it first on `PATH` — otherwise web sessions would run the sandbox's own Node and produce green results on a runtime neither CI nor Vercel uses. Cost and reliability (rule 11): nodejs.org is free and unmetered with no account or key, so **$0/month** with no paid threshold; per session that is one ~200 KB release-index request, with the ~50 MB tarball fetched only when the cache is cold or the pinned version moved. It adds nodejs.org to session startup, mitigated by failing open — an unreachable index keeps the cached toolchain and warns rather than aborting. Developer tooling only; nothing on the app's production path. Covered by `scripts/session-start-hook.test.ts`.
+
 ## Clone & install
 
 ```bash
