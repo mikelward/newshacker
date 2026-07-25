@@ -6,7 +6,7 @@ import {
   useState,
   type FormEvent,
 } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { StoryListItem } from '../components/StoryListItem';
 import { StoryRowSkeleton } from '../components/Skeletons';
 import { EmptyState, ErrorState } from '../components/States';

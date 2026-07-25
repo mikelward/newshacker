@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { AppDrawer } from './AppDrawer';
 import { HeaderAccountMenu } from './HeaderAccountMenu';
 import { TooltipButton } from './TooltipButton';

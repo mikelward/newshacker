@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ConnectedApps } from '../components/ConnectedApps';
 import { HotRuleEditor } from '../components/ListToolbar';
 import { ChromeIcon, ThemeIcon } from '../components/appearanceIcons';

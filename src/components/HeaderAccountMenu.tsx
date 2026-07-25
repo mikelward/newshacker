@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useAvatarPrefs } from '../hooks/useAvatarPrefs';

@@ -1,4 +1,4 @@
-import { useParams, Navigate } from 'react-router-dom';
+import { useParams, Navigate } from 'react-router';
 import { isFeed } from '../lib/feeds';
 import { StoryList } from '../components/StoryList';
 

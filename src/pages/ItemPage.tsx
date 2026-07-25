@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useParams } from 'react-router';
 import { Thread } from '../components/Thread';
 
 export function ItemPage() {

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { getUser, getItems, type HNItem } from '../lib/hn';
 import { formatTimeAgo } from '../lib/format';

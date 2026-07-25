@@ -55,7 +55,7 @@
     },
     {
       "groupName": "react",
-      "matchPackageNames": ["react", "react-dom", "react-router-dom"]
+      "matchPackageNames": ["react", "react-dom", "react-router"]
     }
   ]
 }
