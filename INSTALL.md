@@ -2,7 +2,10 @@
 
 ## Prerequisites
 
-- Node.js `^24` (the `engines` in `package.json`, matching the `24` in `.nvmrc` — CI resolves its version from that file via `node-version-file`). Node 24 is the active LTS line ("Krypton"); 22 was dropped when the floor moved up, and 20 went earlier because the React Compiler build tooling (`@rolldown/plugin-babel`) requires Node `>=22.12`. The range is deliberately capped at one major rather than left open-ended: Vercel picks its function runtime from `engines.node`, so an open range would let production drift onto a newer major than CI runs. Moving to the next LTS means bumping `.nvmrc` and `engines` together.
+- Node.js `^24.11.0` (the `engines` in `package.json`). Node 24 is the active LTS line ("Krypton"); 22 was dropped when the floor moved up, and 20 went earlier because the React Compiler build tooling (`@rolldown/plugin-babel`) requires Node `>=22.12`.
+  - The **minor** floor is not cosmetic: Babel 8 — which the React Compiler runs through — declares `engines.node: "^22.18.0 || >=24.11.0"`, so 24.0–24.10 are genuinely unsupported and would be refused outright under `engine-strict`.
+  - The range is capped at one **major** rather than left open-ended because Vercel picks its function runtime from `engines.node`; an open range would let production drift onto a newer major than CI runs.
+  - `.nvmrc` stays at the bare major `24`, which resolves to the newest 24.x — currently well above the floor. Don't "tighten" it to `24.11`: `actions/setup-node` reads it as *24.11.x specifically*, which would pin CI to an older minor and stop picking up 24 patch releases. `engines` is the support declaration; `.nvmrc` is just "install the latest of this line". Moving to the next LTS means bumping both.
 - npm
 - Git
 
