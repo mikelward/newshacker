@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
+import { minimatch } from 'minimatch';
 import { describe, expect, it } from 'vitest';
 
 // Renovate is deliberately unscheduled and in full mode: it may open a PR the
@@ -63,7 +64,7 @@ describe('renovate.json schedule', () => {
 // Grouping keeps peer-related packages in one PR, and a hole in it is silent
 // in the same way the schedule settings are: the update still lands, just as
 // its own PR, so you only notice by recognizing a name that should have
-// travelled with its family. readmo's eslint group matched `eslint-**` but not
+// traveled with its family. readmo's eslint group matched `eslint-**` but not
 // `@eslint/**`, so `@eslint/js` opened its own PR for months.
 //
 // Asserting the *patterns* would only catch deletion, not the likelier
@@ -86,25 +87,24 @@ const dependencyNames = Object.keys({
   ...pkg.devDependencies,
 });
 
-// Renovate matches package names with minimatch glob semantics, so `*` stops
-// at a path separator and only `**` crosses one — `@eslint/*` really does match
-// `@eslint/js`. Collapsing both to `.*` would be close enough to look right and
-// wrong in the direction that matters: it would fail a config Renovate is
-// perfectly happy with. Any other glob metacharacter throws rather than being
-// silently mis-modeled, since a test that misreads its own predicate is the bug
-// it exists to catch.
-const matches = (pattern: string, name: string): boolean => {
-  if (/^\/.*\/$/.test(pattern) || /[?[\]{}]/.test(pattern)) {
-    throw new Error(`unmodeled matchPackageNames pattern: ${pattern}`);
-  }
-  const source = pattern
-    .split('**')
-    .map((literal) =>
-      literal.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '[^/]*'),
-    )
-    .join('.*');
-  return new RegExp(`^${source}$`).test(name);
-};
+// Renovate matches package names with minimatch glob semantics, so this uses
+// minimatch itself rather than approximating it.
+//
+// Two hand-rolled attempts both got it wrong, in opposite directions, and each
+// time the *test* was the thing that lied: first `*` was modeled as crossing a
+// path separator (so the guard would have failed a config Renovate accepts),
+// then `**` was modeled as always crossing one (so the guard reported that
+// `@fontsource**` matched `@fontsource-variable/inter`, which it does not —
+// minimatch treats `**` as a globstar only when it is a whole path segment, and
+// an embedded one behaves like `*`). That second error would have blessed a
+// rule matching nothing.
+//
+// A regex approximation of minimatch is exactly the kind of thing that looks
+// right until it silently disagrees on one pattern, which is the failure mode
+// this whole file exists to catch — so the real implementation is the ground
+// truth here, and `minimatch` is a declared devDependency for that reason.
+const matches = (pattern: string, name: string): boolean =>
+  minimatch(name, pattern);
 
 // Later rules win in Renovate, so the group a package ends up in is the last
 // matching rule that names one — not merely some rule that matches.
