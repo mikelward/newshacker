@@ -17,7 +17,7 @@
     "analyze:telemetry": "node --env-file-if-exists=.env.local scripts/analyze-summary-layout.mjs"
   },
   "engines": {
-    "node": "^24.11.0"
+    "node": "^24.18.0"
   },
   "dependencies": {
     "@fontsource-variable/roboto": "^5.3.0",
