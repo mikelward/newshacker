@@ -115,6 +115,27 @@ interface Props {
    */
   readOnly?: boolean;
   /**
+   * Renders the row as a *pending dismiss* — a story marked Done from
+   * another device (or another surface) while the frozen feed set is
+   * showing. The title reads struck-through and muted, but the row keeps
+   * its position and stays fully tappable (still a live link, pin/Done
+   * still work); it's only removed on the next compact / materialize
+   * (see `feedSnapshot.ts`). The reader's own dismiss from a feed row
+   * removes the row outright and never dims it.
+   */
+  dimmed?: boolean;
+  /**
+   * Called when the reader marks the row Done from the feed row's own
+   * (wide-viewport) Done button — the "your own dismiss" path. When
+   * provided it takes over the mark-done side of the toggle so the
+   * parent (`StoryListImpl`) can both record Done *and* collapse the row
+   * out of the frozen set immediately, instead of leaving it to gray in
+   * place like a remote dismiss. Unmark-done stays internal. Omitted by
+   * every non-feed caller, which keeps the original self-contained
+   * toggle.
+   */
+  onMarkDone?: (id: number) => void;
+  /**
    * Marks the row as belonging to a library view (`/pinned`, `/favorites`,
    * `/done`, `/hidden`, `/opened`). Library rows suppress the wide-viewport
    * Done button in the row's reserved middle slot because the right-side
@@ -133,12 +154,14 @@ export function StoryListItem({
   seenCommentCount,
   pinned = false,
   hidden = false,
+  dimmed = false,
   readOnly = false,
   onHide,
   onPin,
   onUnpin,
   onShare,
   onMarkUnread,
+  onMarkDone,
   onOpenThread,
   rightAction,
   flag,
@@ -278,7 +301,8 @@ export function StoryListItem({
     'story-row' +
     (dragging ? ' story-row--dragging' : '') +
     (isDismissing ? ' story-row--dismissing' : '') +
-    (rowOpened ? ' story-row--opened' : '');
+    (rowOpened ? ' story-row--opened' : '') +
+    (dimmed ? ' story-row--dimmed' : '');
 
   const menuItems = useMemo<StoryRowMenuItem[]>(() => {
     const items: StoryRowMenuItem[] = [];
@@ -330,9 +354,18 @@ export function StoryListItem({
   // taking over the right slot would otherwise get a stale Done button.
   const showDoneButton = !isLibraryRow && !rightAction && wide;
   const handleToggleDone = useCallback(() => {
-    if (done) unmarkDone(story.id);
-    else markDone(story.id);
-  }, [done, story.id, markDone, unmarkDone]);
+    if (done) {
+      unmarkDone(story.id);
+    } else if (onMarkDone) {
+      // Feed row: hand the mark-done to the parent so it can collapse
+      // the row out of the frozen set immediately (the "your own
+      // dismiss" path) rather than letting it gray in place. The parent
+      // is responsible for the actual `markDone` store write.
+      onMarkDone(story.id);
+    } else {
+      markDone(story.id);
+    }
+  }, [done, story.id, markDone, unmarkDone, onMarkDone]);
 
   // Per-row keyboard shortcuts: Space opens the row menu, `o` opens
   // the article in a new tab, `p` toggles pin, `d` dismisses (hides)

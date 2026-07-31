@@ -439,15 +439,14 @@ describe('<HotStoryList>', () => {
     expect(meta.textContent).not.toMatch(/\/h\b/);
   });
 
-  it('a Customize re-filter GCs the stale body hold, so re-admitting a pinned row does not reorder it back into the body', async () => {
-    // Regression: the reconcile effect keys consolidation off a refetch
-    // (`dataUpdatedAt`), but a /hot Customize change re-filters cached
-    // pages with no refetch — `items` moves while `dataUpdatedAt` and
-    // `pinnedIds` stay put. If the effect only watched `dataUpdatedAt`,
-    // a body pin dropped by a tightened predicate would keep its stale
-    // "stay in body" hold and get routed back into the body (reordering
-    // under the reader) when the predicate is loosened again. The
-    // membership-GC half of the effect must clear the hold on the drop.
+  it('a Customize re-filter never reorders the frozen /hot set — a pinned body row holds its place', async () => {
+    // Frozen-model behavior: a /hot Customize change is a local re-filter
+    // (no refetch), so it must never reflow the set. A pin made in the body
+    // stays at its natural position; tightening the rule until the pin
+    // leaves the live predicate hides it in place (like any off-feed pin,
+    // it waits for the next full materialize rather than jumping to the
+    // top), and loosening the rule re-admits it to the *same* body slot —
+    // never a reorder on this local action.
     const nowS = Math.floor(Date.now() / 1000);
     // Both qualify only via the big-story (Top) branch — their velocity
     // is cooled well under 15/h, so raising `topScoreMin` alone decides
@@ -497,26 +496,106 @@ describe('<HotStoryList>', () => {
     expect(rowTitles()).toEqual(['keep-hot', 'pin-me']);
 
     // Tighten the Top rule so `pin-me` (score 210) drops out of the hot
-    // filter while `keep-hot` (score 300) survives. No refetch — this is
-    // a pure client-side re-filter. The dropped pin surfaces in the top
-    // block, and its stale body hold must be GC'd here.
+    // filter while `keep-hot` (score 300) survives. No refetch — a pure
+    // client-side re-filter, which must not reflow the frozen set. `pin-me`
+    // leaves the live predicate, so it simply hides in place (it does NOT
+    // jump to the top block — that's a materialize-only move).
     act(() => {
       setStoredHotThresholds({ ...DEFAULT_HOT_THRESHOLDS, topScoreMin: 250 });
     });
     await waitFor(() => {
-      expect(rowTitles()).toEqual(['pin-me', 'keep-hot']);
+      expect(rowTitles()).toEqual(['keep-hot']);
     });
 
-    // Loosen it back so `pin-me` is re-admitted to the hot filter. With
-    // the hold GC'd, it stays consolidated in the top block instead of
-    // snapping back into the body — no reorder on this local action.
+    // Loosen it back so `pin-me` is re-admitted. It reappears at its
+    // original body slot — no reorder on this local action.
     act(() => {
       setStoredHotThresholds({ ...DEFAULT_HOT_THRESHOLDS, topScoreMin: 200 });
     });
-    // Give the re-filter a beat to land, then assert the order held.
     await waitFor(() => {
       expect(screen.getAllByTestId('story-row')).toHaveLength(2);
     });
-    expect(rowTitles()).toEqual(['pin-me', 'keep-hot']);
+    expect(rowTitles()).toEqual(['keep-hot', 'pin-me']);
+  });
+
+  it('pull-to-refresh consolidates an in-body /hot pin to the top', async () => {
+    // Regression: `/hot`'s `allIds` is the unfiltered candidate union while
+    // `items` is the hot-filtered subset, so a cold leading candidate must
+    // not wedge `feedReconciling` permanently true (which would block the
+    // PTR re-materialize). Candidate 9 is cold and leads the source feed.
+    const restorePointer = (() => {
+      const original = Object.getOwnPropertyDescriptor(
+        Element.prototype,
+        'setPointerCapture',
+      );
+      Object.defineProperty(Element.prototype, 'setPointerCapture', {
+        value: vi.fn(),
+        configurable: true,
+      });
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+      return () => {
+        if (original) {
+          Object.defineProperty(Element.prototype, 'setPointerCapture', original);
+        }
+      };
+    })();
+    try {
+      installHNFetchMock({
+        feeds: { topstories: [9, 1, 2], newstories: [] },
+        items: {
+          9: makeCold(9, { title: 'cold' }),
+          1: makeBigStory(1, { title: 'hot-one' }),
+          2: makeBigStory(2, { title: 'hot-two' }),
+        },
+      });
+      renderWithProviders(<HotStoryList />);
+      const rowTitles = () =>
+        screen
+          .getAllByTestId('story-row')
+          .map(
+            (row) =>
+              row.querySelector('.story-row__title-text')?.textContent ?? '',
+          );
+      await waitFor(() =>
+        expect(rowTitles()).toEqual(['hot-one', 'hot-two']),
+      );
+
+      // Pin hot-two in the body — stays at its natural position.
+      const pinRow = () => screen.getByText('hot-two').closest('li')!;
+      fireEvent.click(within(pinRow()).getByTestId('pin-btn'));
+      await waitFor(() => {
+        expect(within(pinRow()).getByTestId('pin-btn')).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+      });
+      expect(rowTitles()).toEqual(['hot-one', 'hot-two']);
+
+      // Pull-to-refresh: the pin consolidates to the top block.
+      const wrap = screen.getByTestId('pull-to-refresh');
+      const y = 100 + 200;
+      for (const [type, clientY] of [
+        ['pointerdown', 100],
+        ['pointermove', y],
+        ['pointerup', y],
+      ] as const) {
+        const evt = new Event(type, { bubbles: true, cancelable: true });
+        Object.assign(evt, {
+          pointerId: 1,
+          pointerType: 'touch',
+          clientX: 100,
+          clientY,
+          button: 0,
+          isPrimary: true,
+        });
+        act(() => {
+          wrap.dispatchEvent(evt);
+        });
+      }
+
+      await waitFor(() => expect(rowTitles()).toEqual(['hot-two', 'hot-one']));
+    } finally {
+      restorePointer();
+    }
   });
 });

@@ -23,6 +23,22 @@ describe('StoryListItem', () => {
     expect(title).not.toHaveAttribute('target');
   });
 
+  it('does not mark an ordinary row as a pending dismiss', () => {
+    renderWithProviders(<StoryListItem story={baseStory} />);
+    expect(screen.getByTestId('story-row').className).not.toContain(
+      'story-row--dimmed',
+    );
+  });
+
+  it('marks a pending dismiss (dimmed) row struck-through but still tappable', () => {
+    renderWithProviders(<StoryListItem story={baseStory} dimmed />);
+    expect(screen.getByTestId('story-row').className).toContain(
+      'story-row--dimmed',
+    );
+    // Still a live link — a pending dismiss stays tappable.
+    expect(screen.getByTestId('story-title')).toHaveAttribute('href', '/item/1');
+  });
+
   it('links the row to /item/:id for self-posts (no url)', () => {
     const selfPost: HNItem = { ...baseStory, url: undefined };
     renderWithProviders(<StoryListItem story={selfPost} />);
