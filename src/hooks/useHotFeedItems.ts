@@ -259,6 +259,22 @@ export function useHotFeedItems(
     [topRefetch, newRefetch, pagesRefetch],
   );
 
+  // Stale-gated sibling of `refetch` (see FeedItemsState.refreshStale):
+  // fired on story-open, it refetches only the source queries React Query
+  // already considers stale, so a `/hot` list that has passed its TTL
+  // refreshes in the background while the reader is in the thread and a
+  // still-fresh one triggers no fetch.
+  const topStale = topQuery.isStale;
+  const newStale = newQuery.isStale;
+  const pagesStale = pages.isStale;
+  const refreshStale = useCallback(() => {
+    const tasks: Array<Promise<unknown>> = [];
+    if (topStale) tasks.push(topRefetch());
+    if (newStale) tasks.push(newRefetch());
+    if (pagesStale) tasks.push(pagesRefetch());
+    return Promise.all(tasks);
+  }, [topStale, newStale, pagesStale, topRefetch, newRefetch, pagesRefetch]);
+
   // Mirror of the source-id-signature guard in `useFeedItems`: when
   // either source feed's first-page ids change underneath us
   // (e.g. a refresh landed a new ranking), the cached pages cache
@@ -330,6 +346,7 @@ export function useHotFeedItems(
     refreshFailed,
     loadMore,
     refetch,
+    refreshStale,
     dataUpdatedAt: pages.dataUpdatedAt,
     newSourceIds,
   };

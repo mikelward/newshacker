@@ -228,6 +228,107 @@ describe('<StoryList>', () => {
     expect(screen.getByText('Cached One')).toBeInTheDocument();
   });
 
+  it('kicks a background feed refresh when a stale feed is opened (ready on return)', async () => {
+    // Opening a story fires a stale-gated refresh so the list is current
+    // when the reader comes back. With staleTime 0 the feed is always
+    // stale, so tapping a row triggers another id-list fetch beyond the
+    // mount refetch. (Real app: this fetch runs while the reader is in the
+    // thread, so returning shows the fresh list with no "Checking…" strip.)
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 60_000, staleTime: 0 },
+      },
+    });
+    const fetchMock = installHNFetchMock({
+      feeds: { topstories: [1] },
+      items: { 1: makeStory(1, { title: 'One' }) },
+    });
+
+    renderWithProviders(<StoryList feed="top" />, { client });
+
+    await waitFor(() => {
+      expect(screen.getByText('One')).toBeInTheDocument();
+    });
+    const topFetches = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes('topstories'),
+      ).length;
+    await waitFor(() => expect(topFetches()).toBeGreaterThanOrEqual(1));
+    const before = topFetches();
+
+    await userEvent.click(screen.getByTestId('story-title'));
+
+    await waitFor(() => expect(topFetches()).toBeGreaterThan(before));
+  });
+
+  it('does not refetch when a still-fresh feed is opened (no wasted fetch)', async () => {
+    // The story-open refresh is TTL-gated: a feed within its staleTime is
+    // left untouched, so opening a story on a fresh list adds no fetch.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 60_000, staleTime: 5 * 60_000 },
+      },
+    });
+    client.setQueryData(['storyIds', 'top'], [1]); // fresh (updatedAt = now)
+    client.setQueryData(['feedItems', 'top'], {
+      pages: [[makeStory(1, { title: 'Cached One' })]],
+      pageParams: [0],
+    });
+    const fetchMock = installHNFetchMock({
+      feeds: { topstories: [1] },
+      items: { 1: makeStory(1, { title: 'Network One' }) },
+    });
+
+    renderWithProviders(<StoryList feed="top" />, { client });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cached One')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId('story-title'));
+
+    // A fresh feed's id-list is never re-fetched on open.
+    const topFetches = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('topstories'),
+    ).length;
+    expect(topFetches).toBe(0);
+  });
+
+  it('does not refresh the feed on a modified (new-tab) click', async () => {
+    // Cmd/Ctrl/middle-click opens the thread in a background tab and leaves
+    // the reader on the still-mounted feed. The on-open refresh must be
+    // skipped there — refreshing would reorder rows out from under them.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 60_000, staleTime: 0 },
+      },
+    });
+    const fetchMock = installHNFetchMock({
+      feeds: { topstories: [1] },
+      items: { 1: makeStory(1, { title: 'One' }) },
+    });
+
+    renderWithProviders(<StoryList feed="top" />, { client });
+
+    await waitFor(() => {
+      expect(screen.getByText('One')).toBeInTheDocument();
+    });
+    const topFetches = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes('topstories'),
+      ).length;
+    await waitFor(() => expect(topFetches()).toBeGreaterThanOrEqual(1));
+    const before = topFetches();
+
+    // Ctrl-click → new-tab open → the feed stays put and must not refetch.
+    // (A plain click, covered above, does refetch.) refreshStale runs
+    // synchronously in the click handler, so no extra fetch means it was
+    // skipped.
+    fireEvent.click(screen.getByTestId('story-title'), { ctrlKey: true });
+
+    expect(topFetches()).toBe(before);
+  });
+
   it('filters out deleted and dead items', async () => {
     const ids = [1, 2, 3];
     const items = {
@@ -345,6 +446,7 @@ describe('<StoryListImpl> feed refresh status', () => {
       refreshFailed: false,
       loadMore: () => {},
       refetch: async () => undefined,
+      refreshStale: async () => undefined,
       dataUpdatedAt: 0,
       ...overrides,
     };

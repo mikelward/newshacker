@@ -263,7 +263,22 @@ describe('StoryListItem', () => {
       <StoryListItem story={baseStory} onOpenThread={onOpenThread} />,
     );
     fireEvent.click(screen.getByTestId('story-title'));
-    expect(onOpenThread).toHaveBeenCalledWith(baseStory.id);
+    // A plain left-click navigates this tab, so it reports navigatesSameTab.
+    expect(onOpenThread).toHaveBeenCalledWith(baseStory.id, {
+      navigatesSameTab: true,
+    });
+  });
+
+  it('reports a modified click as not navigating this tab', () => {
+    const onOpenThread = vi.fn();
+    renderWithProviders(
+      <StoryListItem story={baseStory} onOpenThread={onOpenThread} />,
+    );
+    // Cmd/Ctrl-click opens a background tab and doesn't navigate this tab.
+    fireEvent.click(screen.getByTestId('story-title'), { ctrlKey: true });
+    expect(onOpenThread).toHaveBeenCalledWith(baseStory.id, {
+      navigatesSameTab: false,
+    });
   });
 
   it('does not fire onOpenThread when the pin button is tapped', () => {

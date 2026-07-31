@@ -3,6 +3,7 @@ import { Analytics } from '@vercel/analytics/react';
 import { AppHeader } from './components/AppHeader';
 import { AppUpdateWatcher } from './components/AppUpdateWatcher';
 import { BootPrefetch } from './components/BootPrefetch';
+import { FeedKeepWarm } from './components/FeedKeepWarm';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
@@ -60,6 +61,7 @@ export default function App() {
         <AppUpdateWatcher />
         <FeedBarProvider>
           <BootPrefetch />
+          <FeedKeepWarm />
           <CloudSyncBridge />
           <HnFavoritesSyncBridge />
           <ScrollToTop />

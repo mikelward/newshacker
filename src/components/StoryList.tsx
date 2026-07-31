@@ -5,6 +5,7 @@ import type {
 } from 'react';
 import { useIsRestoring, useQueryClient } from '@tanstack/react-query';
 import type { Feed } from '../lib/feeds';
+import { setActiveFeed } from '../lib/activeFeed';
 import { PAGE_SIZE, useFeedItems } from '../hooks/useStoryList';
 import { useHotFeedItems } from '../hooks/useHotFeedItems';
 import { useDoneStories } from '../hooks/useDoneStories';
@@ -229,6 +230,10 @@ function UndoIcon() {
 
 export function StoryList({ feed, homePromo = false }: Props) {
   const feedItems = useFeedItems(feed);
+  // Mark this as the feed to keep warm across navigation, so `<FeedKeepWarm>`
+  // holds an observer on its queries while the reader is in a thread and the
+  // on-open refresh isn't aborted on unmount (see FeedKeepWarm).
+  useEffect(() => setActiveFeed(feed), [feed]);
   // Subscribe to the user's Hot customize panel overrides once per route
   // mount and pass them down so `<StoryListImpl>` doesn't open its
   // own subscription (Copilot review on PR #240).
@@ -278,6 +283,8 @@ export function HotStoryList() {
   const hotPredicate = (item: HNItem) =>
     isHotStory(item, hotNow, hotThresholds);
   const feedItems = useHotFeedItems(hotPredicate);
+  // Keep `/hot` warm across navigation too (see FeedKeepWarm / StoryList).
+  useEffect(() => setActiveFeed('hot'), []);
   const newSourceIds = feedItems.newSourceIds;
   const flagFor = useCallback(
     (id: number): RowFlag => (newSourceIds.has(id) ? 'new' : null),
@@ -355,6 +362,7 @@ export function StoryListImpl({
     isFetchingMore,
     loadMore,
     refetch,
+    refreshStale,
     isError,
     isRefreshing,
     refreshFailed,
@@ -1041,13 +1049,31 @@ export function StoryListImpl({
   // story that has scrolled off the feed otherwise wouldn't record
   // anything.
   const handleOpenThread = useCallback(
-    (id: number) => {
+    (id: number, opts?: { navigatesSameTab: boolean }) => {
       const story =
         items.find((it): it is NonNullable<typeof it> => it?.id === id) ??
         pinnedTopStories.find((s) => s.id === id);
       markCommentsOpenedId(id, Date.now(), story?.descendants ?? 0);
+      // Kick a stale-gated feed refresh as the reader leaves for the
+      // thread: if the list has passed its TTL it refreshes in the
+      // background while they read, so returning shows the current ranking
+      // with no "Checking…" strip. A fresh list is left untouched (no
+      // fetch). Fire-and-forget; a failure just leaves the cached list.
+      // `<FeedKeepWarm>` (mounted above the router) holds a second observer
+      // on this feed's queries so React Query doesn't abort the fetch when
+      // this component unmounts on navigation — without it the refresh would
+      // be cancelled before it lands (see FeedKeepWarm / activeFeed.ts).
+      //
+      // Only refresh when the click actually leaves this tab for the thread.
+      // A modified/middle click opens a background tab and keeps the reader
+      // on the still-mounted feed — refreshing then would reorder rows out
+      // from under them. `navigatesSameTab` defaults to true so keyboard
+      // (Enter) opens and unmodified clicks still refresh.
+      if (opts?.navigatesSameTab !== false) {
+        void refreshStale().catch(() => {});
+      }
     },
-    [items, pinnedTopStories],
+    [items, pinnedTopStories, refreshStale],
   );
 
   // Long-press "Mark unread" should clear both opened halves so the row
