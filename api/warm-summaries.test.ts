@@ -283,6 +283,7 @@ describe('readKnobs', () => {
     expect(knobs.maxStoryAgeSeconds).toBe(32 * 60 * 60);
     expect(knobs.commentsMaxStoryAgeSeconds).toBe(32 * 60 * 60);
     expect(knobs.topN).toBe(30);
+    expect(knobs.minDeltaBytes).toBe(256);
   });
 
   it('reads env overrides and rejects junk values', () => {
@@ -291,11 +292,76 @@ describe('readKnobs', () => {
       WARM_TOP_N: '5',
       WARM_MAX_STORY_AGE_SECONDS: 'not-a-number',
       WARM_COMMENTS_MAX_AGE_SECONDS: '7200',
+      WARM_MIN_DELTA_BYTES: '128',
     });
     expect(knobs.refreshCheckIntervalSeconds).toBe(600);
     expect(knobs.topN).toBe(5);
     expect(knobs.maxStoryAgeSeconds).toBe(32 * 60 * 60); // falls back
     expect(knobs.commentsMaxStoryAgeSeconds).toBe(7200);
+    expect(knobs.minDeltaBytes).toBe(128);
+  });
+
+  it('WARM_MIN_DELTA_BYTES accepts 0 as "guard disabled" (unlike positive-only knobs)', () => {
+    // Operator escape hatch: setting 0 turns off the delta guard so
+    // every hash flip regenerates, matching pre-fix behaviour without
+    // a redeploy. parsePositiveInt would have rejected 0 and fallen
+    // back to the default — this knob uses parseNonNegativeInt for
+    // exactly this reason.
+    const knobs = readKnobs({ WARM_MIN_DELTA_BYTES: '0' });
+    expect(knobs.minDeltaBytes).toBe(0);
+  });
+
+  it('parsePositiveInt rejects fractional inputs that would floor to 0', () => {
+    // Regression guard: `'0.5'` used to pass the `n <= 0` check
+    // (since 0.5 > 0) and then `Math.floor(n)` would silently return
+    // 0 — turning a "positive int" knob into 0 and disabling whatever
+    // interval/threshold consumed it. Validate after flooring so
+    // anything that rounds below 1 falls back to the default. Driven
+    // through WARM_TOP_N (a `parsePositiveInt` consumer); the same
+    // helper backs every other interval/threshold knob.
+    expect(readKnobs({ WARM_TOP_N: '0.5' }).topN).toBe(30);
+    expect(readKnobs({ WARM_TOP_N: '0.999' }).topN).toBe(30);
+    // `'5.5'` still truncates to 5 — the helper has always tolerated
+    // loose input and there's no reason to break that for valid
+    // round-down cases.
+    expect(readKnobs({ WARM_TOP_N: '5.5' }).topN).toBe(5);
+  });
+
+  it('WARM_MIN_DELTA_BYTES rejects negatives and junk, falling back to the default', () => {
+    expect(readKnobs({ WARM_MIN_DELTA_BYTES: '-1' }).minDeltaBytes).toBe(256);
+    expect(readKnobs({ WARM_MIN_DELTA_BYTES: 'nope' }).minDeltaBytes).toBe(256);
+  });
+
+  it('WARM_MIN_DELTA_BYTES rejects whitespace and floats so the guard is never silently disabled', () => {
+    // Regression guard: `Number(' ') === 0` and `Number('0.5') === 0.5`
+    // (which Math.floor would round to 0) — both would silently turn
+    // the guard off if the parser accepted them. Only strict integer
+    // strings count.
+    expect(readKnobs({ WARM_MIN_DELTA_BYTES: ' ' }).minDeltaBytes).toBe(256);
+    expect(readKnobs({ WARM_MIN_DELTA_BYTES: '   ' }).minDeltaBytes).toBe(256);
+    expect(readKnobs({ WARM_MIN_DELTA_BYTES: '0.5' }).minDeltaBytes).toBe(256);
+    expect(readKnobs({ WARM_MIN_DELTA_BYTES: '128.0' }).minDeltaBytes).toBe(
+      256,
+    );
+    // Surrounding whitespace on a valid integer is fine.
+    expect(readKnobs({ WARM_MIN_DELTA_BYTES: ' 128 ' }).minDeltaBytes).toBe(
+      128,
+    );
+  });
+
+  it('WARM_MIN_DELTA_BYTES rejects values past Number.MAX_SAFE_INTEGER', () => {
+    // A 20-digit digit string would clear the regex but lose precision
+    // when coerced through `Number()` — non-deterministic behaviour for
+    // a knob is worse than falling back to the default. Use an
+    // explicit unsafe-integer constant just past 2^53.
+    expect(
+      readKnobs({ WARM_MIN_DELTA_BYTES: '9007199254740993' }).minDeltaBytes,
+    ).toBe(256);
+    // The boundary itself (2^53 - 1) is still a safe integer, so it
+    // passes — though no real operator would set the knob this high.
+    expect(
+      readKnobs({ WARM_MIN_DELTA_BYTES: '9007199254740991' }).minDeltaBytes,
+    ).toBe(Number.MAX_SAFE_INTEGER);
   });
 });
 
@@ -322,6 +388,7 @@ describe('decideInterval', () => {
     topN: 30,
     commentsMaxStoryAgeSeconds: 32 * 60 * 60,
     commentsMinKids: 5,
+    minDeltaBytes: 256,
   };
 
   it('waits for the fresh-interval when the article is not yet stable', () => {
@@ -381,6 +448,7 @@ describe('decideCommentsInterval', () => {
     topN: 30,
     commentsMaxStoryAgeSeconds: 32 * 60 * 60,
     commentsMinKids: 5,
+    minDeltaBytes: 256,
   };
   const now = 1_700_000_000_000;
 
@@ -898,6 +966,61 @@ describe('handleWarmRequest', () => {
     expect(record.articleHash).toBe(hashArticle('Body of the self-post.'));
   });
 
+  it('self-post: small text edit still regenerates (delta guard is URL-only)', async () => {
+    // The minor-delta guard exists to absorb Jina-render noise — in-body
+    // timestamps, ad slots, related-article widgets — that flips the
+    // hash without changing the article. Self-posts don't go through
+    // Jina at all (the body comes from `story.text`) and tend to be
+    // short enough that a small text edit is genuinely material to the
+    // summary, so the guard must not apply on this path.
+    const newText = '<p>Original self-post body, with a small fix.</p>';
+    const fetchItem = fetchItemFor({
+      2050: {
+        id: 2050,
+        type: 'story',
+        title: 'Ask HN: edit',
+        text: newText,
+        score: 42,
+      },
+    });
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('Jina must not be called for self-posts');
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_700_000_000_000;
+    const oldPlain = 'Original self-post body.';
+    store.map.set(2050, {
+      summary: 'old summary',
+      articleHash: hashArticle(oldPlain),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldPlain, 'utf8'),
+    });
+    const client = createFakeClient([{ text: 'new summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [2050],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    // 25-byte delta — under the 256 B default — but this is a real edit
+    // to a self-post, so it falls through to Gemini.
+    expect(article.outcome).toBe('changed');
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.map.get(2050)!.summary).toBe('new summary');
+  });
+
   it('unchanged: bumps lastCheckedAt but does not call Gemini', async () => {
     const articleUrl = 'https://example.com/same';
     const body = 'stable body';
@@ -945,8 +1068,13 @@ describe('handleWarmRequest', () => {
 
   it('changed: regenerates summary and records a new hash + lastChangedAt', async () => {
     const articleUrl = 'https://example.com/edited';
-    const oldBody = 'before';
-    const newBody = 'after the update';
+    // Bodies sized so the delta clears the default WARM_MIN_DELTA_BYTES
+    // (256) — otherwise the new article-track delta guard would catch
+    // this as `skipped_minor_delta` instead of letting it through to
+    // Gemini. A multi-paragraph real edit, which is what this test is
+    // exercising, comfortably exceeds 256 B.
+    const oldBody = 'a'.repeat(1000);
+    const newBody = 'a'.repeat(2000);
     const fetchImpl = createFakeFetch({
       [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
     });
@@ -1046,6 +1174,222 @@ describe('handleWarmRequest', () => {
     expect(store.map.get(1503)!.contentBytes).toBe(
       Buffer.byteLength(newBody, 'utf8'),
     );
+  });
+
+  it('skipped_minor_delta: hash flips but |deltaBytes| < threshold → no Gemini call, record preserved', async () => {
+    // The article-track delta guard. The Jina-clean body re-rendered to
+    // a different hash (in-body timestamp, ad slot, related-articles
+    // widget, etc.) but the byte length barely moved. We refresh
+    // lastCheckedAt only and leave articleHash, contentBytes,
+    // lastChangedAt, and summary pinned to the last real regen so
+    // cumulative drift will still trip the threshold even if individual
+    // ticks don't.
+    const articleUrl = 'https://example.com/noisy';
+    const oldBody = 'x'.repeat(1000); // 1000 bytes
+    const newBody = 'x'.repeat(1100); // 1100 bytes — different hash, only 100 B delta
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      1601: { id: 1601, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    const oldHash = hashArticle(oldBody);
+    store.map.set(1601, {
+      summary: 'old summary',
+      articleHash: oldHash,
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    });
+    const client = createFakeClient([]); // must never be called
+    const { logger, stories, runs } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [1601],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('skipped_minor_delta');
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(article.deltaBytes).toBe(100);
+    expect(article.contentBytes).toBe(1100);
+    // Jina was still called — the guard fires after the fetch — so the
+    // tokens field is populated and the run-level rollup picks it up.
+    expect(article.tokens).toBe(123);
+
+    // Persisted record: lastCheckedAt advanced, everything else
+    // pinned to the last real regen so deltas still accumulate
+    // against the original baseline.
+    const updated = store.map.get(1601)!;
+    expect(updated.lastCheckedAt).toBe(now);
+    expect(updated.summary).toBe('old summary');
+    expect(updated.articleHash).toBe(oldHash);
+    expect(updated.contentBytes).toBe(Buffer.byteLength(oldBody, 'utf8'));
+    expect(updated.lastChangedAt).toBe(firstSeenAt);
+    expect(updated.summaryGeneratedAt).toBe(firstSeenAt);
+
+    // Run-level outcome tally: skipped_minor_delta is its own bucket.
+    expect(runs[0].outcomes.article.skipped_minor_delta).toBe(1);
+    expect(runs[0].outcomes.article.changed).toBe(0);
+  });
+
+  it('changed: |deltaBytes| ≥ threshold falls through the guard and regenerates', async () => {
+    // Same shape as the previous test, but the new body is far enough
+    // off the old size that the guard doesn't fire — Gemini is called
+    // and we log `changed` as before.
+    const articleUrl = 'https://example.com/real-edit';
+    const oldBody = 'x'.repeat(1000); // 1000 bytes
+    const newBody = 'x'.repeat(2000); // 2000 bytes — 1 KB delta, well over 256 B
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      1602: { id: 1602, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(1602, {
+      summary: 'old summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    });
+    const client = createFakeClient([{ text: 'new summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [1602],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(article.deltaBytes).toBe(1000);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    const updated = store.map.get(1602)!;
+    expect(updated.summary).toBe('new summary');
+    expect(updated.articleHash).toBe(hashArticle(newBody));
+    expect(updated.lastChangedAt).toBe(now);
+  });
+
+  it('changed: deltaBytes === 0 falls through the guard (same-length wording change is not noise)', async () => {
+    // Backstop for the same-byte-length edge case: hash flips but
+    // contentBytes is identical. Skipping in that case would pin the
+    // baseline and produce `0 < threshold` forever, leaving a stale
+    // summary in cache. Erring toward false-positive Gemini regen on
+    // these is cheaper than indefinite false-negative staleness.
+    // Two equal-length bodies — `'abc'` and `'xyz'`, each 3 bytes,
+    // different hashes.
+    const articleUrl = 'https://example.com/same-length';
+    const oldBody = 'a'.repeat(500) + 'abc';
+    const newBody = 'a'.repeat(500) + 'xyz';
+    expect(Buffer.byteLength(newBody, 'utf8')).toBe(
+      Buffer.byteLength(oldBody, 'utf8'),
+    );
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      1604: { id: 1604, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(1604, {
+      summary: 'old summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    });
+    const client = createFakeClient([{ text: 'new summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [1604],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(article.deltaBytes).toBe(0);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.map.get(1604)!.summary).toBe('new summary');
+  });
+
+  it('changed: WARM_MIN_DELTA_BYTES=0 disables the guard so every flip regenerates', async () => {
+    // Operator escape hatch: setting the knob to 0 turns the guard off
+    // entirely, restoring pre-fix behaviour without a redeploy. A
+    // 100 B flip that would normally be skipped now goes to Gemini.
+    const articleUrl = 'https://example.com/guard-off';
+    const oldBody = 'x'.repeat(1000);
+    const newBody = 'x'.repeat(1100); // would be skipped under the default 256 B threshold
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      1603: { id: 1603, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(1603, {
+      summary: 'old summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    });
+    const client = createFakeClient([{ text: 'new summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [1603],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+      knobs: { minDeltaBytes: 0 },
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
   });
 
   it('skipped_payment_required: Jina 402 maps to its own outcome, not generic unreachable', async () => {
