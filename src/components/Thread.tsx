@@ -622,7 +622,7 @@ function ThreadActionBar({
         // article" at the top, where "go read the article" really is
         // the primary action) — but --stretch so the button fills the
         // same primary-slot width as Read article does at the top.
-        // That keeps Pin/Done/⋮ in the same on-screen position top
+        // That keeps the ⋮/Pin/Done cluster in the same on-screen position top
         // and bottom, so the reader's thumb doesn't have to relearn
         // where they are at the end of a long thread. The label
         // ellipsis-truncates via .thread__action-label when space
@@ -654,6 +654,19 @@ function ThreadActionBar({
         </a>
       ) : null}
       <TooltipButton
+        ref={moreBtnRef}
+        type="button"
+        className="thread__action thread__action--icon"
+        data-testid={`thread-more${testIdSuffix}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        tooltip="More actions"
+        aria-label="More actions"
+        onClick={() => onOpenMenu(moreBtnRef.current)}
+      >
+        <MoreVertIcon />
+      </TooltipButton>
+      <TooltipButton
         type="button"
         className={
           'thread__action thread__action--icon' +
@@ -667,36 +680,6 @@ function ThreadActionBar({
         <UpArrowIcon />
         <span className="visually-hidden">
           {voted ? 'Unvote' : 'Upvote'}
-        </span>
-      </TooltipButton>
-      <TooltipButton
-        type="button"
-        className={
-          'thread__action thread__action--icon' +
-          (pinned ? ' thread__action--active' : '')
-        }
-        data-testid={`thread-pin${testIdSuffix}`}
-        aria-pressed={pinned}
-        tooltip={pinned ? 'Unpin' : 'Pin'}
-        onClick={onTogglePinned}
-      >
-        {pinned ? <PinFilledIcon /> : <PinIcon />}
-        <span className="visually-hidden">{pinned ? 'Unpin' : 'Pin'}</span>
-      </TooltipButton>
-      <TooltipButton
-        type="button"
-        className={
-          'thread__action thread__action--icon' +
-          (done ? ' thread__action--active' : '')
-        }
-        data-testid={`thread-done${testIdSuffix}`}
-        aria-pressed={done}
-        tooltip={done ? 'Unmark done' : 'Mark done'}
-        onClick={onToggleDone}
-      >
-        {done ? <DoneFilledIcon /> : <DoneIcon />}
-        <span className="visually-hidden">
-          {done ? 'Unmark done' : 'Mark done'}
         </span>
       </TooltipButton>
       {wide ? (
@@ -730,17 +713,34 @@ function ThreadActionBar({
         </>
       ) : null}
       <TooltipButton
-        ref={moreBtnRef}
         type="button"
-        className="thread__action thread__action--icon"
-        data-testid={`thread-more${testIdSuffix}`}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        tooltip="More actions"
-        aria-label="More actions"
-        onClick={() => onOpenMenu(moreBtnRef.current)}
+        className={
+          'thread__action thread__action--icon' +
+          (pinned ? ' thread__action--active' : '')
+        }
+        data-testid={`thread-pin${testIdSuffix}`}
+        aria-pressed={pinned}
+        tooltip={pinned ? 'Unpin' : 'Pin'}
+        onClick={onTogglePinned}
       >
-        <MoreVertIcon />
+        {pinned ? <PinFilledIcon /> : <PinIcon />}
+        <span className="visually-hidden">{pinned ? 'Unpin' : 'Pin'}</span>
+      </TooltipButton>
+      <TooltipButton
+        type="button"
+        className={
+          'thread__action thread__action--icon' +
+          (done ? ' thread__action--active' : '')
+        }
+        data-testid={`thread-done${testIdSuffix}`}
+        aria-pressed={done}
+        tooltip={done ? 'Unmark done' : 'Mark done'}
+        onClick={onToggleDone}
+      >
+        {done ? <DoneFilledIcon /> : <DoneIcon />}
+        <span className="visually-hidden">
+          {done ? 'Unmark done' : 'Mark done'}
+        </span>
       </TooltipButton>
     </div>
   );

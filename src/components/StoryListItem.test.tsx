@@ -315,7 +315,7 @@ describe('StoryListItem', () => {
       }
     });
 
-    it('renders a wide-viewport Done button to the left of Pin on feed rows', () => {
+    it('renders a wide-viewport Done button to the right of Pin on feed rows', () => {
       const restore = stubWideViewport(true);
       try {
         renderWithProviders(
@@ -323,11 +323,13 @@ describe('StoryListItem', () => {
         );
         const done = screen.getByTestId('done-btn');
         expect(done).toHaveAttribute('aria-pressed', 'false');
+        // Pin is second-from-right, Done is right-most, matching the thread
+        // action bar's Pin→Done order.
         const buttons = screen.getAllByRole('button');
         const doneIdx = buttons.indexOf(done);
         const pinIdx = buttons.indexOf(screen.getByTestId('pin-btn'));
-        expect(doneIdx).toBeGreaterThanOrEqual(0);
-        expect(doneIdx).toBeLessThan(pinIdx);
+        expect(pinIdx).toBeGreaterThanOrEqual(0);
+        expect(pinIdx).toBeLessThan(doneIdx);
       } finally {
         restore();
       }

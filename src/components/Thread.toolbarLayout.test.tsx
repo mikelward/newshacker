@@ -132,6 +132,28 @@ describe('<Thread> action bar structural parity (rendered)', () => {
     expect(screen.getByTestId('thread-more-bottom')).toBeInTheDocument();
   });
 
+  it('orders the icon cluster More-first, then Pin then Done last', async () => {
+    installHNFetchMock({
+      items: {
+        9130: makeStory(9130, { title: 'Order', url: 'https://example.com/9130' }),
+      },
+    });
+
+    renderWithProviders(<Thread id={9130} />, { route: '/item/9130' });
+    await screen.findByText('Order');
+
+    const header = document.querySelector('.thread__header');
+    expect(header).not.toBeNull();
+    const order = Array.from(
+      header!.querySelectorAll<HTMLElement>('.thread__action--icon'),
+    ).map((el) => el.getAttribute('data-testid'));
+    // More is the left-most of the right-aligned icon cluster; Pin is
+    // second-from-right and Done is right-most, matching the story rows.
+    expect(order[0]).toBe('thread-more');
+    expect(order.indexOf('thread-pin')).toBeLessThan(order.indexOf('thread-done'));
+    expect(order[order.length - 1]).toBe('thread-done');
+  });
+
   it('Back to top has a visible label that ellipsis-truncates under pressure', async () => {
     installHNFetchMock({
       items: {

@@ -492,35 +492,6 @@ export function StoryListItem({
         </span>
       </Link>
 
-      {showDoneButton ? (
-        <TooltipButton
-          type="button"
-          className={'pin-btn' + (done ? ' pin-btn--active' : '')}
-          data-testid="done-btn"
-          aria-pressed={done}
-          aria-label={doneLabel}
-          tooltip={done ? 'Unmark done' : 'Mark done'}
-          onClick={handleToggleDone}
-        >
-          <svg
-            className="pin-btn__icon"
-            viewBox="0 -960 960 960"
-            width="22"
-            height="22"
-            fill="currentColor"
-            aria-hidden="true"
-            focusable="false"
-          >
-            {/* Material Symbols done / check_circle — Apache 2.0, Google. */}
-            {done ? (
-              <path d="M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm-56-216 280-280-56-56-224 224-114-114-56 56 170 170Z" />
-            ) : (
-              <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z" />
-            )}
-          </svg>
-        </TooltipButton>
-      ) : null}
-
       {rightAction ? (
         <TooltipButton
           type="button"
@@ -562,6 +533,37 @@ export function StoryListItem({
           </svg>
         </TooltipButton>
       )}
+
+      {showDoneButton ? (
+        // Done sits to the right of Pin (Pin second-from-right, Done
+        // right-most) so the far-right action matches the thread action bar.
+        <TooltipButton
+          type="button"
+          className={'pin-btn' + (done ? ' pin-btn--active' : '')}
+          data-testid="done-btn"
+          aria-pressed={done}
+          aria-label={doneLabel}
+          tooltip={done ? 'Unmark done' : 'Mark done'}
+          onClick={handleToggleDone}
+        >
+          <svg
+            className="pin-btn__icon"
+            viewBox="0 -960 960 960"
+            width="22"
+            height="22"
+            fill="currentColor"
+            aria-hidden="true"
+            focusable="false"
+          >
+            {/* Material Symbols done / check_circle — Apache 2.0, Google. */}
+            {done ? (
+              <path d="M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm-56-216 280-280-56-56-224 224-114-114-56 56 170 170Z" />
+            ) : (
+              <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z" />
+            )}
+          </svg>
+        </TooltipButton>
+      ) : null}
 
       {menuItems.length > 0 ? (
         <StoryRowMenu
