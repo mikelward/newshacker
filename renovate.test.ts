@@ -254,4 +254,24 @@ describe('renovate.json effective rules', () => {
       }).enabled,
     ).toBe(false);
   });
+
+  it('does not offer a typescript major on its own', () => {
+    expect(
+      resolve({
+        updateType: 'major',
+        currentVersion: '6.0.3',
+        depName: 'typescript',
+      }).enabled,
+    ).toBe(false);
+  });
+
+  it('still offers typescript minors', () => {
+    expect(
+      resolve({
+        updateType: 'minor',
+        currentVersion: '6.0.3',
+        depName: 'typescript',
+      }).enabled,
+    ).not.toBe(false);
+  });
 });

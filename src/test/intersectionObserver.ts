@@ -26,6 +26,7 @@ function makeEntry(el: Element, ratio: number): IntersectionObserverEntry {
 class MockIntersectionObserver implements IntersectionObserver {
   root: Element | null = null;
   rootMargin: string;
+  scrollMargin: string;
   thresholds: ReadonlyArray<number>;
   private cb: IntersectionObserverCallback;
   readonly watched = new Set<Element>();
@@ -36,6 +37,7 @@ class MockIntersectionObserver implements IntersectionObserver {
   ) {
     this.cb = cb;
     this.rootMargin = opts?.rootMargin ?? '';
+    this.scrollMargin = opts?.scrollMargin ?? '';
     const t = opts?.threshold;
     this.thresholds = Array.isArray(t) ? t : [t ?? 0];
     mockObservers.add(this);

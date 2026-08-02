@@ -66,6 +66,12 @@
       "enabled": false
     },
     {
+      "description": "TypeScript 7 replaced the compiler with the native port and changed the public API surface; typescript-eslint refuses to load against it outright ('typescript-eslint does not support TS 7.0'), so `npm run lint` dies before it lints anything. Taking it means running two TypeScript installs side by side — a toolchain migration, not a dependency update. Tracked upstream as typescript-eslint#10940; re-enable once that lands and do the move deliberately, all at once.",
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "groupName": "eslint",
       "matchPackageNames": [
         "eslint",
