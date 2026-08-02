@@ -232,8 +232,14 @@ describe('TooltipButton', () => {
     // Force :focus-visible to match so the focus path fires (jsdom
     // is conservative about :focus-visible heuristics).
     const originalMatches = btn.matches;
-    btn.matches = (sel: string) =>
-      sel === ':focus-visible' ? true : originalMatches.call(btn, sel);
+    // `Element.matches` is an overload set whose tag-name overloads are type
+    // predicates (`this is HTMLAnchorElement` and friends). A selector stub
+    // can't narrow `this`, so the assignment needs the cast; the plain
+    // `(selectors: string) => boolean` overload is the one under test.
+    btn.matches = ((sel: string) =>
+      sel === ':focus-visible'
+        ? true
+        : originalMatches.call(btn, sel)) as typeof btn.matches;
     try {
       act(() => {
         btn.focus();
@@ -261,8 +267,11 @@ describe('TooltipButton', () => {
     );
     const btn = screen.getByTestId('btn') as HTMLButtonElement;
     const originalMatches = btn.matches;
-    btn.matches = (sel: string) =>
-      sel === ':focus-visible' ? false : originalMatches.call(btn, sel);
+    // See the cast note on the :focus-visible-matches test above.
+    btn.matches = ((sel: string) =>
+      sel === ':focus-visible'
+        ? false
+        : originalMatches.call(btn, sel)) as typeof btn.matches;
     try {
       act(() => {
         btn.focus();
