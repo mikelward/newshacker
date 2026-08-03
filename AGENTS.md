@@ -290,34 +290,22 @@ If any of the above fails, fix it — don't disable the check.
   scheduled task / cron, `/loop`), and arm it *without asking*. Scheduling
   your own follow-up is routine hygiene, not a decision that needs approval.
   Someone else's open PR is not your polling job — adopt one only when
-  asked. Merging doesn't end the watch either: reviewers and bots comment
-  afterward, so drop to a slower cadence (every half hour or so) and keep
-  handling late comments per the keep-watching-merged-PRs rule under *Codex
-  reviews*.
-- **Three polling states, so the 5-minute cadence has an end.** Five minutes
-  is for a PR with something outstanding: CI running, a review requested, a
-  comment unanswered, a merge conflict. Once a PR is green, reviewed, and
-  has nothing left but the merge — or is merged and only waiting out late
-  comments — drop to half-hourly. Stop entirely when it merges or closes and
-  the late-comment window has passed. A PR that is green and waiting on a
-  human overnight gets the slow cadence, not the fast one; at roughly a
-  dollar an hour the fast cadence is for work in flight, not for a queue.
-- **What the polling costs.** Twelve wake-ups an hour per PR at the 5-minute
-  cadence, each one a model turn plus a handful of GitHub API calls. The API
-  calls are free of concern — trivial against the 5,000 requests/hour
-  authenticated limit. The model turns are the real cost: each re-reads the
-  conversation, so at Opus rates ($5 per million input tokens, $25 output,
-  with cached input reading at roughly a tenth of the input rate) a wake-up
-  on a large context runs on the order of ten cents, i.e. ~$1/hour per PR
-  watched. That is why the cadence drops as soon as nothing is pending.
-  Owning the PR is itself the decision to keep the slow-cadence watch
-  running, overnight included — don't ask for that. What's worth raising is
-  holding the *fast* cadence open unattended: when something has been
-  outstanding for hours with nothing moving, say so and drop to half-hourly
-  rather than billing a dollar an hour against a stalled queue. The
-  scheduler is the single point of failure: one missed re-arm ends the watch
-  silently, with no error anywhere. If you can't arm the next check, say so
-  in the reply rather than leaving a PR that looks watched and isn't.
+  asked. Once a PR is green, reviewed, and has nothing left but the merge,
+  drop to half-hourly — that's a queue waiting on a human, not work in
+  flight. Merged or closed unmerged is terminal: wait for one more check to
+  see CI and Codex report on the final head, but don't block on a report
+  that may never land — an early manual merge, a docs-only push a path
+  filter never runs CI on, a down review service — settle for whatever's
+  known by then and move on. Either way, run one last reply-or-resolve pass,
+  then cancel the watch in full: `unsubscribe_pr_activity` *and* the pending
+  scheduled trigger, not just one of the two. Open a follow-up PR (with its
+  own watch) for anything a merged PR still needs.
+- **What the polling costs.** Twelve wake-ups an hour per PR, each a model
+  turn plus a few GitHub API calls — roughly a dollar an hour on a large
+  context. The scheduler is the single point of failure: one missed re-arm
+  ends the watch silently, with no error anywhere. If you can't arm the next
+  check, say so in the reply rather than leaving a PR that looks watched and
+  isn't.
 - **One pending check per PR, not one per wake-up.** A webhook event can
   start a turn while a scheduled check is still pending; arming another
   there leaves two chains, each re-arming itself, and the cost doubles every
@@ -384,7 +372,7 @@ If any of the above fails, fix it — don't disable the check.
 
 - **Report when Codex finishes reviewing a fresh push.** Codex's review runs asynchronously after each push; once its review event lands for the latest commit, surface a one-liner naming the SHA and comment count — e.g. `Codex reviewed 87d9f02 — 0 comments` or `Codex reviewed 87d9f02 — 3 comments, addressing now`. Tie it to the *latest* pushed SHA so a stale review of a superseded commit isn't conflated with the current state. The user uses this to know when the automated pass is done vs. still pending.
 - **Skip echo events silently.** `mcp__github__add_reply_to_pull_request_comment` / `add_issue_comment` post under whichever GitHub identity backs the MCP auth (typically the repo owner's), so a moment after you post a reply the same body comes back as a webhook event authored by that identity. That's the echo of your own reply, not user feedback — treat it as a duplicate and continue the in-progress task without a chat-side acknowledgement. The test is "did *I* just post this body?", not "who is the author?" — a real review comment from the same identity still gets the usual reply-or-resolve handling.
-- **Keep watching merged PRs for late review comments.** Reviewers and bots routinely comment *after* merge. Stay subscribed after the merge and handle each new comment per the reply-or-resolve rule — reply, resolve, or open a follow-up PR with the fix. Stop once every comment posted on or after the merge — or, for a PR closed without merging, on or after the close — has been answered or resolved *and* the PR has gone ~24h without a new one. Both, not either: at the moment of merge "every comment answered" is vacuously true, so the quiet window has to actually elapse — don't drop the watch the moment the merge button is clicked.
+- **Canceling the watch**: see the polling bullet under *Autonomy*.
 
 ## Pull requests and reviews
 
