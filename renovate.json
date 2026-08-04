@@ -23,7 +23,7 @@
   },
   "platformAutomerge": true,
   "constraints": {
-    "npm": ">=11.10.0"
+    "npm": ">=12.0.1"
   },
   "packageRules": [
     {
