@@ -437,6 +437,30 @@ If any of the above fails, fix it — don't disable the check.
   restores a weekly window instead of removing one. `renovate.test.ts` guards
   that, along with `mode` and the top-level `schedule` — all three are
   settings whose wrong value produces no error, just less output.
+- **`minimumReleaseAge` is a lookup-time filter, so `.npmrc` carries the other
+  half.** Renovate applies its cooldown when it *looks up* a version, which
+  means it only ever governed the direct dependency a PR names. Lock file
+  maintenance never does a lookup — it deletes the lockfile and lets npm
+  rebuild it, taking whatever is newest — and those PRs auto-merge, so the
+  highest-volume path to production was the one path with no cooldown on it.
+  Transitive dependencies escaped the same way inside ordinary bumps: Renovate
+  picks the direct version, npm resolves everything underneath. `.npmrc` sets
+  npm's own `min-release-age` (5 days, matching the shortest Renovate cooldown;
+  `renovate.test.ts` asserts they stay in step), which npm enforces while
+  resolving and therefore covers both. It only affects resolution — `npm ci`
+  installs from the lockfile, so CI and Vercel builds are untouched.
+- **The npm that resolves is the one that has to support the window, and for
+  lock file maintenance that npm is Renovate's.** `min-release-age` landed in
+  **npm 11.10.0** and is silently ignored before it ("Unknown project config"),
+  so the floor is declared rather than inferred from the Node major — Node
+  bundles vary within one: 24.12.0 ships npm 11.6.2 (no), 24.14.1 ships 11.11.0
+  (yes). `engines.npm` covers local installs and Vercel; `constraints.npm` in
+  renovate.json covers the lockfile regeneration that the window exists to
+  protect. Both are asserted, because an unsupported npm doesn't fail — it just
+  quietly resolves without the window. If the window ever blocks an
+  `npm audit fix`, npm keeps the vulnerable version and exits non-zero rather
+  than failing quietly — `min-release-age-exclude` is the escape hatch for
+  taking that fix immediately.
 - **Minors and patches auto-merge on green CI; majors always wait for review.**
   Pre-1.0 (`0.x`) packages are excluded from auto-merge — SemVer permits
   breaking changes in a 0.x minor. Auto-merge is only as safe as CI, so a red

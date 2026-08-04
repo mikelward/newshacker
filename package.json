@@ -17,7 +17,8 @@
     "analyze:telemetry": "node --env-file-if-exists=.env.local scripts/analyze-summary-layout.mjs"
   },
   "engines": {
-    "node": "^24.12.0"
+    "node": "^24.12.0",
+    "npm": ">=11.10.0"
   },
   "overrides": {
     "glob": "^13.0.6"
