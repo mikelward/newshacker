@@ -1,0 +1,682 @@
+name: Dependency update
+
+# One batched dependency PR per month instead of one PR per dependency as soon
+# as it ships. Dependabot and Renovate both defaulted to the latter, which on a
+# repo this size is a feed to babysit rather than a chore to do — and every
+# extra PR was an independent chance to get something wrong. See AGENTS.md
+# "Dependency updates".
+#
+# `npm update` moves each dependency to the newest version ALLOWED BY THE RANGE
+# ALREADY IN package.json, so a DIRECT dependency cannot cross a major: the
+# publish job re-derives that from the diff and stops the run if one did.
+# Majors stay a deliberate, human-initiated migration.
+#
+# Beneath package.json the promise is weaker. A subdependency whose own range
+# is `*` or `>=x` can take a major without anything showing up in the
+# package.json diff, and the lockfile check below catches the ordinary shapes
+# of that but is explicitly not exact — see its own comment for what it does
+# and does not cover. Read "no majors" as guaranteed for what package.json
+# declares, best-effort beneath it.
+
+on:
+  schedule:
+    # 06:00 UTC on the 1st. Actions cron is best-effort and can be delayed by
+    # tens of minutes under load, which is fine for a monthly chore.
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+# No permissions at the workflow level. The job that runs unreviewed dependency
+# code gets a read-only token; only the publish job, which runs none, can write.
+permissions: {}
+
+concurrency:
+  group: dependency-update
+  cancel-in-progress: false
+
+jobs:
+  # Runs `npm update` and the checks. Third-party code executes here, so this
+  # job holds no write token and cannot push anything.
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.changed.outputs.changed }}
+      passed: ${{ steps.checks.outputs.passed }}
+      base: ${{ steps.base.outputs.sha }}
+      pkg_sha: ${{ steps.changed.outputs.pkg_sha }}
+      lock_sha: ${{ steps.changed.outputs.lock_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Always the default branch, never the dispatch ref. `workflow_dispatch`
+          # exposes a Branch dropdown, and checkout would otherwise follow that
+          # selection — so a manual run from a feature branch would base the
+          # dependency branch on it and open a PR against the default branch
+          # carrying that branch's commits as well as the update. The scheduled
+          # path already defaults here; this makes both paths identical. (If the
+          # expression is ever empty, checkout falls back to the default branch
+          # anyway, so the failure mode is benign.)
+          ref: ${{ github.event.repository.default_branch }}
+
+          # `npm update` and every check below execute lifecycle scripts
+          # (postinstall, prepare) from dependency versions nobody has reviewed
+          # yet — inherent to testing an update. This job's token is read-only,
+          # so the credential checkout would otherwise persist in .git/config
+          # can't push; dropping it anyway keeps one less credential in reach of
+          # code we haven't read, and keeps this correct if the permissions
+          # block is ever widened.
+          persist-credentials: false
+
+      # Pinned and handed to the publish job. Publishing from "the default
+      # branch" instead would take whatever the tip is by then — if someone
+      # lands a package.json or lockfile commit in between, the artifact would
+      # overlay dependency files resolved and tested against the older base and
+      # silently revert it, while the PR body reported checks from that older
+      # base.
+      - name: Record the base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          # Read the major from .nvmrc rather than repeating it here, same
+          # single-source rule ci.yml follows.
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `.nvmrc` holds a bare major and setup-node may serve a CACHED Node 24,
+      # whose bundled npm can predate 11.10.0 — the release that added
+      # `min-release-age`. Below that npm silently ignores .npmrc's cooldown
+      # ("Unknown project config") and this job would resolve packages the repo
+      # deliberately holds back, with no error anywhere. engines.npm is only
+      # advisory without engine-strict, so declare-and-hope is not enough:
+      # check what the runner actually has and raise it if short.
+      - name: Ensure an npm that honors the .npmrc cooldown
+        run: |
+          set -euo pipefail
+          floor=$(node -p "require('./package.json').engines.npm.replace(/^>=/, '')")
+          if [ "$(printf '%s\n%s\n' "$floor" "$(npm -v)" | sort -V | head -n1)" != "$floor" ]; then
+            echo "npm $(npm -v) predates $floor, which .npmrc's cooldown needs; installing npm@$floor"
+            # --ignore-scripts for the same reason as every other install
+            # in this window: nothing unreviewed runs before the fingerprints.
+            npm install -g --ignore-scripts "npm@$floor"
+          fi
+          npm -v
+
+      # Truncating $GITHUB_PATH/$GITHUB_ENV is what keeps a lifecycle script's
+      # reach inside the step that ran it: the runner applies those files to
+      # LATER steps in the job, so a postinstall can otherwise put a fake `npm`
+      # ahead of the real one for everything below. Emptying them here means the
+      # runner applies nothing. It closes that channel — it does not make the
+      # checks trustworthy in general (see AGENTS.md), since the same package
+      # code is loaded into the test process either way.
+      - name: Install from the lockfile
+        run: |
+          set -euo pipefail
+          # `--ignore-scripts` here too, and for the same reason the resolve
+          # step below has it: this runs BEFORE the fingerprints exist, so a
+          # postinstall from a package already in the lockfile could rewrite a
+          # `resolved` URL or an `integrity` hash and have that rewrite be what
+          # gets fingerprinted and published. Versions and majors would look
+          # untouched, so neither the range check nor the major check would see
+          # it. The real install, with scripts, is the first reported check —
+          # after the manifests are pinned.
+          npm ci --ignore-scripts
+          : > "$GITHUB_PATH"
+          : > "$GITHUB_ENV"
+
+      # `--ignore-scripts` so the manifests are RESOLVED before any newly
+      # selected package gets to run code. Without it, a postinstall from a
+      # version this run just picked could rewrite package-lock.json during
+      # this step and that rewrite would become the trusted snapshot — the
+      # comparison after the checks would compare a poisoned file to itself.
+      # The real install happens below, once there is something to snapshot.
+      - name: Resolve updates within their declared ranges
+        run: npm update --save --ignore-scripts
+
+      - name: Stop early if nothing moved
+        id: changed
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'No dependency updates available this run.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            # Captured now, while the change is still uncommitted. The clone is
+            # shallow, so after committing there is no reliable second commit to
+            # diff against.
+            git diff --stat -- package.json > deps-stat.txt
+            # Fingerprint now, before any check runs. The checks execute
+            # dependency code, which could rewrite these files afterwards —
+            # widening a range, repointing a lockfile `resolved` URL — and the
+            # filename allowlist would wave it through as "expected".
+            #
+            # A step OUTPUT, not a file. A copy under /tmp would sit on the same
+            # disk as the code it guards, owned by the same user, at a path
+            # anything can guess — a lifecycle script could rewrite the manifest
+            # and its snapshot together and the comparison would pass. The
+            # runner captures $GITHUB_OUTPUT when this step ends and hands the
+            # value to later steps and to the publish job; nothing that runs
+            # afterwards can reach back and change it.
+            echo "pkg_sha=$(sha256sum package.json | cut -d" " -f1)" >> "$GITHUB_OUTPUT"
+            echo "lock_sha=$(sha256sum package-lock.json | cut -d" " -f1)" >> "$GITHUB_OUTPUT"
+            git diff --stat -- package.json package-lock.json >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The PR this job opens is authored by GITHUB_TOKEN, and GitHub
+      # deliberately does NOT trigger `on: pull_request` workflows for those —
+      # it is the loop-prevention rule, and it has no per-repo opt-out short of
+      # a PAT. So ci.yml will NOT run on the update PR: the checks have to
+      # happen HERE or they do not happen at all, and a PR with no red tick
+      # would read as verified when nothing had verified it.
+      #
+      # Every check runs even after one fails, so the PR body reports the whole
+      # picture rather than only the first thing to break.
+      - name: Run the full check suite
+        if: steps.changed.outputs.changed == 'true'
+        id: checks
+        run: |
+          set +e
+          failed=0
+          : > checks.md
+          check() {
+            echo "::group::$1"
+            eval "$1"
+            rc=$?
+            echo '::endgroup::'
+            if [ $rc -eq 0 ]; then
+              echo "- ✅ \`$1\`" >> checks.md
+            else
+              echo "- ❌ \`$1\` (exit $rc)" >> checks.md
+              failed=1
+            fi
+          }
+          # The real install, with lifecycle scripts, so everything below runs
+          # against the tree a consumer of this lockfile would get. It goes
+          # THROUGH check() rather than in a step of its own: as a step, a
+          # postinstall that fails would kill the job before the artifact
+          # existed, and the whole batch would surface only as a red Actions run
+          # nobody is looking at. As a check it lands in the body with the rest,
+          # and the PR still opens saying which package broke.
+          check 'npm ci'
+          check 'npm run lint'
+          check 'npm run typecheck'
+          check 'npm run test:coverage'
+          check 'npm run build'
+          cat checks.md >> "$GITHUB_STEP_SUMMARY"
+          if [ $failed -eq 0 ]; then
+            echo 'passed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'passed=false' >> "$GITHUB_OUTPUT"
+          fi
+          # Every check above ran dependency code, so this step owes the same
+          # containment as the installs: the verify step below invokes `git` and
+          # `sha256sum`, and a planted pair on $GITHUB_PATH would let source
+          # edits through the check whose entire job is catching them.
+          : > "$GITHUB_PATH"
+          : > "$GITHUB_ENV"
+
+      # The checks above and the commit below have to describe the SAME tree.
+      # The commit stages package files by name (so a planted edit can't ride
+      # along), but that cuts the other way too: a lifecycle script could edit
+      # source or tests, let the suite pass on THAT tree, and have the edit
+      # dropped at commit time — leaving the PR body reporting checks for a tree
+      # nobody is merging. Since this PR never gets a normal `pull_request` CI
+      # run, that report is all a reviewer has.
+      #
+      # Anything outside the dependency files is a stop, not something to strip
+      # silently: a dependency that rewrites your source during install or test
+      # is a decision for a human.
+      - name: Verify only dependency files changed
+        if: steps.changed.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+
+          # `git status`, not `git diff`: diff only sees TRACKED changes, so an
+          # untracked file a lifecycle script drops into the tree — one that
+          # tsc/vite/vitest would happily pick up — would sail past it while the
+          # suite ran against it. Ignored paths (node_modules, dist, coverage)
+          # are excluded by porcelain already; the two allowed extras are files
+          # this job writes itself.
+          unexpected=$(git status --porcelain --untracked-files=all \
+            | sed 's/^...//' \
+            | grep -Ev '^(package\.json|package-lock\.json|checks\.md|deps-stat\.txt)$' || true)
+          if [ -n "$unexpected" ]; then
+            echo '::error::Dependency code touched files outside the dependency manifests. Not opening a PR — inspect these before trusting this batch:'
+            echo "$unexpected"
+            exit 1
+          fi
+
+          # Nothing may have touched the manifests since npm resolved them.
+          # Compared against the fingerprints the resolve step recorded as step
+          # outputs — values that live outside this filesystem, so unlike a
+          # snapshot file they cannot be rewritten alongside what they guard.
+          if [ "$(sha256sum package.json | cut -d" " -f1)" != "${{ steps.changed.outputs.pkg_sha }}" ] \
+             || [ "$(sha256sum package-lock.json | cut -d" " -f1)" != "${{ steps.changed.outputs.lock_sha }}" ]; then
+            echo '::error::A dependency file changed AFTER npm resolved it — something in the check run rewrote it. Not opening a PR.'
+            exit 1
+          fi
+
+          # The manifest CONTENT check does not live here — see the publish
+          # job's "Re-validate the dependency diff from a clean context". This
+          # job has run the updated packages' own code, so an assertion made
+          # here about what the manifests CONTAIN is only as honest as the
+          # batch. The two checks above still earn their place: a fingerprint
+          # recorded as a step output is out of reach even here, and the tree
+          # check catches a lifecycle script touching the working tree, which is
+          # what a non-adversarial failure actually looks like.
+
+      # Hand the result to the publish job as data. The install steps truncate
+      # $GITHUB_PATH/$GITHUB_ENV so a planted `git` or `gh` cannot reach a later
+      # step, but that is a patch on one channel: GitHub-hosted runners give the
+      # job passwordless sudo, so nothing done inside this job is equivalent to
+      # holding the token on a runner where none of this code ever ran.
+      - name: Hand off the dependency diff
+        if: steps.changed.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-update
+          path: |
+            package.json
+            package-lock.json
+            checks.md
+            deps-stat.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  # Publishes. Runs on a fresh runner, installs nothing, and executes no
+  # dependency code — so the write token is never in a machine where an
+  # unreviewed package has run.
+  publish:
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The exact commit the update job tested, not the branch tip.
+          ref: ${{ needs.update.outputs.base }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-update
+
+      # The artifact travelled through a machine that ran dependency code, so
+      # check it against the fingerprints taken before any of it ran. Those
+      # came across as job outputs, which live in the runner's control plane
+      # rather than on that machine's disk.
+      - name: Check the artifact against the pre-check fingerprints
+        run: |
+          set -euo pipefail
+          [ "$(sha256sum package.json | cut -d" " -f1)" = "${{ needs.update.outputs.pkg_sha }}" ] \
+            || { echo '::error::package.json does not match what the update job resolved.'; exit 1; }
+          [ "$(sha256sum package-lock.json | cut -d" " -f1)" = "${{ needs.update.outputs.lock_sha }}" ] \
+            || { echo '::error::package-lock.json does not match what the update job resolved.'; exit 1; }
+
+      # The authoritative check on what this commit contains, and the reason
+      # it lives HERE: everything the update job asserted about the manifests,
+      # it asserted on a machine where the updated packages' own code had
+      # already run. This job installs nothing and executes no dependency code,
+      # so `git show HEAD:package.json` and the downloaded artifact are both out
+      # of the batch's reach.
+      - name: Re-validate the dependency diff from a clean context
+        run: |
+          set -euo pipefail
+
+          # A filename allowlist still lets `package.json` itself be rewritten.
+          # A postinstall that points `scripts.test` at `true` would make the
+          # suite pass on a manifest `npm update` never should have produced,
+          # and the body would report those checks as if they meant something.
+          # So: every section except the dependency ones must be byte-identical
+          # to HEAD, compared canonically so a pure key reordering isn't a
+          # false alarm.
+          node -e '
+            const { execSync } = require("node:child_process");
+            const DEPS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+            const canon = (v) =>
+              v === null || typeof v !== "object" ? v
+                : Array.isArray(v) ? v.map(canon)
+                : Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])]));
+            const strip = (o) => canon(Object.fromEntries(Object.entries(o).filter(([k]) => !DEPS.includes(k))));
+            const before = JSON.parse(execSync("git show HEAD:package.json", { encoding: "utf8" }));
+            const after = JSON.parse(require("node:fs").readFileSync("package.json", "utf8"));
+
+            // Everything that is not a dependency section must be identical.
+            // `scripts.test` pointed at `true` would make the suite pass on a
+            // manifest npm update never produced, and the diff would still read
+            // as an ordinary bump.
+            if (JSON.stringify(strip(before)) !== JSON.stringify(strip(after))) {
+              console.error("::error::package.json changed outside its dependency sections. `npm update` does not do that — inspect before trusting this batch.");
+              process.exit(1);
+            }
+
+            // And within the dependency sections, only the moves `npm update`
+            // can make. It bumps the floor to a version the EXISTING range
+            // already allowed; it never adds or drops a package and never swaps
+            // a registry range for a git/file/http source.
+            //
+            // Comparing majors is not enough: `^2.17.6` -> `^2.0.0` keeps the
+            // major while downgrading, and `^0.6.0` -> `^0.7.0` keeps it while
+            // stepping outside what caret means on a 0.x package. So the test
+            // is the real one — does the new floor satisfy the OLD range.
+            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
+            const parse = (r) => {
+              const m = /^([\^~]?)(\d+)\.(\d+)\.(\d+)$/.exec(String(r));
+              return m ? { op: m[1], v: [+m[2], +m[3], +m[4]] } : null;
+            };
+            const cmp = (x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+            // Exclusive upper bound of a range, per npm caret/tilde semantics.
+            const ceil = ({ op, v: [x, y, z] }) =>
+              op === "^" ? (x > 0 ? [x + 1, 0, 0] : y > 0 ? [0, y + 1, 0] : [0, 0, z + 1])
+                : op === "~" ? [x, y + 1, 0]
+                : [x, y, z + 1];
+            for (const section of DEPS) {
+              const a = before[section] || {}, b = after[section] || {};
+              for (const name of new Set([...Object.keys(a), ...Object.keys(b)])) {
+                if (!(name in a)) fail(`${section}.${name} was ADDED; npm update does not add packages.`);
+                if (!(name in b)) fail(`${section}.${name} was REMOVED; npm update does not remove packages.`);
+                if (a[name] === b[name]) continue;
+                const from = parse(a[name]), to = parse(b[name]);
+                // Deliberately conservative: a prerelease or exotic range this
+                // validator cannot model stops the run rather than being waved
+                // through on the assumption that it is fine.
+                if (!from || !to) fail(`${section}.${name}: ${a[name]} -> ${b[name]} is not a plain X.Y.Z registry range this job can validate.`);
+                if (from.op !== to.op) fail(`${section}.${name} changed its range operator: ${a[name]} -> ${b[name]}.`);
+                if (cmp(to.v, from.v) < 0 || cmp(to.v, ceil(from)) >= 0) {
+                  fail(`${section}.${name} moved outside its existing range: ${a[name]} -> ${b[name]}. npm update only bumps the floor to a version the declared range already allowed.`);
+                }
+              }
+            }
+
+            // package.json only governs DIRECT dependencies. A bare
+            // `npm update` also moves subdependencies to whatever their own
+            // ranges allow, and a transitive range of `*` or `>=x` permits a
+            // major — which would never appear in the diff above, while the PR
+            // body still says "no majors". So compare the resolved lockfile
+            // entries too, for every package present in both.
+            //
+            // THREE rules, because they catch different things and none
+            // subsumes another. Several review rounds went into learning
+            // that: each earlier version replaced its predecessor when it
+            // should have joined it.
+            //
+            //   (1) BY PATH — an entry present before and after whose major
+            //       moved. Catches an in-place bump, and the offsetting swap
+            //       where one consumer goes 1->2 while another goes 2->1 and
+            //       every aggregate stays exactly the same.
+            //
+            //   (2) BY NAME — the SET of majors resolved for a package
+            //       changed in either direction. Catches what (1) cannot see:
+            //       npm hoists and dedupes while it updates, so a crossing
+            //       that also moves between `node_modules/foo` and
+            //       `node_modules/bar/node_modules/foo` shares no path to
+            //       compare. A major disappearing counts as much as one
+            //       appearing — the last consumer of it went somewhere.
+            //
+            //   (3) BY EDGE — resolve each dependency edge the way npm does
+            //       and compare the major it lands on. Catches a consumer
+            //       that crosses while every aggregate stays put. Full
+            //       reasoning at the rule itself, below.
+            //
+            // WHAT A GREEN RUN HERE DOES NOT PROVE. All three rules compare
+            // two tree SNAPSHOTS rather than diffing one tree, so each needs
+            // a key for "the same thing, before and after" — and every
+            // available key is a compromise. A path is a location, so
+            // hoisting destroys one key and invents another. A name is an
+            // aggregate, so two copies of one consumer collapse into a
+            // single key. Measured against fixtures, each catches exactly
+            // what the other misses:
+            //
+            //     two copies of a consumer swapping majors in opposite
+            //         directions   -> caught by path, missed by name
+            //     a consumer that hoists as it crosses
+            //                      -> caught by name, missed by path
+            //
+            // Rule (3) keys on the consumer name, so it inherits the second
+            // blind spot. Closing both means matching package INSTANCES
+            // across the two trees instead of keying on either, which is a
+            // different program from this one and belongs in a checked-in
+            // script with its own tests rather than in a shell-quoted
+            // string. Tracked as a follow-up.
+            //
+            // So: an ordinary transitive major is caught, and the residue is
+            // a crossing that hides inside a tree reshape. Treat this as a
+            // net that holds the usual shapes, not as proof that nothing
+            // transitive moved.
+            //
+            // NOTE: no apostrophes anywhere in this program. It is a
+            // single-quoted shell argument, so one would end the quoting and
+            // hand node a TRUNCATED script — which stays valid JS and exits 0,
+            // silently skipping every rule below it. A test asserts this.
+            //
+            // The error direction throughout is toward stopping the run for a
+            // human, not toward a quiet "no majors".
+            const nameOf = (path) => path.slice(path.lastIndexOf("node_modules/") + "node_modules/".length);
+            // The root entry has no `node_modules/`; link/workspace records
+            // carry no version. Neither is a resolved package.
+            const isPackage = (path, entry) => path.includes("node_modules/") && entry && entry.version;
+            const majorOf = (path, version) => {
+              const major = /^\d+/.exec(version);
+              if (!major) fail(`${path}: "${version}" is not a version this job can compare.`);
+              return major[0];
+            };
+            const lockBefore = JSON.parse(execSync("git show HEAD:package-lock.json", { encoding: "utf8" })).packages || {};
+            const lockAfter = JSON.parse(require("node:fs").readFileSync("package-lock.json", "utf8")).packages || {};
+
+            for (const [path, entry] of Object.entries(lockBefore)) {
+              if (!isPackage(path, entry)) continue;
+              const now = lockAfter[path];
+              if (!isPackage(path, now)) continue;
+              if (majorOf(path, entry.version) !== majorOf(path, now.version)) {
+                fail(`${path} crossed a major in the lockfile: ${entry.version} -> ${now.version}. Even a transitive major is a deliberate migration, not a monthly batch.`);
+              }
+            }
+
+            const majorsByName = (packages) => {
+              const seen = new Map();
+              for (const [path, entry] of Object.entries(packages)) {
+                if (!isPackage(path, entry)) continue;
+                const name = nameOf(path);
+                if (!seen.has(name)) seen.set(name, new Set());
+                seen.get(name).add(majorOf(path, entry.version));
+              }
+              return seen;
+            };
+            const before_ = majorsByName(lockBefore);
+            const after_ = majorsByName(lockAfter);
+            for (const [name, now] of after_) {
+              const had = before_.get(name);
+              // A package that is entirely new is a new subdependency of
+              // something that moved in range — bounded by the check above.
+              if (!had) continue;
+              if ([...had].some((m) => !now.has(m)) || [...now].some((m) => !had.has(m))) {
+                fail(`${name} changed which majors it resolves to: ${[...had].sort().join(", ")} -> ${[...now].sort().join(", ")}. Even a transitive major is a deliberate migration, not a monthly batch.`);
+              }
+            }
+
+            //   (3) BY EDGE — the exact one, and the reason the two rules
+            //       above are not enough on their own. They summarize the
+            //       tree; a summary can stay identical while a consumer moves.
+            //       When a nested copy of foo@1 is dropped and its dependent
+            //       falls through to an already-hoisted foo@2, no shared path
+            //       changed major and the major set for foo is still {1,2}
+            //       because some other dependent kept its own foo@1. Nothing
+            //       aggregate moved — but somebody crossed.
+            //
+            //       So resolve each dependency edge the way npm does: from the
+            //       dependent directory, walk up through each ancestor
+            //       node_modules until one holds the name. That is the copy
+            //       the consumer actually gets. Compare the major of that
+            //       resolved copy, per edge, across the update.
+            const resolveEdge = (packages, fromPath, name) => {
+              let prefix = fromPath;
+              for (;;) {
+                const candidate = (prefix ? prefix + "/" : "") + "node_modules/" + name;
+                const entry = packages[candidate];
+                if (entry && entry.version) return entry.version;
+                if (!prefix) return null;
+                const cut = prefix.lastIndexOf("/node_modules/");
+                prefix = cut === -1 ? "" : prefix.slice(0, cut);
+              }
+            };
+            // EVERY edge field npm records, not just `dependencies`. An
+            // optional or peer edge that npm DID install is a real consumer
+            // resolving to a real copy, and it can cross a major exactly like
+            // any other; enumerating one field would leave that crossing
+            // invisible to all three rules at once. Listing the fields
+            // explicitly, rather than walking every key, keeps `engines` and
+            // friends out of it.
+            const EDGE_FIELDS = ["dependencies", "optionalDependencies", "peerDependencies"];
+            // The edge is identified by the CONSUMER NAME, not its path. This
+            // is the same lesson as rule (2), and it had to be learned twice:
+            // npm paths are locations, not identities, so keying an edge by
+            // the consumer path means a consumer that HOISTS gets a brand-new
+            // edge id, its old id looks deleted, and the crossing it just made
+            // is read as an edge that never existed. Keyed by name,
+            // `node_modules/a/node_modules/bar -> foo` and
+            // `node_modules/bar -> foo` are one edge, which is what they are.
+            //
+            // The value is a SET of resolved majors rather than one major, so
+            // two copies of the same consumer legitimately resolving different
+            // majors are represented rather than collapsed — and a change in
+            // either direction fails, exactly as in rule (2).
+            const edgeMajors = (packages) => {
+              const out = new Map();
+              for (const [path, entry] of Object.entries(packages)) {
+                if (!entry) continue;
+                // The root entry has no `node_modules/` and no name to take;
+                // it is a stable identity already.
+                const consumer = path.includes("node_modules/") ? nameOf(path) : path;
+                for (const field of EDGE_FIELDS) {
+                  for (const name of Object.keys(entry[field] || {})) {
+                    const version = resolveEdge(packages, path, name);
+                    // An edge resolving to nothing is an optional or peer
+                    // dependency npm chose not to install. Nothing to compare.
+                    if (!version) continue;
+                    const edge = consumer + " -> " + name;
+                    if (!out.has(edge)) out.set(edge, new Set());
+                    out.get(edge).add(majorOf(path, version));
+                  }
+                }
+              }
+              return out;
+            };
+            const edgesBefore = edgeMajors(lockBefore);
+            for (const [edge, now] of edgeMajors(lockAfter)) {
+              const had = edgesBefore.get(edge);
+              // A brand-new edge belongs to a package that legitimately moved
+              // within its range; it crossed nothing, it did not exist before.
+              if (!had) continue;
+              if ([...had].some((m) => !now.has(m)) || [...now].some((m) => !had.has(m))) {
+                fail(`${edge} crossed a major in the lockfile: ${[...had].sort().join(", ")} -> ${[...now].sort().join(", ")}. Even a transitive major is a deliberate migration, not a monthly batch.`);
+              }
+            }
+          '
+
+      # Everything verified above describes `base`. If the default branch has
+      # moved since — someone landed a manifest change while the checks were
+      # running — pushing now would three-way merge dependency files that were
+      # resolved and tested against the OLDER commit onto a newer one, and the
+      # PR body would report checks that never saw the combination. This PR
+      # gets no `pull_request` CI to catch that afterwards, so the mismatch
+      # would ship looking verified.
+      #
+      # Stopping is the right failure: the batch is a monthly convenience, and
+      # re-running it is one click. Publishing a tree nothing has checked is
+      # not recoverable by the same means.
+      - name: Stop if the default branch moved while the checks ran
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch='${{ github.event.repository.default_branch }}'
+          current=$(gh api "repos/${{ github.repository }}/commits/$branch" --jq .sha)
+          if [ "$current" != '${{ needs.update.outputs.base }}' ]; then
+            echo "::error::$branch moved from ${{ needs.update.outputs.base }} to $current while the checks ran, so the verified manifests and the branch they would land on no longer match. Re-run the workflow."
+            exit 1
+          fi
+
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          month=$(date -u +%Y-%m)
+          branch="deps/update-$month"
+
+          if [ '${{ needs.update.outputs.passed }}' = 'true' ]; then
+            title="Update dependencies ($month)"
+            verdict='All checks passed in the job that produced this branch.'
+          else
+            title="Update dependencies ($month) — CHECKS FAILING"
+            verdict='**One or more checks failed.** Do not merge until they are fixed — the failures are real, not flakes to route around.'
+          fi
+
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+
+          # Never force-push. The PR body tells reviewers to push fixes to this
+          # branch — which is also how CI starts running on it — so a re-run in
+          # the same month would otherwise overwrite work this job did not
+          # create. If the month's branch already exists, take a run-scoped one
+          # and open its own PR instead of clobbering.
+          if git ls-remote --exit-code --heads "$remote" "$branch" >/dev/null 2>&1; then
+            branch="$branch-run${{ github.run_number }}"
+            echo "This month's branch already exists; using $branch instead." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Belt and braces. This runner is fresh and nothing has run on it, so
+          # there is no hook to plant — but the cost of keeping this is zero and
+          # it stays correct if the job ever gains a step.
+          git config --global core.hooksPath /dev/null
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          # Stage by name. The artifact only carries these files, but naming them
+          # keeps that true even if it ever carries more.
+          git add -- package.json package-lock.json
+          git commit -q -m "$title"
+          git push "$remote" "HEAD:refs/heads/$branch"
+
+          {
+            echo "\`npm update --save\` — every dependency moved to the newest version its"
+            echo 'existing range in `package.json` allows. **No majors**: those need a'
+            echo 'deliberate migration and this job cannot produce one.'
+            echo
+            echo '## Checks'
+            echo
+            cat checks.md
+            echo
+            echo "$verdict"
+            echo
+            echo '> These ran in the workflow job, not on this PR. A PR opened by'
+            echo '> `GITHUB_TOKEN` does not trigger `on: pull_request` workflows, so'
+            echo '> CI will not post its own result here. Push any commit to this'
+            echo '> branch and CI starts running normally from then on.'
+            echo
+            echo '## Changed'
+            echo
+            echo '```'
+            cat deps-stat.txt
+            echo '```'
+            echo
+            echo 'Review the `package.json` diff for anything surprising; the lockfile'
+            echo 'churn underneath it is expected and not worth reading line by line.'
+            echo
+            echo '---'
+            echo '_Opened by the monthly `dependency-update` workflow._'
+          } > body.md
+
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr edit "$branch" --title "$title" --body-file body.md
+          else
+            gh pr create --title "$title" --body-file body.md \
+              --base '${{ github.event.repository.default_branch }}' --head "$branch"
+          fi

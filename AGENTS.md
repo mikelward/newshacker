@@ -400,6 +400,62 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Dependency updates
 
+- **Dependency updates are one batched PR a month**, from
+  `.github/workflows/dependency-update.yml`. It runs `npm update --save` on the
+  1st, and on demand from the Actions tab (*Run workflow*), so every dependency
+  moves to the newest version its **existing range** allows. A major stays a
+  deliberate migration you start yourself; an unattended job must not be able
+  to produce one. **That is a guarantee for direct dependencies and
+  best-effort beneath them.** The publish job re-derives every `package.json`
+  range change from the diff and stops the run on a crossing, so nothing you
+  declare can cross a major. A *subdependency* whose own range is `*` or
+  `>=x` can, without anything appearing in the `package.json` diff — the
+  workflow's lockfile check is what covers that, and it is explicitly not
+  exact: it compares two tree snapshots by path, by name and by edge, and a
+  crossing that hides inside a hoist or a duplicate consumer still slips
+  through. Rebuilding it around instance matching, as a checked-in script
+  with its own tests, is a tracked follow-up. Don't read a green run as proof
+  that nothing transitive crossed. Two things in it are load-bearing, both
+  guarding failures that would otherwise be silent:
+  - **The job runs the full check suite itself.** A PR opened by `GITHUB_TOKEN`
+    does not trigger `on: pull_request` workflows — that is GitHub's
+    loop-prevention rule, with no per-repo opt-out short of a PAT — so `ci.yml`
+    never runs on the monthly PR and a PR with no red tick would read as
+    verified when nothing had verified it. Results go in the PR body. Pushing
+    any commit to the branch makes CI run normally from then on.
+  - **`dependency-update.test.ts` asserts those checks stay in step with
+    `ci.yml`.** Add a step to one and not the other and the monthly PR is
+    quietly verified by a weaker suite than `main`, looking identical either
+    way. It also pins the `.nvmrc`-as-single-source rule, `workflow_dispatch`,
+    and first-party-actions-only.
+  The test also bounds the supply chain: every action the job uses must be
+  either first-party (`actions/*`) or something `ci.yml` already runs, so an
+  unattended job with push access is never where a genuinely new third-party
+  action first enters the repo (`gh` is preinstalled, so opening the PR adds
+  none). The rule started as the stricter "nothing `ci.yml` doesn't already
+  use" and was loosened deliberately when the publish job needed
+  `upload-artifact`/`download-artifact` — GitHub's own actions, which `ci.yml`
+  has no reason to run. **Cost:** negligible — Actions minutes are free on public repos,
+  and one ~5-minute run a month is far inside the free tier on private ones.
+- **The machine that runs the update can't fully vouch for it — that boundary
+  is deliberate.** Testing a dependency means executing it: the install runs its
+  lifecycle scripts, and the suite loads its code into the same process as the
+  test runner. Anything running there can also tamper with the report. The
+  cheap channels are closed where closing them is cheap — the update resolves
+  with `--ignore-scripts` so the manifests are fingerprinted before any newly
+  selected package runs, those fingerprints are step *outputs* rather than files
+  on the same disk (a snapshot under `/tmp` can be rewritten alongside the thing
+  it guards), and `$GITHUB_PATH`/`$GITHUB_ENV` are truncated inside the step
+  that ran the scripts so a planted `npm` can't reach a later one — but the last
+  channel cannot be closed: to test a package the suite has to load its code,
+  and code that runs can make a test pass. So the design assumes the checks
+  *can* lie and keeps the blast radius small instead: the update job holds no
+  write token; the publish job checks out the base commit fresh, runs no
+  dependency code, and is where the manifests are actually validated (contents
+  against `HEAD`, fingerprints against what the update job recorded); and the
+  branch it pushes contains nothing but the dependency manifests. Read the PR
+  body's check results as evidence, not proof — the manifest diff is the part
+  that is actually verified.
 - **Renovate is off.** `"enabled": false` at the top of `renovate.json` is the
   master switch: the job still runs, logs `Repository is disabled`, and creates
   nothing — no PRs, no `renovate/*` branches, no dependency dashboard, and no
@@ -409,8 +465,8 @@ If any of the above fails, fix it — don't disable the check.
   and — once `constraints.npm` was added — an auto-merge-eligible npm floor
   above what the pinned Node major bundles. GitHub's own Dependabot **security**
   updates are a separate switch in repo settings and still run, so advisories
-  stay covered. Everything below is dormant but retained, so re-enabling is
-  deleting one key rather than rebuilding a config that took several rounds to
+  stay covered. Everything in the Renovate bullets below is dormant but
+  retained, so re-enabling is deleting one key rather than rebuilding a config that took several rounds to
   get right; `renovate.test.ts` asserts the switch, so an accidental re-enable
   fails CI. Uninstalling the Mend app at developer.mend.io is the other half, if
   you want the jobs to stop running at all.
