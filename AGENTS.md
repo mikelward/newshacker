@@ -461,6 +461,17 @@ If any of the above fails, fix it — don't disable the check.
   `npm audit fix`, npm keeps the vulnerable version and exits non-zero rather
   than failing quietly — `min-release-age-exclude` is the escape hatch for
   taking that fix immediately.
+- **The npm floor is not a dependency, and Renovate must not treat it as one.**
+  Adding `constraints.npm` made Renovate start managing it: within minutes it
+  opened `>=11.18.0` (a minor, so auto-merge eligible) and `v12` in all three
+  repos. Both sit above the npm Node 24 actually bundles — 24.18.1 ships
+  11.16.0 — so either would EBADENGINE every contributor, CI runner and Vercel
+  build, and the lower-bound assertion in renovate.test did **not** catch it,
+  because a floor that is too high still clears a `>=` check. `npm` is now
+  disabled in packageRules, and the guard pins the floor to exactly the release
+  that introduced the option rather than asserting a minimum. Raise it by hand
+  only if a later npm becomes genuinely required, and check what the pinned
+  Node major bundles first.
 - **Minors and patches auto-merge on green CI; majors always wait for review.**
   Pre-1.0 (`0.x`) packages are excluded from auto-merge — SemVer permits
   breaking changes in a 0.x minor. Auto-merge is only as safe as CI, so a red

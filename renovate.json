@@ -27,6 +27,11 @@
   },
   "packageRules": [
     {
+      "description": "The npm floor is not a dependency to keep current — it names the release that introduced `min-release-age` (11.10.0), and nothing above that buys anything. Adding `constraints.npm` made Renovate treat it as one: within minutes of that landing it opened `>=11.18.0` (a MINOR, so auto-merge eligible) and `v12`. Both floors sit above the npm Node 24 actually bundles (24.18.1 ships 11.16.0), so merging one would EBADENGINE every contributor, CI runner and Vercel build — and the lower-bound guard in renovate.test would not have caught it, because a floor that is too HIGH still clears a >= assertion. Raise this by hand only if a later npm becomes genuinely required, and check what the pinned Node major bundles before you do.",
+      "matchDepNames": ["npm"],
+      "enabled": false
+    },
+    {
       "description": "Cooldown before an update is offered.",
       "matchUpdateTypes": ["major"],
       "minimumReleaseAge": "14 days"

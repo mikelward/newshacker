@@ -165,30 +165,39 @@ describe('npm install-time cooldown', () => {
   // file said nothing. So the floor can't be inferred from the Node major:
   // Node 24.12.0 bundles npm 11.6.2 (ignores it), 24.14.1 bundles 11.11.0
   // (honors it). Both consumers that resolve get an explicit floor.
-  // Compared as major*1000+minor, NOT as a decimal: 11.9 > 11.1 as a float,
+  // Compared component-wise, NOT as a decimal: 11.9 > 11.1 as a float,
   // but npm 11.9.0 is OLDER than 11.10.0 — a float compare here would bless
   // exactly the versions that ignore the setting.
-  const npmVersionKey = (major: number, minor: number): number =>
-    major * 1000 + minor;
-  const MIN_NPM = npmVersionKey(11, 10); // the release that added the option
+  //
+  // Patch is part of the key rather than discarded, because the assertions
+  // below test for EQUALITY: on a major.minor-only key, `>=11.10.999` produces
+  // the same value as `>=11.10.0` and passes, so the guard would claim an exact
+  // pin it was not actually enforcing.
+  const npmVersionKey = (major: number, minor: number, patch: number): number =>
+    major * 1_000_000 + minor * 1_000 + patch;
+  const MIN_NPM = npmVersionKey(11, 10, 0); // the release that added the option
 
   const floorOf = (range: string): number => {
-    const m = /^>=(\d+)\.(\d+)\.\d+$/.exec(range);
+    const m = /^>=(\d+)\.(\d+)\.(\d+)$/.exec(range);
     if (!m) throw new Error(`unmodeled npm constraint: ${range}`);
-    return npmVersionKey(Number(m[1]), Number(m[2]));
+    return npmVersionKey(Number(m[1]), Number(m[2]), Number(m[3]));
   };
 
-  it('requires an npm that implements the option, for local and Vercel installs', () => {
-    expect(floorOf(pkg.engines.npm)).toBeGreaterThanOrEqual(MIN_NPM);
+  it('pins the npm floor to the release that introduced the option', () => {
+    // Equality, not >=. A floor that is too HIGH is its own bug and clears a
+    // lower-bound check: Renovate saw `constraints.npm` as a dependency to
+    // keep current and opened `>=11.18.0` and `v12` within minutes, both
+    // above the npm Node 24 bundles (24.18.1 ships 11.16.0), which would
+    // EBADENGINE every contributor, CI runner and Vercel build. The floor
+    // means "supports min-release-age" — nothing above 11.10.0 buys anything.
+    expect(floorOf(pkg.engines.npm)).toBe(MIN_NPM);
   });
 
   it('requires the same npm of Renovate, which regenerates the lockfile', () => {
     // The path the window exists to cover. Without this, lock file
     // maintenance could keep rebuilding the lockfile with an npm that has
     // never heard of the setting — no error, just no cooldown.
-    expect(floorOf(config.constraints?.npm ?? '')).toBeGreaterThanOrEqual(
-      MIN_NPM,
-    );
+    expect(floorOf(config.constraints?.npm ?? '')).toBe(MIN_NPM);
   });
 });
 
@@ -373,6 +382,17 @@ describe('renovate.json effective rules', () => {
     });
     expect(major.enabled).not.toBe(false);
     expect(major.dependencyDashboardApproval).toBe(true);
+  });
+
+  it('does not let Renovate manage the npm floor', () => {
+    // Belt to the equality assertion's braces: that one catches a raised
+    // floor after the fact, this one stops the PR being opened.
+    for (const updateType of ['minor', 'patch', 'major']) {
+      expect(
+        resolve({ updateType, currentVersion: '11.10.0', depName: 'npm' })
+          .enabled,
+      ).toBe(false);
+    }
   });
 
   it('leaves other packages beginning with "node" alone', () => {
