@@ -8,7 +8,8 @@
   "timezone": "UTC",
   "description": [
     "Renovate is eligible to run at any time. Update volume is paced by the per-update-type minimumReleaseAge cooldowns and prConcurrentLimit below, not by a weekly window — a window only delays PRs that have already cooled down, and it never applies to vulnerability alerts (Renovate forces schedule: [] and prCreation: immediate on those).",
-    "mode=full is stated explicitly because the Mend-hosted app defaults an 'All repositories' install to silent mode, in which Renovate opens no PRs and no dependency dashboard issue — indistinguishable from 'nothing needs updating'. This repo ran that way for its first twelve days. The Mend-side setting is injected via RENOVATE_CONFIG and wins over this file, so if PRs stop appearing again the remaining switch is developer.mend.io → repo/org → Interactive, not here."
+    "mode=full is stated explicitly because the Mend-hosted app defaults an 'All repositories' install to silent mode, in which Renovate opens no PRs and no dependency dashboard issue — indistinguishable from 'nothing needs updating'. This repo ran that way for its first twelve days. The Mend-side setting is injected via RENOVATE_CONFIG and wins over this file, so if PRs stop appearing again the remaining switch is developer.mend.io → repo/org → Interactive, not here.",
+    "The npm constraint below is load-bearing, not decoration. The .npmrc min-release-age window is only enforced by the npm that does the resolving, and for lock file maintenance that npm is Renovate's, not ours. npm added the option in 11.10.0 and silently ignores it before that ('Unknown project config'), so without this constraint the one path the window exists to cover could still regenerate the lockfile with an npm that has never heard of it — the same silent no-op the rest of this config is built to avoid. Renovate also infers constraints from engines.npm; stating it here as well keeps it true if engines is ever relaxed."
   ],
   "mode": "full",
   "schedule": ["at any time"],
@@ -21,6 +22,9 @@
     "schedule": ["at any time"]
   },
   "platformAutomerge": true,
+  "constraints": {
+    "npm": ">=11.10.0"
+  },
   "packageRules": [
     {
       "description": "Cooldown before an update is offered.",

@@ -39,6 +39,7 @@ interface PackageRule {
 
 interface RenovateConfig {
   mode?: string;
+  constraints?: { npm?: string };
   schedule?: string[];
   lockFileMaintenance?: { enabled?: boolean; schedule?: string[] };
   packageRules?: PackageRule[];
@@ -82,6 +83,7 @@ const pkg = JSON.parse(
 ) as {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
+  engines: { node: string; npm: string };
 };
 
 const dependencyNames = Object.keys({
@@ -118,6 +120,77 @@ const groupOf = (name: string): string | undefined =>
         : group,
     undefined,
   );
+
+// Renovate's cooldowns are only half of the story, and the missing half is
+// silent in the usual way: `minimumReleaseAge` is applied at *lookup* time, so
+// it governs the direct dependency a PR names and nothing else. Lock file
+// maintenance never does a lookup — it deletes the lockfile and lets npm
+// rebuild it — and those PRs auto-merge, so the highest-volume path to
+// production was also the only one with no cooldown on it. Transitive
+// dependencies escaped the same way inside ordinary bumps.
+//
+// `.npmrc`'s `min-release-age` closes both, because npm applies it while
+// resolving. The two numbers have to stay in step or the guarantee quietly
+// weakens, so this reads the cooldown out of renovate.json rather than
+// hard-coding it in a second place.
+
+const npmrc = readFileSync(new URL('./.npmrc', import.meta.url), 'utf8');
+
+const shortestRenovateCooldownDays = Math.min(
+  ...(config.packageRules ?? [])
+    .map((rule) => rule.minimumReleaseAge)
+    .filter((age): age is string => age !== undefined)
+    .map((age) => {
+      const days = /^(\d+) days?$/.exec(age);
+      if (!days) throw new Error(`unmodeled minimumReleaseAge: ${age}`);
+      return Number(days[1]);
+    }),
+);
+
+describe('npm install-time cooldown', () => {
+  it('sets a min-release-age window', () => {
+    expect(npmrc).toMatch(/^min-release-age=\d+$/m);
+  });
+
+  it('is at least as strict as the shortest Renovate cooldown', () => {
+    // Otherwise npm would admit a version renovate.json would have held back —
+    // which is the exact gap this file exists to close, reopened by a number.
+    const configured = Number(/^min-release-age=(\d+)$/m.exec(npmrc)?.[1]);
+    expect(configured).toBeGreaterThanOrEqual(shortestRenovateCooldownDays);
+  });
+
+  // The window is only as real as the npm that applies it. `min-release-age`
+  // landed in npm 11.10.0 and is *silently ignored* before that — an
+  // "Unknown project config" warning and a resolve that proceeds as if the
+  // file said nothing. So the floor can't be inferred from the Node major:
+  // Node 24.12.0 bundles npm 11.6.2 (ignores it), 24.14.1 bundles 11.11.0
+  // (honors it). Both consumers that resolve get an explicit floor.
+  // Compared as major*1000+minor, NOT as a decimal: 11.9 > 11.1 as a float,
+  // but npm 11.9.0 is OLDER than 11.10.0 — a float compare here would bless
+  // exactly the versions that ignore the setting.
+  const npmVersionKey = (major: number, minor: number): number =>
+    major * 1000 + minor;
+  const MIN_NPM = npmVersionKey(11, 10); // the release that added the option
+
+  const floorOf = (range: string): number => {
+    const m = /^>=(\d+)\.(\d+)\.\d+$/.exec(range);
+    if (!m) throw new Error(`unmodeled npm constraint: ${range}`);
+    return npmVersionKey(Number(m[1]), Number(m[2]));
+  };
+
+  it('requires an npm that implements the option, for local and Vercel installs', () => {
+    expect(floorOf(pkg.engines.npm)).toBeGreaterThanOrEqual(MIN_NPM);
+  });
+
+  it('requires the same npm of Renovate, which regenerates the lockfile', () => {
+    // The path the window exists to cover. Without this, lock file
+    // maintenance could keep rebuilding the lockfile with an npm that has
+    // never heard of the setting — no error, just no cooldown.
+    expect(floorOf(config.constraints?.npm ?? '')).toBeGreaterThanOrEqual(
+      MIN_NPM,
+    );
+  });
+});
 
 describe('renovate.json package grouping', () => {
   it.each([
