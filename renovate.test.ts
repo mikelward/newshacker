@@ -3,6 +3,14 @@ import { readFileSync } from 'node:fs';
 import { minimatch } from 'minimatch';
 import { describe, expect, it } from 'vitest';
 
+// Renovate is DISABLED for this repo. `enabled: false` at the top of
+// renovate.json is the master switch, and the first assertion below is the only
+// one that gates live behavior today. Everything after it describes config that
+// is dormant but retained — kept so that re-enabling is deleting one key rather
+// than rebuilding a config that took several rounds to get right, and asserted
+// so the dormant half can't rot into something that misbehaves the moment it is
+// switched back on.
+//
 // Renovate is deliberately unscheduled and in full mode: it may open a PR the
 // moment an update clears its minimumReleaseAge cooldown, instead of waiting
 // for a weekly window. Every failure mode here is silent — a bot that opens
@@ -38,6 +46,7 @@ interface PackageRule {
 }
 
 interface RenovateConfig {
+  enabled?: boolean;
   mode?: string;
   constraints?: { npm?: string };
   schedule?: string[];
@@ -48,6 +57,16 @@ interface RenovateConfig {
 const config = JSON.parse(
   readFileSync(new URL('./renovate.json', import.meta.url), 'utf8'),
 ) as RenovateConfig;
+
+describe('renovate.json master switch', () => {
+  it('keeps Renovate disabled', () => {
+    // The bot is off entirely. This assertion is what has to be edited
+    // deliberately to turn it back on, so an accidental re-enable — a merge, a
+    // regenerated config, a tidy-up of a key that looks contradictory next to
+    // `mode: "full"` — fails CI instead of quietly resuming PRs.
+    expect(config.enabled).toBe(false);
+  });
+});
 
 describe('renovate.json schedule', () => {
   it('opts out of silent mode', () => {
