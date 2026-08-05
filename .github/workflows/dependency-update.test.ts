@@ -146,6 +146,29 @@ describe('dependency-update workflow', () => {
     // tsc/vite/vitest would still pick up — would pass unnoticed.
     expect(workflow).toContain('git status --porcelain --untracked-files=all');
     expect(workflow).not.toMatch(/git diff --name-only \| grep -Ev/);
+    // …and a SECOND pass for ignored paths, because the first structurally
+    // cannot see them and the sharpest plant is an ignored file: `.env.local`
+    // is gitignored (`*.local`, `.env.*`) and Vite loads it during a build, so
+    // a postinstall writing one injects `VITE_*` into the shipped bundle while
+    // the tree still reads as clean.
+    expect(workflow).toContain("git status --porcelain --ignored");
+    // The two must stay SEPARATE calls. `--ignored` together with
+    // `--untracked-files=all` lists every ignored file individually, so the
+    // output becomes the whole of node_modules and the check is unusable;
+    // alone, `--ignored` collapses a fully-ignored directory to one entry.
+    // Combining them is the obvious-looking edit that would quietly break it.
+    expect(workflow).not.toMatch(/--untracked-files=all\s+--ignored/);
+    expect(workflow).not.toMatch(/--ignored\s+--untracked-files=all/);
+    // Build outputs are allowed through; anything else ignored is a stop.
+    for (const output of ['node_modules/', 'dist/', 'coverage/', 'tsbuildinfo']) {
+      expect(workflow).toContain(output);
+    }
+    // The filename allowlist alone lets package.json itself be rewritten —
+    // `scripts.test` pointed at `true` would make the suite pass on a manifest
+    // `npm update` never produced. That check, and the range comparison that
+    // goes with it, now live in scripts/check-dependency-update.mjs with their
+    // own tests; the assertion here is only that the workflow still runs them.
+    expect(workflow).toContain('node scripts/check-dependency-update.mjs');
     // The filename allowlist alone lets package.json itself be rewritten —
     // `scripts.test` pointed at `true` would make the suite pass on a manifest
     // `npm update` never produced. That check, and the range comparison that

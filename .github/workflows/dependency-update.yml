@@ -249,6 +249,38 @@ jobs:
             exit 1
           fi
 
+          # IGNORED paths, as a SEPARATE pass — because the most dangerous plant
+          # is precisely an ignored one, and the command above structurally
+          # cannot see it. `.env.local` is gitignored here (`*.local`, `.env.*`)
+          # and Vite LOADS it during a build, so a postinstall writing one
+          # injects `VITE_*` values straight into the shipped bundle while the
+          # tree still reads as clean.
+          #
+          # A separate pass rather than adding `--ignored` above, and that is
+          # not a style choice: `--ignored` TOGETHER WITH `--untracked-files=all`
+          # lists every ignored file individually, so the output becomes the
+          # whole of node_modules — megabytes, and unusable. On its own,
+          # `--ignored` collapses a fully-ignored directory to one entry
+          # (`!! node_modules/`), which is what makes looking at ignored paths
+          # affordable at all. Keep the two calls apart.
+          #
+          # The allowlist is build OUTPUTS, measured rather than guessed: a full
+          # suite run leaves `dist/` and `node_modules/` here, plus
+          # `*.tsbuildinfo` in newshacker and `coverage/` in gedmap. The near
+          # neighbours the .gitignore already names (`dist-ssr`, `dev-dist`) are
+          # listed too, so a build-config change does not stop the run over an
+          # artifact nobody planted. Anything else ignored is something new in
+          # the tree, and worth a human look.
+          planted=$(git status --porcelain --ignored \
+            | grep '^!! ' \
+            | sed 's/^!! //' \
+            | grep -Ev '^(node_modules/|dist/|dist-ssr/|dev-dist/|coverage/|[^/]*\.tsbuildinfo)$' || true)
+          if [ -n "$planted" ]; then
+            echo '::error::Dependency code left IGNORED files in the tree. Git would not commit them, but the build would read them — .env.local is loaded by Vite. Not opening a PR — inspect these:'
+            echo "$planted"
+            exit 1
+          fi
+
           # Nothing may have touched the manifests since npm resolved them.
           # Compared against the fingerprints the resolve step recorded as step
           # outputs — values that live outside this filesystem, so unlike a
