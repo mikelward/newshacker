@@ -494,7 +494,20 @@ If any of the above fails, fix it — don't disable the check.
   verified by reintroducing the defect and watching it go red. Several of
   those shapes were found against the matcher design and are named for the
   tree rather than for the mechanism they once probed — they are kept because
-  the shapes are real, and every one of them still has to come out right. Two things in
+  the shapes are real, and every one of them still has to come out right.
+  **The tree check looks at IGNORED paths too, in a second `git status` call.**
+  `--untracked-files=all` does not report them, and the sharpest thing a
+  lifecycle script can plant is precisely an ignored file: `.env.local` is
+  gitignored (`*.local`, `.env.*`) and Vite *loads* it during a build, so a
+  postinstall that writes one injects `VITE_*` values into the shipped bundle
+  while the tree still reads as clean. The two calls must stay separate —
+  `--ignored` together with `--untracked-files=all` lists every ignored file
+  individually and the output becomes the whole of `node_modules`; alone,
+  `--ignored` collapses a fully-ignored directory to a single entry, which is
+  what makes looking at them at all affordable. The allowlist is build outputs,
+  measured by running the suite in each repo rather than guessed, and
+  `dependency-update.test.ts` pins both the second call and the
+  don't-combine-the-flags rule. Two things in
   the workflow are load-bearing, both guarding failures that would otherwise
   be silent:
   - **The job runs the full check suite itself.** A PR opened by `GITHUB_TOKEN`
