@@ -477,6 +477,64 @@ If any of the above fails, fix it — don't disable the check.
   ask — so there was no gated version of them to keep. Corroboration that
   raises false alarms is not corroboration, and for an unattended job a weekly
   cry-wolf is worse than the silent miss they never actually covered.
+  **A package no platform can install is pruned, and with it everything under
+  it.** `@tailwindcss/oxide-wasm32-wasi` declares `cpu: ["wasm32"]` and is
+  optional; `wasm32` is not a value `process.arch` ever takes, so npm skips it
+  everywhere and it is on nobody's disk. Its dependencies are *bundled*, and
+  `npm update` dissolves the bundle and re-resolves them from the registry —
+  which is how a weekly batch that installs none of it reported six `@emnapi`
+  major crossings, one of them a prerelease dragged in by a sibling whose
+  `latest` tag had already moved to 2.x. A crossing nobody can experience is a
+  standing false alarm, and for an unattended job a weekly cry-wolf is the
+  failure mode that matters. The rule is deliberately narrow in two ways that
+  are easy to get wrong: it asks "does this name **no** Node target", not "is
+  this the runner's platform" — a darwin/arm64 binding is a real install on a
+  real machine, so a major under one still has to be caught from linux/x64 CI —
+  and it requires `optional`, because a non-optional package with an impossible
+  `cpu` fails the install outright and is worth surfacing. Nothing hard-codes
+  `wasm32` or any other value; the check is membership in `process.arch` /
+  `process.platform`'s own domains. **Where npm's syntax has its own meaning,
+  run npm's code rather than a reading of it.** Three separate review findings
+  on this one predicate were the same mistake three times over — a lone `any`
+  is a wildcard, a bare string is a one-item list, and a negation is *not*
+  automatically satisfiable (`["arm64", "!arm64"]` installs nowhere, because npm
+  rejects a target that matches a negated entry before it ever looks for a
+  positive match). Each paraphrase was plausible and each was wrong in a
+  different direction, so `checkList` is now transcribed verbatim from
+  `npm-install-checks` and asked, for every value `process.arch` /
+  `process.platform` can report, whether that target satisfies the constraint.
+  `libc` is not modeled: leaving a constraint out can only make the answer
+  *more* installable, and that is the safe direction here, because a wrong
+  prune costs a missed major where a wrong keep costs one comparison.
+  **The arch/platform domains must be SUPERSETS, and a test enforces it.**
+  Same asymmetry: a value missing from them makes a real package look
+  impossible and prunes its whole subtree, so `haiku` — a genuine Node port
+  that was absent — silently cost a major, while values Node has dropped
+  (mips, ppc, s390) are harmless to keep. A hand-written list is the same
+  paraphrase-instead-of-source mistake one level up, so the domains are
+  asserted to cover `NodeJS.Platform` / `NodeJS.Architecture` from the pinned
+  `@types/node`, with the union parsed rather than retyped and checked for a
+  plausible shape first so a failed parse can't pass vacuously. **That guard is
+  necessary and not sufficient, and `openharmony` is the proof**: it is in all
+  three lockfiles today and absent from that union, so the types package lags
+  what npm actually ships and a check against it alone would never have seen
+  this. The second guard asks the LOCKFILE — every `cpu`/`os` value a real
+  dependency declares must be a known Node target or be listed explicitly in
+  `NOT_A_NODE_TARGET` (just `wasm32`), so a new platform binding entering the
+  tree fails CI and gets a deliberate decision instead of defaulting to
+  "impossible" and silently pruning its subtree. That one needs no
+  `@types/node`, so it is also the guard gedmap gets.
+  **The prune belongs on the EDGE that resolves the package, not on the package
+  when it is popped as a consumer.** Both look equivalent and are not: by the
+  time an impossible package is popped, its own major has already been compared
+  and reported by its parent, so a consumer-level skip only suppresses the
+  subtree underneath the false alarm it just emitted. Pruning at the edge
+  reaches both, since the only way into that subtree is through that edge.
+  **Both sides of the edge have to be uninstallable, not either.** A package
+  that BECOMES installable is real dependency code entering the tree for the
+  first time, and its whole subtree needs walking; pruning on the strength of
+  the old side alone would wave a major under it straight through.
+
   **A consumer's edge fields have to include `devDependencies`.** They were
   left out on the reasoning that a dependency's dev deps are never installed —
   true, but npm does not record them for a dependency either. It strips the

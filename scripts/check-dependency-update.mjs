@@ -175,6 +175,110 @@ export function resolveEdge(packages, fromPath, name) {
   return found ? found.version : null;
 }
 
+// Every value Node can report for `process.arch` / `process.platform`. A `cpu`
+// or `os` constraint that no member of these satisfies can never match a
+// running Node, so npm never installs that package — anywhere, for anyone.
+//
+// These must be SUPERSETS of what Node actually reports, and the asymmetry is
+// the whole reason to say so: a MISSING entry makes a real package look
+// impossible, prunes it and its whole subtree, and costs a missed major, while
+// an extra one costs a single comparison. So values Node has since dropped
+// (mips, ppc, s390) stay, and anything plausible is kept rather than trimmed.
+// `haiku` was missing from the platform list and is exactly that failure —
+// a real Node port whose optional packages would have been pruned silently.
+//
+// A test asserts these cover `NodeJS.Platform` / `NodeJS.Architecture` from
+// the pinned `@types/node`, so a new Node port fails CI instead of quietly
+// widening the blind spot. (gedmap has no `@types/node`; the script is
+// byte-identical across the three repos, so the guard there is the copy.)
+export const NODE_ARCH = [
+  "arm", "arm64", "ia32", "loong64", "mips", "mipsel",
+  "ppc", "ppc64", "riscv64", "s390", "s390x", "x64",
+];
+export const NODE_PLATFORM = [
+  "aix", "android", "cygwin", "darwin", "freebsd", "haiku", "linux",
+  "netbsd", "openbsd", "openharmony", "sunos", "win32",
+];
+
+// The one value seen in a real lockfile that is NOT a Node target: npm skips
+// `@tailwindcss/oxide-wasm32-wasi` on every platform, which is the whole
+// reason this file has an installability rule. Kept as an explicit list so the
+// lockfile guard in the tests has something to check against — a new `cpu`/`os`
+// value appearing in a batch has to be classified deliberately rather than
+// silently defaulting to "impossible", which would prune it and its subtree.
+export const NOT_A_NODE_TARGET = ["wasm32"];
+
+/**
+ * `checkList` from `npm-install-checks` — the matcher npm itself uses for
+ * `cpu`/`os`. TRANSCRIBED, not paraphrased, and that is the whole point: three
+ * separate review findings on this file were the same mistake three times over,
+ * each one a plausible reading of what npm "obviously" does with a lone `any`,
+ * with a negation, with a bare string. Every reading was wrong in a different
+ * direction. Where npm's syntax carries its own meaning, run npm's code.
+ *
+ * The only divergence is `String(entry)`, which npm does not need because a
+ * malformed non-string entry would throw there; here it cannot crash the job.
+ */
+const checkList = (value, list) => {
+  if (typeof list === "string") list = [list];
+  if (list.length === 1 && list[0] === "any") return true;
+  // match none of the negated values, and at least one of the
+  // non-negated values, if any are present.
+  let negated = 0;
+  let match = false;
+  for (const entry of list) {
+    const item = String(entry);
+    const negate = item.charAt(0) === "!";
+    const test = negate ? item.slice(1) : item;
+    if (negate) {
+      negated++;
+      if (value === test) return false;
+    } else {
+      match = match || value === test;
+    }
+  }
+  return match || negated === list.length;
+};
+
+/**
+ * Can npm ever put this package on disk?
+ *
+ * Only ever false for an OPTIONAL package whose `cpu`/`os` no Node target
+ * satisfies. `@tailwindcss/oxide-wasm32-wasi` is the live example: `cpu:
+ * ["wasm32"]`, and `wasm32` is not a value `process.arch` takes, so it is
+ * skipped on every platform. Its dependencies are BUNDLED, and `npm update`
+ * dissolves that bundle and re-resolves them from the registry — which is how
+ * a 1.x -> 2.x jump (and an `@emnapi` prerelease, dragged in by a sibling
+ * whose `latest` tag had already moved to 2.x) appeared in a batch that
+ * installs none of it. Comparing edges of a package nothing installs reports a
+ * crossing nobody can experience, and for an unattended weekly job that is a
+ * standing false alarm.
+ *
+ * Deliberately narrow. The test is "no Node target at all", NOT "not the
+ * platform this runner happens to be" — `@rolldown/binding-darwin-arm64` is a
+ * real install on a real machine, so a major crossing under it still has to be
+ * caught here even though CI runs linux/x64. And `optional` is required: a
+ * NON-optional package with an impossible `cpu` fails the install outright,
+ * which is worth surfacing rather than skipping.
+ *
+ * `libc` is not modeled. Leaving a constraint out can only make the answer
+ * *more* installable, and that is the safe direction: a wrong keep costs one
+ * comparison, where a wrong prune costs a missed major.
+ */
+const isInstallable = (entry) => {
+  if (!entry || !entry.optional) return true;
+  const someTargetMatches = (field, domain) => {
+    const list = entry[field];
+    // npm reads this as `target.cpu ? checkList(...) : true`, so absent or
+    // otherwise falsy is unconstrained. A shape npm would throw on is treated
+    // as unconstrained too — the safe direction, per the note above.
+    if (!list) return true;
+    if (typeof list !== "string" && !Array.isArray(list)) return true;
+    return domain.some((value) => checkList(value, list));
+  };
+  return someTargetMatches("cpu", NODE_ARCH) && someTargetMatches("os", NODE_PLATFORM);
+};
+
 const edgeNames = (entry) => {
   const names = new Set();
   for (const field of EDGE_FIELDS) {
@@ -328,6 +432,25 @@ export function lockfileFailures(beforePackages, afterPackages) {
 
       const was = resolveEdgeInstance(beforePackages, pair.before.path, dep);
       const now = resolveEdgeInstance(afterPackages, pair.after.path, dep);
+
+      // What this edge actually puts on disk, on each side. A copy no platform
+      // can install is not on disk any more than a missing one is, so the two
+      // collapse into the same case.
+      //
+      // This has to happen HERE rather than when the package is popped as a
+      // consumer: by then its own major has already been compared and reported
+      // by its parent, so a consumer-level skip would suppress only the subtree
+      // under a false alarm it had just emitted. Filtering the edge reaches
+      // both, since the only way into that subtree is through this edge — which
+      // is what matters for a bundled one, whose nested entries carry no `cpu`
+      // of their own and would otherwise read as ordinary packages.
+      //
+      // Both sides must be uninstallable to prune. A package that BECOMES
+      // installable is real code arriving in the tree, and its subtree has to
+      // be walked; pruning on either side alone would let a major under it
+      // through. The reverse is the same argument reversed.
+      const onDisk = (resolved) => (resolved && isInstallable(resolved.entry) ? resolved : null);
+      if (!onDisk(was) && !onDisk(now)) continue;
 
       // Neither resolves: an optional or peer edge npm declined to install on
       // both sides. Nothing to compare.

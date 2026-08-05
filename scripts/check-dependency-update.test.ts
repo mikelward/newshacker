@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// The monthly dependency update runs unattended and its PR never gets a normal
+// The weekly dependency update runs unattended and its PR never gets a normal
 // `pull_request` CI run, so this validator is most of what stands between a
 // silent transitive major and `main`. Its failure mode is a FALSE PASS, which
 // is why every case below asserts behavior on a real lockfile shape rather
@@ -19,7 +19,12 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { readFileSync } from 'node:fs'
+
 import {
+  NODE_ARCH,
+  NODE_PLATFORM,
+  NOT_A_NODE_TARGET,
   lockfileFailures,
   manifestFailures,
   majorOf,
@@ -158,6 +163,213 @@ describe('lockfileFailures', () => {
     // regression while a real miss elsewhere goes unnoticed.
     expect(lockfileFailures(before, after).join('\n')).toContain('foo')
     expect(lockfileFailures(before, after)).not.toEqual([])
+  })
+
+  // Round 32. `@tailwindcss/oxide-wasm32-wasi` declares `cpu: ["wasm32"]` and
+  // is optional — and `wasm32` is not a value `process.arch` ever takes, so npm
+  // skips it on every platform and it is on nobody's disk. Its dependencies are
+  // BUNDLED, though, and `npm update` dissolves the bundle and re-resolves them
+  // from the registry, which surfaced a 1.x -> 2.x jump (and an `@emnapi`
+  // prerelease, dragged in by a sibling whose `latest` had already moved to
+  // 2.x) in a batch that installs none of it. A crossing nobody can experience
+  // is a standing false alarm for a weekly unattended job.
+  it('ignores a crossing under a package no platform can install', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: ['wasm32'],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0'))).toEqual([])
+  })
+
+  // The other half, and the reason this is not "skip platform-gated packages".
+  // arm64 IS a real Node arch, so a developer on one installs this for real — a
+  // major under it has to stay caught even though CI runs linux/x64. The test
+  // is "no Node target at all", not "not the runner's platform"; nothing in the
+  // check knows arm64 specifically, it just appears in `process.arch`'s domain
+  // where `wasm32` does not.
+  it('still catches a crossing under a package some platform does install', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: ['arm64'],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0')).join('\n')).toContain('foo')
+  })
+
+  // Codex, round 32. The consumer-level skip fired too late for the parent's
+  // OWN edge: root resolves the impossible package itself, and that comparison
+  // happens before the package is ever popped as a consumer. The edge has to be
+  // pruned where it is resolved, not where it is walked.
+  it('ignores the impossible package itself crossing a major', () => {
+    const tree = (gated: string) => ({
+      ...root({ gated: '*' }),
+      'node_modules/gated': { version: gated, optional: true, cpu: ['wasm32'] },
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0'))).toEqual([])
+  })
+
+  // Codex, round 32. npm's own matcher treats a lone `any` as a wildcard
+  // (`npm-install-checks`: `list.length === 1 && list[0] === 'any'`), so this
+  // package installs everywhere and must stay fully checked. Comparing the
+  // token against the arch domain alone would prune it and its whole subtree.
+  it('still catches a crossing under an `any` platform token', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: ['any'],
+        os: ['any'],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0')).join('\n')).toContain('foo')
+  })
+
+  // A NON-optional package with an impossible cpu is a broken install, not one
+  // npm quietly skips — worth surfacing rather than pruning.
+  it('still catches a crossing under an impossible cpu that is not optional', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': { version: '1.0.0', cpu: ['wasm32'], dependencies: { foo: '*' } },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0')).join('\n')).toContain('foo')
+  })
+
+  // npm's negation syntax means "anything except", which is satisfiable by
+  // construction — so it is never an impossible constraint.
+  it('still catches a crossing under a negated cpu constraint', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: ['!arm64'],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0')).join('\n')).toContain('foo')
+  })
+
+  // Codex, round 32. npm's checker wraps a bare string in a one-item list
+  // (`typeof list === 'string'`), and a lockfile can record that shape, so
+  // reading "not an array" as "unconstrained" left the false alarm in place.
+  it('prunes a string cpu constraint no platform can install', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: 'wasm32',
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0'))).toEqual([])
+  })
+
+  // Codex, round 32. A negation is not automatically satisfiable: npm rejects
+  // the target outright when it matches a negated entry, so a list that both
+  // allows and denies the same arch installs nowhere. Treating the mere
+  // PRESENCE of a `!` as installable got this backwards.
+  it('prunes a contradictory negated constraint', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: ['arm64', '!arm64'],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0'))).toEqual([])
+  })
+
+  // Codex, round 32. A package that BECOMES installable is real code entering
+  // the tree, and its subtree has to be walked — so the prune needs both sides
+  // uninstallable, not either. Pruning on the old side alone let a major under
+  // a newly-installed package through.
+  it('still catches a crossing under a package that becomes installable', () => {
+    const tree = (cpu: string, foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: [cpu],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    const failures = lockfileFailures(tree('wasm32', '1.0.0'), tree('x64', '2.0.0'))
+    expect(failures.join('\n')).toContain('foo')
+  })
+
+  // The same argument reversed: a package leaving the tree is still a change
+  // worth stopping on, and its subtree was installed right up until now.
+  it('still catches a crossing under a package that becomes uninstallable', () => {
+    const tree = (cpu: string, foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        cpu: [cpu],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    const failures = lockfileFailures(tree('x64', '1.0.0'), tree('wasm32', '2.0.0'))
+    expect(failures.join('\n')).toContain('foo')
+  })
+
+  // Codex, round 33. `haiku` is a real Node port and was missing from the
+  // platform domain, so an optional package gated to it read as impossible and
+  // was pruned along with its subtree. This is the costly direction — a missing
+  // domain entry buys a missed major, where an extra one buys one comparison.
+  it('still catches a crossing under a package gated to a rarely-named platform', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        os: ['haiku'],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0')).join('\n')).toContain('foo')
+  })
+
+  // Codex, round 33 again, and the sharper half: `openharmony` is in all three
+  // lockfiles TODAY and is absent from `@types/node`'s union, so the types
+  // package lags what npm ships and a guard against it alone would never have
+  // caught this. The lockfile guard below is the one that would.
+  it('still catches a crossing under a package gated to a newer platform', () => {
+    const tree = (foo: string) => ({
+      ...root({ gated: '^1.0.0' }),
+      'node_modules/gated': {
+        version: '1.0.0',
+        optional: true,
+        os: ['openharmony'],
+        dependencies: { foo: '*' },
+      },
+      'node_modules/gated/node_modules/foo': pkg(foo),
+    })
+    expect(lockfileFailures(tree('1.0.0'), tree('2.0.0')).join('\n')).toContain('foo')
   })
 
   // Round 31's finding, and the one that retired the instance matcher. Nothing
@@ -897,5 +1109,101 @@ describe('add-and-drop is not a crossing', () => {
       'node_modules/bar': pkgL('2.0.0'),
     }
     expect(lockfileFailures(before, after)).toEqual([])
+  })
+})
+
+// The domains in check-dependency-update.mjs decide what gets pruned, and a
+// value MISSING from them prunes a real package plus its whole subtree — a
+// missed major, the expensive direction. So rather than trust a hand-written
+// list, assert it covers what the pinned `@types/node` says Node can report:
+// a new Node port then fails CI instead of silently widening the blind spot.
+describe('installability domains', () => {
+  const dts = readFileSync(
+    new URL('../node_modules/@types/node/process.d.ts', import.meta.url),
+    'utf8',
+  )
+
+  // The parse failing open would be a false pass, so each union is checked for
+  // a plausible shape before it is used as the expectation.
+  const union = (name: string) => {
+    const match = new RegExp(`type ${name} =([^;]*);`).exec(dts)
+    if (!match) throw new Error(`could not find NodeJS.${name} in @types/node`)
+    const values = [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1])
+    expect(values.length).toBeGreaterThan(5)
+    return values
+  }
+
+  it('cover every platform @types/node says Node can report', () => {
+    const platforms = union('Platform')
+    expect(platforms).toContain('linux')
+    expect(platforms).toContain('haiku')
+    expect(NODE_PLATFORM).toEqual(expect.arrayContaining(platforms))
+  })
+
+  it('cover every architecture @types/node says Node can report', () => {
+    const arches = union('Architecture')
+    expect(arches).toContain('x64')
+    expect(NODE_ARCH).toEqual(expect.arrayContaining(arches))
+  })
+})
+
+// The @types/node guard above is necessary but NOT sufficient, and openharmony
+// is the proof: it is in every one of these lockfiles today and is absent from
+// that union, so the types package lags what npm actually ships. This guard
+// asks the lockfile instead — every `cpu`/`os` value a real dependency declares
+// must either be a Node target we know about, or be explicitly classified as
+// not one. A new platform binding entering the tree then fails CI and gets a
+// deliberate decision, rather than defaulting to "impossible" and silently
+// pruning its subtree.
+describe('installability domains vs. this lockfile', () => {
+  const lock = JSON.parse(
+    readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'),
+  )
+
+  // npm's syntax, read the way `checkList` reads it: a leading `!` negates a
+  // target and a lone `any` is a wildcard. Both are ordinary, valid values a
+  // future batch can introduce, so the raw token has to be normalized to the
+  // TARGET before classifying it — comparing `!win32` against the domain would
+  // fail a perfectly good lockfile and turn the weekly job red for no reason,
+  // which is precisely the cry-wolf this file exists to avoid.
+  const unclassified = (
+    packages: Record<string, { os?: string[]; cpu?: string[] }>,
+    field: 'os' | 'cpu',
+    domain: string[],
+  ) => {
+    const targets = new Set()
+    for (const entry of Object.values(packages)) {
+      for (const value of [].concat(entry[field] || [])) {
+        const target = String(value).replace(/^!/, '')
+        if (target !== 'any') targets.add(target)
+      }
+    }
+    return [...targets]
+      .filter((t) => !domain.includes(t) && !NOT_A_NODE_TARGET.includes(t))
+      .sort()
+  }
+
+  it('classify every cpu the lockfile declares', () => {
+    expect(unclassified(lock.packages, 'cpu', NODE_ARCH)).toEqual([])
+  })
+
+  it('classify every os the lockfile declares', () => {
+    expect(unclassified(lock.packages, 'os', NODE_PLATFORM)).toEqual([])
+  })
+
+  // The guard's own regression test: today's lockfiles carry no negation or
+  // wildcard, so without this the normalization above would be unexercised.
+  it('accept npm negation and wildcard syntax as classified', () => {
+    const packages = {
+      'node_modules/a': { version: '1.0.0', os: ['!win32'], cpu: ['!arm'] },
+      'node_modules/b': { version: '1.0.0', os: ['any'], cpu: ['any'] },
+    }
+    expect(unclassified(packages, 'os', NODE_PLATFORM)).toEqual([])
+    expect(unclassified(packages, 'cpu', NODE_ARCH)).toEqual([])
+  })
+
+  it('still reject a target that is neither known nor classified', () => {
+    const packages = { 'node_modules/a': { version: '1.0.0', os: ['plan9'] } }
+    expect(unclassified(packages, 'os', NODE_PLATFORM)).toEqual(['plan9'])
   })
 })
