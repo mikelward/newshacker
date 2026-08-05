@@ -4,11 +4,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The monthly dependency-update workflow is the only automation left on the
+// The weekly dependency-update workflow is the only automation left on the
 // dependency path now that Renovate is disabled (AGENTS.md "Dependency
 // updates"), and its failure modes are the quiet kind this repo keeps getting
-// caught by: it runs once a month, unattended, and a workflow that has silently
-// stopped doing its job looks exactly like a month with no updates available.
+// caught by: it runs unattended every week, unattended, and a workflow that has silently
+// stopped doing its job looks exactly like a week with no updates available.
 //
 // Asserted here rather than by parsing YAML, because no YAML parser is a
 // dependency and adding one to check a 100-line file is a worse trade than
@@ -24,14 +24,39 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 
 describe('dependency-update workflow', () => {
   it('can be run by hand as well as on the schedule', () => {
-    // Without workflow_dispatch the only way to run it is to wait for the 1st,
-    // or to push a commit editing the cron — which is how a monthly job becomes
+    // Without workflow_dispatch the only way to run it is to wait for Thursday,
+    // or to push a commit editing the cron — which is how a scheduled job becomes
     // a job nobody can test.
     expect(workflow).toMatch(/^\s*workflow_dispatch:/m);
   });
 
   it('runs on a schedule', () => {
     expect(workflow).toMatch(/^\s*- cron: '.+'/m);
+  });
+
+  it('puts the PR in front of a human', () => {
+    // An unattended job that opens a PR nobody is told about is the same
+    // failure as one that silently stops opening them: the repo looks fine and
+    // the updates pile up unreviewed. Assign AND request review — the first
+    // puts it in "Assigned", the second sends the review-request notification.
+    expect(workflow).toContain('--add-assignee');
+    expect(workflow).toContain('--add-reviewer');
+    // Derived from the repo owner, not a hard-coded handle, so this file stays
+    // identical across the three repos and survives an account rename.
+    expect(workflow).toContain('github.repository_owner');
+    // …and it must not be able to fail the step. The branch is already pushed
+    // by then, so a refused review request would otherwise leave a pushed
+    // branch with no PR — strictly worse than an unassigned one.
+    expect(workflow).toMatch(/if ! gh pr edit .*--add-assignee/);
+  });
+
+  it('scopes the branch to the run date, not the month', () => {
+    // The job runs weekly. A month-scoped branch name would collide with the
+    // previous week's and send every run but the first down the run-scoped
+    // fallback path, which exists for re-runs of one batch rather than for
+    // distinct scheduled ones.
+    expect(workflow).toContain('date -u +%Y-%m-%d');
+    expect(workflow).not.toContain('date -u +%Y-%m)');
   });
 
   it('takes the Node major from .nvmrc rather than naming one', () => {
@@ -45,7 +70,7 @@ describe('dependency-update workflow', () => {
     // `npm update` is bounded by the ranges already in package.json. Anything
     // that rewrites the ranges themselves (npm-check-updates, `install
     // <pkg>@latest`) turns this into an unattended major-version bump, which is
-    // the one thing a monthly unattended job must not do.
+    // the one thing an unattended job like this must not do.
     expect(workflow).toContain('npm update --save');
     expect(workflow).not.toMatch(/npm-check-updates|\bncu\b|@latest/);
   });
@@ -54,7 +79,7 @@ describe('dependency-update workflow', () => {
     // The PR this workflow opens is authored by GITHUB_TOKEN, which by design
     // does NOT trigger `on: pull_request` workflows — so ci.yml never runs on
     // it and these are the only checks the update gets. If someone adds a step
-    // to ci.yml and not here, the monthly PR is quietly verified by a weaker
+    // to ci.yml and not here, the weekly PR is quietly verified by a weaker
     // suite than main, with a green tick either way.
     //
     // Every `run:` line in ci.yml has to be CLASSIFIED, not merely matched.
@@ -65,7 +90,7 @@ describe('dependency-update workflow', () => {
     // remembered, which is no guard at all against the next one. So a command
     // this test cannot classify FAILS it rather than being skipped: a new
     // check in a new runtime has to be taught here, and until it is, it cannot
-    // be silently absent from the monthly PR's suite.
+    // be silently absent from the weekly PR's suite.
     const INFRASTRUCTURE = /^npm (?:ci|install)$/; // sets up the tree, not a check
     const CHECK = /^(?:npm (?:run [\w:-]+|test)|deno (?:check|test)\b.*)$/;
 
@@ -85,7 +110,7 @@ describe('dependency-update workflow', () => {
         CHECK.test(line),
         `ci.yml runs "${line}", which this parity check cannot classify. ` +
           'Teach it that command shape and mirror the check in ' +
-          'dependency-update.yml — an unclassified check is one the monthly ' +
+          'dependency-update.yml — an unclassified check is one the weekly ' +
           'PR can omit without anything going red.',
       ).toBe(true);
       ciChecks.add(line);
@@ -94,7 +119,7 @@ describe('dependency-update workflow', () => {
     // Only what the workflow actually EXECUTES — the `check '...'` calls —
     // not every occurrence of the string in the file. Scanning the whole text
     // means a command named in a comment, in the PR-body prose, or in a
-    // commented-out example satisfies the parity check while the monthly run
+    // commented-out example satisfies the parity check while the weekly run
     // never invokes it. That is the same mistake as matching a name anywhere
     // in a file and calling it a definition: the assertion passes for a
     // reason unrelated to the property it claims to prove.
@@ -107,7 +132,7 @@ describe('dependency-update workflow', () => {
       expect(
         workflowChecks,
         `ci.yml runs "${check}" but dependency-update.yml does not — the ` +
-          'monthly PR would be merged without it ever having run',
+          'weekly PR would be merged without it ever having run',
       ).toContain(check);
     }
   });
@@ -127,7 +152,7 @@ describe('dependency-update workflow', () => {
     // `npm update` and the checks run lifecycle scripts from versions nobody
     // has reviewed. Checkout persists a push-capable credential in .git/config
     // by default, and this job has `contents: write` — so the default would put
-    // a write token within reach of any postinstall in the monthly batch. The
+    // a write token within reach of any postinstall in the weekly batch. The
     // token is passed explicitly at the push step instead, once the
     // third-party code has finished.
     expect(workflow).toContain('persist-credentials: false');
@@ -241,7 +266,7 @@ describe('dependency-update workflow', () => {
     // quoting and handed node a truncated script — still valid JavaScript,
     // still exit 0, silently skipping every rule below the cut. It happened:
     // `name's` and `tree's` cut the program from 7247 to 4905 characters and
-    // dropped a whole major comparison, and the monthly PR would still have
+    // dropped a whole major comparison, and the weekly PR would still have
     // said "no majors". The verification that missed it had the same bug,
     // recovering the program by splitting on the last quote — text the shell
     // never passes.
@@ -256,7 +281,7 @@ describe('dependency-update workflow', () => {
 
   it('keeps the validator and its tests present, since the workflow only delegates', () => {
     // The workflow now names a file. If that file or its suite disappears, the
-    // monthly run either dies at the step or — worse — someone "fixes" it by
+    // weekly run either dies at the step or — worse — someone "fixes" it by
     // dropping the step, and the PR goes back to reporting checks nobody ran.
     // The rule-by-rule coverage (in-place bump, hoist, dedupe, duplicate
     // consumer swapping majors, consumer bumped and hoisted while crossing,
@@ -295,7 +320,7 @@ describe('dependency-update workflow', () => {
 
   it('reports a failed install in the PR instead of killing the job', () => {
     // As a step of its own, a postinstall that exits non-zero would end the run
-    // before the artifact existed — no PR, and the whole monthly batch visible
+    // before the artifact existed — no PR, and the whole weekly batch visible
     // only as a red Actions run nobody is watching. Routed through check() it
     // lands in the body with everything else and the PR still opens, saying
     // which package broke.
@@ -361,9 +386,9 @@ describe('dependency-update workflow', () => {
 
   it('never force-pushes', () => {
     // The generated PR body tells reviewers to push fixes to the branch (that
-    // is also what makes CI start running on it). A re-run in the same month
+    // is also what makes CI start running on it). A re-run on the same day
     // would overwrite those commits, so the job takes a run-scoped branch when
-    // the month's branch already exists rather than clobbering it.
+    // today's branch already exists rather than clobbering it.
     expect(workflow).not.toMatch(/git push[^\n]*(--force|(?<!\w)-f(?!\w))/);
     expect(workflow).toContain('git ls-remote');
   });

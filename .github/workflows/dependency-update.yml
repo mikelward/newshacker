@@ -1,6 +1,6 @@
 name: Dependency update
 
-# One batched dependency PR per month instead of one PR per dependency as soon
+# One batched dependency PR per week instead of one PR per dependency as soon
 # as it ships. Dependabot and Renovate both defaulted to the latter, which on a
 # repo this size is a feed to babysit rather than a chore to do — and every
 # extra PR was an independent chance to get something wrong. See AGENTS.md
@@ -20,9 +20,11 @@ name: Dependency update
 
 on:
   schedule:
-    # 06:00 UTC on the 1st. Actions cron is best-effort and can be delayed by
-    # tens of minutes under load, which is fine for a monthly chore.
-    - cron: '0 6 1 * *'
+    # 06:17 UTC on Thursdays. Actions cron is best-effort and can be delayed by
+    # tens of minutes under load, which is fine for a weekly chore — and the
+    # off-the-hour minute is deliberate, since the top of the hour is the most
+    # congested slot on the shared scheduler and the most likely to be delayed.
+    - cron: '17 6 * * 4'
   workflow_dispatch:
 
 # No permissions at the workflow level. The job that runs unreviewed dependency
@@ -391,27 +393,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          month=$(date -u +%Y-%m)
-          branch="deps/update-$month"
+          # Keyed on the RUN DATE, not the month. The job runs weekly, so a
+          # month-scoped name would collide with the previous Thursday's branch
+          # and every run but the first would fall into the run-scoped fallback
+          # below — which works, but that fallback is for a re-run of the same
+          # batch, not for a distinct scheduled one.
+          today=$(date -u +%Y-%m-%d)
+          branch="deps/update-$today"
 
           if [ '${{ needs.update.outputs.passed }}' = 'true' ]; then
-            title="Update dependencies ($month)"
+            title="Update dependencies ($today)"
             verdict='All checks passed in the job that produced this branch.'
           else
-            title="Update dependencies ($month) — CHECKS FAILING"
+            title="Update dependencies ($today) — CHECKS FAILING"
             verdict='**One or more checks failed.** Do not merge until they are fixed — the failures are real, not flakes to route around.'
           fi
 
           remote="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
 
           # Never force-push. The PR body tells reviewers to push fixes to this
-          # branch — which is also how CI starts running on it — so a re-run in
-          # the same month would otherwise overwrite work this job did not
-          # create. If the month's branch already exists, take a run-scoped one
+          # branch — which is also how CI starts running on it — so a re-run on
+          # the same day would otherwise overwrite work this job did not
+          # create. If today's branch already exists, take a run-scoped one
           # and open its own PR instead of clobbering.
           if git ls-remote --exit-code --heads "$remote" "$branch" >/dev/null 2>&1; then
             branch="$branch-run${{ github.run_number }}"
-            echo "This month's branch already exists; using $branch instead." \
+            echo "Today's branch already exists; using $branch instead." \
               >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -455,7 +462,7 @@ jobs:
             echo 'churn underneath it is expected and not worth reading line by line.'
             echo
             echo '---'
-            echo '_Opened by the monthly `dependency-update` workflow._'
+            echo '_Opened by the weekly `dependency-update` workflow._'
           } > body.md
 
           if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
@@ -463,4 +470,25 @@ jobs:
           else
             gh pr create --title "$title" --body-file body.md \
               --base '${{ github.event.repository.default_branch }}' --head "$branch"
+          fi
+
+          # Put it in front of a human. Without this the PR only exists in the
+          # repo's PR list, which is precisely where a weekly unattended job
+          # goes unnoticed — and an unreviewed dependency PR sitting open is the
+          # failure this whole design is trying to avoid.
+          #
+          # The owner comes from `github.repository_owner` rather than a
+          # hard-coded handle, so this file stays identical across the three
+          # repos and does not go stale if the account is ever renamed.
+          #
+          # Deliberately non-fatal. A review request can be refused for reasons
+          # that have nothing to do with this batch — the requestee must be a
+          # collaborator, and GitHub silently drops a request when the requestee
+          # is the PR's own author — and the branch is already pushed by this
+          # point. An opened-but-unassigned PR is recoverable; a failed step
+          # that leaves a pushed branch with no PR is not.
+          reviewer='${{ github.repository_owner }}'
+          if ! gh pr edit "$branch" --add-assignee "$reviewer" --add-reviewer "$reviewer"; then
+            echo "Could not assign or request review from @$reviewer — the PR is open and needs a look." \
+              >> "$GITHUB_STEP_SUMMARY"
           fi
