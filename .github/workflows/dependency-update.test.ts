@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // The monthly dependency-update workflow is the only automation left on the
@@ -19,6 +20,7 @@ const read = (relative: string): string =>
 
 const workflow = read('./dependency-update.yml');
 const ci = read('./ci.yml');
+const root = fileURLToPath(new URL('../../', import.meta.url));
 
 describe('dependency-update workflow', () => {
   it('can be run by hand as well as on the schedule', () => {
@@ -144,20 +146,12 @@ describe('dependency-update workflow', () => {
     // tsc/vite/vitest would still pick up — would pass unnoticed.
     expect(workflow).toContain('git status --porcelain --untracked-files=all');
     expect(workflow).not.toMatch(/git diff --name-only \| grep -Ev/);
-    // And the filename allowlist alone lets package.json itself be rewritten —
+    // The filename allowlist alone lets package.json itself be rewritten —
     // `scripts.test` pointed at `true` would make the suite pass on a manifest
-    // `npm update` never produced.
-    expect(workflow).toContain('package.json changed outside its dependency sections');
-    // And within the dependency sections, only the moves `npm update` can make.
-    // Stripping those sections entirely left the one place a major could be
-    // introduced unchecked, which is the invariant the whole workflow sells.
-    // Comparing majors is not that invariant either: `^2.17.6` -> `^2.0.0`
-    // keeps the major while downgrading, and `^0.6.0` -> `^0.7.0` keeps it
-    // while stepping outside what caret allows on a 0.x package. The new floor
-    // has to satisfy the range that was already declared.
-    expect(workflow).toContain('moved outside its existing range');
-    expect(workflow).toContain('does not add packages');
-    expect(workflow).toContain('not a plain X.Y.Z registry range');
+    // `npm update` never produced. That check, and the range comparison that
+    // goes with it, now live in scripts/check-dependency-update.mjs with their
+    // own tests; the assertion here is only that the workflow still runs them.
+    expect(workflow).toContain('node scripts/check-dependency-update.mjs');
   });
 
   it('fingerprints the manifests somewhere dependency code cannot reach', () => {
@@ -183,95 +177,69 @@ describe('dependency-update workflow', () => {
     // to happen to mean anything.
     const publish = workflow.slice(workflow.indexOf('  publish:'));
     expect(publish).toContain('Re-validate the dependency diff from a clean context');
-    expect(publish).toContain('moved outside its existing range');
-    expect(publish).toContain('package.json changed outside its dependency sections');
+    expect(publish).toContain('node scripts/check-dependency-update.mjs');
+    // The publish job must not gain an install step: the whole reason the
+    // validation happens here is that no dependency code has run on this
+    // runner.
+    expect(publish).not.toMatch(/^\s*run: npm (ci|install)\b/m);
   });
 
-  it('refuses a transitive major, not just a direct one', () => {
+  it('refuses a transitive major, not just a direct one', async () => {
     // package.json only governs DIRECT dependencies. A bare `npm update` also
     // moves subdependencies to whatever their own ranges allow, and a
     // transitive `*` or `>=x` permits a major — invisible in the package.json
-    // diff, while the PR body still says "no majors". The lockfile comparison
-    // is what makes the headline claim true rather than nearly true.
-    expect(workflow).toContain('git show HEAD:package-lock.json');
+    // diff, while the PR body still says "no majors".
+    //
+    // Asserted by RUNNING the delegation target rather than by matching text
+    // in the YAML. A substring assertion cannot tell a working rule from a
+    // commented-out one, and this file used to carry several that passed while
+    // the rule they named had been narrowed. The shape-by-shape coverage lives
+    // in scripts/check-dependency-update.test.ts; what this proves is that
+    // the thing the workflow invokes actually rejects a crossing.
+    const { lockfileFailures } = await import('../../scripts/check-dependency-update.mjs');
+    const before = {
+      '': { dependencies: { a: '^1.0.0' } },
+      'node_modules/a': { version: '1.0.0', dependencies: { foo: '*' } },
+      'node_modules/foo': { version: '1.0.0' },
+    };
+    const after = {
+      '': { dependencies: { a: '^1.0.0' } },
+      'node_modules/a': { version: '1.0.0', dependencies: { foo: '*' } },
+      'node_modules/foo': { version: '2.0.0' },
+    };
+    expect(lockfileFailures(before, after)).not.toEqual([]);
+    expect(lockfileFailures(before, before)).toEqual([]);
   });
 
-  it('runs no lifecycle script before the fingerprints exist', () => {
-    // Everything up to the fingerprint step is the window the publish job
-    // implicitly trusts, so no dependency code may run in it — including the
-    // bootstrap install, whose packages come from the CURRENT lockfile and are
-    // therefore no more reviewed than the ones being added. A postinstall
-    // there could rewrite a `resolved` URL or an `integrity` hash and have
-    // that be the value fingerprinted and published: versions and majors would
-    // be untouched, so neither the range check nor the major check would fire.
+  it('keeps the validator out of shell quoting entirely', () => {
+    // This replaces a guard that asserted no apostrophe appeared between
+    // `node -e '` and its closing quote. The validator was passed as a
+    // SINGLE-QUOTED shell argument, so one apostrophe in a comment ended the
+    // quoting and handed node a truncated script — still valid JavaScript,
+    // still exit 0, silently skipping every rule below the cut. It happened:
+    // `name's` and `tree's` cut the program from 7247 to 4905 characters and
+    // dropped a whole major comparison, and the monthly PR would still have
+    // said "no majors". The verification that missed it had the same bug,
+    // recovering the program by splitting on the last quote — text the shell
+    // never passes.
     //
-    // The real install, with scripts, is the first REPORTED check, which runs
-    // after the manifests are pinned.
-    const fingerprint = workflow.indexOf('Stop early if nothing moved');
-    const before = workflow.slice(0, fingerprint);
-    // Match COMMAND lines only. The header prose says "`npm update` moves
-    // each dependency ..." and a looser pattern reads that as an install.
-    const installs = before
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => /^npm (?:ci|install|update)\b/.test(line));
-    expect(installs.length).toBeGreaterThan(0);
-    for (const install of installs) {
-      expect(
-        install,
-        `"${install}" runs before the manifests are fingerprinted, so its ` +
-          'lifecycle scripts could rewrite what then gets pinned',
-      ).toContain('--ignore-scripts');
-    }
-    // And the scripts-enabled install still has to happen, as a check.
-    expect(workflow).toContain("check 'npm ci'");
+    // A file cannot be truncated by its own punctuation, so moving the
+    // validator into scripts/check-dependency-update.mjs removes the hazard
+    // rather than policing it. This asserts the hazard cannot come back: no
+    // inline program in this workflow at all.
+    expect(workflow).not.toContain("node -e '");
+    expect(workflow).toContain('node scripts/check-dependency-update.mjs');
   });
 
-  it('resolves dependency edges rather than trusting an aggregate', () => {
-    // By-path and by-name are SUMMARIES of the tree, and a summary can hold
-    // still while a consumer moves. Drop a nested foo@1, let its dependent
-    // fall through to an already-hoisted foo@2, and leave some other
-    // dependent on its own foo@1: no shared path changed major, and the major
-    // set for foo is still {1,2}. Every aggregate is identical. Somebody
-    // still crossed.
-    //
-    // So the third rule resolves each edge the way npm does — from the
-    // dependent directory, walk up through ancestor node_modules until one
-    // holds the name — and compares the major of the copy the consumer
-    // actually gets. That is the invariant itself rather than a proxy for it,
-    // which is why the two rules above kept being defeated one shape at a
-    // time.
-    expect(workflow).toContain('resolveEdge');
-    // Every edge field npm records, not just `dependencies`. An optional or
-    // peer edge npm actually installed is a real consumer resolving to a real
-    // copy and can cross a major like any other — and because such a crossing
-    // moves no shared path and need not change any major set, enumerating one
-    // field would hide it from all three rules simultaneously.
-    //
-    // Anchored on the EDGE_FIELDS declaration itself, not on the field names:
-    // `DEPS` at the top of the same validator lists those same names for an
-    // unrelated purpose, so a substring assertion passed happily while
-    // EDGE_FIELDS was narrowed back to `dependencies` alone. Verified by
-    // making exactly that edit and watching this fail.
-    expect(workflow).toMatch(
-      /const EDGE_FIELDS = \["dependencies", "optionalDependencies", "peerDependencies"\]/,
-    );
-    expect(workflow).toContain('lastIndexOf("/node_modules/")');
-    expect(workflow).toContain('crossed a major in the lockfile');
-    // The walk-up is the whole point: without it this degenerates into
-    // another same-path comparison.
-    expect(workflow).toContain('node_modules/" + name');
-  });
-
-  it('identifies an edge by consumer NAME, so a hoist is the same edge', () => {
-    // The same lesson as the by-name rule, learned twice: npm paths are
-    // locations, not identities. Keyed by consumer PATH, a consumer that
-    // hoists gets a brand-new edge id, its old id reads as deleted, and the
-    // major it just crossed is skipped as an edge that never existed —
-    // `node_modules/a/node_modules/bar -> foo` becoming `node_modules/bar ->
-    // foo` while resolving foo@1 to foo@2.
-    expect(workflow).toContain('const consumer = path.includes("node_modules/") ? nameOf(path) : path');
-    expect(workflow).toContain('const edge = consumer + " -> " + name');
+  it('keeps the validator and its tests present, since the workflow only delegates', () => {
+    // The workflow now names a file. If that file or its suite disappears, the
+    // monthly run either dies at the step or — worse — someone "fixes" it by
+    // dropping the step, and the PR goes back to reporting checks nobody ran.
+    // The rule-by-rule coverage (in-place bump, hoist, dedupe, duplicate
+    // consumer swapping majors, consumer bumped and hoisted while crossing,
+    // clean batch) is asserted in that suite, not here.
+    expect(existsSync(resolve(root, 'scripts/check-dependency-update.mjs'))).toBe(true);
+    expect(existsSync(resolve(root, 'scripts/check-dependency-update.test.ts'))).toBe(true);
   });
 
   it('refuses to publish onto a base that moved under it', () => {
@@ -281,62 +249,6 @@ describe('dependency-update workflow', () => {
     // no `pull_request` CI to notice, so it would ship looking verified.
     expect(workflow).toContain('Stop if the default branch moved while the checks ran');
     expect(workflow).toContain('moved from');
-  });
-
-  it('never lets an apostrophe truncate the inline node program', () => {
-    // The validator is passed as a SINGLE-QUOTED shell argument
-    // (`node -e '...'`), so one apostrophe in a comment ends the quoting and
-    // hands node everything up to that point — a truncated script. It stays
-    // valid JavaScript, exits 0, and silently skips every rule below the
-    // apostrophe. Nothing goes red; the run just stops checking.
-    //
-    // This happened: `name's` and `tree's` in a comment cut the program from
-    // 7247 to 4905 characters, dropping the whole by-name major comparison,
-    // and the monthly PR would still have said "no majors".
-    //
-    // The verification that missed it had the same bug — it recovered the
-    // program by splitting on the LAST quote, reassembling text the shell
-    // never passes. So this asserts the shell's own rule: between the opening
-    // `node -e '` and the closing quote there must be no apostrophe at all.
-    const start = workflow.indexOf("node -e '");
-    expect(start).toBeGreaterThan(-1);
-    const body = workflow.slice(start + "node -e '".length);
-    // The closing delimiter is a line containing only the quote, at the step
-    // indentation. Bounding on that rather than on the last quote in the file
-    // matters: the file goes on to use quotes in later shell steps, so
-    // `lastIndexOf` measures against a point well past the program and reports
-    // a truncation that is not there. (It did, on the first version of this
-    // test — the guard has to know where the program actually ends.)
-    const close = /\n[ \t]*'[ \t]*(?:\n|$)/.exec(body);
-    expect(close, 'could not find the end of the inline node program').not.toBeNull();
-    const closingQuote = close.index + close[0].indexOf("'");
-    const firstQuote = body.indexOf("'");
-    expect(
-      firstQuote,
-      'an apostrophe inside the single-quoted node program truncates it at ' +
-        `character ${firstQuote} of ${closingQuote}; everything after is ` +
-        'dropped, and node still exits 0',
-    ).toBe(closingQuote);
-  });
-
-  it('compares lockfile majors BOTH by path and by name', () => {
-    // Two rules, and the reason both are asserted is that four review rounds
-    // went into discovering they are complementary — each earlier version
-    // replaced its predecessor when it should have joined it, and every
-    // replacement reopened the hole the predecessor had closed.
-    //
-    // BY PATH catches a major moving under an entry that stays put, including
-    // the offsetting swap where one consumer goes 1->2 while another goes
-    // 2->1 and every aggregate — set, count, total — is unchanged.
-    expect(workflow).toContain('crossed a major in the lockfile');
-    // BY NAME catches what no path comparison can see: npm hoists and dedupes
-    // as it updates, so a crossing that also relocates between
-    // `node_modules/foo` and `node_modules/bar/node_modules/foo` shares no
-    // path to compare against. A major DISAPPEARING counts as much as one
-    // appearing — the last consumer of it went somewhere.
-    expect(workflow).toContain('majorsByName');
-    expect(workflow).toContain('lastIndexOf("node_modules/")');
-    expect(workflow).toContain('changed which majors it resolves to');
   });
 
   it('resolves the manifests before any updated package can run code', () => {
