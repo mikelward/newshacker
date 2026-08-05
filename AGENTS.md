@@ -409,14 +409,94 @@ If any of the above fails, fix it — don't disable the check.
   best-effort beneath them.** The publish job re-derives every `package.json`
   range change from the diff and stops the run on a crossing, so nothing you
   declare can cross a major. A *subdependency* whose own range is `*` or
-  `>=x` can, without anything appearing in the `package.json` diff — the
-  workflow's lockfile check is what covers that, and it is explicitly not
-  exact: it compares two tree snapshots by path, by name and by edge, and a
-  crossing that hides inside a hoist or a duplicate consumer still slips
-  through. Rebuilding it around instance matching, as a checked-in script
-  with its own tests, is a tracked follow-up. Don't read a green run as proof
-  that nothing transitive crossed. Two things in it are load-bearing, both
-  guarding failures that would otherwise be silent:
+  `>=x` can, without anything appearing in the `package.json` diff, and
+  `scripts/check-dependency-update.mjs` is what covers that.
+- **The lockfile check asks each CONSUMER what it resolves; it does not match
+  instances across the two trees.** Getting here cost fifteen review rounds,
+  almost all of them spent on the design this replaced, so the dead end is
+  worth recording. That design paired up the copies of each package name
+  across the snapshots and then compared the majors each pair resolved. Both
+  obvious pairing keys are wrong in opposite directions — an npm path is a
+  *location*, so a consumer that hoists looks deleted-and-recreated and the
+  major it just crossed reads as an edge that never existed; a name is an
+  *aggregate*, so two copies of one consumer collapse and a swap between them
+  cancels out. `name@version` is not a third option either, since the consumer
+  being bumped is the normal case here. So it matched by strongest evidence
+  instead (same location, then version, then major), treated every
+  non-same-location pairing as a *hypothesis* needing a live dependent to
+  prove it, split rejected hypotheses back into halves, ordered those splits
+  outermost-first, and broke cycles in that order. Each of those was a real
+  fix for a real miss. **All of it was compensating for a guess that never had
+  to be made** — and it was still wrong, because a matcher pairs one-to-one
+  and exclusively, so when consumers merely *redistribute* across copies that
+  all survive (one dependent stays on the nested copy, another moves to the
+  hoisted one) the move is not any pairing at all, both copies are vouched for
+  by whichever dependent stayed, and the transitive major crosses in silence.
+  What the check actually wants to know is *did a real consumer's resolution
+  move, and did it cross a major* — and a consumer answers that about itself.
+  So: seed the root and any workspaces, then walk every edge each consumer
+  declares on **both** sides, comparing the major each side resolves and
+  recursing into the pair that edge lands on. Pairs come from resolution, so
+  there is nothing to guess and nothing to prove. The whole apparatus above
+  deleted with it, and the result is faster by more than an order of magnitude
+  (14 ms on a real 868-entry lockfile, against ~260 ms) because nothing is
+  matched or re-scanned to a fixed point.
+  Three things fall out of "declared on both sides" that used to be separate
+  guards: an edge the batch **added** or **dropped** is a change of what a
+  package depends on rather than a crossing, and is skipped; an instance that
+  is merely *reachable* from a consumer is not evidence that consumer used it,
+  because resolution is positional and declaration is what proves use; and a
+  copy that vanished because its dependent dropped it has nobody declaring it
+  on both sides, so nothing vouches for it.
+  Two rules that once sat beside this one — comparing an entry's own major at
+  a stable path, and comparing the SET of majors a name resolves to — are
+  **gone**, and that reversal is worth keeping written down. They were retained
+  as cheap corroboration after measurement showed the instance rule already
+  rejected everything they rejected, on the principle that "the new rule
+  subsumes the old one" had been wrong every previous round. That principle is
+  about *coverage* and still holds there; it says nothing about correctness,
+  and these two were unsound in a way this check is not. Being aggregates over
+  the whole tree they cannot tell a crossing from an add-and-drop: one package
+  dropping `bar@1` while an unrelated one picks up `bar@2` moves both the
+  shared-path major and the by-name set, and both fire on a legitimate batch.
+  Only a consumer can tell those apart, and an aggregate has no consumer to
+  ask — so there was no gated version of them to keep. Corroboration that
+  raises false alarms is not corroboration, and for an unattended job a monthly
+  cry-wolf is worse than the silent miss they never actually covered.
+  **A consumer's edge fields have to include `devDependencies`.** They were
+  left out on the reasoning that a dependency's dev deps are never installed —
+  true, but npm does not record them for a dependency either. It strips the
+  field from an installed tarball's entry and writes it only for the root and
+  for `link: true` workspaces, which are exactly the entries whose dev edges
+  *are* installed. Omitting it meant nothing walked the dev-tooling subtree at
+  all, and with a `*` range the manifest diff never moves either.
+  **The root and any workspaces are seeded directly**, because they are where
+  the walk starts. A workspace has to be seeded or it is invisible — npm splits
+  it across two entries, a versioned one at its repo path with no
+  `node_modules/` segment and a `link: true` record with no version, and
+  neither is a resolved package. No repo here uses workspaces yet; the fixture
+  exists because adding one would otherwise narrow what the job checks with
+  nothing red to say so. It is a script rather
+  than a `node -e` string in the YAML for a reason that already bit: a
+  single-quoted shell argument ends at the first apostrophe, and one in a
+  comment silently truncated the program to valid JavaScript that exited 0
+  with half its rules gone. `scripts/check-dependency-update.test.ts` covers
+  the shapes (in-place bump, hoist, benign dedupe, a dedupe that carries a
+  crossing, a newly added copy that carries one, consumers redistributing
+  across copies that all survive, a dropped dependency and a newly added
+  dependency and a coincidental resolution and an independent add/drop of the
+  same version that must NOT be read as crossings, two levels deduping at
+  once, a stable path whose dependents all turned over, a direct
+  devDependency crossing and a major under a dev-only subtree, a workspace's
+  own edge, a consumer and child relocating together, relocations past
+  unrelated newcomers, duplicate-consumer swap, consumer bumped and hoisted
+  while crossing, clean batch); each guard there was
+  verified by reintroducing the defect and watching it go red. Several of
+  those shapes were found against the matcher design and are named for the
+  tree rather than for the mechanism they once probed — they are kept because
+  the shapes are real, and every one of them still has to come out right. Two things in
+  the workflow are load-bearing, both guarding failures that would otherwise
+  be silent:
   - **The job runs the full check suite itself.** A PR opened by `GITHUB_TOKEN`
     does not trigger `on: pull_request` workflows — that is GitHub's
     loop-prevention rule, with no per-repo opt-out short of a PAT — so `ci.yml`
