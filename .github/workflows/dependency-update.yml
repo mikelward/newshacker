@@ -330,6 +330,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # Dispatching `ci.yml` on the pushed branch is a write to the Actions API.
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -436,6 +438,36 @@ jobs:
           git commit -q -m "$title"
           git push "$remote" "HEAD:refs/heads/$branch"
 
+          # A PR opened by `GITHUB_TOKEN` does not trigger `on: pull_request`
+          # workflows — GitHub's loop-prevention rule, with no per-repo opt-out
+          # short of a PAT — so nothing would start CI on this branch, and a PR
+          # with no red tick reads as verified when nothing verified it.
+          # `workflow_dispatch` is the documented EXCEPTION to that rule: a
+          # dispatch made with `GITHUB_TOKEN` *does* create a run. So ask for one
+          # explicitly against the branch just pushed. Its check runs land on the
+          # branch head, which becomes this PR's head, so they appear on the PR
+          # like any other. This needs `ci.yml` to carry `workflow_dispatch` ON
+          # THE DEFAULT BRANCH — a workflow GitHub cannot see there is not
+          # dispatchable, however the branch under test spells it.
+          #
+          # Dispatched HERE, before the body is composed, so the body can state
+          # what actually happened. Reporting a failure only into the run summary
+          # would leave the PR itself promising a CI run that is never coming —
+          # which is exactly the "no checks means it passed" reading this whole
+          # thing exists to prevent, and the assignee reads the PR, not the run
+          # log.
+          #
+          # Non-fatal either way: the branch is pushed by this point and the job
+          # has already run every check itself, so a failed dispatch must not
+          # turn a pushed branch into no PR.
+          if gh workflow run ci.yml --ref "$branch"; then
+            ci_started=true
+          else
+            ci_started=false
+            echo "Could not start CI on $branch; the PR body says so." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           {
             echo "\`npm update --save\` — every dependency moved to the newest version its"
             echo 'existing range in `package.json` allows. **No majors**: those need a'
@@ -447,10 +479,18 @@ jobs:
             echo
             echo "$verdict"
             echo
-            echo '> These ran in the workflow job, not on this PR. A PR opened by'
-            echo '> `GITHUB_TOKEN` does not trigger `on: pull_request` workflows, so'
-            echo '> CI will not post its own result here. Push any commit to this'
-            echo '> branch and CI starts running normally from then on.'
+            if [ "$ci_started" = true ]; then
+              echo '> These ran in the workflow job, not on this PR. A PR opened by'
+              echo '> `GITHUB_TOKEN` does not trigger `on: pull_request` workflows, so CI'
+              echo '> does not start here on its own — this job dispatched `ci.yml` against'
+              echo '> the branch instead, and that run reports on this PR like any other.'
+            else
+              echo '> **CI could not be started on this branch, so the checks above are the'
+              echo '> only ones that ran.** A PR opened by `GITHUB_TOKEN` does not trigger'
+              echo '> `on: pull_request` workflows and the explicit dispatch failed, so'
+              echo '> nothing else will start it. Push any commit to the branch and CI runs'
+              echo '> normally from then on.'
+            fi
             echo
             echo '## Changed'
             echo

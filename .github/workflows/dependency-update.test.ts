@@ -449,4 +449,36 @@ describe('dependency-update workflow', () => {
     expect(update).not.toContain('GH_TOKEN');
   });
 
+  it('starts CI on the branch it opens', () => {
+    // A PR opened by `GITHUB_TOKEN` does not trigger `on: pull_request` — so
+    // without an explicit dispatch the weekly PR carries no CI at all, and a PR
+    // with no red tick is indistinguishable from one whose CI passed. Three
+    // pieces have to hold together and each fails silently on its own: the
+    // dispatch call, the Actions write scope it needs, and the
+    // `workflow_dispatch` trigger on ci.yml that makes it dispatchable at all.
+    const publish = workflow.slice(workflow.indexOf('  publish:'));
+    expect(publish).toContain('gh workflow run ci.yml --ref "$branch"');
+    expect(publish).toContain('actions: write');
+    expect(ci).toMatch(/^\s*workflow_dispatch:/m);
+
+    // A dispatch that fails has to say so ON THE PR, not only in the run
+    // summary — the assignee reads the PR, and a body promising a CI run that
+    // is never coming is the exact "no checks means it passed" reading this
+    // exists to prevent. So the dispatch happens BEFORE the body is composed
+    // and the body branches on the result.
+    expect(publish.indexOf('gh workflow run ci.yml')).toBeLessThan(
+      publish.indexOf('} > body.md'),
+    );
+    expect(publish).toContain('**CI could not be started on this branch');
+
+    // The scope belongs to the publish job only. The update job runs the
+    // dependency code, and dispatching a workflow from there would hand a
+    // postinstall a way to start one.
+    const update = workflow.slice(
+      workflow.indexOf('  update:'),
+      workflow.indexOf('  publish:'),
+    );
+    expect(update).not.toContain('actions: write');
+  });
+
 });

@@ -582,17 +582,33 @@ If any of the above fails, fix it — don't disable the check.
   don't-combine-the-flags rule. Two things in
   the workflow are load-bearing, both guarding failures that would otherwise
   be silent:
-  - **The job runs the full check suite itself.** A PR opened by `GITHUB_TOKEN`
-    does not trigger `on: pull_request` workflows — that is GitHub's
-    loop-prevention rule, with no per-repo opt-out short of a PAT — so `ci.yml`
-    never runs on the weekly PR and a PR with no red tick would read as
-    verified when nothing had verified it. Results go in the PR body. Pushing
-    any commit to the branch makes CI run normally from then on.
+  - **The job runs the full check suite itself, and dispatches `ci.yml` too.**
+    A PR opened by `GITHUB_TOKEN` does not trigger `on: pull_request`
+    workflows — that is GitHub's loop-prevention rule, with no per-repo opt-out
+    short of a PAT — so `ci.yml` never fires on the weekly PR by itself, and a
+    PR with no red tick would read as verified when nothing had verified it.
+    Two things cover that. The job's own check results go in the PR body; and
+    because `workflow_dispatch` is the documented **exception** to that rule —
+    a dispatch made with `GITHUB_TOKEN` *does* create a run — the publish job
+    asks for a `ci.yml` run against the branch it pushed, whose check runs land
+    on the branch head and therefore appear on the PR like any other. Three
+    pieces hold that up and each fails silently alone: the dispatch call,
+    `actions: write` on the publish job **and nowhere else** (the update job
+    runs dependency code, and dispatching from there would hand a postinstall a
+    way to start a workflow), and `workflow_dispatch` on `ci.yml` **as it
+    exists on the default branch** — a workflow GitHub cannot see there is not
+    dispatchable, however the branch under test spells it. The dispatch is
+    non-fatal but noisy when it fails, because "CI never started" and "CI
+    passed quietly" look identical from the PR. Pushing any commit to the
+    branch makes CI run normally from then on. Nothing changes for ordinary
+    PRs: `on: pull_request` already covers every human-authored one, and this
+    only fills the hole under the bot.
   - **`dependency-update.test.ts` asserts those checks stay in step with
     `ci.yml`.** Add a step to one and not the other and the weekly PR is
     quietly verified by a weaker suite than `main`, looking identical either
-    way. It also pins the `.nvmrc`-as-single-source rule, `workflow_dispatch`,
-    and first-party-actions-only.
+    way. It also pins the `.nvmrc`-as-single-source rule, `workflow_dispatch`
+    on both workflows, the CI dispatch and the scope it needs, and
+    first-party-actions-only.
   The test also bounds the supply chain: every action the job uses must be
   either first-party (`actions/*`) or something `ci.yml` already runs, so an
   unattended job with push access is never where a genuinely new third-party
@@ -601,7 +617,13 @@ If any of the above fails, fix it — don't disable the check.
   use" and was loosened deliberately when the publish job needed
   `upload-artifact`/`download-artifact` — GitHub's own actions, which `ci.yml`
   has no reason to run. **Cost:** negligible — Actions minutes are free on public repos,
-  and one ~5-minute run a week is far inside the free tier on private ones.
+  and on private ones the weekly total is the update job (~5 min) plus a publish
+  job that installs nothing (under a minute) plus the one dispatched `ci.yml`
+  run, which costs exactly what an ordinary PR's CI costs and only happens on a
+  week that produced changes. Call it ~10 minutes a week, far inside the free
+  tier. The dispatch itself is one REST call against the standard 5,000/hour
+  authenticated limit, so its rate-limit envelope is not a consideration at one
+  call a week.
 - **The machine that runs the update can't fully vouch for it — that boundary
   is deliberate.** Testing a dependency means executing it: the install runs its
   lifecycle scripts, and the suite loads its code into the same process as the

@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The weekly dependency PR is opened by `GITHUB_TOKEN`, and GitHub does not
+  # let a `GITHUB_TOKEN`-created event start a workflow — so `pull_request`
+  # never fires for it. `workflow_dispatch` is the documented exception, and
+  # `dependency-update.yml` dispatches this workflow against the branch it
+  # pushes. Removing this leaves that PR with no CI and nothing to say so.
+  workflow_dispatch:
 
 jobs:
   build:
