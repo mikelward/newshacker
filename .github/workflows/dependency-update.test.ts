@@ -24,14 +24,19 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 
 describe('dependency-update workflow', () => {
   it('can be run by hand as well as on the schedule', () => {
-    // Without workflow_dispatch the only way to run it is to wait for Thursday,
+    // Without workflow_dispatch the only way to run it is to wait for Saturday,
     // or to push a commit editing the cron — which is how a scheduled job becomes
     // a job nobody can test.
     expect(workflow).toMatch(/^\s*workflow_dispatch:/m);
   });
 
-  it('runs on a schedule', () => {
-    expect(workflow).toMatch(/^\s*- cron: '.+'/m);
+  it('runs on a schedule, on Saturdays', () => {
+    // The DAY is the decision and is asserted; the hour and the deliberately
+    // off-the-hour minute are tuning, so they stay free. Without this the cron
+    // could drift back to a weekday — or be mistyped — with nothing red.
+    const cron = workflow.match(/^\s*- cron: '(.+)'/m);
+    expect(cron).not.toBeNull();
+    expect(cron![1].trim().split(/\s+/)[4]).toBe('6');
   });
 
   it('puts the PR in front of a human', () => {
