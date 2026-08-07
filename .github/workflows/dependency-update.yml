@@ -20,11 +20,11 @@ name: Dependency update
 
 on:
   schedule:
-    # 06:17 UTC on Thursdays. Actions cron is best-effort and can be delayed by
+    # 06:17 UTC on Saturdays. Actions cron is best-effort and can be delayed by
     # tens of minutes under load, which is fine for a weekly chore — and the
     # off-the-hour minute is deliberate, since the top of the hour is the most
     # congested slot on the shared scheduler and the most likely to be delayed.
-    - cron: '17 6 * * 4'
+    - cron: '17 6 * * 6'
   workflow_dispatch:
 
 # No permissions at the workflow level. The job that runs unreviewed dependency
@@ -394,7 +394,7 @@ jobs:
         run: |
           set -euo pipefail
           # Keyed on the RUN DATE, not the month. The job runs weekly, so a
-          # month-scoped name would collide with the previous Thursday's branch
+          # month-scoped name would collide with the previous Saturday's branch
           # and every run but the first would fall into the run-scoped fallback
           # below — which works, but that fallback is for a re-run of the same
           # batch, not for a distinct scheduled one.

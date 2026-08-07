@@ -402,10 +402,10 @@ If any of the above fails, fix it — don't disable the check.
 
 - **Dependency updates are one batched PR a week**, from
   `.github/workflows/dependency-update.yml`. It runs `npm update --save` early
-  on Thursdays, and on demand from the Actions tab (*Run workflow*), so every
+  on Saturdays, and on demand from the Actions tab (*Run workflow*), so every
   dependency moves to the newest version its **existing range** allows. The
   branch and PR title are keyed on the **run date**, not the month — a
-  month-scoped name would collide with the previous Thursday's and send every
+  month-scoped name would collide with the previous Saturday's and send every
   run but the first down the same-batch-rerun fallback. **The PR is assigned to
   the repo owner and requests their review**, derived from
   `github.repository_owner` rather than a hard-coded handle; without that it
