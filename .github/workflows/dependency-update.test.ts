@@ -59,6 +59,16 @@ describe('dependency-update workflow', () => {
     expect(workflow).not.toContain('date -u +%Y-%m)');
   });
 
+  it('prefixes its commit subject and PR title with deps:', () => {
+    // AGENTS.md "Commit messages": a subject that does not change what the app
+    // does carries a prefix, and dependency updates are the largest category in
+    // this log. These are the only commits nobody hand-writes a subject for, so
+    // without the prefix here the rule would be broken weekly by the repo's own
+    // automation — and silently, since a wrong subject fails nothing.
+    expect(workflow).toContain('title="deps: Update dependencies ($today)"');
+    expect(workflow).toContain('title="deps: Update dependencies ($today) \u2014 CHECKS FAILING"');
+  });
+
   it('takes the Node major from .nvmrc rather than naming one', () => {
     // A hard-coded version here would drift from .nvmrc silently, and the
     // update PR would be verified on a runtime nothing else uses.

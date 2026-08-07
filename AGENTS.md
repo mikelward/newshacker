@@ -247,10 +247,54 @@ If any of the above fails, fix it — don't disable the check.
   you didn't create, changing Vercel project settings, changing CI
   secrets, adding paid/third-party services.
 
+## Commit messages
+
+- Write a clear, plain-English subject in sentence case; keep it short
+  (≤ ~70 chars, prefix included) and free of internal jargon.
+- Put the mechanism, the bug fixed, and file:line detail in the body, after a
+  blank line — the body is not size-constrained. A commit with nothing to
+  explain needs no body: the weekly dependency batch is the standing example,
+  where the diff is the manifests and the PR carries the check results.
+- **Prefix a subject that does not change what the app does.** A bare subject
+  means a user could notice the difference. Anything else takes one of these,
+  lowercase, followed by the sentence-case subject as above:
+
+  | Prefix | For |
+  |---|---|
+  | `deps:` | Dependency bumps — the weekly batch and any by hand |
+  | `docs:` | Prose: `SPEC.md`, `IMPLEMENTATION_PLAN.md`, `CRON.md`, this file, the rest |
+  | `todo:` | `TODO.md` bookkeeping on its own |
+  | `test:` | Tests only, with the code under test unchanged |
+  | `build:` | Toolchain, CI, lint/build config, `scripts/` |
+  | `refactor:` | Code that is deliberately behavior-preserving |
+
+- **No `feat:` or `fix:`, on purpose** — they would prefix nearly everything
+  left and leave the log as flat as it is now. The prefix marks the exception,
+  so the default stays bare.
+- **`deps:` is what earns the rule here**: 33 of the last 50 commits are the
+  weekly batch, every one reading `Update dependencies (<date>)`, so the line
+  that dominates the log says nothing about whether the app changed.
+  `.github/workflows/dependency-update.yml` writes the prefix itself. A bump
+  taken *because* of the behavior it changes is a behavior change — bare, and
+  say what changed. Renovate's old `chore:` / `fix(deps):` subjects are not the
+  model; that was a bot's convention, and Renovate is off.
+- **`TODO.md` and `SPEC.md` ride along and never decide the prefix.** Golden
+  rule 10 requires SPEC to move in the same commit as the behavior it
+  documents, so a SPEC edit is almost always riding on a bare commit; either
+  counts only when it is the whole change. A SPEC-only commit recording or
+  reversing a decision is `docs:`.
+- **A mixed commit goes bare if any part of it changes behavior** — a change
+  spanning `src/` and `api/` is one behavior change, not two categories. Below
+  that line the prefix names why the commit exists, not what it touched: a
+  toolchain pin that also edits the guides describing it is `build:`, because
+  the prose moved to follow the toolchain. So there is no precedence order to
+  memorize. Two genuinely independent categories are two commits.
+
 ## Branching
 
 - **Branch naming.** Feature branches are prefixed with the agent's own short name: `<agent>/<short-topic>` (e.g. `claude/...` for Claude Code, `codex/...` for Codex, `cursor/...` for Cursor, etc.). Human contributors pick a name that identifies them. The placeholder `<agent>` below stands in for whichever prefix you use — don't hard-code `claude/` unless you *are* Claude Code.
 - **Workflow.** `<agent>/<short-topic>` branch off `origin/main` → PR → merge via rebase or squash. One topic per branch. Follow-up work after a merge goes on a new branch. Never commit to `main` / `master`.
+- **The PR title carries the same prefix as a commit subject** (see *Commit messages*), judged over the whole branch rather than any one commit, and re-judged on every push — a branch can start documentation-only and stop being so with the next commit. The title is there to be read: it is what the PR list shows the repo owner, so the prefix says at a glance whether a PR changes what the app does.
 - **Use `git worktree` when it's available.** Give each branch its own worktree instead of switching branches in place, so work in progress on one branch isn't disturbed by work on another.
 - **One commit per logical surviving change on the branch.** Rewrite unmerged commits freely (squash, amend, reorder, split with `git rebase -i` / `git reset --soft`) so each landing commit is one coherent change, with fix-ups and review responses folded into the commit they belong to. A PR can be a single commit or a short series — but review-fix noise doesn't survive into `main`.
 - **Check state before you push or branch.** Query the branch's PR via the GitHub MCP first.
