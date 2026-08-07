@@ -481,4 +481,22 @@ describe('dependency-update workflow', () => {
     expect(update).not.toContain('actions: write');
   });
 
+  it('dispatches CI that cannot write to the repo', () => {
+    // The dispatched run executes unreviewed dependency code — `npm ci`
+    // lifecycle scripts, and the suite loading the packages themselves — so a
+    // write-capable token there would undo the boundary the update job is
+    // built around. The repo's DEFAULT workflow permissions are a setting no
+    // file here can see, so ci.yml declares read-only rather than assuming it.
+    expect(ci).toContain('\npermissions:\n  contents: read\n');
+
+    // checkout writes the token into .git/config unless told not to, which
+    // puts it within reach of anything running later in the job even when the
+    // env var is not. Every checkout, not just the first.
+    const checkouts = (ci.match(/actions\/checkout@/g) ?? []).length;
+    expect(checkouts).toBeGreaterThan(0);
+    expect((ci.match(/persist-credentials: false/g) ?? []).length).toBe(
+      checkouts,
+    );
+  });
+
 });

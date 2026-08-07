@@ -599,8 +599,24 @@ If any of the above fails, fix it — don't disable the check.
     exists on the default branch** — a workflow GitHub cannot see there is not
     dispatchable, however the branch under test spells it. The dispatch is
     non-fatal but noisy when it fails, because "CI never started" and "CI
-    passed quietly" look identical from the PR. Pushing any commit to the
-    branch makes CI run normally from then on. Nothing changes for ordinary
+    passed quietly" look identical from the PR — and it reports that failure in
+    the PR BODY, not only the run summary, since the assignee reads the PR. The
+    dispatch therefore happens before the body is composed, so the body can
+    never promise a run that is not coming. Pushing any commit to the branch
+    makes CI run normally from then on.
+  - **`ci.yml` declares `permissions: contents: read` and checks out with
+    `persist-credentials: false`, and that is load-bearing rather than tidy.**
+    A dispatched run executes unreviewed dependency code — `npm ci` lifecycle
+    scripts, and the suite loading the packages themselves — so a write-capable
+    `GITHUB_TOKEN` in that job would undo the whole no-write-token boundary the
+    update job is built around, by a route that never touches this workflow.
+    Both halves are needed: the default workflow permission is a repository
+    SETTING no file here can see, so read-only is declared rather than assumed;
+    and `actions/checkout` writes the token into `.git/config` unless told not
+    to, which leaves it readable by anything running later in the job even when
+    the environment variable is not. Ordinary PR runs get the same treatment,
+    which costs nothing — CI only builds and tests, and has never needed to
+    write. Nothing changes for ordinary
     PRs: `on: pull_request` already covers every human-authored one, and this
     only fills the hole under the bot.
   - **`dependency-update.test.ts` asserts those checks stay in step with
