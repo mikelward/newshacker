@@ -8,6 +8,220 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
+# The PATH later agent shells start from, captured before anything below
+# prepends to it. persist_on_path needs to know what the session resolves
+# WITHOUT this hook's exports, which is a question the live $PATH stops being
+# able to answer the moment the Node block runs.
+INHERITED_PATH="$PATH"
+
+# Make a provisioned toolchain reach the rest of the session.
+#
+# $CLAUDE_ENV_FILE is the harness's own seam for this and is the right answer
+# whenever it exists. It is not always set, though — it is unset in this
+# sandbox today — and then the caller's `export` reaches only this hook and its
+# children, so every later agent shell drops back to whatever the image ships.
+# That is the silent-wrong-runtime failure this whole file exists to prevent:
+# the suite goes green on the image's Node while CI and Vercel run the pinned
+# one, and nothing says so.
+#
+# A shell rc file is NOT the fallback. The harness snapshots the environment at
+# session start, before hooks run, so an rc edit lands one session late —
+# verified by writing one and watching a later shell not see it. That failure
+# looks exactly like success.
+#
+# So when there is no env file, change what the NAME resolves to instead of
+# changing the environment: a symlink in a PATH directory that already precedes
+# the image's own copy wins the lookup for every later shell, whatever that
+# shell sources.
+#
+# Only directories under $HOME are eligible, which is both the safe rule and
+# the honest one — the sandbox's first PATH entry is ~/.local/bin, a system
+# directory is the image's business rather than ours, and it keeps this
+# testable without a seam (the test redirects HOME and nothing real is
+# touched).
+#
+# Usage: persist_on_path <bin-dir> <tool>...   Returns non-zero if it could not.
+persist_on_path() {
+  local bin_dir="$1"
+  shift
+
+  # Every requested tool has to be RUNNABLE in the source, checked before
+  # EITHER persistence route runs. Both routes put the whole of $bin_dir ahead
+  # of the image's copies, so a missing or non-executable npm there means later
+  # shells pair the provisioned node with the image's npm — the split this
+  # function exists to prevent, and a stale link from an earlier major left
+  # beside a fresh one is the same thing wearing the right name. `-x` rather
+  # than `-e` because command lookup skips a non-executable file and falls
+  # through, so "present" is not the question — and `-f` alongside it because
+  # `-x` is true of a DIRECTORY (they are searchable), which lookup skips just
+  # the same.
+  #
+  # The mode bits are necessary and not sufficient: a regular executable file
+  # can still fail to start — a missing interpreter, a truncated or wrong-arch
+  # binary — and the links outlive this session while the failure surfaces only
+  # in the hook's own `npm install`. So runnability is asked by RUNNING it. That
+  # adds no execution the session doesn't already do: the provisioned node has
+  # been probed before we get here, and `npm install` runs this very npm seconds
+  # later. It only moves the question ahead of the part that persists.
+  # `--version` is the one flag node, npm, npx and deno all answer; the cost is
+  # one process per tool, about a second, once per session.
+  local tool
+  for tool in "$@"; do
+    if [ ! -f "${bin_dir}/${tool}" ] || [ ! -x "${bin_dir}/${tool}" ]; then
+      echo "session-start: WARNING ${bin_dir} has no runnable ${tool}; not persisting a partial toolchain" >&2
+      return 1
+    fi
+    if ! "${bin_dir}/${tool}" --version >/dev/null 2>&1; then
+      echo "session-start: WARNING ${bin_dir}/${tool} does not run; not persisting a partial toolchain" >&2
+      return 1
+    fi
+  done
+
+  # The append can fail — a read-only file, a missing parent — and `errexit` is
+  # no help here: this function is called from `if ! persist_on_path ...`, which
+  # disables it for everything inside. An unchecked `return 0` would then report
+  # the harness seam as taken while later shells kept the image's runtime, which
+  # is the failure this whole function exists to remove. Fall through to the
+  # links instead of failing: they reach the same shells by another route.
+  if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+    if echo "export PATH=\"${bin_dir}:\$PATH\"" >>"$CLAUDE_ENV_FILE"; then
+      return 0
+    fi
+    echo "session-start: WARNING could not write \$CLAUDE_ENV_FILE; falling back to links" >&2
+  fi
+
+  # The first eligible directory, plus everything on PATH strictly before it.
+  # Eligible means under $HOME: the sandbox's first PATH entry is ~/.local/bin,
+  # a system directory belongs to the image rather than to us, and the rule
+  # keeps this testable without a seam since the test redirects HOME.
+  #
+  # Note what this does NOT do: stop at the directory currently supplying the
+  # tool. From the second session on that IS this shim directory — the links
+  # are still there and still win the lookup — so stopping there would refuse
+  # to refresh its own links, and a later .nvmrc major would be provisioned
+  # correctly and never reach a shell. An eligible directory is a candidate
+  # whether or not it is what currently answers.
+  local candidate prefix='' shim_dir='' real_candidate real_home probe real_probe
+  while IFS= read -r candidate; do
+    # An empty PATH field means the CURRENT directory to the shell, so dropping
+    # it would hide a supplier sitting in the project root and let a link be
+    # written that never wins. It is never a shim candidate itself — it is not
+    # under $HOME by name and it is not ours — so normalize it for the prefix
+    # and fall through.
+    if [ -z "$candidate" ]; then
+      prefix="${prefix:+$prefix:}."
+      continue
+    fi
+    case "$candidate" in
+      *"/../"* | *"/..")
+        # A `..` component defeats the ancestor walk: it climbs to something
+        # that exists and IS under $HOME, and then `mkdir -p` walks back down
+        # THROUGH the `..` and creates the leaf outside. Refuse rather than
+        # normalize — a PATH entry with `..` in it is pathological, and
+        # declining to shim there costs nothing.
+        ;;
+      "${HOME:-/nonexistent}"/*)
+        # Resolve BEFORE creating anything. The pattern above is lexical, and a
+        # `..` segment or a symlinked parent can put the real path outside
+        # $HOME — so an unvalidated `mkdir -p` is how this would create a
+        # directory in exactly the place it promises never to touch. The
+        # nearest EXISTING ancestor is the deepest thing that can be resolved
+        # yet, and it is enough: a path is outside the boundary if its closest
+        # existing parent is.
+        real_home="$(cd "${HOME:-/nonexistent}" 2>/dev/null && pwd -P || true)"
+        probe="$candidate"
+        while [ -n "$probe" ] && [ ! -d "$probe" ] && [ "$probe" != "/" ]; do
+          probe="$(dirname "$probe")"
+        done
+        real_probe="$(cd "$probe" 2>/dev/null && pwd -P || true)"
+        if [ -n "$real_home" ] && [ -n "$real_probe" ]; then
+          case "$real_probe" in
+            "$real_home" | "$real_home"/*)
+              # A missing entry under $HOME is ours to create; the sandbox image
+              # lists ~/.local/bin on PATH whether or not it exists yet.
+              [ -d "$candidate" ] || mkdir -p "$candidate" 2>/dev/null || true
+              if [ -d "$candidate" ] && [ -w "$candidate" ]; then
+                # Re-resolve what was actually created or found: the ancestor
+                # check clears the way, this one confirms the destination.
+                real_candidate="$(cd "$candidate" 2>/dev/null && pwd -P || true)"
+                case "$real_candidate" in
+                  "$real_home"/*)
+                    shim_dir="$candidate"
+                    ;;
+                esac
+              fi
+              ;;
+          esac
+        fi
+        if [ -n "$shim_dir" ]; then
+          break
+        fi
+        ;;
+    esac
+    prefix="${prefix:+$prefix:}$candidate"
+  done <<EOF
+$(printf '%s' "$INHERITED_PATH" | tr ':' '\n')
+EOF
+
+  [ -n "$shim_dir" ] || return 1
+
+  # A link only wins the lookup if nothing EARLIER on PATH supplies the same
+  # name, and that has to be asked per tool rather than derived from one of
+  # them: node and npm can come from different directories, so a stop point
+  # taken from node alone would happily link a set that stays split. Asking the
+  # prefix directly is exact, where reasoning about positions re-derives it.
+  #
+  # Asked by walking the prefix entries rather than with `command -v`, because
+  # the two disagree on exactly the file that matters: `command -v` reports a
+  # name it finds with the execute bit CLEARED, while command execution skips
+  # that entry and searches on. Trusting it there refuses to link a set that
+  # would have won the lookup — a false split, on evidence no shell acts on.
+  # The test is the one execution applies: a regular file with the bit set.
+  local dir
+  while IFS= read -r dir; do
+    for tool in "$@"; do
+      if [ -f "$dir/$tool" ] && [ -x "$dir/$tool" ]; then
+        echo "session-start: WARNING ${tool} is supplied earlier on PATH than ${shim_dir}; not linking a set that would stay split" >&2
+        return 1
+      fi
+    done
+  done <<EOF
+$(printf '%s' "$prefix" | tr ':' '\n')
+EOF
+
+  # Never replace a real binary: a writable PATH directory can hold someone's
+  # own toolchain, and this runs on every session. Checked across ALL the tools
+  # before any link is written, so a refusal can't leave the set half-applied.
+  for tool in "$@"; do
+    if [ -e "$shim_dir/$tool" ] && [ ! -L "$shim_dir/$tool" ]; then
+      echo "session-start: WARNING $shim_dir/$tool is a real file, not a link — leaving it alone" >&2
+      return 1
+    fi
+  done
+
+  # `ln` can still fail after every check above — the directory can lose write
+  # permission, the disk can fill — and errexit is disabled inside this function
+  # (see the append above), so an unchecked failure would fall through to the
+  # success message with half the set linked. Take the whole set back down
+  # instead: every entry here is either ours or absent (the clobber guard just
+  # proved it), and no shim at all is an honest fallback to the image's
+  # toolchain, where a half-updated one is the split this function exists to
+  # prevent.
+  local linked
+  for tool in "$@"; do
+    if ! ln -sfn "${bin_dir}/${tool}" "${shim_dir}/${tool}"; then
+      echo "session-start: WARNING could not link ${tool} into ${shim_dir}; removing the partial set" >&2
+      for linked in "$@"; do
+        if [ -L "${shim_dir}/${linked}" ]; then
+          rm -f "${shim_dir}/${linked}"
+        fi
+      done
+      return 1
+    fi
+  done
+  echo "session-start: CLAUDE_ENV_FILE is unset; linked $* in ${shim_dir} to ${bin_dir} so later shells match CI"
+}
+
 # --- Node toolchain ---------------------------------------------------------
 # The repo pins a Node major in .nvmrc, and package.json `engines` narrows to
 # that same major — capped rather than open-ended on purpose, because moving
@@ -159,20 +373,19 @@ else
   if [ -n "$PROVISIONED_VERSION" ]; then
     export PATH="${NODE_DIR}/bin:${PATH}"
     # Persist for the rest of the session, including tools the agent shells out
-    # to. Guarded because CLAUDE_ENV_FILE comes from the harness and isn't
-    # guaranteed: under `set -u` an unset one aborts the hook right here — after
-    # Node is provisioned but before `npm install` and anything below — leaving
-    # the session with no dependencies and one "unbound variable" line to explain
-    # it. The current-process export above still stands either way.
-    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-      echo "export PATH=\"${NODE_DIR}/bin:\$PATH\"" >>"$CLAUDE_ENV_FILE"
-    else
+    # to — see persist_on_path for how, and why an unset CLAUDE_ENV_FILE is not
+    # the end of it. npm and npx come along because the npm that RESOLVES
+    # dependencies has to be the pinned one too: .npmrc's min-release-age
+    # cooldown landed in npm 11.10.0 and is silently ignored before it, so a
+    # session left on the image's older npm writes package.json ranges CI then
+    # refuses to resolve.
+    if ! persist_on_path "${NODE_DIR}/bin" node npm npx; then
       # Not silently: the export above reaches only this hook and its children,
-      # and the harness runs the hook as its own command — so with nowhere to
-      # persist, every later agent shell falls back to the system Node. That is
-      # the silent-wrong-runtime failure this whole block exists to prevent, and
-      # skipping the write quietly would produce it while reporting success.
-      echo "session-start: WARNING CLAUDE_ENV_FILE is unset, so ${NODE_VERSION:-the provisioned Node} will not be on PATH for later commands — they will run on the system Node and may not match CI" >&2
+      # so with nowhere to persist, every later agent shell falls back to the
+      # system Node. That is the silent-wrong-runtime failure this whole block
+      # exists to prevent, and staying quiet would produce it while reporting
+      # success.
+      echo "session-start: WARNING ${NODE_VERSION:-the provisioned Node} will not be on PATH for later commands — they will run on the system Node and may not match CI" >&2
     fi
   fi
 fi

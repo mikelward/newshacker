@@ -821,6 +821,27 @@ If any of the above fails, fix it — don't disable the check.
   survives between sessions and an existence-only check would pin the first
   version ever installed. Best-effort: an unreachable nodejs.org keeps the
   cached toolchain and says so, rather than failing session startup.
+- **Provisioning the runtime and making it REACH the session are two
+  problems, and the second one failed silently for a while.** The hook
+  exports PATH and writes it to `$CLAUDE_ENV_FILE` — but that variable is not
+  always set (it is unset in the web sandbox today), and then the export
+  reaches only the hook and its children: `/opt/node24` sat there correctly
+  provisioned while every agent shell ran the image's Node 22, on an npm too
+  old to honor `.npmrc`'s cooldown. A shell rc file is not the fallback — the
+  harness snapshots the environment before hooks run, so an rc edit lands a
+  session late while looking like it worked. So the fallback changes what the
+  NAME resolves to instead: symlinks for `node`/`npm`/`npx` (and `deno` where
+  the hook installs one) in the first PATH directory **under `$HOME`**, which
+  wins the lookup whatever a later shell sources. Three refusals keep that
+  from being a lie: it links nothing if any tool is missing or unrunnable in the source,
+  nothing if any *earlier* PATH entry still supplies one of the names (node
+  and npm need not come from the same directory, so the question is asked per
+  tool), and nothing over a real file — all decided before the first link,
+  because a half-linked toolchain is a split one, worse than the fallback it
+  replaces. It does **not** stop at whichever directory currently answers:
+  from the second session on that is this shim directory itself, and refusing
+  to touch its own links would strand every later `.nvmrc` major on the old
+  runtime.
 - **The hook is identical in all three repos, and so is its test.**
   `scripts/session-start-hook.test.ts` runs the real hook end to end against a
   temp install root and a `file://` release fixture, via the `SESSION_NODE_ROOT`
