@@ -1,6 +1,16 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, chmodSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  rmSync,
+  existsSync,
+  chmodSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -45,10 +55,16 @@ function writeFakeToolchain(binDir: string, version: string): void {
     // which was enough when the hook compared majors — once the hook started
     // checking the engines floor too, a fixture reporting "24" would sort below
     // any "24.x.y" floor and warn on every provisioning case.
+    // `-e` delegates to the real binary because the hook parses the release
+    // index with it. A stub that swallowed `-e` would be fine while the fake
+    // only ever sits in the install root, but the repoint case puts one on
+    // PATH — and then "could not resolve latest Node" is what the hook reports,
+    // for a reason that has nothing to do with the behavior under test.
     `#!/bin/sh
 case "$1" in
   -v|--version) echo "${version}" ;;
   -p) echo "${version.replace(/^v/, '')}" ;;
+  -e) shift; exec ${JSON.stringify(process.execPath)} -e "$@" ;;
   *) exit 0 ;;
 esac
 `,
@@ -62,8 +78,13 @@ case "$1" in
 esac
 `,
   );
+  // A real Node tarball ships npx beside node and npm, and the hook links all
+  // three when it has to fall back to symlinks — so leaving it out of the
+  // fixture would make that case pass for the wrong reason.
+  writeFileSync(join(binDir, 'npx'), '#!/bin/sh\nexit 0\n');
   chmodSync(join(binDir, 'node'), 0o755);
   chmodSync(join(binDir, 'npm'), 0o755);
+  chmodSync(join(binDir, 'npx'), 0o755);
 }
 
 /** Build a nodejs.org-shaped release fixture: an index.json plus a real
@@ -362,12 +383,346 @@ describe('session-start hook: Node provisioning', () => {
     // Printed by the shared Node block *after* the guarded write, so reaching
     // it proves the hook didn't abort there.
     expect(out).toContain('session-start: node ');
-    // ...but not quietly. The `export` above reaches only this process, and the
-    // harness runs the hook as its own command, so with nowhere to persist,
-    // later agent shells drop back to the system Node. Completing "successfully"
-    // while that happens is the silent-wrong-runtime failure the hook exists to
-    // prevent, so the missing seam has to be said out loud.
-    expect(out).toContain('WARNING CLAUDE_ENV_FILE is unset');
+  });
+
+  it('links the toolchain into PATH when CLAUDE_ENV_FILE is not set', () => {
+    // The env file is the harness's seam and it is unset in the web sandbox
+    // today, where the `export` reaches only the hook and its children — so
+    // later agent shells ran the image's Node 22 against a repo pinned to 24,
+    // and the suite went green on the wrong runtime with nothing to say so.
+    //
+    // An rc file cannot be the fallback: the harness snapshots the environment
+    // before hooks run, so the edit lands a session late while looking like it
+    // worked. A symlink in an earlier PATH directory wins the lookup for every
+    // later shell instead, whatever that shell sources.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+
+    const out = runHookCapturingAll(
+      { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    const provisioned = join(nodeRoot, `node${MAJOR}`, 'bin');
+    // npm and npx come too, not just node: .npmrc's min-release-age cooldown
+    // is silently ignored before npm 11.10.0, so a session left on the image's
+    // npm resolves without the window and writes ranges CI then refuses.
+    for (const tool of ['node', 'npm', 'npx']) {
+      expect(realpathSync(join(shimDir, tool))).toBe(join(provisioned, tool));
+    }
+    expect(out).toContain(shimDir);
+    expect(out).not.toContain('will not be on PATH');
+  });
+
+  it('warns rather than linking when PATH has no eligible directory under HOME', () => {
+    // Only directories under $HOME are eligible — a system PATH entry belongs
+    // to the image, not to us. With none of them on PATH there is nowhere safe
+    // to link, and the session really does fall back to the image's Node, so
+    // the warning has to survive: silence here is the exact failure the hook
+    // exists to prevent.
+    writeDistFixture([LATEST], LATEST);
+
+    const out = runHookCapturingAll({}, ['CLAUDE_ENV_FILE']);
+
+    expect(out).toContain('will not be on PATH');
+    expect(existsSync(join(work, '.local', 'bin', 'node'))).toBe(false);
+  });
+
+  it('never replaces a real binary already sitting in the shim directory', () => {
+    // A writable PATH directory can hold someone's own toolchain, and this
+    // runs on every session. The refusal is checked across all three tools
+    // before any link is written, so a blocked npm cannot leave a linked node
+    // beside it — a half-applied set is a split toolchain, which is worse than
+    // the fallback it was trying to fix.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+    mkdirSync(shimDir, { recursive: true });
+    writeFileSync(join(shimDir, 'npm'), '#!/bin/sh\necho real\n');
+
+    const out = runHookCapturingAll(
+      { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    expect(readFileSync(join(shimDir, 'npm'), 'utf-8')).toContain('echo real');
+    expect(existsSync(join(shimDir, 'node'))).toBe(false);
+    expect(out).toContain('is a real file');
+  });
+
+  it('repoints its own links on a later session rather than refusing', () => {
+    // Container state survives between sessions, so from the second run on the
+    // shim directory is itself what supplies `node` on the inherited PATH. An
+    // implementation that stopped at whichever directory currently answers
+    // would refuse to touch its own links: every later session would warn for
+    // nothing, and a moved .nvmrc major would be provisioned correctly and
+    // never reach a shell.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+    const stale = join(work, 'old-toolchain', 'bin');
+    writeFakeToolchain(stale, OLDER);
+    mkdirSync(shimDir, { recursive: true });
+    for (const tool of ['node', 'npm', 'npx']) {
+      symlinkSync(join(stale, tool), join(shimDir, tool));
+    }
+
+    const out = runHookCapturingAll(
+      { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    const provisioned = join(nodeRoot, `node${MAJOR}`, 'bin');
+    for (const tool of ['node', 'npm', 'npx']) {
+      expect(realpathSync(join(shimDir, tool))).toBe(join(provisioned, tool));
+    }
+    expect(out).not.toContain('will not be on PATH');
+  });
+
+  it('refuses when an earlier PATH entry supplies one of the tools', () => {
+    // node and npm need not come from the same directory, so a stop point
+    // taken from node alone would link a set that stays split: the shim wins
+    // for node while the earlier npm keeps winning for npm. Each tool is asked
+    // about separately, against the PATH prefix ahead of the shim.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+    const earlier = mkdtempSync(join(tmpdir(), 'session-hook-early-'));
+    writeFileSync(join(earlier, 'npm'), '#!/bin/sh\nexit 0\n');
+    chmodSync(join(earlier, 'npm'), 0o755);
+
+    try {
+      const out = runHookCapturingAll(
+        { PATH: `${earlier}:${shimDir}:${process.env.PATH ?? ''}` },
+        ['CLAUDE_ENV_FILE'],
+      );
+
+      expect(out).toContain('supplied earlier on PATH');
+      expect(existsSync(join(shimDir, 'node'))).toBe(false);
+    } finally {
+      rmSync(earlier, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores an earlier PATH entry whose copy of a tool is not executable', () => {
+    // `command -v` reports a name it finds with the execute bit cleared, but
+    // command execution skips that entry and searches on — so asking it here
+    // refuses to link a set that would in fact have won the lookup. The test
+    // is the one execution applies: a regular file with the bit set.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+    const earlier = mkdtempSync(join(tmpdir(), 'session-hook-early-'));
+    writeFileSync(join(earlier, 'npm'), '#!/bin/sh\nexit 0\n');
+    chmodSync(join(earlier, 'npm'), 0o644);
+
+    try {
+      const out = runHookCapturingAll(
+        { PATH: `${earlier}:${shimDir}:${process.env.PATH ?? ''}` },
+        ['CLAUDE_ENV_FILE'],
+      );
+
+      expect(out).not.toContain('supplied earlier on PATH');
+      const provisioned = join(nodeRoot, `node${MAJOR}`, 'bin');
+      for (const tool of ['node', 'npm', 'npx']) {
+        expect(realpathSync(join(shimDir, tool))).toBe(join(provisioned, tool));
+      }
+    } finally {
+      rmSync(earlier, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses when the provisioned toolchain is missing one of the tools', () => {
+    // A cached toolchain with a runnable node but no npx must not produce a
+    // half-linked set: later shells would pair the provisioned node with the
+    // image's npx, or with a stale link from an earlier major left beside it,
+    // which reads as provisioned and is a split toolchain.
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    writeFakeToolchain(cacheBin, LATEST);
+    rmSync(join(cacheBin, 'npx'));
+    writeDistFixture([LATEST], null);
+    const shimDir = join(work, '.local', 'bin');
+
+    const out = runHookCapturingAll(
+      { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    expect(out).toContain('no runnable npx');
+    expect(existsSync(join(shimDir, 'node'))).toBe(false);
+  });
+
+  it('refuses when a source tool is present but not executable', () => {
+    // Command lookup skips a non-executable file and falls through to the
+    // image's copy, so linking one would leave `node` provisioned and `npx`
+    // effectively unchanged — the split this fallback exists to prevent,
+    // wearing the right name. Presence is not the test; runnability is.
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    writeFakeToolchain(cacheBin, LATEST);
+    chmodSync(join(cacheBin, 'npx'), 0o644);
+    writeDistFixture([LATEST], null);
+    const shimDir = join(work, '.local', 'bin');
+
+    const out = runHookCapturingAll(
+      { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    expect(out).toContain('no runnable npx');
+    expect(existsSync(join(shimDir, 'node'))).toBe(false);
+  });
+
+  it('refuses when a source tool passes the mode checks but will not run', () => {
+    // `-f -x` describes a file, not a working program: a missing interpreter or
+    // a truncated/wrong-arch binary passes both and still cannot start. The
+    // links outlive this session while that failure shows up only in the hook's
+    // own `npm install`, so later shells would keep resolving a dead npm
+    // instead of falling back to the image's.
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    writeFakeToolchain(cacheBin, LATEST);
+    writeFileSync(join(cacheBin, 'npm'), '#!/bin/sh\nexit 1\n');
+    chmodSync(join(cacheBin, 'npm'), 0o755);
+    writeDistFixture([LATEST], null);
+    const shimDir = join(work, '.local', 'bin');
+
+    // The hook goes on to run this same broken npm itself and dies under
+    // `set -e`, which is the pre-existing behavior and not what's under test —
+    // catch the exit so the refusal above it can be asserted.
+    let out: string;
+    try {
+      out = runHookCapturingAll(
+        { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+        ['CLAUDE_ENV_FILE'],
+      );
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string };
+      out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
+    }
+
+    expect(out).toContain('npm does not run');
+    expect(existsSync(join(shimDir, 'node'))).toBe(false);
+  });
+
+  it('treats an empty PATH field as the current directory when checking for an earlier supplier', () => {
+    // A zero-length PATH field means the CURRENT directory to the shell, so a
+    // leading or doubled colon is a real entry. Dropping it would let a tool
+    // sitting in the working directory keep winning the lookup while the hook
+    // linked a shim behind it and reported success — the split this guard
+    // exists to catch, hidden by a parsing detail.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+    // The hook cd's to CLAUDE_PROJECT_DIR, so that is what `.` resolves to.
+    // A full toolchain rather than a lone `npm`: with `.` first on PATH the
+    // hook's own `node -e`/`node -p` calls resolve here too.
+    writeFakeToolchain(projectDir, LATEST);
+
+    const out = runHookCapturingAll(
+      { PATH: `:${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    expect(out).toContain('supplied earlier on PATH');
+    expect(existsSync(join(shimDir, 'node'))).toBe(false);
+  });
+
+  it('falls back to links when CLAUDE_ENV_FILE cannot be written', () => {
+    // errexit is disabled inside the function (it is called from `if !`), so a
+    // failed append would otherwise reach an unconditional `return 0` and
+    // report the harness seam as taken while later shells kept the image's
+    // runtime. The links reach the same shells by another route, so the
+    // failure is a reason to fall through rather than to give up.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+
+    const out = runHookCapturingAll({
+      PATH: `${shimDir}:${process.env.PATH ?? ''}`,
+      // Parent does not exist, so the redirect fails.
+      CLAUDE_ENV_FILE: join(work, 'no-such-dir', 'env.sh'),
+    });
+
+    const provisioned = join(nodeRoot, `node${MAJOR}`, 'bin');
+    expect(realpathSync(join(shimDir, 'node'))).toBe(join(provisioned, 'node'));
+    expect(out).toContain('could not write');
+  });
+
+  it('refuses the env-file route too when a source tool is unusable', () => {
+    // Both routes put the whole provisioned directory ahead of the image's
+    // copies, so validating only on the link path would let a cached
+    // toolchain with a working node and a broken npx persist through
+    // CLAUDE_ENV_FILE and split exactly the same way.
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    writeFakeToolchain(cacheBin, LATEST);
+    chmodSync(join(cacheBin, 'npx'), 0o644);
+    writeDistFixture([LATEST], null);
+
+    const out = runHookCapturingAll();
+
+    expect(out).toContain('no runnable npx');
+    expect(readFileSync(envFile, 'utf-8')).not.toContain(cacheBin);
+  });
+
+  it('does not treat a PATH entry that symlinks outside HOME as eligible', () => {
+    // The $HOME test is lexical, but every operation after it — the writable
+    // check, the links — acts on the resolved path. A `~/.local/bin` pointing
+    // at a system directory would otherwise pass the boundary and then write
+    // through it, which is the one thing the HOME-only rule exists to stop.
+    writeDistFixture([LATEST], LATEST);
+    const outside = mkdtempSync(join(tmpdir(), 'session-hook-outside-'));
+    const shimDir = join(work, '.local', 'bin');
+    mkdirSync(join(work, '.local'), { recursive: true });
+    symlinkSync(outside, shimDir);
+
+    try {
+      const out = runHookCapturingAll(
+        { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+        ['CLAUDE_ENV_FILE'],
+      );
+
+      expect(existsSync(join(outside, 'node'))).toBe(false);
+      expect(out).toContain('will not be on PATH');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('does not create a missing candidate whose parent escapes HOME', () => {
+    // The resolved check alone is not enough if `mkdir -p` runs first: with
+    // `~/.local` symlinked outside and `bin` absent, creating the candidate is
+    // itself the boundary violation, committed before anything is validated.
+    // The nearest existing ancestor is what has to clear the way.
+    writeDistFixture([LATEST], LATEST);
+    const outside = mkdtempSync(join(tmpdir(), 'session-hook-escape-'));
+    symlinkSync(outside, join(work, '.local'));
+    const shimDir = join(work, '.local', 'bin');
+
+    try {
+      const out = runHookCapturingAll(
+        { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+        ['CLAUDE_ENV_FILE'],
+      );
+
+      expect(existsSync(join(outside, 'bin'))).toBe(false);
+      expect(out).toContain('will not be on PATH');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a directory masquerading as a source tool', () => {
+    // `-x` is true of a directory — they are searchable — so an executability
+    // check alone would link one, and command lookup would skip it and fall
+    // through to the image's copy. Same split, arrived at from a direction
+    // that looks like a passing check.
+    const cacheBin = join(nodeRoot, `node${MAJOR}`, 'bin');
+    writeFakeToolchain(cacheBin, LATEST);
+    rmSync(join(cacheBin, 'npx'));
+    mkdirSync(join(cacheBin, 'npx'));
+    writeDistFixture([LATEST], null);
+    const shimDir = join(work, '.local', 'bin');
+
+    const out = runHookCapturingAll(
+      { PATH: `${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    expect(out).toContain('no runnable npx');
+    expect(existsSync(join(shimDir, 'node'))).toBe(false);
   });
 
   it('is a no-op outside Claude Code on the web', () => {
