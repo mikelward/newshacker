@@ -5,6 +5,7 @@ import { LoadingState } from '../components/States';
 import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
 import { buildCommitTime } from '../lib/buildInfo';
 import { formatTimeAgo } from '../lib/format';
+import { getPersistRestoreFailure } from '../lib/idbPersister';
 import './DebugPage.css';
 
 function parseBuildTime(iso: string): Date | null {
@@ -59,6 +60,9 @@ function serviceBadgeState(status: ServiceStatus): 'ok' | 'warn' | 'off' {
 }
 
 export function DebugPage() {
+  // Module state written at boot, so a plain read is enough — there is
+  // nothing to subscribe to that could change while this page is open.
+  const restoreFailure = getPersistRestoreFailure();
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['debug-status'],
     queryFn: ({ signal }) => fetchStatus(signal),
@@ -70,6 +74,16 @@ export function DebugPage() {
   return (
     <article className="debug-page">
       <h1 className="debug-page__title">Debug</h1>
+
+      {/* Boot-time, once per session, and outside the /api/status gate
+          on purpose: a device whose persisted cache won't restore is
+          exactly the one that may not be able to load status either. */}
+      {restoreFailure && (
+        <p className="debug-page__alert" role="status">
+          Cache restore failed (<code>{restoreFailure.error}</code>) — the
+          persisted cache was discarded and refetched.
+        </p>
+      )}
 
       {isLoading ? (
         <LoadingState showLabel label="Loading status…" />

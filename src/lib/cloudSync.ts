@@ -621,8 +621,9 @@ export function primeCloudSyncPull(
 // reconnect or visibility trigger:
 //
 //   - it was fired before a session change (`generationBefore` is the
-//     generation as of this start, so the boot case still matches), so
-//     the response can't be attributed to this session;
+//     generation as of this start, so the boot case still matches), or
+//     a session change lands while we're waiting on it, so the response
+//     can't be attributed to this session;
 //   - it's older than the freshness window;
 //   - it failed — network, non-OK, unparsable, wrong shape.
 //
@@ -634,6 +635,10 @@ async function initialPull(
 ): Promise<void> {
   const primed = primedPull;
   primedPull = null;
+  // The generation this start owns — startCloudSync bumped it a few
+  // lines above, so this is the value a login or logout during the
+  // await would move.
+  const generationAtStart = syncGeneration;
   const usable =
     primed !== null &&
     primed.generation === generationBefore &&
@@ -644,15 +649,25 @@ async function initialPull(
   }
   rt.lastPullAttemptAt = primed.at;
   const server = await primed.state;
-  // Both conditions are re-checked *after* the await, not just before
-  // it: a request that was young enough when we started waiting can
-  // settle on the far side of the window, and the runtime can be
-  // swapped while we wait. Either way the answer is a fresh pull, not
-  // an expired or misattributed snapshot.
+  // All three conditions are re-checked *after* the await, not just
+  // before it: a request that was young enough when we started waiting
+  // can settle on the far side of the window, the runtime can be
+  // swapped while we wait, and — the case neither of those covers —
+  // `noteCloudSyncAuthChange` can fire from a login or logout while
+  // `runtime` is still this one, because React's `useCloudSync` effect
+  // runs a tick behind the cookie changing. Either way the answer is a
+  // fresh pull, not an expired or misattributed snapshot.
   if (runtime !== rt) return;
-  if (!server || Date.now() - primed.at >= PRIME_MAX_AGE_MS) {
-    // A failed or expired prime. `lastPull` already records why a
-    // failed one failed; this is the fallback its own doc promises.
+  if (
+    !server ||
+    syncGeneration !== generationAtStart ||
+    Date.now() - primed.at >= PRIME_MAX_AGE_MS
+  ) {
+    // A failed, expired, or now-misattributed prime. `lastPull`
+    // already records why a failed one failed; this is the fallback its
+    // own doc promises. `pull()` re-fetches under whatever cookie is
+    // current and re-checks the runtime before applying, so it is the
+    // right answer for the auth-change case too.
     await pull();
     return;
   }

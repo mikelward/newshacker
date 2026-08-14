@@ -3,6 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import {
   PINNED_SYNC_STALE_MS,
   _resetPinnedOfflineSyncForTests,
+  notePinnedCacheHydrated,
   startPinnedOfflineSync,
   syncPinnedStoriesForOffline,
 } from './pinnedOfflineSync';
@@ -1041,6 +1042,57 @@ describe('startPinnedOfflineSync', () => {
         vi.useRealTimers();
       }
       expect(fetchMock.mock.calls.length).toBe(callsBefore);
+    } finally {
+      stop();
+    }
+  });
+
+  it('holds a pin this device already had until the cache restores, and warms one that arrives meanwhile', async () => {
+    // Regression (Codex review on #497): these listeners go up in the
+    // entry module, *before* PersistQueryClientProvider restores, and
+    // the boot /api/sync prime merges into the pinned store in that
+    // window — emitting a change event even for an unchanged snapshot.
+    // The cache is empty then, so every existing pin looked cold: its
+    // root re-downloaded and two blind summary requests fired for
+    // content already on disk.
+    installHNFetchMock({
+      items: {
+        31: makeStory(31, { title: 'ThirtyOne' }),
+        32: makeStory(32, { title: 'ThirtyTwo' }),
+      },
+      summaries: { 31: { summary: 'S31' }, 32: { summary: 'S32' } },
+      commentsSummaries: { 31: { insights: ['i31'] }, 32: { insights: ['i32'] } },
+    });
+    // Pinned on a previous visit, so its content may be waiting in
+    // IndexedDB — the thing the empty cache can't tell us yet.
+    addPinnedId(31);
+    const client = newClient();
+    const stop = startPinnedOfflineSync(client);
+    try {
+      // The prime lands and brings a pin made on another device.
+      addPinnedId(32);
+      await vi.waitFor(() => {
+        expect(client.getQueryData(['itemRoot', 32])).toMatchObject({
+          item: { title: 'ThirtyTwo' },
+        });
+        expect(client.getQueryData(['summary', 32])).toMatchObject({
+          summary: 'S32',
+        });
+      });
+      // Nothing persisted can be waiting for a pin this device has
+      // never seen, so 32 is warmed on arrival — while 31 waits.
+      expect(client.getQueryData(['itemRoot', 31])).toBeUndefined();
+
+      // Restoration reports. The held pin is judged on what the cache
+      // actually holds — and it was never marked attempted, so the 6 h
+      // throttle isn't standing in the way of its download.
+      notePinnedCacheHydrated();
+      syncPinnedStoriesForOffline(client);
+      await vi.waitFor(() => {
+        expect(client.getQueryData(['itemRoot', 31])).toMatchObject({
+          item: { title: 'ThirtyOne' },
+        });
+      });
     } finally {
       stop();
     }

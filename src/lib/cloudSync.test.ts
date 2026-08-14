@@ -1127,6 +1127,50 @@ describe('boot-time pull priming', () => {
     expect(getPinnedIds().has(42)).toBe(false);
   });
 
+  it('pulls fresh when a login lands while the primed pull is in flight', async () => {
+    // The post-await checks covered the runtime being swapped and the
+    // snapshot ageing out, but not the window in between: a login or
+    // logout bumps the generation the moment the cookie changes, while
+    // React's useCloudSync effect is still a tick from stopping or
+    // replacing the runtime — so runtime identity alone still says this
+    // snapshot belongs here, and it doesn't.
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const primeFetch = vi.fn(async () => {
+      await gate;
+      return jsonResponse({
+        pinned: [{ id: 42, at: T.T1 }],
+        favorite: [],
+        hidden: [],
+        done: [],
+      });
+    }) as unknown as FetchMock;
+    void primeCloudSyncPull({ fetchImpl: primeFetch });
+
+    const startFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 7, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+      { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+    ]);
+    const started = startCloudSync('alice', {
+      fetchImpl: startFetch,
+      debounceMs: 0,
+    });
+    // useAuth reports the cookie change; the runtime is untouched.
+    noteCloudSyncAuthChange();
+    release();
+    await started;
+    await drain();
+
+    expect(getPinnedIds().has(7)).toBe(true);
+    expect(getPinnedIds().has(42)).toBe(false);
+    expect(
+      startFetch.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET'),
+    ).toHaveLength(1);
+  });
+
   it('falls back to a fresh pull when the primed request failed', async () => {
     window.localStorage.setItem(SYNC_HINT_KEY, '1');
     const primeFetch = queuedFetch([

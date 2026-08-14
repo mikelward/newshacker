@@ -14,7 +14,10 @@ import {
   isRetryableFetchError,
   setConnectivityProbeUrl,
 } from './lib/networkStatus';
-import { createAppPersister } from './lib/idbPersister';
+import {
+  createAppPersister,
+  notePersistRestoreFailure,
+} from './lib/idbPersister';
 import { prefetchDeepLinkedItem } from './lib/deepLinkPrefetch';
 import { primeCloudSyncPull } from './lib/cloudSync';
 import { startQueryCacheSync } from './lib/queryCacheSync';
@@ -23,6 +26,7 @@ import {
   startPinnedQueryRetention,
 } from './lib/pinnedQueryRetention';
 import {
+  notePinnedCacheHydrated,
   startPinnedOfflineSync,
   syncPinnedStoriesForOffline,
 } from './lib/pinnedOfflineSync';
@@ -203,6 +207,25 @@ createRoot(document.getElementById('root')!).render(
         // must see the restored cache, not an empty one — otherwise
         // every boot would re-download all pins. Landing on a thread
         // link directly (no home view) still syncs this way.
+        //
+        // The boot listeners above went up before this, so the same
+        // "must see the restored cache" rule is enforced inside the
+        // module for the runs they trigger meanwhile — release it here.
+        notePinnedCacheHydrated();
+        syncPinnedStoriesForOffline(queryClient);
+      }}
+      onError={() => {
+        // Restoration failed (the persister threw and dropped the
+        // blob), so nothing is coming and the cache is genuinely empty.
+        // This callback takes no arguments and React Query only logs the
+        // cause in dev builds, so the cause is recorded at the persister
+        // (which re-throws); this call is the backstop for a throw from
+        // `hydrate`, past that wrapper. Either way /debug can tell a
+        // corrupt restore from a device that just has no cache yet.
+        notePersistRestoreFailure();
+        // Releasing the gate here is what stops a failed restore from
+        // leaving pinned downloads switched off for the whole session.
+        notePinnedCacheHydrated();
         syncPinnedStoriesForOffline(queryClient);
       }}
     >
