@@ -227,7 +227,21 @@ the top-up such a thread stayed comment-less offline until its root went
 stale; ids past the cap wait for a later run — the affected stories are
 un-throttled once the batch settles, so the next trigger picks up the tail
 instead of waiting out the 6 h window, and each successful batch makes
-progress, so repeated triggers converge). The pinned-set-change
+progress, so repeated triggers converge). **A pin this device has never
+downloaded — the cross-device arrival — asks for both summaries blind, in
+parallel with the root batch rather than after it.** The precise path
+can't ask until the root lands (it keys off `url` / `text` /
+`descendants`), which puts two round trips end to end at exactly the
+moment the reader is about to tap in; with nothing cached there is
+nothing to be precise about. Both endpoints resolve the story
+server-side and reject an ineligible one (`no_article`, `low_score`, no
+comments) from validation branches that sit *before* the rate-limit gate
+and any Gemini/Jina call, so a story that turns out to have no article or
+no discussion costs one function invocation, no quota and no model spend;
+everything else was going to be fetched a moment later anyway. Those ids
+skip the root batch's own summary step, since a blind fetch that *failed*
+leaves no cached data and would otherwise be re-asked inside the same
+run. The pinned-set-change
 trigger runs one macrotask deferred: local pin handlers dispatch the change
 event synchronously *before* firing the pin-time warm, so an inline sync
 would double-fetch every local pin; one tick later the pin-time root fetch is
@@ -263,13 +277,57 @@ ride `/api/sync` (Upstash Redis, per-user, per-id last-write-wins,
 fail-open) for signed-in users. Max 10k entries per list, enforced
 server-side with most-recent-first eviction.
 
+**The pull is primed at boot.** `/api/sync` is authenticated by the
+session cookie alone, so the GET does not have to wait for the persisted
+query cache to rehydrate from IndexedDB and for React to mount far enough
+for auth to resolve — a few hundred milliseconds on a phone, all of it
+spent before the request that carries a pin made on another device even
+goes on the wire, and all of it in front of the item and summary fetches
+that pin then needs. `primeCloudSyncPull()` (called from `main.tsx`)
+fires it from the entry module and merges the answer into the local
+stores as soon as it lands — the stores are what the UI reads and what
+the pinned offline warm listens to, so that is the moment a pin from
+another device both exists here and starts downloading. `startCloudSync`
+then consumes the same response instead of making its own (the merge is
+idempotent; its second pass is what sets the push watermarks).
+
+**The snapshot is bound to the session that asked for it.** The GET is
+authenticated by the cookie at send time and the response carries no
+identity of its own, so a hung request that lands after a sign-out or an
+account switch would otherwise write the previous account's lists into
+stores the current one reads. A generation counter — bumped whenever a
+sync runtime starts, or a running one stops (the boot-time no-op stop,
+before auth resolves, doesn't bump and so can't invalidate the prime it
+races), **and whenever a login or logout completes** (`useAuth` calls
+`noteCloudSyncAuthChange`: a login replaces the cookie while `runtime`
+may still be null on a cold boot, and the new account's start would
+otherwise find a prime matching its own generation, apply the previous
+account's lists, and adopt them as its push watermarks) — is captured
+when the prime fires and re-checked before either merge. A snapshot fired under a different generation, or older than 60 s,
+is not applied and `startCloudSync` pulls fresh instead. So is one that
+failed: a prime that errors falls back to a normal pull rather than
+skipping the initial merge, which would otherwise leave remote changes
+missing until a later reconnect or visibility trigger. The prime is
+consumed by whichever start reaches it first, whatever the outcome, so
+one snapshot can never be applied twice or handed on. The prime is gated
+on
+`newshacker:cloudSyncSeen` — a boolean, never a username — set when a
+pull returns data and cleared on a 401, so a signed-out reader pays one
+401 on their next boot and nothing after that. No extra request in the
+normal case. A localStorage failure on that hint (privacy mode, quota,
+blocked storage) is otherwise invisible — it silently disables priming
+for the life of the device, or leaves a signed-out one re-asking every
+boot — so it's recorded on the cloud-sync debug snapshot and rendered as
+a "Boot hint" row on `/debug`. Sanitized: the operation and the DOM
+exception name, no key or value.
+
 ### MVP (read-only)
 
 1. **Story feeds**
    - Default (and `/`) is the HN front page (Top); the drawer's Home picker can swap `/` to render `/hot` instead, persisted per-device. URL stays `/`.
    - Tabs / routes also available for: New, Best, Ask, Show, Jobs.
    - **Initial paint is exactly one page (30 stories), matching HN's own web front page.** Additional pages are revealed only when the reader taps the explicit **More** button at the end of the list — no infinite scroll, no auto-prefetch of the next page. Each page is 30 stories. The button disappears when the feed's id list has been exhausted. Hidden stories still count against the 30 (we slice the 30-id window before filtering), so a heavily hidden session can leave fewer than 30 rows on screen; the reader recovers by tapping More.
-   - **Pinned stories pinned to the top — but pinning a body row doesn't yank it out from under you.** On a fresh paint, every pinned story is prepended to the top of the feed list in the same row layout — one unified list, pinned rows first (oldest-pinned first), followed by the normal feed. No section header, no duplication: a pinned story is rendered exactly once. This holds regardless of where HN ranks the pin — a story that dropped off HN's front page entirely, *and* a story HN still ranks on a later (not-yet-loaded) page, both surface at the top immediately on first paint. (Previously only "off-feed" pins — those absent from HN's whole id list — were lifted to the top, so a pin sitting on page 2+ stayed invisible until the reader tapped **More**; that was a bug.) **Pinning a row that's already rendered in the body, however, keeps it at its natural feed position** — the click marks it pinned but does not jump it into the top block under the reader's eye. **Consolidation lands on the next feed refetch, not on a local action.** The in-session "stay in body" hold is released on the next feed refetch — a pull-to-refresh, a window-focus refetch, the on-mount refetch, or a **More** page — at which point every in-body pin surfaces in the top block. This fires on *any* refetch, including one that returns byte-identical data: consolidation is keyed off the items query's fetch timestamp (`dataUpdatedAt`), not the item-array reference, because React Query's structural sharing keeps that reference stable across a no-op refetch and array identity would silently miss it. **Sweep deliberately does *not* consolidate:** tapping Sweep hides the unpinned rows around a body pin but leaves the pin exactly where it sits — nothing snaps up, nothing reorders under the reader on a local action. (This is a deliberate change from the earlier "Sweep consolidates" behavior, chosen to match Readmo; restoring a local reorder on Sweep would be a one-line change if that reads better.) (Unpinning a pinned row in either location follows the inverse rule: a top-block pin falls back into the body at its natural position when HN still ranks it; a body-pinned row simply loses the marker and stays where it is.) This keeps the reader's active reading list reachable from the home view without jumping to `/pinned`, while preserving scroll context when they're triaging mid-feed. Item data for a pin already in the loaded feed window is reused, so pinning a visible row doesn't refetch or flicker; only pins outside that window cost a fetch. Cost: at most one extra `/api/items` batch call per feed load when the reader has pins not already loaded (almost always a single request, often zero — pins fit well under the 30-id chunk size). Rides the existing items proxy; no new infra. Degrades silently if the fetch fails — the main feed still renders. The `/tuning` Preview opts out of the top block (it leaves pinned rows in their natural position so the rule's full output stays visible).
+   - **Pinned stories pinned to the top — but pinning a body row doesn't yank it out from under you.** On a fresh paint, every pinned story is prepended to the top of the feed list in the same row layout — one unified list, pinned rows first (oldest-pinned first), followed by the normal feed. No section header, no duplication: a pinned story is rendered exactly once. This holds regardless of where HN ranks the pin — a story that dropped off HN's front page entirely, *and* a story HN still ranks on a later (not-yet-loaded) page, both surface at the top immediately on first paint. (Previously only "off-feed" pins — those absent from HN's whole id list — were lifted to the top, so a pin sitting on page 2+ stayed invisible until the reader tapped **More**; that was a bug.) **Pinning a row that's already rendered in the body, however, keeps it at its natural feed position** — the click marks it pinned but does not jump it into the top block under the reader's eye. **Consolidation lands on the next feed refetch, not on a local action.** The in-session "stay in body" hold is released on the next feed refetch — a pull-to-refresh, a window-focus refetch, the on-mount refetch, or a **More** page — at which point every in-body pin surfaces in the top block. This fires on *any* refetch, including one that returns byte-identical data: consolidation is keyed off the items query's fetch timestamp (`dataUpdatedAt`), not the item-array reference, because React Query's structural sharing keeps that reference stable across a no-op refetch and array identity would silently miss it. **Sweep deliberately does *not* consolidate:** tapping Sweep hides the unpinned rows around a body pin but leaves the pin exactly where it sits — nothing snaps up, nothing reorders under the reader on a local action. (This is a deliberate change from the earlier "Sweep consolidates" behavior, chosen to match Readmo; restoring a local reorder on Sweep would be a one-line change if that reads better.) (Unpinning a pinned row in either location follows the inverse rule: a top-block pin falls back into the body at its natural position when HN still ranks it; a body-pinned row simply loses the marker and stays where it is.) This keeps the reader's active reading list reachable from the home view without jumping to `/pinned`, while preserving scroll context when they're triaging mid-feed. Item data for a pin already in the loaded feed window is reused, so pinning a visible row doesn't refetch or flicker; only pins outside that window cost a fetch. **A pin outside that window paints from the persisted `['itemRoot', id]` cache the pin warm already filled, so the block renders from disk and the fetch below is only ever a refresh.** Without that, the block was keyed on the whole missing-id list: one arriving pin — a cross-device pin landing from `/api/sync`, typically — changed the key and left *every* pinned row with no data until a fresh `/api/items` round trip landed, i.e. a second of skeletons for rows the app had in hand the whole time. A fresher source reporting the story **dead or deleted removes the row** rather than being skipped: "it's dead now" is an answer, and newer than anything on disk, so the cached copy must not stand in for it. Cost: at most one extra `/api/items` batch call per feed load when the reader has pins not already loaded (almost always a single request, often zero — pins fit well under the 30-id chunk size). Rides the existing items proxy; no new infra. Degrades silently if the fetch fails — the main feed still renders. The `/tuning` Preview opts out of the top block (it leaves pinned rows in their natural position so the rule's full output stays visible).
    - **Feed refresh status (opening after a while).** The persisted React Query cache paints the last-seen list instantly on open, then the feed refetches in the background **when the cached list has gone stale** — every refetch trigger (mount, tab refocus, reconnect) is gated on the app-wide 5-minute `staleTime` (the cache TTL), so opening or refocusing a feed whose snapshot is older than that picks up new stories, while navigating back to a list you were reading seconds ago stays quiet instead of re-checking. (Pull-to-refresh and **More** bypass the TTL to force a check.) The mount trigger deliberately uses React Query's stale-gated `refetchOnMount: true`, *not* `'always'`: the earlier `'always'` ignored the TTL and re-checked on every remount — since opening a story unmounts the feed, that flashed the refresh strip on every "back", far more often than readers expected. A thin status strip at the foot of the list — just above the More / Back-to-top row, so the load-related affordances sit together — reports that background refresh so a stale snapshot is never shown silently: a quiet *"Checking for new stories…"* (with spinner) while the refresh is in flight, and a *"Couldn't load new stories."* row with a **Retry** button when it failed. The strip only appears while rows are already on screen — the first-ever load still owns the loading skeletons / error / empty states. The id-list query (`['storyIds', …]`, the one read that hits Firebase directly rather than the `/api/items` proxy) retries a few times with exponential backoff + jitter (configured via `setQueryDefaults` in `main.tsx`; only statusless network blips retry — never a response that carried an HTTP status, see `feedQueryRetry`) before the failed state shows, so a momentary blip on open self-heals; the "More" page fetch keeps its deliberate bail-on-failure behavior and is not retried. The detection of "showing stale rows because the background refresh failed" relies on the fact that React Query keeps a query's status at `success` (so `isError` stays false) when it already has data and only a refetch fails — see `deriveRefreshState` in `src/hooks/useStoryList.ts`. The `/tuning` Preview opts out of the strip. Cost / reliability: no new network beyond the refetch that already happened; the retry is bounded and scoped to the tiny id-list JSON, so no extra item-proxy or summary spend.
    - **`/offline` — cached stories on this device.** A local-only list of story `itemRoot` cache entries, rendered with the same row layout as the home feed and sorted newest-cache-first. It does not fetch new stories to populate itself; opening a story still follows the normal thread route, which renders whatever cached comments/summaries are present. Hidden and Done stories are filtered out like the home feed, while pinned rows keep the normal Pin/Unpin affordance. Cost: zero network and no new infrastructure for the list itself; it only inspects the local React Query cache. Reliability: if the cache is empty or the browser evicted entries, the page shows an empty state rather than promising unavailable content.
    - Each list item shows: title, domain, points · age, and the comments count — all display-only plain text inside the row's stretched link. The comments segment renders as `"N comments"` normally, and flips to `"N/M comments"` when the reader has unseen comments to catch up on (N = new count since last visit, M = total). The "N new" piece deliberately rides inside the comments segment instead of adding a fourth meta item, per the fewer-tap-targets / lower-density goal.
@@ -1426,6 +1484,50 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 - **The batch fetch carries an 8-second deadline** (`COMMENT_BATCH_TIMEOUT_MS`, via `AbortSignal.timeout`). Thread's infinite-scroll `onLoadMore` and `loadRoot` both await the batch before mounting the next page of `<Comment>`s, so without a deadline a hung `/api/items` request left the reader staring at placeholder skeletons until the browser's own fetch timeout (often minutes). On abort the prefetch is swallowed like any other failure and the per-comment fallback takes over.
 - **`/api/items` never edge-caches a degraded batch.** A failed upstream fetch still yields a `null` entry in the response body, but the handler flips `cache-control` to `no-store` for that response — otherwise the shared `s-maxage=60, stale-while-revalidate=300` edge cache would serve the failure-nulls to *every* user for up to ~6 minutes after a transient Firebase hiccup ("lots of empty comments tonight"). Genuine Firebase nulls (deleted/unknown ids) are stable and keep the normal cacheable header. When **every** id in the batch fails upstream, the handler returns **503** (`no-store`) instead of a 200 of failure-nulls: the batch carries no data at all, and the client's connectivity tracker only latches `down` (pausing the query layer, showing the Down pill) on a core-read 5xx — a 200 would hide a Firebase outage as an empty-but-online feed. A partial failure keeps the degraded 200 + `no-store`, since some rows are usable and one flaky item must not flip the whole app. Cost: effectively zero — the header only changes on batches that hit an upstream error, so edge hit rate is unaffected in the steady state; during an upstream incident, retries go to origin instead of being served poisoned nulls, which is the point.
 
+### Deep-link boot prefetch
+`/item/:id` is the one route whose content the URL fully determines, and
+it's how a companion app (Readmo) hands a story over. Opened cold, that
+used to reach the network only at the end of a chain the reader watches:
+parse and run the bundle → mount React → wait out the IndexedDB restore
+(React Query holds every *observer's* fetch while `isRestoring`) → fetch
+the item → and only then, because the summary card doesn't exist until
+the item reports a `url` or a `text` body, fetch the summary. Four waits,
+of which the URL already told us enough to skip the first three.
+
+`prefetchDeepLinkedItem` (`src/lib/deepLinkPrefetch.ts`, called from
+`main.tsx` at module scope) reads the id off `location.pathname` and
+fires all three — `['itemRoot', id]` (with its usual first-page comment
+batch riding along), `['summary', id]`, `['comments-summary', id]` — in
+parallel, before React mounts. The keys are the ones `useItemTree` /
+`useSummary` / `useCommentsSummary` already use, so the observers that
+mount a moment later attach to these in-flight fetches rather than
+starting their own, and `hydrate` overwrites a query only when the
+persisted copy is *newer* than what's in the client — a cached thread
+still hydrates from disk, and a fresher live response isn't clobbered.
+
+Cost: three requests the thread page was about to make anyway, so the
+normal case adds nothing. Two cases pay a little — a re-open inside the
+30-minute summary freshness window re-asks for a summary the cache would
+have served, and a deep link to a *comment* (indistinguishable from a
+story by URL) asks for two summaries that don't exist. Both reject from
+Redis-backed validation that sits before the rate-limit gate and any
+Gemini/Jina call: one Vercel invocation each, no quota, no model spend.
+Concretely: deep links are the share / companion-app path rather than
+routine navigation, so call it 50 cold opens a day for a heavy single
+user; taking *all* of them as wasteful gives ≤100 extra invocations a
+day, ~3k/month. Vercel Pro includes 1M function invocations a month, so
+that's ~0.3% of the included quota — **$0/month**, and it would take
+roughly 300× this traffic to reach the paid threshold at all. Upstash
+sees ≤2 reads per call, ~6k/month against a free tier measured in tens
+of thousands of commands a day: also $0. The cold-pin warm under
+*Pinned offline warm* has the same shape and a tighter bound (only pins
+this device has never downloaded, ≤30 per run, once per 6 h per story).
+
+A failed prefetch is invisible — the thread's own query fetches and
+reports as it always did, and a failure can't take a hydrated thread off
+the screen, because the thread's error screen only renders when there is
+no data at all (see *Offline UX*).
+
 ### Trending-score drive-by warm
 - As the feed renders, `StoryList` calls `prefetchFeedStory` (in `src/lib/feedStoryPrefetch.ts`) for every row with `score > 100`. It delegates to the same `prefetchPinnedStory` used at pin-time, so the warm shape is identical: `['itemRoot', id]`, the first 30 top-level comments (one shared `/api/items?fields=full` batch), the article AI summary, and the comments AI summary. Tapping a popular headline renders the thread, summaries, and early comments without a round-trip.
 - Tracked per-session via a `Set` in `StoryList` so re-renders don't re-fetch, and `prefetchFeedStory` short-circuits outright if `['itemRoot', id]` is already cached.
@@ -1504,7 +1606,7 @@ The helper is best-effort — on failure (`/api/items` 5xx, offline at pin time)
 ### Offline UX
 - `useOnlineStatus` hook drives:
   - A small "Offline" pill in the header.
-  - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline.
+  - An offline-specific message on the thread page when the item isn't in cache: "This story is not available offline. Pin it while online to keep a copy." No retry button while offline. **"Isn't in cache" is the whole condition** — the thread's error screen renders only when there is no `data` to show. React Query keeps `data` and flips `status` to `'error'` when a fetch fails on a query that already has one, so gating on `isError` alone replaced a readable pinned thread with an error the moment any background refresh failed. A failed refresh leaves the cached story on screen (the summary cards next to it already work this way).
   - An offline-specific message in the AI summary card when no cached summary exists. The same message pattern applies to the AI comment summary card.
   - The feed footer's refresh-failed strip: while offline it reads "Offline — showing cached stories." with **no Retry button** (same no-retry-while-offline rule as the thread page — a retry is guaranteed to fail, and reconnect refetches the feed automatically via `refetchOnReconnect` + the tracker's recovery probe). Back online, the strip keeps the "Couldn't load new stories. — Retry" form.
 - Write actions (vote, login — once implemented) check `navigator.onLine` and show a toast instead of issuing a request that's guaranteed to fail.

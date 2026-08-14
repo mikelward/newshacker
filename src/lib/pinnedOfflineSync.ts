@@ -134,6 +134,54 @@ function prefetchMissingSummariesAndUnthrottleOnBlip(
   });
 }
 
+// A pin this device has never downloaded — the cross-device arrival, and
+// the case the reader feels: they pinned it in the companion app, opened
+// newshacker, and everything about that story is a cold fetch.
+//
+// The precise path can't ask for its summaries until the root lands (it
+// keys off `url` / `text` / `descendants`), which puts two round trips
+// end to end at exactly the moment the reader is about to tap in. With
+// nothing cached there's nothing to be precise about, so fire both
+// summaries blind, alongside the root batch. `/api/summary` and
+// `/api/comments-summary` resolve the story server-side and reject an
+// ineligible one (`no_article`, `low_score`, no comments) from cheap
+// validation branches that sit *before* the rate-limit gate and any
+// Gemini/Jina call — so a story that turns out to have no article or no
+// discussion costs one function invocation, no quota and no model spend.
+// Everything else was going to be fetched a moment later anyway.
+//
+// Cost (rule 11): the wasteful subset is bounded by how many pins this
+// device has *never* downloaded — normally the one just made elsewhere,
+// at most PINNED_SYNC_MAX_STORIES per run, and once per 6 h per story
+// via the attempt throttle. Even a pathological 30-pin cold start is 60
+// invocations, and a realistic month is in the low hundreds: against
+// Vercel Pro's included 1M invocations/month that is **$0**, with no
+// Gemini or Jina spend and no AI-quota consumption at all.
+//
+// The root batch's own `prefetchMissingSummaries` still runs when the
+// items land; React Query dedupes a prefetch against the in-flight
+// fetch for the same key, so it's a no-op for whatever fired here.
+function warmColdPinSummaries(client: QueryClient, ids: readonly number[]): void {
+  for (const id of ids) {
+    const prefetches: Array<Promise<boolean>> = [];
+    if (client.getQueryData(summaryQueryKey(id)) === undefined) {
+      prefetches.push(prefetchSummaryQuery(client, summaryQueryOptions(id)));
+    }
+    if (client.getQueryData(commentsSummaryQueryKey(id)) === undefined) {
+      prefetches.push(
+        prefetchSummaryQuery(client, commentsSummaryQueryOptions(id)),
+      );
+    }
+    if (prefetches.length === 0) continue;
+    // Same blip rule as everywhere else here: a statusless network
+    // failure clears the attempt mark so the next trigger retries
+    // instead of waiting out the 6 h window.
+    void Promise.all(prefetches).then((results) => {
+      if (results.some(Boolean)) attemptedAtById.delete(id);
+    });
+  }
+}
+
 function storySyncNeed(
   client: QueryClient,
   id: number,
@@ -258,6 +306,11 @@ async function syncPinnedRootBatch(
   client: QueryClient,
   ids: readonly number[],
   fillTopUp: CommentTopUp,
+  // Ids whose summaries this run already asked for blind, before the
+  // roots landed (see warmColdPinSummaries). Their summary step is
+  // skipped below: a blind fetch that *failed* leaves no cached data,
+  // so the precise path would re-ask for it inside the same run.
+  coldIds: ReadonlySet<number> = new Set(),
 ): Promise<void> {
   let items: Array<HNItem | null>;
   try {
@@ -334,7 +387,9 @@ async function syncPinnedRootBatch(
     // A blip-cleared mark here is safe even though the root batch
     // succeeded: the next trigger sees the now-fresh root and takes the
     // fill path, so nothing is double-fetched.
-    prefetchMissingSummariesAndUnthrottleOnBlip(client, item, kidIds);
+    if (!coldIds.has(ids[i])) {
+      prefetchMissingSummariesAndUnthrottleOnBlip(client, item, kidIds);
+    }
   }
   await Promise.all(rootWrites);
   // Same blip rule as the fill path: the roots landed, but if the
@@ -359,6 +414,9 @@ export function syncPinnedStoriesForOffline(
 ): void {
   if (!getOnline()) return;
   const rootIds: number[] = [];
+  // Root-path ids with nothing cached at all (vs. a stale root being
+  // refreshed) — see warmColdPinSummaries.
+  const coldIds: number[] = [];
   const fillRoots: ItemRoot[] = [];
   for (const entry of getPinnedEntries().sort((a, b) => b.at - a.at)) {
     if (rootIds.length + fillRoots.length >= PINNED_SYNC_MAX_STORIES) break;
@@ -367,6 +425,9 @@ export function syncPinnedStoriesForOffline(
     attemptedAtById.set(entry.id, now);
     if (need === 'root') {
       rootIds.push(entry.id);
+      if (client.getQueryData(['itemRoot', entry.id]) === undefined) {
+        coldIds.push(entry.id);
+      }
     } else {
       const root = client.getQueryData<ItemRoot | null>(['itemRoot', entry.id]);
       if (root) fillRoots.push(root);
@@ -379,9 +440,10 @@ export function syncPinnedStoriesForOffline(
   // fire it directly; when roots also need refreshing, the fill ids are
   // merged into the root batch's comment batch (which must wait for the
   // root items anyway) so a mixed run can't double the /api/items calls.
+  warmColdPinSummaries(client, coldIds);
   const fillTopUp = collectFillCommentTopUp(client, fillRoots);
   if (rootIds.length > 0) {
-    void syncPinnedRootBatch(client, rootIds, fillTopUp);
+    void syncPinnedRootBatch(client, rootIds, fillTopUp, new Set(coldIds));
   } else {
     void prefetchCommentsAndUnthrottleOnBlip(
       client,

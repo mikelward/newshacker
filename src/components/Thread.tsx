@@ -1045,7 +1045,21 @@ export function Thread({ id }: Props) {
       </div>
     );
   }
-  if (isError) {
+  // A failed *refresh* must never take a readable thread off the screen.
+  // React Query keeps `data` and flips `status` to 'error' when a fetch
+  // fails on a query that already has data, so gating on `isError` alone
+  // replaced a perfectly good cached (or pinned, or just-hydrated) thread
+  // with "Could not load thread." — which is the opposite of what the
+  // offline promise says. The error screen is for having *nothing to
+  // show*; its own copy says so ("not available offline. Pin it while
+  // online to keep a copy"). The summary cards next to it already work
+  // this way (`isError && !isFetching && !offlineWithoutCache`).
+  //
+  // The boot prefetch made this reachable in a new way — it starts before
+  // the persister rehydrates, so its failure can land *after* hydration
+  // has filled the query — but the same hole was already open to any
+  // failing on-mount refetch of a hydrated thread.
+  if (isError && !data) {
     const message = online
       ? 'Could not load thread.'
       : 'This story is not available offline. Pin it while online to keep a copy.';

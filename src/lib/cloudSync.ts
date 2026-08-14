@@ -160,6 +160,14 @@ export interface CloudSyncDebugSnapshot {
   push: { inFlight: boolean; queued: boolean; timerPending: boolean };
   lastPull: LastRequest | null;
   lastPush: LastRequest | null;
+  // Set only when a boot-hint read/write threw; see noteHintFailure.
+  lastHintFailure: HintFailure | null;
+}
+
+export interface HintFailure {
+  at: number;
+  op: 'read' | 'write' | 'clear';
+  error: string;
 }
 
 export interface LastRequest {
@@ -178,6 +186,7 @@ export interface LastRequest {
 
 let lastPull: LastRequest | null = null;
 let lastPush: LastRequest | null = null;
+let lastHintFailure: HintFailure | null = null;
 
 const debugSubscribers = new Set<() => void>();
 
@@ -280,8 +289,19 @@ function localHotThresholdsAt(): number {
   return typeof prefs.at === 'number' ? prefs.at : 0;
 }
 
+// Merge a server snapshot into the local stores, and — when there's a
+// runtime to hold it — advance the push watermarks.
+//
+// The two halves are split by that guard on purpose: the boot-primed
+// pull (see primeCloudSyncPull) lands before auth has resolved and so
+// before any runtime exists, and its lists are worth writing *then*
+// rather than sitting in a resolved promise until React mounts. Merging
+// is what makes a pin from another device visible — the stores are the
+// UI's source of truth, and their change events are what start the
+// content warm (see startPinnedOfflineSync). The watermarks wait for the
+// runtime; `initialPull` applies the same snapshot again a moment later,
+// which is idempotent for the merge and is where they get set.
 function applyServerState(state: SyncState): void {
-  if (!runtime) return;
   const lists: ListName[] = ['pinned', 'favorite', 'hidden', 'done'];
   for (const list of lists) {
     // Tolerate a missing list on the server response — an older server
@@ -296,6 +316,7 @@ function applyServerState(state: SyncState): void {
     // collectDelta would skip it forever, so e.g. pins made on this
     // device before sign-in would never reach the server once another
     // device had pushed anything newer.
+    if (!runtime) continue;
     const incomingAt = new Map(incoming.map((e) => [e.id, e.at]));
     let bump = maxAt(incoming);
     for (const e of merged) {
@@ -326,10 +347,12 @@ function applyServerState(state: SyncState): void {
       }
       replaceAvatarPrefs(next);
     }
-    runtime.lastPushedAvatar = Math.max(
-      runtime.lastPushedAvatar,
-      state.avatar.at,
-    );
+    if (runtime) {
+      runtime.lastPushedAvatar = Math.max(
+        runtime.lastPushedAvatar,
+        state.avatar.at,
+      );
+    }
   }
   if (state.hotThresholds) {
     // Same single-record LWW for the per-user Hot rule.
@@ -346,10 +369,12 @@ function applyServerState(state: SyncState): void {
       };
       replaceHotThresholds(next);
     }
-    runtime.lastPushedHotThresholds = Math.max(
-      runtime.lastPushedHotThresholds,
-      state.hotThresholds.at,
-    );
+    if (runtime) {
+      runtime.lastPushedHotThresholds = Math.max(
+        runtime.lastPushedHotThresholds,
+        state.hotThresholds.at,
+      );
+    }
   }
 }
 
@@ -382,27 +407,28 @@ function collectDelta(): SyncState {
   return delta;
 }
 
-async function pull(): Promise<void> {
-  if (!runtime) return;
-  // Snapshot the runtime: stopCloudSync (sign-out) or a stop/start for
-  // a different user can swap it while the GET is in flight, and we
-  // must not apply user A's server state to user B's session.
-  const rt = runtime;
-  rt.lastPullAttemptAt = Date.now();
-  const startedAt = rt.lastPullAttemptAt;
-
+// The GET half of a pull, with none of the applying. Split out so the
+// boot-time prime below can put the request on the wire before there's
+// a runtime to apply the answer to.
+async function fetchSyncState(
+  fetchImpl: typeof fetch,
+  startedAt: number,
+): Promise<SyncState | null> {
   let res: Response;
   try {
-    res = await rt.fetchImpl('/api/sync', { method: 'GET' });
+    res = await fetchImpl('/api/sync', { method: 'GET' });
   } catch (e) {
     lastPull = { at: startedAt, ok: false, error: errorMessage(e) };
     notifyDebug();
-    return;
+    return null;
   }
   if (!res.ok) {
+    // The origin's own proof that this browser has nothing to sync —
+    // stop priming boot pulls for it until it signs in again.
+    if (res.status === 401) writeSyncHint(false);
     lastPull = { at: startedAt, ok: false, status: res.status };
     notifyDebug();
-    return;
+    return null;
   }
   let server: unknown;
   try {
@@ -415,7 +441,7 @@ async function pull(): Promise<void> {
       error: 'invalid-json',
     };
     notifyDebug();
-    return;
+    return null;
   }
   if (!isSyncState(server)) {
     lastPull = {
@@ -425,8 +451,9 @@ async function pull(): Promise<void> {
       error: 'invalid-shape',
     };
     notifyDebug();
-    return;
+    return null;
   }
+  writeSyncHint(true);
   lastPull = {
     at: startedAt,
     ok: true,
@@ -440,9 +467,196 @@ async function pull(): Promise<void> {
     avatar: !!server.avatar,
     hotThresholds: !!server.hotThresholds,
   };
+  return server;
+}
+
+async function pull(): Promise<void> {
+  if (!runtime) return;
+  // Snapshot the runtime: stopCloudSync (sign-out) or a stop/start for
+  // a different user can swap it while the GET is in flight, and we
+  // must not apply user A's server state to user B's session.
+  const rt = runtime;
+  rt.lastPullAttemptAt = Date.now();
+  const server = await fetchSyncState(rt.fetchImpl, rt.lastPullAttemptAt);
   // Bail if sync was stopped or restarted for another user while the
   // GET was in flight — the response belongs to the old session.
-  if (runtime === rt) applyServerState(server);
+  if (server && runtime === rt) applyServerState(server);
+  notifyDebug();
+}
+
+// === Boot-time pull priming ===
+//
+// The pull that carries a pin made on another device into this browser
+// can't normally start until the persisted query cache has rehydrated
+// from IndexedDB and React has mounted far enough for auth to resolve —
+// a few hundred milliseconds on a phone, spent before the request that
+// even *mentions* the new pin goes on the wire. Only then can the item
+// and its summaries be fetched, so every one of those milliseconds sits
+// at the front of a serial chain the reader watches.
+//
+// `/api/sync` is authenticated by the session cookie alone, so the GET
+// needs none of that: fire it from the entry module and hand the answer
+// to startCloudSync when it arrives there.
+//
+// Cost: no extra request in the normal case — the primed response is
+// consumed *instead of* the one startCloudSync would have made. A reader
+// who signs out pays one 401 on their next boot, after which the hint
+// below is cleared and nothing is primed until they sign in again. No
+// new infrastructure, and a failed prime is indistinguishable from a
+// failed pull: startCloudSync falls back to its own GET.
+const PRIME_MAX_AGE_MS = 60_000;
+// Only records *that* this browser has synced, never who as — see the
+// privacy rule in AGENTS.md.
+export const SYNC_HINT_KEY = 'newshacker:cloudSyncSeen';
+
+// A hint read/write that threw. Neither failure is fatal — the fallback
+// is "don't prime, pull normally" — but both are invisible from the
+// outside: a failed write silently disables boot priming for the life of
+// the device, and a failed clear leaves a signed-out reader paying a 401
+// on every boot. There is no console logging anywhere in `src/lib` and
+// no logger to hook into, so this module's existing debug channel (the
+// one `/debug`'s CloudSyncDebugPanel renders) is where it goes. The
+// error's `message` is a DOM exception name; the key and value are ours,
+// so nothing here is user data.
+function noteHintFailure(op: 'read' | 'write' | 'clear', e: unknown): void {
+  lastHintFailure = { at: Date.now(), op, error: errorMessage(e) };
+  notifyDebug();
+}
+
+function writeSyncHint(seen: boolean): void {
+  try {
+    if (seen) window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    else window.localStorage.removeItem(SYNC_HINT_KEY);
+  } catch (e) {
+    // Privacy-mode or quota failure. The hint is an optimization; without
+    // it the boot pull simply isn't primed and startCloudSync pulls
+    // itself — so this is recorded, not raised.
+    noteHintFailure(seen ? 'write' : 'clear', e);
+  }
+}
+
+function hasSyncHint(): boolean {
+  try {
+    return window.localStorage.getItem(SYNC_HINT_KEY) === '1';
+  } catch (e) {
+    noteHintFailure('read', e);
+    return false;
+  }
+}
+
+// Bumped whenever the signed-in session changes: a runtime starting, a
+// running one stopping, or the cookie itself being replaced by a login
+// or logout (see noteCloudSyncAuthChange). The primed pull captures it
+// and refuses to apply a snapshot across a change — the GET is
+// cookie-authenticated at send time, so a response that lands after a
+// sign-out or an account switch belongs to the session that asked for
+// it, not the one now in front of the reader.
+let syncGeneration = 0;
+
+// Called by `useAuth` when a login or logout completes. Runtime
+// lifecycle alone can't see this: a login replaces the cookie while
+// `runtime` may still be null (auth hasn't resolved yet on a cold boot,
+// so nothing has started and `stopCloudSync` returns before its bump) —
+// and then the *new* account's `startCloudSync` would find a prime that
+// matches its generation, apply the previous account's lists, and take
+// them as its own push watermarks. Bumping here makes the prime
+// unusable across any identity change, whether or not a runtime existed
+// to observe it.
+export function noteCloudSyncAuthChange(): void {
+  syncGeneration += 1;
+}
+
+interface PrimedPull {
+  at: number;
+  generation: number;
+  state: Promise<SyncState | null>;
+}
+
+let primedPull: PrimedPull | null = null;
+
+// Call once, as early in the entry module as possible. Resolves when the
+// primed GET settles (null if it didn't happen or failed), so a caller
+// can hang further warming off it.
+export function primeCloudSyncPull(
+  opts: { fetchImpl?: typeof fetch; now?: number } = {},
+): Promise<SyncState | null> {
+  if (primedPull) return primedPull.state;
+  if (!hasSyncHint()) return Promise.resolve(null);
+  const at = opts.now ?? Date.now();
+  const generation = syncGeneration;
+  const state = fetchSyncState(opts.fetchImpl ?? trackedFetch, at).then(
+    (server) => {
+      // Merge it into the local stores the moment it lands rather than
+      // holding it for startCloudSync: the stores are what the UI reads
+      // and what the pinned offline warm listens to, so this is the
+      // point at which a pin made on another device both exists on this
+      // device and starts downloading — no waiting on rehydrate, React
+      // mount, or auth. The watermark half of applyServerState is
+      // skipped without a runtime and runs on the same snapshot in
+      // `initialPull`.
+      //
+      // Two conditions bound that, because this response carries no
+      // identity of its own: the session must not have changed since the
+      // GET was sent (a hung request that lands after a sign-out or an
+      // account switch would otherwise write the *previous* account's
+      // lists into stores the current one reads), and it must still be
+      // current by the same 60 s rule `initialPull` applies. A snapshot
+      // that fails either is still returned — it just isn't applied here
+      // — and `initialPull` re-checks both before using it.
+      if (!server) return null;
+      if (syncGeneration !== generation) return server;
+      if (Date.now() - at >= PRIME_MAX_AGE_MS) return server;
+      applyServerState(server);
+      return server;
+    },
+  );
+  primedPull = { at, generation, state };
+  return state;
+}
+
+// The pull startCloudSync opens with: the primed response when it's
+// usable, otherwise a fresh GET. Three things make it unusable, and each
+// falls back rather than skipping the pull — an initial pull that
+// silently doesn't happen leaves remote changes missing until some later
+// reconnect or visibility trigger:
+//
+//   - it was fired before a session change (`generationBefore` is the
+//     generation as of this start, so the boot case still matches), so
+//     the response can't be attributed to this session;
+//   - it's older than the freshness window;
+//   - it failed — network, non-OK, unparsable, wrong shape.
+//
+// Consumed by whichever start gets there first, whatever the outcome, so
+// one primed snapshot can never be applied twice or handed on.
+async function initialPull(
+  rt: SyncRuntime,
+  generationBefore: number,
+): Promise<void> {
+  const primed = primedPull;
+  primedPull = null;
+  const usable =
+    primed !== null &&
+    primed.generation === generationBefore &&
+    Date.now() - primed.at < PRIME_MAX_AGE_MS;
+  if (!usable) {
+    await pull();
+    return;
+  }
+  rt.lastPullAttemptAt = primed.at;
+  const server = await primed.state;
+  // Both conditions are re-checked *after* the await, not just before
+  // it: a request that was young enough when we started waiting can
+  // settle on the far side of the window, and the runtime can be
+  // swapped while we wait. Either way the answer is a fresh pull, not
+  // an expired or misattributed snapshot.
+  if (runtime !== rt) return;
+  if (!server || Date.now() - primed.at >= PRIME_MAX_AGE_MS) {
+    // A failed or expired prime. `lastPull` already records why a
+    // failed one failed; this is the fallback its own doc promises.
+    await pull();
+    return;
+  }
+  applyServerState(server);
   notifyDebug();
 }
 
@@ -780,11 +994,16 @@ export async function startCloudSync(
 ): Promise<void> {
   if (runtime && runtime.username === username) return;
   stopCloudSync();
+  // Read before the bump below: at boot nothing has started or stopped
+  // yet, so this is the generation the prime was fired under and the
+  // primed snapshot matches. After any earlier session it won't.
+  const generationBefore = syncGeneration;
+  syncGeneration += 1;
 
   const fetchImpl = opts.fetchImpl ?? trackedFetch;
   const onChange = () => schedulePush();
 
-  runtime = {
+  const rt: SyncRuntime = {
     username,
     lastPushed: { pinned: 0, favorite: 0, hidden: 0, done: 0 },
     lastPushedAvatar: 0,
@@ -799,6 +1018,7 @@ export async function startCloudSync(
     debounceMs: opts.debounceMs ?? SYNC_DEBOUNCE_MS,
     lastPullAttemptAt: 0,
   };
+  runtime = rt;
 
   window.addEventListener(PINNED_STORIES_CHANGE_EVENT, onChange);
   window.addEventListener(FAVORITES_CHANGE_EVENT, onChange);
@@ -807,15 +1027,15 @@ export async function startCloudSync(
   window.addEventListener(AVATAR_PREFS_CHANGE_EVENT, onChange);
   window.addEventListener(HOT_THRESHOLDS_CHANGE_EVENT, onChange);
 
-  runtime.unsubscribeOnline = subscribeOnline((online) => {
+  rt.unsubscribeOnline = subscribeOnline((online) => {
     if (!online) return;
     // Re-pull on reconnect and flush any deltas accumulated offline.
     void pull().then(() => schedulePush(0));
   });
-  runtime.unsubscribeVisibility = subscribeVisibility();
+  rt.unsubscribeVisibility = subscribeVisibility();
 
   notifyDebug();
-  await pull();
+  await initialPull(rt, generationBefore);
   // After pull, push any local changes that the server didn't already
   // know about. Uses delay=0 rather than the debounce so a fresh
   // login doesn't sit idle for 2 s before flushing.
@@ -826,6 +1046,10 @@ export function stopCloudSync(): void {
   if (!runtime) return;
   const r = runtime;
   runtime = null;
+  // A real sign-out or user switch — the boot-time no-op call (auth not
+  // resolved yet, no runtime) returns above without bumping, so it can't
+  // invalidate the prime it's racing.
+  syncGeneration += 1;
   window.removeEventListener(PINNED_STORIES_CHANGE_EVENT, r.onChange);
   window.removeEventListener(FAVORITES_CHANGE_EVENT, r.onChange);
   window.removeEventListener(HIDDEN_STORIES_CHANGE_EVENT, r.onChange);
@@ -873,6 +1097,7 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
       push: { inFlight: false, queued: false, timerPending: false },
       lastPull,
       lastPush,
+      lastHintFailure,
     };
   }
   const delta = collectDelta();
@@ -897,6 +1122,7 @@ export function getCloudSyncDebug(): CloudSyncDebugSnapshot {
     },
     lastPull,
     lastPush,
+    lastHintFailure,
   };
 }
 
@@ -933,5 +1159,10 @@ export async function _flushCloudSyncForTests(): Promise<void> {
 export function _resetCloudSyncDebugForTests(): void {
   lastPull = null;
   lastPush = null;
+  lastHintFailure = null;
   debugSubscribers.clear();
+}
+
+export function _resetCloudSyncPrimeForTests(): void {
+  primedPull = null;
 }

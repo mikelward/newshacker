@@ -17,6 +17,7 @@ function snap(overrides: Partial<CloudSyncDebugSnapshot> = {}): CloudSyncDebugSn
     push: { inFlight: false, queued: false, timerPending: false },
     lastPull: null,
     lastPush: null,
+    lastHintFailure: null,
     ...overrides,
   };
 }
@@ -88,6 +89,41 @@ describe('<CloudSyncDebugPanel>', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/POST → 503.*failed.*pinned 1/i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a boot-hint storage failure, and nothing when there is none', () => {
+    const now = Date.now();
+    // Two renders rather than a rerender: the panel snapshots on mount
+    // and re-reads only when its subscription (or the 1s poll) fires, so
+    // swapping the prop wouldn't reach the rendered state.
+    const { unmount } = render(
+      <CloudSyncDebugPanel
+        getSnapshot={() => snap()}
+        subscribe={() => () => {}}
+      />,
+    );
+    expect(
+      screen.queryByTestId('cloud-sync-hint-failure'),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <CloudSyncDebugPanel
+        getSnapshot={() =>
+          snap({
+            lastHintFailure: {
+              at: now - 5000,
+              op: 'write',
+              error: 'QuotaExceededError',
+            },
+          })
+        }
+        subscribe={() => () => {}}
+      />,
+    );
+    expect(
+      screen.getByText(/write failed.*QuotaExceededError/i),
     ).toBeInTheDocument();
   });
 

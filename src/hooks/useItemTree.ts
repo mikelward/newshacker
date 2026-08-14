@@ -8,7 +8,7 @@ export interface ItemRoot {
   kidIds: number[];
 }
 
-async function loadRoot(
+export async function loadRoot(
   id: number,
   signal: AbortSignal | undefined,
   client: QueryClient | null,

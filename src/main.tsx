@@ -15,6 +15,8 @@ import {
   setConnectivityProbeUrl,
 } from './lib/networkStatus';
 import { createAppPersister } from './lib/idbPersister';
+import { prefetchDeepLinkedItem } from './lib/deepLinkPrefetch';
+import { primeCloudSyncPull } from './lib/cloudSync';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import {
   lockAllPinnedQueriesGcTime,
@@ -129,6 +131,28 @@ const persister = createAppPersister();
 // doubt — coalesced to one in flight, and while genuinely offline it fails
 // without ever reaching the server.
 setConnectivityProbeUrl('/api/me');
+
+// Put the cross-device pull on the wire now, rather than after the
+// IndexedDB cache has rehydrated and React has mounted far enough for
+// auth to resolve. A pin made in the companion app is *news* — nothing
+// about it can be fetched until this GET answers, so every millisecond
+// before it starts is one the reader spends looking at a story that
+// isn't there yet. The response merges into the local stores as soon as
+// it lands (the pin exists here, and the warmers below pick up the
+// change event), and `useCloudSync` reuses it instead of pulling again.
+// No-op for a reader who has never synced on this browser; see
+// primeCloudSyncPull for the cost note.
+//
+// Fired first but *handled* last: the merge runs a microtask after the
+// network answers, so the listeners registered below are always in
+// place by the time its change events fire.
+void primeCloudSyncPull();
+
+// Same idea for the other thing the reader can arrive on cold: a deep
+// link straight to a thread. The URL alone says what to fetch, so the
+// item and its two summaries go out now instead of after React mounts
+// and the persisted cache rehydrates. See deepLinkPrefetch.ts.
+prefetchDeepLinkedItem(queryClient);
 
 // Bridge cache writes across tabs in real time so a pin/favorite in tab
 // A doesn't force tab B to re-fetch what A already warmed. No cleanup —

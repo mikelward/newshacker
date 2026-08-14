@@ -174,6 +174,26 @@ export function CloudSyncDebugPanel({
             {describeLast('POST', snapshot.lastPush, now)}
           </span>
         </li>
+        {/* Only rendered when it has happened: a localStorage failure on
+            the boot-prime hint is silent everywhere else, and its symptom
+            (priming never starts, or a signed-out device re-asks every
+            boot) is easy to mistake for the feature simply not working. */}
+        {snapshot.lastHintFailure ? (
+          <li
+            className="cloud-sync-debug__request"
+            data-testid="cloud-sync-hint-failure"
+          >
+            <span
+              className="debug-page__badge"
+              data-state="warn"
+              aria-hidden="true"
+            />
+            <span className="cloud-sync-debug__request-label">Boot hint</span>
+            <span className="cloud-sync-debug__request-detail">
+              {`${snapshot.lastHintFailure.op} failed · ${snapshot.lastHintFailure.error} · ${ago(snapshot.lastHintFailure.at, now)}`}
+            </span>
+          </li>
+        ) : null}
       </ul>
 
       <p className="debug-page__actions">
