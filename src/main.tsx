@@ -19,6 +19,7 @@ import {
   notePersistRestoreFailure,
 } from './lib/idbPersister';
 import { prefetchDeepLinkedItem } from './lib/deepLinkPrefetch';
+import { prefetchHomeFeedIds } from './lib/feedBootPrefetch';
 import { primeCloudSyncPull } from './lib/cloudSync';
 import { startQueryCacheSync } from './lib/queryCacheSync';
 import {
@@ -157,6 +158,12 @@ void primeCloudSyncPull();
 // item and its two summaries go out now instead of after React mounts
 // and the persisted cache rehydrates. See deepLinkPrefetch.ts.
 prefetchDeepLinkedItem(queryClient);
+
+// And the feed id list every other home-page request waits behind. Same
+// reasoning, one link earlier in the chain: this used to run from
+// `<BootPrefetch>`'s effect, which cost a full React mount before the
+// request left. See feedBootPrefetch.ts.
+prefetchHomeFeedIds(queryClient);
 
 // Bridge cache writes across tabs in real time so a pin/favorite in tab
 // A doesn't force tab B to re-fetch what A already warmed. No cleanup —

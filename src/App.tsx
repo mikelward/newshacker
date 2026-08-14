@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from 'react-router';
 import { Analytics } from '@vercel/analytics/react';
 import { AppHeader } from './components/AppHeader';
 import { AppUpdateWatcher } from './components/AppUpdateWatcher';
-import { BootPrefetch } from './components/BootPrefetch';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
@@ -59,7 +58,6 @@ export default function App() {
         <Analytics />
         <AppUpdateWatcher />
         <FeedBarProvider>
-          <BootPrefetch />
           <CloudSyncBridge />
           <HnFavoritesSyncBridge />
           <ScrollToTop />

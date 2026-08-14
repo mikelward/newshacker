@@ -1571,6 +1571,37 @@ reports as it always did, and a failure can't take a hydrated thread off
 the screen, because the thread's error screen only renders when there is
 no data at all (see *Offline UX*).
 
+### Home-feed id-list boot prefetch
+The same reasoning as the deep-link prefetch above, applied to the other
+route a reader arrives on cold. `['storyIds', 'top']` is the first link
+in the home page's serial chain — the `/api/items` batch cannot start
+until it answers — so it is fetched from `main.tsx` at module scope via
+`prefetchHomeFeedIds` (`src/lib/feedBootPrefetch.ts`) rather than from a
+React effect. It used to run from a `<BootPrefetch>` component, which is
+as early as React can manage but still spends the whole initial mount of
+the app tree before the request reaches the wire; that component is gone.
+`prefetchQuery` is not held by `isRestoring` the way an observer is, so
+this also skips the IndexedDB restore wait, and `hydrate` overwrites only
+when the persisted copy is newer, so a restored list still wins if this
+request is slower.
+
+How much it is worth is a function of how slow the device is, because
+what it removes is mount time, not network time. On a fast desktop the
+id-list request left ~80 ms earlier; at 6× CPU throttle — a mid-range
+phone — it left **500 ms** earlier (~1160 ms → ~660 ms from navigation).
+Measured against a stubbed backend, a 3 s delay on this one request moves
+first paint by very nearly 3 s, so it is on the critical path essentially
+1:1.
+
+Cost: no new request. This is the fetch `<BootPrefetch>` already made on
+every boot, at the same frequency, moved earlier — one Firebase read, no
+new infrastructure, **$0**. It fires on every route rather than only `/`,
+exactly as `<BootPrefetch>` did, so arriving on a thread and navigating
+home still finds the list warm; the 5-minute `staleTime` keeps a
+same-session re-entry from re-asking. A failure is invisible: the query
+is left in its error state and the feed's own observer retries under the
+id-list retry policy (`feedQueryRetry`).
+
 ### Trending-score drive-by warm
 - As the feed renders, `StoryList` calls `prefetchFeedStory` (in `src/lib/feedStoryPrefetch.ts`) for every row with `score > 100`. It delegates to the same `prefetchPinnedStory` used at pin-time, so the warm shape is identical: `['itemRoot', id]`, the first 30 top-level comments (one shared `/api/items?fields=full` batch), the article AI summary, and the comments AI summary. Tapping a popular headline renders the thread, summaries, and early comments without a round-trip.
 - Tracked per-session via a `Set` in `StoryList` so re-renders don't re-fetch, and `prefetchFeedStory` short-circuits outright if `['itemRoot', id]` is already cached.
