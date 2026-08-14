@@ -32,11 +32,21 @@ whatever is in the cache.
 2. **Upstash Redis / Vercel Storage Marketplace Redis** provisioned
    and linked to the project.
 3. **Gemini API key** (Google AI Studio).
-4. **Jina Reader API key.** This is a **hard dependency** — the raw-
-   HTML fallback was removed (see TODO.md § "Article-fetch
-   fallback"). Without a Jina key, the article track logs
-   `skipped_unreachable` on every story and `/api/summary` returns
-   503 `not_configured`.
+4. **Jina Reader API key.** This is a **hard dependency for link
+   posts** — the raw-HTML fallback was removed (see TODO.md §
+   "Article-fetch fallback"). Without a Jina key, the article track
+   logs `skipped_unreachable` on every story *that has a URL* and
+   `/api/summary` returns 503 `not_configured` for it — **on a cache
+   miss**. The endpoint reads the stored record before it looks at
+   any provider key, so a link post that is already warm keeps
+   serving through a Jina outage until its record expires; only
+   stories the warm never reached show the error.  **Self-posts
+   are unaffected either way**: both paths gate the Jina call behind
+   `hasArticleUrl` and summarize Ask HN / Show HN / text-only stories
+   from the HN `text` directly, and the comments track never touches
+   Jina at all. So a Jina outage degrades link-post article summaries
+   only — worth knowing before reading a quiet `/new` as "summaries
+   are down".
 
 ## Required environment variables
 
@@ -63,7 +73,7 @@ until you have a week of real `warm-story` logs to base a tweak on.
 | `WARM_STABLE_THRESHOLD_SECONDS` | `21600` (6 h) | Both tracks | How long unchanged before switching to the stable interval. |
 | `WARM_MAX_STORY_AGE_SECONDS` | `115200` (32 h) | Article only | Stop re-checking past this story age. Upstash record still serves reads until 30-day TTL. |
 | `WARM_COMMENTS_MAX_AGE_SECONDS` | `115200` (32 h) | Comments only | Twin of the article cutoff. Past this we stop hashing transcripts; cached insights still serve until Upstash evicts at 30 days. |
-| `WARM_TOP_N` | `30` | Both tracks | How many feed ids to process per tick when `?n=` isn't in the URL. |
+| `WARM_TOP_N` | `30` | Both tracks | How many feed ids to process per tick when `?n=` isn't in the URL. **The scheduled cron always passes `?n=30`, so this never applies to it** — it's the fallback for a manual request. Change the tick size in `vercel.json`. |
 | `WARM_COMMENTS_MIN_KIDS` | `5` | Comments only | Minimum usable top-level comments before the cron creates a `first_seen` record. Avoids caching 2-comment thin threads. |
 
 Comments also use a **compile-time ladder** (`COMMENTS_TIERS` in `api/warm-summaries.ts`) keyed off HN `story.time`: 15/30/60/120/240/480 min intervals for 0-1/1-2/2-4/4-8/8-16/16-32 h age bands. Bucket widths are 1:1 with the `ageBand` log field, so "polled per band" and "changed per band" plot against the same x-axis. To reshape the ladder, edit the constant and redeploy — it's deliberately not an env var.
@@ -496,15 +506,30 @@ In priority order:
 
 1. **Remove the `crons` entry from `vercel.json` and redeploy.** The
    cleanest stop. Vercel stops scheduling it. User-facing summaries
-   still work — they just won't have cron-maintained freshness.
-2. **Set `WARM_TOP_N=1` in Vercel and redeploy.** Shrinks the cron
-   to processing a single story per tick. Gets you ~97% cost
-   reduction without a code change, for a cooling-off period while
-   you diagnose. (The handler doesn't currently accept `WARM_TOP_N=0`
-   — it falls back to the default on invalid values.)
-3. **Unset `JINA_API_KEY` in Vercel and redeploy.** Article track
-   goes silent (every tick logs `skipped_unreachable`). Comments
-   track continues. Use if Jina-specific billing is the problem.
+   still work, but understand what "no cron-maintained freshness"
+   means for the two cases: a story with **no** record still gets a
+   cold generation on thread open (the reader waits, nothing is
+   lost), while a story that **has** one goes silently stale —
+   `handleSummaryRequest` returns any record it finds with no hash
+   or age test, so nothing on the read path re-checks the source and
+   the summary stands until the record expires at 30 days. That
+   second case has no error state and no symptom a reader could
+   report, so a long disable needs a plan for it.
+2. **Change `n=30` to `n=1` in `vercel.json`'s cron path and
+   redeploy.** Shrinks the cron to a single story per tick — ~97%
+   cost reduction, for a cooling-off period while you diagnose.
+   **Setting `WARM_TOP_N=1` in the environment will *not* do this**:
+   the cron URL passes `n` explicitly and
+   `parseWarmN(searchParams.get('n'), knobs.topN)` takes the URL
+   value, so the env var only applies to a request that omits `?n=`
+   (a manual `curl`, say). An operator who reaches for the env var in
+   an incident will watch the spend continue unchanged. (`n=0` isn't
+   accepted either — invalid values fall back to the default.)
+3. **Unset `JINA_API_KEY` in Vercel and redeploy.** The article
+   track goes silent **for link posts** (each logs
+   `skipped_unreachable`); self-posts still summarize from the HN
+   `text`, and the comments track continues. Use if Jina-specific
+   billing is the problem.
 4. **Unset `GOOGLE_API_KEY`.** Stops all Gemini spend. Both tracks
    become effectively read-only — they log their backoff decisions
    and hash-checks but never regenerate. Nuclear option if Gemini
@@ -521,9 +546,9 @@ redeploy.
 | Cron Jobs dashboard shows invocations but every one is a 403 | `CRON_SECRET` not set in the project env, or set only for a different environment (e.g. Production ticked but the cron is hitting a Preview deployment). Vercel fires with no `Authorization` header and the handler fail-closed returns 403. | Set `CRON_SECRET` in **Settings → Environment Variables**, scope it to the environment the cron fires in, redeploy so the env change takes effect. |
 | Manual `curl` with the secret works but scheduled runs 403 | The `CRON_SECRET` value in the Vercel env doesn't match what you typed locally (env var drift, or the project was redeployed without the var saved). | In the Vercel UI, re-save `CRON_SECRET` with a known value and redeploy. Vercel can't show you the existing value, so "just check what's set" isn't an option — overwrite and re-record. |
 | 503 `{"error":"Store not configured","reason":"no_store"}` | Upstash env vars unset or typo. | Check both `KV_REST_API_URL` / `KV_REST_API_TOKEN` pair (or `UPSTASH_REDIS_REST_URL` / `..._TOKEN` pair) are set for the environment serving the cron. |
-| Every article-track story logs `skipped_unreachable` | `JINA_API_KEY` missing or invalid. | Re-run the Jina sanity-check from INSTALL.md. Note: `skipped_unreachable` is also the right outcome if Jina is genuinely down — check their status page before assuming a config issue. |
+| Every link-post story logs `skipped_unreachable` (self-posts still summarize) | `JINA_API_KEY` missing or invalid. | Re-run the Jina sanity-check from INSTALL.md. Note: `skipped_unreachable` is also the right outcome if Jina is genuinely down — check their status page before assuming a config issue. |
 | Gemini spend climbing faster than expected | Articles or comments churning more than forecast, or a publisher's page has rotating content Jina can't strip (e.g., an always-changing timestamp in the body). | Grep `warm-story` lines for the high-churn `storyId`s — `contentBytes` barely moving across "changed" rows is the timestamp-rotation signature. If it's a single publisher domain, file it to the article-fetch-fallback allowlist TODO. |
-| `warm-run.durationMs` close to 50 s | Hitting the wall-clock budget. Stories queued at the tail log `skipped_budget`. | Transient Jina / HN slowness usually. If persistent, lower `WARM_TOP_N` to 20 or investigate specific slow stories in the per-story logs. |
+| `warm-run.durationMs` close to 50 s | Hitting the wall-clock budget. Stories queued at the tail log `skipped_budget`. | Transient Jina / HN slowness usually. If persistent, lower `n=30` to `n=20` in `vercel.json`'s cron path (not `WARM_TOP_N` — the URL value wins) or investigate specific slow stories in the per-story logs. |
 | `warm-run` count of `skipped_interval` >> `unchanged` + `changed` | Normal — means the backoff is doing its job; stories in their refresh window don't need work. Not a problem. | None. This is the steady state. |
 
 ## Cost sanity check
@@ -532,9 +557,11 @@ At defaults with 5-min cadence:
 
 - **Vercel invocations:** 288 per day. Well inside Pro's limits.
 - **HN Firebase:** ≤8,640 top-story fetches/day + comments child-fetches. Free, no rate limits.
-- **Jina Reader:** ~1,500–3,000/day realistic, ~45–90k/month. At a planning figure of ~5,000 tokens per Reader call that's ~7.5–15M tokens/day, so the one-time 10M-token free grant per key (does not refresh daily or monthly) drains in **roughly a day or two** of steady cron traffic, not weeks. After that you top up (~$0.02/M tokens, ~$5–10/month for ongoing use at this volume) or rotate the key. The handler returns 503 `summary_budget_exhausted` and the cron logs `skipped_payment_required` between top-ups; see `SPEC.md` § "Scheduled warming and change analytics" for the full cost breakdown.
-- **Gemini:** ~$3–5/month realistic, ~$15/month worst case.
-- **Upstash:** Two keys per story. Well inside the free tier.
+- **Jina Reader:** ~1,500–3,000/day realistic, ~45–90k/month. At a planning figure of ~5,000 tokens per Reader call that's ~7.5–15M tokens/day, so the one-time 10M-token free grant per key (does not refresh daily or monthly) drains in **roughly a day or two** of steady cron traffic, not weeks. After that you top up (~$0.02/M tokens, ~$5–10/month for ongoing use at this volume) or rotate the key. Measured: 12.93M tokens/day in the 24h census, **~$8/month** — the one line of this cost model production confirmed. The handler returns 503 `summary_budget_exhausted` and the cron logs `skipped_payment_required` between top-ups; see `SPEC.md` § "Scheduled warming and change analytics" for the full cost breakdown.
+- **Gemini:** **~$17/month, measured — not the ~$3–5 realistic / ~$15 worst-case this line used to project.** `reports/2026-04-29-cache-strategy.md` censused 24h of cron-only usage on this configuration: 5,440,518 prompt + 31,283 output tokens/day (article 5.04M/16.6K, comments 398K/14.7K), which at $0.10/M input + $0.40/M output is $0.557/day. That report computes at $0.075/$0.30 and flags the rate as unconfirmed — at its pair the same census is ~$12.50/month. Budget on the higher and confirm against Google's current pricing. **Over half the article-track spend is regeneration on content deltas too small to change the summary**; the `WARM_MIN_DELTA_BYTES` fix specified in that report has not shipped, so that waste is live.
+- **Upstash:** Two keys per story, and `processStory` reads *both* for every selected id on every tick, unconditionally — the backoff gate decides off what those reads return, so it cannot skip them. At defaults that is 288 ticks × 30 stories × 2 GETs = **17,280 commands/day (~520k/month)** before record writes, the rate limiter's `INCR`/`EXPIRE`, telemetry `LPUSH`/`LTRIM`, or user-facing summary reads. This line previously read "Well inside the free tier"; that was wrong — it is roughly 1.7× a 10k commands/day free allowance. At Upstash's pay-as-you-go rate (~$0.20 per 100k commands) that is **~$1/month** for the cron baseline alone, rising with reader traffic — so **provision a paid Upstash plan rather than assuming the free tier covers this**, and if you need to stay inside a free allowance, the two knobs that move this number are the story count and the cadence — **both of which live in `vercel.json`, not the environment.** Setting `WARM_TOP_N` does nothing to a scheduled run: the cron path is `/api/warm-summaries?feed=top&n=30` and the handler reads `parseWarmN(searchParams.get('n'), knobs.topN)` (`api/warm-summaries.ts:1928`), so the explicit `n=30` wins and the env var is only the fallback for a URL that omits `?n=`. To actually shrink the tick, edit `n=` in the cron path and redeploy; to widen the cadence, edit the `schedule` next to it.
+
+  **If you hit the quota, the failure is expensive, not cheap.** The record reads are `.catch(() => null)`, and a null record is indistinguishable from a never-seen one, so a quota-exhausted or unreachable Redis loses the age / interval backoff — the only gate that consults the record — and every story that clears the *other* gates takes the `first_seen` path and regenerates, on every tick. **Every eligible story, not every story**: the outcomes decided without the record still fire normally — `skipped_low_score`, `skipped_unreachable` and `skipped_payment_required` on the article track, `skipped_no_content` and `skipped_low_volume` on the comments track — so the signature is an **anomalous `first_seen` spike with `skipped_interval` collapsing to zero**, *not* an all-`first_seen` run, and a run that still shows those outcomes is not evidence against the outage. Spend rises sharply but not uniformly: every eligible article pays Jina and Gemini, while self-posts pay Gemini alone (no Jina round-trip). `WALL_CLOCK_BUDGET_MS` will not save you — it gates *starting* a queued story, so it caps how many a runaway tick begins, not how long the in-flight ones run.
 
 See `SPEC.md` § "Scheduled warming and change analytics" for the full
 cost breakdown and new failure modes.
