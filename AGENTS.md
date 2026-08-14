@@ -343,12 +343,19 @@ If any of the above fails, fix it — don't disable the check.
   machine chatter they didn't ask for. Subscribe only when asked to, and
   unsubscribe as soon as the reason for it passes.
 - **Permissions are granted before the session starts, so a rule here can't
-  fix them.** Copy this repo's `.claude/settings.json` allowlist — GitHub
-  calls as well as scheduler ones, under full MCP identifiers and both
-  server-name spellings, since bare names match nothing — into
-  `$HOME/.claude/settings.json` from the environment's setup script.
-  Settings load at startup, so writing that file mid-session does nothing
-  for that session; if calls are prompting, say so once and carry on.
+  fix them.** Copy the scheduler entries — the MCP ones and
+  `ScheduleWakeup`, which is not one — and the GitHub MCP entries, reads and
+  writes both, from this repo's `.claude/settings.json` into
+  `$HOME/.claude/settings.json`, from the environment's setup script, under
+  full MCP identifiers and both server-name spellings, since bare names
+  match nothing. Global writes are a deliberate trade the repo owner has
+  taken: any repo the account opens can then merge and comment unprompted,
+  and in exchange a session rooted above a repo — which loads no repo-local
+  settings — never stalls the watch on a prompt nobody is there to answer.
+  The `Bash` entries stay repo-local: `git push` and `curl` everywhere is
+  wider than the loop needs. Settings load at startup, so writing that file
+  mid-session does nothing for that session; if calls are prompting, say so
+  once and carry on.
 - **Poll your own open PRs — every ~5 minutes while CI or the verdict is
   outstanding, ~30 once only a human is left.** Those two are what nothing
   else reports. Never end a turn idle with one of yours open: arm the next
@@ -439,7 +446,10 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Codex reviews
 
-**Codex is the automated reviewer on this repo** — not Copilot. Its reviews are triggered automatically; you don't request them.
+**Codex is the automated reviewer on this repo** — not Copilot. Its reviews
+are triggered automatically; you don't request them, except when nothing has
+come back five minutes after a push — that means it never picked the push
+up.
 
 - **Address Codex comments automatically — don't wait to be asked.** When a Codex review lands, treat each comment like a real review note: read it, decide whether it's a real issue or a false positive, and if it's real, fix it in the same PR. Fold the fix into the commit it belongs to (rebase / `--fixup`) rather than tacking on an "address review" commit, per the *one commit per logical surviving change* rule in *Branching*. Group several small fixes into one commit when they share a topic.
 - **Reply to (and resolve) every addressed Codex comment.** When you land a commit that addresses a Codex review comment, post a short reply on that comment via `mcp__github__add_reply_to_pull_request_comment` (one or two sentences — what you did, e.g. ``Fixed in `abc1234` — switched to `useSyncExternalStore` as suggested.``) and then resolve the thread with `mcp__github__resolve_review_thread` (see the resolve bullet below for where the `threadId` comes from). Do this for each addressed comment, not in bulk.
@@ -450,19 +460,23 @@ If any of the above fails, fix it — don't disable the check.
   > **History.** This was previously documented as broken: the response stripped the thread node ID, leaving no way to obtain a `threadId`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (fix). Verified working against a real Codex review thread on PR #406 (2026-07-24). Kept as a note rather than deleted so the next agent that hits a resolve failure knows this was a real, since-fixed upstream bug and doesn't re-derive it.
 
 - **Report when Codex finishes reviewing a fresh push.** Codex's review runs asynchronously after each push; once its review event lands for the latest commit, surface a one-liner naming the SHA and comment count — e.g. `Codex reviewed 87d9f02 — 0 comments` or `Codex reviewed 87d9f02 — 3 comments, addressing now`. Tie it to the *latest* pushed SHA so a stale review of a superseded commit isn't conflated with the current state. The user uses this to know when the automated pass is done vs. still pending.
-- **Read the Codex verdict, don't infer it.** `get_reviews` returns each
-  Codex review with a `commit_id` and a `submitted_at` — that is the
-  head-correlated signal, and one whose commit isn't the current head has
-  been superseded. The pass itself is a `+1` reaction on the PR body, or a
-  review comment reporting no findings; either is sufficient, for that head
-  only. `issue_read` flattens reactions to an anonymous count, where `GET
-  /repos/{owner}/{repo}/issues/{n}/reactions` gives each one a `user` and a
-  `created_at`; a page fetch finds the `Useful?` bar instead, which is true
-  on any PR Codex has commented on. `eyes` means it is working; nothing 30
-  minutes after a push means it never started — comment `@codex review`,
-  once per push rather than once per poll. That is also how a stale `+1`
-  gets cleared — a reaction never clears itself — after the same 30 minutes,
-  not instead of them.
+- **Read the Codex verdict, don't infer it.** It reacts to the PR **body** —
+  `issue_read` → `reactions` — not to a review thread, whose `Useful?` bar a
+  page fetch finds instead and which reads true on any PR Codex has
+  commented on. `eyes` while it reads, `+1` when it finds nothing — or a
+  review reporting no findings, which is the same verdict and names the
+  commit it read. The reaction is revoked as a new push lands, so what you
+  can see belongs to the head you can see: `+1` on green CI is a merge, with
+  nothing further to wait for. A finding is not silence, so the recovery
+  keys on both: nothing at all five minutes after a push — no reaction, no
+  review, no comment — means it never picked the push up; comment `@codex
+  review`, once. A review that *finds* something leaves no reaction at all,
+  so a sweep of reactions alone reads a PR with findings waiting on it as an
+  empty one: read `get_review_comments` and `get_comments` every poll. An
+  unresolved finding blocks the merge whatever the reaction says; one you
+  have answered or fixed does not. Check who left each — the reaction count
+  is anonymous, so leave PR-body reactions to Codex, and a human's review
+  carries the same `commit_id` as Codex's.
 - **A finding can arrive as a top-level PR comment.** `get_review_comments`
   returns only inline threads, so read `get_comments` too — a P1 sat
   unanswered for two hours because a sweep of the threads never saw it.
@@ -479,10 +493,10 @@ If any of the above fails, fix it — don't disable the check.
 - Open PRs ready for review (not draft) unless asked otherwise.
 - **Never leave a review comment thread silently dismissed.** Either reply on the thread *or* resolve it — every thread ends in one of those two states, not "left open and ignored". When you think a comment is a false positive, say *why* on the thread (one or two sentences): the reasoning is exactly what the user wants surfaced, and "Vercel-only failure, doesn't apply" is more useful on the PR than buried in chat history. Acknowledgement noise ("good catch, will do") is fine and preferred over silence; the discipline is "say something or resolve", not "say nothing". This applies to human reviewers too, not just Codex.
 - **Wait for Codex's verdict on the current head, and no open comments,
-  before merging.** Don't merge to `main` (via rebase) until Codex's newest
-  review names the commit you are merging — a `+1` or a no-findings comment
-  — AND there are no open review comments. Don't ask whether it's okay to
-  merge — wait for the signal.
+  before merging.** Don't merge until Codex's verdict covers the head you
+  are merging — its `+1` on the PR body, or a review naming that commit with
+  no findings — and no review comment is left open. Don't ask whether it's
+  okay to merge — wait for the signal.
 - When a feature has multiple open PRs, list **every** open PR by URL,
   one per line — the "View PR" chip sticks to the first link and hides
   the rest (anthropics/claude-code#46625).
