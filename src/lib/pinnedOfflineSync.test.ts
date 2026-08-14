@@ -3,6 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import {
   PINNED_SYNC_STALE_MS,
   _resetPinnedOfflineSyncForTests,
+  markPersistedCacheRestored,
   startPinnedOfflineSync,
   syncPinnedStoriesForOffline,
 } from './pinnedOfflineSync';
@@ -700,6 +701,34 @@ describe('syncPinnedStoriesForOffline', () => {
     );
     syncPinnedStoriesForOffline(client, now + 1_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not run before the persisted cache has rehydrated', async () => {
+    // Regression: the boot-primed /api/sync merge fires a pinned-change
+    // event before the rehydrate, and `replacePinnedEntries` emits even
+    // for an unchanged snapshot. Running then sees an empty cache, calls
+    // every pin never-downloaded, and fires the blind summary warm for
+    // all of them — up to 60 requests on an ordinary boot, some of them
+    // regenerating summaries this device already had.
+    _resetPinnedOfflineSyncForTests({ restored: false });
+    const now = 120_000;
+    addPinnedId(14, now);
+    addPinnedId(15, now);
+    const client = newClient();
+    const fetchMock = installHNFetchMock({
+      items: { 14: makeStory(14), 15: makeStory(15) },
+      summaries: { 14: { summary: 'S14' }, 15: { summary: 'S15' } },
+    });
+
+    syncPinnedStoriesForOffline(client, now);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // The persister's onSuccess releases it, and main.tsx re-runs the
+    // sync there — so nothing is lost, it just happens once the cache
+    // can answer honestly.
+    markPersistedCacheRestored();
+    syncPinnedStoriesForOffline(client, now);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
   });
 
   it('does not sync while the network tracker is offline', () => {

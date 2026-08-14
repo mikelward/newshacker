@@ -23,6 +23,7 @@ import {
   startPinnedQueryRetention,
 } from './lib/pinnedQueryRetention';
 import {
+  markPersistedCacheRestored,
   startPinnedOfflineSync,
   syncPinnedStoriesForOffline,
 } from './lib/pinnedOfflineSync';
@@ -197,12 +198,19 @@ createRoot(document.getElementById('root')!).render(
         // restored from disk would be GC'd within an hour of boot if
         // no observer attached. Lock them at Infinity immediately.
         lockAllPinnedQueriesGcTime(queryClient);
+        // Release the pinned offline sync: until this point its
+        // "what's already cached?" checks would have been answered by
+        // an empty cache and re-downloaded everything on disk. Any
+        // trigger that fired before now (the boot-primed /api/sync
+        // merge, notably) was dropped, and the call below is its
+        // replacement.
         // Then top up anything a pinned story is still missing for
         // offline reading (root, comments, either AI summary). Runs
         // after rehydrate on purpose: the staleness/missing checks
         // must see the restored cache, not an empty one — otherwise
         // every boot would re-download all pins. Landing on a thread
         // link directly (no home view) still syncs this way.
+        markPersistedCacheRestored();
         syncPinnedStoriesForOffline(queryClient);
       }}
     >

@@ -1084,6 +1084,49 @@ describe('boot-time pull priming', () => {
     ).toHaveLength(1);
   });
 
+  it('does not apply a primed snapshot when auth changes mid-await', async () => {
+    // Runtime identity alone can't see this: `noteCloudSyncAuthChange`
+    // fires the moment the cookie is replaced, but `useCloudSync` only
+    // swaps the runtime on React's next effect pass — so there's a
+    // window where the session has changed and `runtime === rt` still
+    // holds, and the previous cookie's response would be applied.
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const primeFetch = vi.fn(async () => {
+      await gate;
+      return jsonResponse({
+        pinned: [{ id: 42, at: T.T1 }],
+        favorite: [],
+        hidden: [],
+        done: [],
+      });
+    }) as unknown as FetchMock;
+    void primeCloudSyncPull({ fetchImpl: primeFetch });
+
+    const aliceFetch = queuedFetch([
+      { response: jsonResponse(emptyState()) },
+      { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+    ]);
+    const alice = startCloudSync('alice', {
+      fetchImpl: aliceFetch,
+      debounceMs: 0,
+    });
+    // The login lands while the start is still waiting on the prime.
+    noteCloudSyncAuthChange();
+    release();
+    await alice;
+    await drain();
+
+    expect(getPinnedIds().has(42)).toBe(false);
+    // …and the initial pull still happened, rather than being skipped.
+    expect(
+      aliceFetch.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET'),
+    ).toHaveLength(1);
+  });
+
   it('does not merge a primed snapshot across a session change', async () => {
     // The response carries no identity of its own, so a request sent
     // under one session and landing after a sign-out or account switch

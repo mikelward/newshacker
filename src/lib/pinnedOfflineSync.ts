@@ -28,6 +28,33 @@ export const PINNED_SYNC_MAX_STORIES = 30;
 
 const attemptedAtById = new Map<number, number>();
 
+// Whether the persisted query cache has finished rehydrating.
+//
+// Every decision this module makes is a question about what's already
+// cached — is this root stale, has this summary ever been downloaded —
+// and before the rehydrate lands the answer to all of them is "nothing
+// is cached", which is a lie about the disk. Running then classifies
+// *every* pin as never-downloaded and fires the blind summary warm for
+// all of them: up to 60 requests on an ordinary boot, some of which
+// would regenerate summaries whose server record had expired even
+// though this device held a perfectly good copy. That is exactly the
+// "no surprise Gemini spend on routine app opens" rule in SPEC.md.
+//
+// This never used to be reachable in practice — the pre-rehydrate
+// triggers were a local pin (post-mount, so post-rehydrate) or a
+// cross-tab write. The boot-primed `/api/sync` merge made it routine:
+// `replacePinnedEntries` emits its change event even for an unchanged
+// snapshot, so a normal boot now fires one before the rehydrate.
+//
+// So runs are dropped until the rehydrate completes. Nothing is lost:
+// `main.tsx` calls this module again from the persister's `onSuccess`,
+// which is the first moment the checks can be answered honestly.
+let persistedCacheRestored = false;
+
+export function markPersistedCacheRestored(): void {
+  persistedCacheRestored = true;
+}
+
 // What a pinned story still needs before it's fully readable offline.
 // 'root' also implies re-checking summaries and comments once the fresh
 // item is in hand; 'fill' means the root is fresh and only a summary
@@ -412,6 +439,7 @@ export function syncPinnedStoriesForOffline(
   client: QueryClient,
   now: number = Date.now(),
 ): void {
+  if (!persistedCacheRestored) return;
   if (!getOnline()) return;
   const rootIds: number[] = [];
   // Root-path ids with nothing cached at all (vs. a stale root being
@@ -553,6 +581,11 @@ export function startPinnedOfflineSync(client: QueryClient): () => void {
   };
 }
 
-export function _resetPinnedOfflineSyncForTests(): void {
+// Defaults to "restored" because that's the state every test but the
+// one about deferral is describing: an app past boot.
+export function _resetPinnedOfflineSyncForTests(
+  { restored = true }: { restored?: boolean } = {},
+): void {
   attemptedAtById.clear();
+  persistedCacheRestored = restored;
 }

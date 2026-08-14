@@ -199,6 +199,18 @@ after 7 days. Only Favorite is clearly intended to be forever — see
 `TODO.md § Retention policy` for a standing item to reconsider TTLs
 for Pinned, Done, and tombstones once we have real usage data.
 
+**The warm never runs before the persisted cache has rehydrated.** Every
+decision it makes is a question about what's already cached, and before
+the rehydrate the answer to all of them is "nothing" — a lie about the
+disk that classifies every pin as never-downloaded and fires the blind
+summary warm for all of them (up to 60 requests on an ordinary boot,
+some regenerating summaries the device already held). That was
+unreachable in practice until the boot-primed `/api/sync` merge started
+emitting a pinned-change event before the rehydrate on every boot
+(`replacePinnedEntries` emits even for an unchanged snapshot). Runs are
+dropped until `main.tsx` marks the rehydrate done in the persister's
+`onSuccess` — where it then runs the sync itself, so nothing is lost.
+
 **Pinned offline warm:** Pinning a story, loading a pinned row from a
 library view, or seeing a synced pin on `/pinned` seeds the thread cache
 immediately from the row data and then warms the full story, first page of
@@ -303,7 +315,12 @@ races), **and whenever a login or logout completes** (`useAuth` calls
 may still be null on a cold boot, and the new account's start would
 otherwise find a prime matching its own generation, apply the previous
 account's lists, and adopt them as its push watermarks) — is captured
-when the prime fires and re-checked before either merge. A snapshot fired under a different generation, or older than 60 s,
+when the prime fires and re-checked before either merge — **including
+after the response settles**, against the generation the runtime itself
+was started under, since an auth change bumps the counter immediately
+while `useCloudSync` only swaps the runtime on React's next effect pass,
+leaving a window where the session has changed and runtime identity still
+matches. A snapshot fired under a different generation, or older than 60 s,
 is not applied and `startCloudSync` pulls fresh instead. So is one that
 failed: a prime that errors falls back to a normal pull rather than
 skipping the initial merge, which would otherwise leave remote changes

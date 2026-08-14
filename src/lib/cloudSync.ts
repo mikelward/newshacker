@@ -141,6 +141,10 @@ interface SyncRuntime {
   // Timestamp of the most recent pull attempt (any outcome). Used to
   // gate visibility-change pulls.
   lastPullAttemptAt: number;
+  // The session generation this runtime was started under. Compared
+  // against the live counter after an await, where runtime identity
+  // alone can't see an auth change that React hasn't acted on yet.
+  generation: number;
 }
 
 let runtime: SyncRuntime | null = null;
@@ -644,13 +648,23 @@ async function initialPull(
   }
   rt.lastPullAttemptAt = primed.at;
   const server = await primed.state;
-  // Both conditions are re-checked *after* the await, not just before
+  // Every condition is re-checked *after* the await, not just before
   // it: a request that was young enough when we started waiting can
-  // settle on the far side of the window, and the runtime can be
-  // swapped while we wait. Either way the answer is a fresh pull, not
-  // an expired or misattributed snapshot.
+  // settle on the far side of the window, and the session can change
+  // underneath. Either way the answer is a fresh pull, not an expired
+  // or misattributed snapshot.
   if (runtime !== rt) return;
-  if (!server || Date.now() - primed.at >= PRIME_MAX_AGE_MS) {
+  // Runtime identity is not enough on its own. A login or logout
+  // completing during the await bumps the generation immediately
+  // (noteCloudSyncAuthChange), but `useCloudSync` only swaps the runtime
+  // on React's next effect pass — so there is a window where the cookie
+  // has already changed and `runtime === rt` still holds. Comparing the
+  // generation the runtime was started under closes it.
+  if (
+    !server ||
+    syncGeneration !== rt.generation ||
+    Date.now() - primed.at >= PRIME_MAX_AGE_MS
+  ) {
     // A failed or expired prime. `lastPull` already records why a
     // failed one failed; this is the fallback its own doc promises.
     await pull();
@@ -1017,6 +1031,7 @@ export async function startCloudSync(
     fetchImpl,
     debounceMs: opts.debounceMs ?? SYNC_DEBOUNCE_MS,
     lastPullAttemptAt: 0,
+    generation: syncGeneration,
   };
   runtime = rt;
 
