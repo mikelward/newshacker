@@ -463,6 +463,9 @@ If any of the above fails, fix it — don't disable the check.
   once per push rather than once per poll. That is also how a stale `+1`
   gets cleared — a reaction never clears itself — after the same 30 minutes,
   not instead of them.
+- **A finding can arrive as a top-level PR comment.** `get_review_comments`
+  returns only inline threads, so read `get_comments` too — a P1 sat
+  unanswered for two hours because a sweep of the threads never saw it.
 - **Skip echo events silently.** `mcp__github__add_reply_to_pull_request_comment` / `add_issue_comment` post under whichever GitHub identity backs the MCP auth (typically the repo owner's), so a moment after you post a reply the same body comes back as a webhook event authored by that identity. That's the echo of your own reply, not user feedback — treat it as a duplicate and continue the in-progress task without a chat-side acknowledgement. The test is "did *I* just post this body?", not "who is the author?" — a real review comment from the same identity still gets the usual reply-or-resolve handling.
 - **Canceling the watch**: see the polling bullet under *Autonomy*.
 
