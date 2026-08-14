@@ -10,6 +10,10 @@ import { commentsSummaryQueryKey } from '../hooks/useCommentsSummary';
 import { addPinnedId } from '../lib/pinnedStories';
 import { _resetPinnedOfflineSyncForTests } from '../lib/pinnedOfflineSync';
 import { _resetNetworkStatusForTests } from '../lib/networkStatus';
+import {
+  installIntersectionObserverMock,
+  uninstallIntersectionObserverMock,
+} from '../test/intersectionObserver';
 
 function RestoringStoryListHarness() {
   const [restoring, setRestoring] = useState(true);
@@ -46,6 +50,10 @@ describe('<StoryList> trending-score cache warming', () => {
     window.localStorage.clear();
     _resetPinnedOfflineSyncForTests();
     _resetNetworkStatusForTests();
+    // The drive-by warm fires for rows in the viewport, so these need a
+    // working IntersectionObserver. The mock reports ratio=1 on observe,
+    // i.e. every rendered row is on screen.
+    installIntersectionObserverMock();
   });
   afterEach(() => {
     window.localStorage.clear();
@@ -53,6 +61,7 @@ describe('<StoryList> trending-score cache warming', () => {
     _resetNetworkStatusForTests();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    uninstallIntersectionObserverMock();
   });
 
   it('warms the full thread cache (item, comments, summaries) for score > 100 stories but skips low-score rows', async () => {

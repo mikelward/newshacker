@@ -643,20 +643,6 @@ export function StoryListImpl({
     [items, isRowVisible],
   );
 
-  // Opportunistically warm the thread/comment cache for currently-trending
-  // stories so tapping one feels instant. We only fire once per story id
-  // per session (tracked by `warmedIdsRef`) and skip anything already in
-  // the query cache — see `prefetchFeedStory` for the cost note.
-  const warmedIdsRef = useRef<Set<number>>(new Set());
-  useEffect(() => {
-    for (const story of visibleStories) {
-      if ((story.score ?? 0) <= FEED_PREFETCH_SCORE_THRESHOLD) continue;
-      if (warmedIdsRef.current.has(story.id)) continue;
-      warmedIdsRef.current.add(story.id);
-      prefetchFeedStory(queryClient, story);
-    }
-  }, [visibleStories, queryClient]);
-
   // Sweep only applies to rows the user can actually see *right now*, not
   // the whole rendered list. A row counts as "in view" iff its bounding
   // box sits entirely inside the viewport minus the sticky chrome at
@@ -827,6 +813,40 @@ export function StoryListImpl({
       warmFeedSummaries(story);
     }
   }, [inViewIds, visibleStories]);
+
+  // Opportunistically warm the thread/comment cache for currently-trending
+  // stories so tapping one feels instant. We only fire once per story id
+  // per session (tracked by `warmedIdsRef`) and skip anything already in
+  // the query cache — see `prefetchFeedStory` for the cost note.
+  //
+  // Gated on `inViewIds` — rows actually scrolled into view — and not on
+  // `visibleStories`, which means "passes the row filters" and is the
+  // whole loaded page. On /top nearly every front-page row clears the
+  // 100-point threshold, so the old gate warmed all 30 at once: 30
+  // single-item reads straight to Firebase (`prefetchPinnedStory` fetches
+  // the root with `getItem`, one request each), plus a comment batch and
+  // two summary calls apiece, all fired at the same moment as the feed's
+  // own id-list and items requests and competing with them for the
+  // connection. A drive-by warm only pays for itself on a row the reader
+  // can tap, and a row they cannot see is not one of those, so this now
+  // matches the viewport gate the server-summary warm above already used.
+  //
+  // The cost is a fast scroller who taps a row within a few hundred ms of
+  // it entering the viewport: the warm is in flight rather than complete,
+  // so the thread opens on a normal fetch instead of a warm cache. That
+  // is the same trade `warmFeedSummaries` already makes, and it buys back
+  // the requests that were making the *first* screen slow for everyone.
+  const warmedIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (inViewIds.size === 0) return;
+    for (const story of visibleStories) {
+      if (!inViewIds.has(story.id)) continue;
+      if ((story.score ?? 0) <= FEED_PREFETCH_SCORE_THRESHOLD) continue;
+      if (warmedIdsRef.current.has(story.id)) continue;
+      warmedIdsRef.current.add(story.id);
+      prefetchFeedStory(queryClient, story);
+    }
+  }, [inViewIds, visibleStories, queryClient]);
 
   const sweepableIds = useMemo(
     () =>

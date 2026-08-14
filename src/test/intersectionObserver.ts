@@ -6,6 +6,13 @@
 
 const mockObservers = new Set<MockIntersectionObserver>();
 const elementRatios = new WeakMap<Element, number>();
+// Ratio reported for an element nothing has said anything about. Defaults
+// to 1 ("everything is on screen"), which is what most tests want. Install
+// with `{ defaultRatio: 0 }` to start every row *below the fold* instead —
+// the only way to test a row that is never in view, since `observe()` fires
+// its callback synchronously on attach and so beats any later
+// `setVisibilityForTest` call.
+let defaultRatio = 1;
 
 function makeEntry(el: Element, ratio: number): IntersectionObserverEntry {
   const rect =
@@ -45,7 +52,7 @@ class MockIntersectionObserver implements IntersectionObserver {
 
   observe(el: Element): void {
     this.watched.add(el);
-    const ratio = elementRatios.get(el) ?? 1;
+    const ratio = elementRatios.get(el) ?? defaultRatio;
     this.fireEntries([makeEntry(el, ratio)]);
   }
 
@@ -88,7 +95,10 @@ type IOGlobal = { IntersectionObserver?: typeof IntersectionObserver };
 let previousIntersectionObserver: typeof IntersectionObserver | undefined;
 let installed = false;
 
-export function installIntersectionObserverMock(): void {
+export function installIntersectionObserverMock(
+  opts: { defaultRatio?: number } = {},
+): void {
+  defaultRatio = opts.defaultRatio ?? 1;
   const g = globalThis as unknown as IOGlobal;
   if (!installed) {
     previousIntersectionObserver = g.IntersectionObserver;
@@ -108,5 +118,6 @@ export function uninstallIntersectionObserverMock(): void {
   }
   installed = false;
   previousIntersectionObserver = undefined;
+  defaultRatio = 1;
   mockObservers.clear();
 }
