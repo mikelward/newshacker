@@ -28,12 +28,14 @@ export interface PinnedFeedState {
 // cache the pin warm already filled, so the block renders from disk on
 // open and the network round trip below is only ever a refresh.
 //
-// Cost/reliability: at most one extra `/api/items` batch call when the
-// reader has pins not already present in the loaded feed window (typical
-// users have a handful, well under the 30-id chunk size, so it's a single
-// request — often zero, since current top pins are already loaded). No new
-// infra — rides the existing items proxy and edge cache. Failure degrades
-// silently: the feed still renders if this fetch errors.
+// Cost/reliability: one extra `/api/items` batch call when the reader has
+// pins not already present in the loaded feed window — often zero (current
+// top pins are already loaded), and a single request for the handful most
+// readers keep, but getItems chunks at 30, so an uncapped pin list costs
+// ceil(n / 30) parallel calls. No new infra — rides the existing items
+// proxy and edge cache. Failure degrades silently for the feed itself,
+// which still renders; a pin the batch didn't resolve is dropped from the
+// block unless the persisted itemRoot cache can stand in for it.
 export function usePinnedFeedStories(
   feedItems: ReadonlyArray<HNItem | null> | undefined,
   enabled = true,
