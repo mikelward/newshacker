@@ -825,6 +825,25 @@ ends up on the front page on a given day.
 
 ## Sync
 
+- **Namespace every per-account store by username, or none of them.**
+  Today it's split: votes and downvotes are keyed per user
+  (`newshacker:votedStoryIds:<username>`, `…:downvotedItemIds:<username>`
+  — `votes.ts` says so explicitly, "so signing in as a different account
+  doesn't inherit"), while Pinned, Favorite, Hidden, Done, avatar prefs
+  and Hot thresholds are single device-level keys shared by whoever is
+  signed in. So a second account's pull *merges* its server lists into
+  the first account's local ones and the device ends up with the union,
+  with no un-merging — while its votes stay cleanly separate. Nothing is
+  lost and nothing is slow (the boot-prime generation guard added in
+  #497 is an integer compare; there is no per-account dimension in any
+  hot path), so this is a consistency decision, not a performance one:
+  either namespace the other stores the way votes already are, or drop
+  the votes namespacing and say plainly that a device belongs to one
+  reader. Half of each is the state that surprises. Picking "namespace
+  everything" also needs a migration for existing un-namespaced keys and
+  a rule for what an anonymous reader's lists do at sign-in (adopt them
+  into the account, most likely — that's today's behavior).
+
 - **Atomic `/api/sync` merge (unblocks unload-flush for in-flight
   edits).** `handleSyncRequest`'s POST path is a non-atomic
   get → merge → set, which is only safe today because the client

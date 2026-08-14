@@ -2,14 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getCloudSyncDebug,
   mergeEntries,
+  noteCloudSyncAuthChange,
+  primeCloudSyncPull,
   pullNow,
   pushNow,
   startCloudSync,
   stopCloudSync,
   subscribeCloudSyncDebug,
+  SYNC_HINT_KEY,
   _flushCloudSyncForTests,
   _getCloudSyncRuntimeForTests,
   _resetCloudSyncDebugForTests,
+  _resetCloudSyncPrimeForTests,
   type SyncState,
 } from './cloudSync';
 import {
@@ -892,6 +896,296 @@ describe('cloudSync lifecycle', () => {
     await drain();
 
     expect(getStoredHotThresholds().topScoreMin).toBe(170);
+  });
+});
+
+describe('boot-time pull priming', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    stopCloudSync();
+    _resetCloudSyncPrimeForTests();
+    _resetCloudSyncDebugForTests();
+  });
+  afterEach(() => {
+    stopCloudSync();
+    _resetCloudSyncPrimeForTests();
+    _resetCloudSyncDebugForTests();
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  it('does nothing for a browser that has never synced', () => {
+    const fetchMock = queuedFetch([]);
+    primeCloudSyncPull({ fetchImpl: fetchMock });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fetches at boot and hands the answer to startCloudSync', async () => {
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    const primeFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 42, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+    ]);
+    primeCloudSyncPull({ fetchImpl: primeFetch });
+    expect(primeFetch).toHaveBeenCalledTimes(1);
+
+    // startCloudSync's own fetch impl must not be asked for the same
+    // state a second time — the only call it may make is the follow-up
+    // push of local-only entries.
+    const startFetch = queuedFetch([
+      { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: startFetch, debounceMs: 0 });
+    await drain();
+
+    expect(getPinnedIds().has(42)).toBe(true);
+    expect(primeFetch).toHaveBeenCalledTimes(1);
+    expect(
+      startFetch.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET'),
+    ).toHaveLength(0);
+  });
+
+  it('pulls fresh when the primed response is too old to still be current', async () => {
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    const primeFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 42, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+    ]);
+    // Primed a full day ago — a tab restored from bfcache, say.
+    await primeCloudSyncPull({
+      fetchImpl: primeFetch,
+      now: Date.now() - 86_400_000,
+    });
+
+    const startFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 7, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+      { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: startFetch, debounceMs: 0 });
+    await drain();
+
+    // The stale snapshot isn't *unmerged* — it was applied when it
+    // landed, and a pull is a pull. What staleness governs is that
+    // startCloudSync asks again rather than trusting it, so anything
+    // that changed on the server since is picked up.
+    expect(getPinnedIds().has(7)).toBe(true);
+    expect(
+      startFetch.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET'),
+    ).toHaveLength(1);
+  });
+
+  it('merges a primed response into the local stores before sync even starts', async () => {
+    // The whole point of priming: a pin made in the companion app is on
+    // this device — visible, and downloading — without waiting for the
+    // cache to rehydrate, React to mount, or auth to resolve.
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    const primeFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 55, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+    ]);
+
+    await primeCloudSyncPull({ fetchImpl: primeFetch });
+
+    expect(getPinnedIds().has(55)).toBe(true);
+    expect(_getCloudSyncRuntimeForTests()).toBeNull();
+  });
+
+  it('stops priming once the origin says the browser is signed out', async () => {
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    const fetchMock = queuedFetch([
+      { response: jsonResponse({ error: 'Not authenticated' }, 401) },
+    ]);
+    primeCloudSyncPull({ fetchImpl: fetchMock });
+    await drain();
+
+    expect(window.localStorage.getItem(SYNC_HINT_KEY)).toBeNull();
+    _resetCloudSyncPrimeForTests();
+    const secondFetch = queuedFetch([]);
+    primeCloudSyncPull({ fetchImpl: secondFetch });
+    expect(secondFetch).not.toHaveBeenCalled();
+  });
+
+  it('pulls fresh when the primed request settles past the window', async () => {
+    // The age check has to run again after the await: a request that was
+    // young enough when startCloudSync began waiting can settle on the
+    // far side of the 60 s boundary.
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    let clock = Date.now();
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    try {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const primeFetch = vi.fn(async () => {
+        await gate;
+        return jsonResponse({
+          pinned: [{ id: 42, at: T.T1 }],
+          favorite: [],
+          hidden: [],
+          done: [],
+        });
+      }) as unknown as FetchMock;
+      // Primed 59 s ago: usable when the start begins waiting.
+      void primeCloudSyncPull({ fetchImpl: primeFetch, now: clock - 59_000 });
+
+      const startFetch = queuedFetch([
+        { response: jsonResponse({ pinned: [{ id: 7, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+        { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+      ]);
+      const started = startCloudSync('alice', {
+        fetchImpl: startFetch,
+        debounceMs: 0,
+      });
+      // The request settles two seconds later — now expired.
+      clock += 2_000;
+      release();
+      await started;
+      await drain();
+
+      expect(getPinnedIds().has(7)).toBe(true);
+      expect(
+        startFetch.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET'),
+      ).toHaveLength(1);
+      // The expired snapshot isn't applied by either path.
+      expect(getPinnedIds().has(42)).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('does not hand a primed snapshot to an account that signed in after it', async () => {
+    // The runtime-lifecycle counter can't see this on its own: on a cold
+    // boot nothing has started yet, so a login replaces the cookie while
+    // `runtime` is still null and the *new* account's start would
+    // otherwise find a matching prime, apply the previous account's
+    // lists, and adopt them as its own push watermarks.
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    const primeFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 42, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+    ]);
+    await primeCloudSyncPull({ fetchImpl: primeFetch });
+    // Whatever the prime already merged belongs to the account that was
+    // signed in when it was sent; this test is about what the *next*
+    // account gets handed.
+    window.localStorage.clear();
+
+    // useAuth reports the login.
+    noteCloudSyncAuthChange();
+
+    const bobFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 7, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+      { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+    ]);
+    await startCloudSync('bob', { fetchImpl: bobFetch, debounceMs: 0 });
+    await drain();
+
+    expect(getPinnedIds().has(7)).toBe(true);
+    expect(getPinnedIds().has(42)).toBe(false);
+    expect(
+      bobFetch.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET'),
+    ).toHaveLength(1);
+  });
+
+  it('does not merge a primed snapshot across a session change', async () => {
+    // The response carries no identity of its own, so a request sent
+    // under one session and landing after a sign-out or account switch
+    // must not write that session's lists into the stores the current
+    // one reads.
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const primeFetch = vi.fn(async () => {
+      await gate;
+      return jsonResponse({
+        pinned: [{ id: 42, at: T.T1 }],
+        favorite: [],
+        hidden: [],
+        done: [],
+      });
+    }) as unknown as FetchMock;
+    void primeCloudSyncPull({ fetchImpl: primeFetch });
+
+    // First session consumes the prime and blocks on it…
+    const aliceFetch = queuedFetch([
+      { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+    ]);
+    const alice = startCloudSync('alice', {
+      fetchImpl: aliceFetch,
+      debounceMs: 0,
+    });
+    // …and while it's in flight, the session changes.
+    stopCloudSync();
+    const bobFetch = queuedFetch([
+      { response: jsonResponse(emptyState()) },
+    ]);
+    await startCloudSync('bob', { fetchImpl: bobFetch, debounceMs: 0 });
+
+    release();
+    await alice;
+    await drain();
+
+    expect(getPinnedIds().has(42)).toBe(false);
+  });
+
+  it('falls back to a fresh pull when the primed request failed', async () => {
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    const primeFetch = queuedFetch([
+      { response: jsonResponse({ error: 'nope' }, 503) },
+    ]);
+    await primeCloudSyncPull({ fetchImpl: primeFetch });
+
+    const startFetch = queuedFetch([
+      { response: jsonResponse({ pinned: [{ id: 7, at: T.T1 }], favorite: [], hidden: [], done: [] }) },
+      { matcher: (_i, init) => init?.method === 'POST', response: jsonResponse({}) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: startFetch, debounceMs: 0 });
+    await drain();
+
+    // Without the fallback the initial merge never happens and remote
+    // changes wait for a reconnect or a visibility change.
+    expect(getPinnedIds().has(7)).toBe(true);
+    expect(
+      startFetch.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET'),
+    ).toHaveLength(1);
+  });
+
+  it('surfaces a hint storage failure on the debug snapshot', async () => {
+    const original = window.localStorage.setItem.bind(window.localStorage);
+    // Restored by hand rather than by `restoreAllMocks`: happy-dom's
+    // Storage is shared across the suite, so a leaked spy breaks every
+    // later test that writes the hint.
+    const spy = vi
+      .spyOn(window.localStorage, 'setItem')
+      .mockImplementation((key: string, value: string) => {
+        if (key === SYNC_HINT_KEY) {
+          throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+        }
+        original(key, value);
+      });
+    try {
+      const fetchMock = queuedFetch([{ response: jsonResponse(emptyState()) }]);
+      await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+      await drain();
+    } finally {
+      spy.mockRestore();
+    }
+
+    const failure = getCloudSyncDebug().lastHintFailure;
+    expect(failure?.op).toBe('write');
+    expect(failure?.error).toContain('QuotaExceededError');
+    // …and the spy really is gone, or the next test's hint write is a lie.
+    window.localStorage.setItem(SYNC_HINT_KEY, '1');
+    expect(window.localStorage.getItem(SYNC_HINT_KEY)).toBe('1');
+  });
+
+  it('records the hint after a successful pull, so the next boot primes', async () => {
+    const fetchMock = queuedFetch([
+      { response: jsonResponse(emptyState()) },
+    ]);
+    await startCloudSync('alice', { fetchImpl: fetchMock, debounceMs: 0 });
+    await drain();
+
+    expect(window.localStorage.getItem(SYNC_HINT_KEY)).toBe('1');
   });
 });
 

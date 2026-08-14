@@ -6,6 +6,7 @@ import {
   type Query,
 } from '@tanstack/react-query';
 import { trackedFetch } from '../lib/networkStatus';
+import { noteCloudSyncAuthChange } from '../lib/cloudSync';
 
 export interface AuthUser {
   username: string;
@@ -151,6 +152,11 @@ export function useAuth() {
       // this and clobber the just-signed-in user back to anonymous.
       await client.cancelQueries({ queryKey: ME_QUERY_KEY });
       client.setQueryData(ME_QUERY_KEY, user);
+      // The cookie just changed identity. Cloud sync's boot-primed
+      // `/api/sync` response was fetched with the *previous* one, so it
+      // can't be attributed to this user — tell it to discard the prime
+      // before the runtime for this account starts and consumes it.
+      noteCloudSyncAuthChange();
       return user;
     },
     [client],
@@ -164,6 +170,9 @@ export function useAuth() {
     // Cancel it (aborts the fetch and drops its result) before writing null.
     await client.cancelQueries({ queryKey: ME_QUERY_KEY });
     client.setQueryData(ME_QUERY_KEY, null);
+    // Same reason as login: the cookie is gone, so a primed response
+    // fetched under it belongs to nobody who is signed in now.
+    noteCloudSyncAuthChange();
   }, [client]);
 
   return useMemo(

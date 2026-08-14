@@ -146,6 +146,88 @@ describe('syncPinnedStoriesForOffline', () => {
     expect(urls.some((url) => url.includes('/api/items'))).toBe(false);
   });
 
+  it('asks for a never-downloaded pin’s summaries alongside its root, not after it', async () => {
+    // The readmo case: the pin arrives from another device with nothing
+    // cached here, so the reader pays a round trip for the root and then
+    // another for the summary they're about to read. Nothing about the
+    // story is known yet, so both summaries are asked for blind, in
+    // parallel with the root batch.
+    const now = 55_000;
+    addPinnedId(12, now);
+    const hnMock = installHNFetchMock({
+      items: { 12: makeStory(12, { title: 'Twelve', kids: [] }) },
+      summaries: { 12: { summary: 'S12' } },
+      commentsSummaries: { 12: { insights: ['i12'] } },
+    });
+    // Hold the root batch open so "in parallel" is observable rather
+    // than a race against an already-settled fetch.
+    let releaseRoot!: () => void;
+    const rootGate = new Promise<void>((r) => {
+      releaseRoot = r;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/api/items')) await rootGate;
+        return hnMock(input);
+      }),
+    );
+    const client = newClient();
+
+    syncPinnedStoriesForOffline(client, now);
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['summary', 12])).toMatchObject({
+        summary: 'S12',
+      });
+      expect(client.getQueryData(['comments-summary', 12])).toMatchObject({
+        insights: ['i12'],
+      });
+    });
+    // …while the root batch is still held open, i.e. the summaries did
+    // not wait on it. (The root batch is a bare `getItems` call, so
+    // there's no ['itemRoot', 12] query to inspect until it lands.)
+    expect(client.getQueryData(['itemRoot', 12])).toBeUndefined();
+    releaseRoot();
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 12])).toMatchObject({
+        item: { title: 'Twelve' },
+      });
+    });
+  });
+
+  it('does not re-ask for a cold pin’s failed summaries when its root lands', async () => {
+    // The blind warm leaves no cached data when it fails, so the
+    // root-batch summary step would otherwise fire the same two
+    // requests again inside the same run.
+    const now = 57_000;
+    addPinnedId(13, now);
+    const fetchMock = installHNFetchMock({
+      items: { 13: makeStory(13, { title: 'Thirteen', kids: [] }) },
+      summaries: { 13: { error: 'boom', status: 500 } },
+      commentsSummaries: { 13: { error: 'boom', status: 500 } },
+    });
+    const client = newClient();
+
+    syncPinnedStoriesForOffline(client, now);
+
+    await vi.waitFor(() => {
+      expect(client.getQueryData(['itemRoot', 13])).toMatchObject({
+        item: { title: 'Thirteen' },
+      });
+      expect(client.getQueryState(['summary', 13])?.fetchStatus).toBe('idle');
+      expect(client.getQueryState(['comments-summary', 13])?.fetchStatus).toBe(
+        'idle',
+      );
+    });
+    const countUrls = (fragment: string) =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes(fragment),
+      ).length;
+    expect(countUrls('/api/summary')).toBe(1);
+    expect(countUrls('/api/comments-summary')).toBe(1);
+  });
+
   it('tops up missing first-page comments for a fresh-rooted pin without refetching the root', async () => {
     // Regression (Codex review on #373): a fresh root whose pin-time
     // comment batch silently failed kept the thread comment-less
@@ -636,13 +718,19 @@ describe('syncPinnedStoriesForOffline', () => {
     const now = 80_000;
     addPinnedId(8, now);
     const client = newClient();
-    const rejecting = vi.fn(async () => {
+    const rejecting = vi.fn(async (_input: RequestInfo | URL) => {
       throw new TypeError('Failed to fetch');
     });
     vi.stubGlobal('fetch', rejecting);
 
     syncPinnedStoriesForOffline(client, now);
-    await vi.waitFor(() => expect(rejecting).toHaveBeenCalledTimes(1));
+    // A cold pin also asks for its two summaries in parallel with the
+    // root batch, so count the root request specifically.
+    const rootCalls = () =>
+      rejecting.mock.calls.filter(([input]) =>
+        String(input).includes('/api/items'),
+      ).length;
+    await vi.waitFor(() => expect(rootCalls()).toBe(1));
 
     // The thrown fetch flipped the tracker offline; reset it to model the
     // connection coming back, then re-sync well inside the 6 h window.
@@ -716,9 +804,24 @@ describe('syncPinnedStoriesForOffline', () => {
   it('keeps the throttle when a summary fetch failed with an HTTP status', async () => {
     const now = 110_000;
     addPinnedId(11, now);
-    const client = newClient();
+    // Non-zero gcTime for the same reason as the test above: the seeded
+    // root has to survive the async gap, or the re-sync reroutes down
+    // the root-batch path and stops testing the fill path's throttle.
+    // The comment fixture matters too — an uncached top-up id clears the
+    // attempt mark on settle, which would also let the story be re-asked.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: 60_000,
+          staleTime: 0,
+          networkMode: 'always',
+        },
+      },
+    });
     seedFreshRoot(client, 11, { kids: [1101] }, [1101], now - 1_000);
     const fetchMock = installHNFetchMock({
+      items: { 1101: makeStory(1101, { title: 'Comment' }) },
       summaries: { 11: { error: 'boom', status: 500 } },
       commentsSummaries: { 11: { error: 'boom', status: 500 } },
     });

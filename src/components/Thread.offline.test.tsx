@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import { onlineManager } from '@tanstack/react-query';
+import { onlineManager, QueryClient } from '@tanstack/react-query';
 import { Thread } from './Thread';
 import { renderWithProviders } from '../test/renderUtils';
 import { installHNFetchMock, makeStory } from '../test/mockFetch';
@@ -23,6 +23,49 @@ describe('<Thread> offline messaging', () => {
     vi.unstubAllGlobals();
     setOnline(true);
     onlineManager.setOnline(true);
+  });
+
+  it('keeps a cached thread on screen when the refresh fails', async () => {
+    // Regression: React Query keeps `data` and flips `status` to 'error'
+    // when a fetch fails on a query that already has data, so gating the
+    // error screen on `isError` alone replaced a readable pinned thread
+    // with "Could not load thread." A failed refresh must not take the
+    // story away — the error screen is for having nothing to show.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: 60_000,
+          staleTime: 0,
+          networkMode: 'offlineFirst',
+        },
+      },
+    });
+    // What the persister rehydrated, or the pin warm left behind.
+    client.setQueryData(['itemRoot', 555], {
+      item: makeStory(555, { title: 'Pinned and readable' }),
+      kidIds: [],
+    });
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('network down');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderWithProviders(<Thread id={555} />, { route: '/item/555', client });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(
+        client.getQueryState(['itemRoot', 555])?.status,
+      ).toBe('error');
+    });
+    expect(screen.getByText('Pinned and readable')).toBeInTheDocument();
+    expect(screen.queryByText(/could not load thread/i)).toBeNull();
+    // The thread-level "nothing to show" copy specifically — the summary
+    // card's own offline message is correct here and stays.
+    expect(screen.queryByText(/This story is not available offline/i)).toBeNull();
   });
 
   it('tells the user to pin while online when the thread fetch fails offline', async () => {
