@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DebugPage } from './DebugPage';
+import {
+  _resetIdbPersisterForTests,
+  notePersistRestoreFailure,
+} from '../lib/idbPersister';
 import { renderWithProviders } from '../test/renderUtils';
 
 interface StatusBody {
@@ -38,9 +42,41 @@ function mockStatus(body: StatusBody | (() => StatusBody), ok = true) {
 describe('<DebugPage>', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    _resetIdbPersisterForTests();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    _resetIdbPersisterForTests();
+  });
+
+  it('reports a failed cache restore, and says nothing when there was none', async () => {
+    // Regression (Codex review on #500): a restore that threw is
+    // discarded-and-refetched exactly like an empty cache, so without
+    // this row the operator can't tell a corrupt blob from a device
+    // that has simply never persisted one.
+    mockStatus({
+      region: 'iad1',
+      build: 'abc1234def5678',
+      services: {
+        gemini: { configured: true },
+        jina: { configured: true },
+        redis: { configured: true },
+      },
+    });
+    const { unmount } = renderWithProviders(<DebugPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Deployment')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Cache restore failed/i)).toBeNull();
+    unmount();
+
+    notePersistRestoreFailure(new SyntaxError('bad json'));
+    renderWithProviders(<DebugPage />);
+
+    const alert = await screen.findByText(/Cache restore failed/i);
+    expect(alert).toHaveTextContent('SyntaxError');
+    // The name only — never the message, which can quote the payload.
+    expect(alert).not.toHaveTextContent('bad json');
   });
 
   it('renders the deployment and services sections after the fetch resolves', async () => {

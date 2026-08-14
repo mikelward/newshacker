@@ -28,6 +28,40 @@ export const PINNED_SYNC_MAX_STORIES = 30;
 
 const attemptedAtById = new Map<number, number>();
 
+// Pins this device already knew about when the boot listeners went up,
+// held back until the persisted query cache has restored from IndexedDB.
+// Null means there is nothing to wait for — either restoration has
+// reported (`notePinnedCacheHydrated`), or nobody armed the gate.
+//
+// The gate exists because `startPinnedOfflineSync` is wired from the
+// entry module, *before* `PersistQueryClientProvider` restores, and the
+// boot `/api/sync` prime merges its answer into the pinned store in that
+// window — emitting a change event even when the snapshot is unchanged.
+// Running the sync then reads an empty cache, so every existing pin
+// looks cold: up to 30 roots that are already on disk get re-downloaded,
+// each with two blind summary requests, and all of them get stamped with
+// the 6 h attempt throttle that then suppresses the real (post-restore)
+// run's fill work.
+//
+// Only the ids known at boot are held. An id that arrives *during* this
+// boot — the cross-device pin the prime exists to deliver — is warmed
+// immediately, which is the whole point of the prime; the persisted
+// cache can't hold content for a story this device wasn't tracking, save
+// for the narrow case of one read here before being pinned elsewhere,
+// which costs at most the two summary requests it would have paid on a
+// genuine cold pin.
+let unhydratedPinIds: ReadonlySet<number> | null = null;
+
+// Called when the persisted cache has restored — or has failed to, which
+// is the same thing here: nothing more is coming, so the held-back pins
+// should be treated on what the cache actually holds. `main.tsx` calls
+// it from both `PersistQueryClientProvider` callbacks, and follows it
+// with a full sync run that picks up everything the gate skipped (no
+// held id was ever marked attempted, so none is throttled).
+export function notePinnedCacheHydrated(): void {
+  unhydratedPinIds = null;
+}
+
 // What a pinned story still needs before it's fully readable offline.
 // 'root' also implies re-checking summaries and comments once the fresh
 // item is in hand; 'fill' means the root is fresh and only a summary
@@ -420,6 +454,10 @@ export function syncPinnedStoriesForOffline(
   const fillRoots: ItemRoot[] = [];
   for (const entry of getPinnedEntries().sort((a, b) => b.at - a.at)) {
     if (rootIds.length + fillRoots.length >= PINNED_SYNC_MAX_STORIES) break;
+    // Deliberately before the attempt mark below: a pin held for
+    // restoration must not be throttled for 6 h by the run that skipped
+    // it. See unhydratedPinIds.
+    if (unhydratedPinIds?.has(entry.id)) continue;
     const need = storySyncNeed(client, entry.id, now);
     if (need === 'skip') continue;
     attemptedAtById.set(entry.id, now);
@@ -503,6 +541,11 @@ function collectFillCommentTopUp(
 // main.tsx starters; the app never calls it.
 export function startPinnedOfflineSync(client: QueryClient): () => void {
   if (typeof window === 'undefined') return () => {};
+  // Arm the restore gate: from here until notePinnedCacheHydrated(), a
+  // pin this device already knew about is left alone, because the
+  // persisted cache hasn't been restored yet and "nothing cached" would
+  // be a lie about every one of them. See unhydratedPinIds.
+  unhydratedPinIds = new Set(getPinnedEntries().map((entry) => entry.id));
   const run = () => syncPinnedStoriesForOffline(client);
   // The pin-change trigger is deferred by one macrotask: local pin
   // handlers call pin(id) — which dispatches the change event
@@ -555,4 +598,5 @@ export function startPinnedOfflineSync(client: QueryClient): () => void {
 
 export function _resetPinnedOfflineSyncForTests(): void {
   attemptedAtById.clear();
+  unhydratedPinIds = null;
 }

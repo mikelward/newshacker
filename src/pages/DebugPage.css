@@ -45,6 +45,16 @@
   font-size: 13px;
 }
 
+/* Only rendered when a restore actually threw, so it can afford to be
+   the loudest thing on the page. */
+.debug-page__alert {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--nh-orange);
+  background: var(--nh-bg-code);
+  font-size: 13px;
+}
+
 .debug-page__services {
   list-style: none;
   padding: 0;

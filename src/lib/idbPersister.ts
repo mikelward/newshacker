@@ -206,6 +206,59 @@ export const idbPersistStorage: PersistAsyncStorage = {
   },
 };
 
+// A restore that *threw* — a half-written or corrupt blob, a payload
+// this build can't parse. Distinct from every failure above, which fail
+// open to "no persisted cache" and are indistinguishable from a device
+// that simply has none. React Query discards the blob and re-downloads
+// either way, so the two look identical from the outside — except that
+// one of them is a bug. It has to be captured here: React Query only
+// `console.error`s the cause in dev builds, and
+// `PersistQueryClientProvider`'s `onError` callback takes no arguments,
+// so in a production boot this is the last point the error exists.
+export interface PersistRestoreFailure {
+  at: number;
+  // The error's constructor NAME, never its message. V8 quotes a slice
+  // of the offending input in `JSON.parse` messages, and the blob is
+  // query data — the signed-in `['me']` record included (AGENTS.md
+  // § Privacy). The name is what answers the actual question:
+  // 'SyntaxError' means the payload is corrupt, a storage error means
+  // the device is.
+  error: string;
+}
+
+let lastRestoreFailure: PersistRestoreFailure | null = null;
+
+// Recorded once per boot, first cause wins. The persister wrapper below
+// calls it with the error; `main.tsx`'s `onError` calls it with nothing,
+// which covers a throw from `hydrate` — past the wrapper, and the one
+// path that would otherwise leave the gate released with no trace.
+export function notePersistRestoreFailure(e?: unknown): void {
+  if (lastRestoreFailure) return;
+  const name = e instanceof Error ? e.name : undefined;
+  lastRestoreFailure = { at: Date.now(), error: name || 'unknown' };
+}
+
+export function getPersistRestoreFailure(): PersistRestoreFailure | null {
+  return lastRestoreFailure;
+}
+
+// Record a restore failure and re-throw it: React Query's own handler is
+// what discards the bad blob and fires `onError`, which is what releases
+// the pinned-offline-sync restore gate.
+function reportingRestore(persister: Persister): Persister {
+  return {
+    ...persister,
+    restoreClient: async () => {
+      try {
+        return await persister.restoreClient();
+      } catch (e) {
+        notePersistRestoreFailure(e);
+        throw e;
+      }
+    },
+  };
+}
+
 // throttleTime matches the previous sync persister: snapshots are
 // coalesced to at most one per second so a burst of cache writes (a
 // comment batch landing) serializes once.
@@ -214,19 +267,25 @@ export function createAppPersister(): Persister {
     // No IndexedDB at all (ancient engine, some webviews): keep the old
     // localStorage persister rather than losing persistence entirely.
     // Same key, same shape — a later boot with IDB available migrates.
-    return createSyncStoragePersister({
-      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    return reportingRestore(
+      createSyncStoragePersister({
+        storage:
+          typeof window !== 'undefined' ? window.localStorage : undefined,
+        key: PERSIST_KEY,
+        throttleTime: 1000,
+      }),
+    );
+  }
+  return reportingRestore(
+    createAsyncStoragePersister({
+      storage: idbPersistStorage,
       key: PERSIST_KEY,
       throttleTime: 1000,
-    });
-  }
-  return createAsyncStoragePersister({
-    storage: idbPersistStorage,
-    key: PERSIST_KEY,
-    throttleTime: 1000,
-  });
+    }),
+  );
 }
 
 export function _resetIdbPersisterForTests(): void {
   dbPromise = null;
+  lastRestoreFailure = null;
 }

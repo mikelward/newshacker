@@ -4,7 +4,9 @@ import {
   PERSIST_KEY,
   _resetIdbPersisterForTests,
   createAppPersister,
+  getPersistRestoreFailure,
   idbPersistStorage,
+  notePersistRestoreFailure,
 } from './idbPersister';
 
 // Each test gets a brand-new in-memory IndexedDB so state can't leak
@@ -235,5 +237,51 @@ describe('createAppPersister', () => {
       },
       { timeout: 3000 },
     );
+  });
+});
+
+describe('restore failure reporting', () => {
+  it('records a corrupt persisted blob and still lets React Query discard it', async () => {
+    // Regression (Codex review on #500): every other failure here fails
+    // open to "no persisted cache", which is what a device with none
+    // looks like too. A restore that *throws* is a different thing —
+    // and React Query only console.errors the cause in dev builds,
+    // while PersistQueryClientProvider's onError takes no arguments, so
+    // this is the last point in a production boot where it exists.
+    await idbPersistStorage.setItem(PERSIST_KEY, '{"clientState":');
+    const persister = createAppPersister();
+
+    await expect(persister.restoreClient()).rejects.toThrow();
+
+    const failure = getPersistRestoreFailure();
+    // The error's name, not its message: V8 quotes a slice of the
+    // offending input in JSON.parse messages, and the blob holds query
+    // data including the signed-in ['me'] record.
+    expect(failure?.error).toBe('SyntaxError');
+    expect(failure?.at).toBeGreaterThan(0);
+  });
+
+  it('reports nothing for a restore that simply found no cache', async () => {
+    const persister = createAppPersister();
+
+    await expect(persister.restoreClient()).resolves.toBeUndefined();
+
+    expect(getPersistRestoreFailure()).toBeNull();
+  });
+
+  it('keeps the first cause when the backstop call also fires', () => {
+    // main.tsx's onError calls this with no error to cover a throw from
+    // `hydrate`, past the persister wrapper. It must not overwrite a
+    // specific cause the wrapper already recorded.
+    notePersistRestoreFailure(new SyntaxError('bad json'));
+    notePersistRestoreFailure();
+
+    expect(getPersistRestoreFailure()?.error).toBe('SyntaxError');
+  });
+
+  it('records an unknown cause when only the backstop fires', () => {
+    notePersistRestoreFailure();
+
+    expect(getPersistRestoreFailure()?.error).toBe('unknown');
   });
 });

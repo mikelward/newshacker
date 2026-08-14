@@ -245,7 +245,25 @@ run. The pinned-set-change
 trigger runs one macrotask deferred: local pin handlers dispatch the change
 event synchronously *before* firing the pin-time warm, so an inline sync
 would double-fetch every local pin; one tick later the pin-time root fetch is
-in flight and the sync's in-flight guard skips the story. The sync path never *refreshes* an
+in flight and the sync's in-flight guard skips the story.
+**A pin this device already had is held until the persisted cache has
+restored.** The listeners go up in the entry module, before
+`PersistQueryClientProvider` restores, and the boot `/api/sync` prime
+(see *The pull is primed at boot* below) merges its answer into the
+pinned store inside that window — emitting a change event even for an
+unchanged snapshot. Judged against a cache that hasn't restored yet,
+every existing pin looks cold: up to 30 roots already on disk get
+re-downloaded, each with two blind summary requests, and each stamped
+with the 6 h attempt throttle that would then suppress the real
+post-restore run. So `startPinnedOfflineSync` snapshots the ids this
+device already knew about and skips exactly those — without marking them
+attempted — until `notePinnedCacheHydrated()` releases them, which
+`main.tsx` calls from *both* the restore-success and restore-failure
+callbacks (a failed restore means the cache really is empty, so the
+answer is to proceed, not to stay switched off for the session). An id
+that arrives *during* the hold is the cross-device pin the prime exists
+to deliver: nothing persisted can be waiting for a story this device
+wasn't tracking, so it is warmed immediately. The sync path never *refreshes* an
 already-cached summary (freshness stays owned by the warm-summaries cron and
 the normal thread-open refetch), which is what keeps the earlier "no surprise
 Gemini spend on routine app opens" rule intact: a missing summary is fetched
@@ -303,7 +321,12 @@ races), **and whenever a login or logout completes** (`useAuth` calls
 may still be null on a cold boot, and the new account's start would
 otherwise find a prime matching its own generation, apply the previous
 account's lists, and adopt them as its push watermarks) — is captured
-when the prime fires and re-checked before either merge. A snapshot fired under a different generation, or older than 60 s,
+when the prime fires and re-checked before either merge, and again
+*after* the response settles: a login or logout bumps the counter the
+moment the cookie changes, while React's `useCloudSync` effect is still
+a tick from stopping or replacing the runtime, so runtime identity alone
+would still call that snapshot current. A snapshot fired under a different generation, one whose generation moved
+while it was in flight, or one older than 60 s,
 is not applied and `startCloudSync` pulls fresh instead. So is one that
 failed: a prime that errors falls back to a normal pull rather than
 skipping the initial merge, which would otherwise leave remote changes
@@ -320,6 +343,26 @@ for the life of the device, or leaves a signed-out one re-asking every
 boot — so it's recorded on the cloud-sync debug snapshot and rendered as
 a "Boot hint" row on `/debug`. Sanitized: the operation and the DOM
 exception name, no key or value.
+
+**A persisted cache that won't restore says so on `/debug`.** Every
+storage-level failure in `idbPersister` fails open to "no persisted
+cache", which is exactly what a device that has never persisted one
+looks like — and React Query discards the blob and refetches either way,
+so the two are indistinguishable from the outside though only one is a
+bug. A restore that *throws* (a half-written or corrupt payload) is
+therefore recorded: React Query only logs the cause in dev builds and
+`PersistQueryClientProvider`'s `onError` takes no arguments, so the
+persister's own `restoreClient` wrapper captures it and re-throws (React
+Query still discards the blob and fires `onError`, which is what
+releases the pinned-sync restore gate), with `main.tsx`'s `onError`
+recording a cause-less entry as the backstop for a throw from `hydrate`.
+`/debug` renders it above the deployment section — outside the
+`/api/status` gate, since a device whose cache won't restore may not
+reach the network either. **The error's name only, never its message**:
+V8 quotes a slice of the offending input in `JSON.parse` messages, and
+the persisted blob holds query data including the signed-in `['me']`
+record. The name is what answers the question — `SyntaxError` means the
+payload is corrupt, a storage error means the device is.
 
 ### MVP (read-only)
 
