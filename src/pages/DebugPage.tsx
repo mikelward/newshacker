@@ -10,6 +10,7 @@ import {
   getPersistCacheStats,
   getPersistRestoreFailure,
 } from '../lib/idbPersister';
+import { getThreadOpenRecords } from '../lib/threadOpenStats';
 import './DebugPage.css';
 
 function formatChars(chars: number): string {
@@ -93,6 +94,12 @@ export function DebugPage() {
     () => censusVersionRef.current,
   );
   const cacheStats = getPersistCacheStats();
+  // Recent thread opens (see threadOpenStats.ts). A plain render-time
+  // read on purpose, no subscription: opening a thread in this tab
+  // unmounts /debug first, and another tab is another module instance —
+  // there is no path where a record lands while this page is mounted,
+  // so the reader always arrives here after the opens they care about.
+  const threadOpens = getThreadOpenRecords();
   // Live query-cache census by key family. After boot the hydrated cache
   // holds everything the persisted blob restored, so this is what answers
   // "what is the blob full of?" — the per-comment entries (7-day gcTime,
@@ -165,6 +172,27 @@ export function DebugPage() {
                 {' '}
                 · last {formatChars(cacheStats.lastPersistChars)}
               </span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Thread opens</dt>
+          <dd>
+            {threadOpens.length === 0 ? (
+              <em>none this session</em>
+            ) : (
+              threadOpens
+                .map(
+                  (open) =>
+                    `#${open.id} · ${open.waitedMs} ms wait · root ${
+                      open.rootCached ? 'cached' : 'not cached'
+                    }${
+                      open.sinceNavMs !== undefined
+                        ? ` · ${open.sinceNavMs} ms since page load`
+                        : ''
+                    }`,
+                )
+                .join('; ')
             )}
           </dd>
         </div>

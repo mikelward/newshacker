@@ -39,6 +39,7 @@ import { recordFirstAction } from '../lib/telemetry';
 import { prefetchFavoriteStory } from '../lib/favoriteStoryPrefetch';
 import { getItem, getItems } from '../lib/hn';
 import { sanitizeCommentHtml } from '../lib/sanitize';
+import { claimBootOpen, noteThreadOpen } from '../lib/threadOpenStats';
 import { hasSelfPostBody } from '../lib/selfPostBody';
 import { trackSummaryLayout } from '../lib/analytics';
 import { Comment, CommentPlaceholder } from './Comment';
@@ -755,8 +756,57 @@ export function Thread({ id }: Props) {
   // through. `useItemTree`'s `enabled` only flips false when `id` is
   // non-finite, which `ItemPage` already guards against — so by the
   // time we render here, pending always means actually waiting.
-  const { data, isPending, isError, refetch } = useItemTree(id);
+  const { data, isPending, isError, refetch, dataUpdatedAt } =
+    useItemTree(id);
   const queryClient = useQueryClient();
+  // Instrument the open: how long the reader waited for content, whether
+  // it came from cache, and — when this thread IS the page load — the
+  // wall-clock total since navigation start (see threadOpenStats.ts —
+  // this is what turns "opening a story felt slow" into a diagnosable
+  // /debug row). Records exactly one row per mount, on the first commit
+  // that actually has content: an error or not-found state isn't an
+  // open, and leaving the ref unset there lets a successful Retry record
+  // the real, full wait. Cache provenance is judged at commit time from
+  // dataUpdatedAt — data stamped before this mount was already there
+  // (memory cache, or the persisted blob hydrating mid-wait); data
+  // stamped after mount was fetched during the wait. A mount-time cache
+  // probe would mislabel the hydration case as a fetch.
+  const [openStartMs] = useState(() => performance.now());
+  // claimBootOpen matches against the URL the page actually loaded on,
+  // and the claim is consumed HERE, at mount — not when a record lands.
+  // The page-load thread spends it even if its fetch fails and the
+  // reader leaves; a later in-app return to the same story must not
+  // inherit a sinceNavMs spanning the whole session. Mount-scoped state
+  // keeps the classification across retries within this mount.
+  const [bootOpen] = useState(() => claimBootOpen(id));
+  const openRecordedRef = useRef(false);
+  useEffect(() => {
+    if (openRecordedRef.current || isPending || !data?.item) return;
+    openRecordedRef.current = true;
+    // "Cached" means the reader's measured wait paid no fetch for this
+    // data. The measured wait differs by path, so the cutoff does too:
+    // an in-app open waits from MOUNT (anything stamped earlier — memory
+    // cache, hydration landing mid-wait, a feed row prefetch — was
+    // already paid for); a boot open waits from NAVIGATION START, and
+    // the entry module starts a deep-link fetch for exactly this root
+    // inside that window (prefetchDeepLinkedItem in main.tsx) — its
+    // result finishing just before mount is still a fetch the reader
+    // waited on, so only data predating the page load (the persisted
+    // blob) counts as cached there. dataUpdatedAt is the RENDERED
+    // snapshot's stamp, deliberately not a live getQueryState read — a
+    // stale cached paint's background refetch can resolve between the
+    // commit and this passive effect, and re-reading would mislabel
+    // that cached first paint as a fetch.
+    const cachedCutoffEpochMs = bootOpen
+      ? performance.timeOrigin
+      : performance.timeOrigin + openStartMs;
+    noteThreadOpen({
+      id,
+      waitedMs: Math.round(performance.now() - openStartMs),
+      rootCached: dataUpdatedAt < cachedCutoffEpochMs,
+      ...(bootOpen ? { sinceNavMs: Math.round(performance.now()) } : {}),
+    });
+  }, [isPending, data, id, openStartMs, bootOpen, dataUpdatedAt]);
   const online = useOnlineStatus();
   const navigate = useNavigate();
   const [visibleCount, setVisibleCount] = useState(TOP_LEVEL_PAGE_SIZE);
