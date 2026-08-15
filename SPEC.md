@@ -378,7 +378,25 @@ a live census of the query cache by key family (`comment: N`,
 e.g. the per-comment entries a long-lived profile accumulates under the
 7-day retention. Sizes, durations, and counts only — never cache
 contents (the blob holds query data, the signed-in `['me']` record
-included).
+included). The section also lists the **last five thread opens**
+(session memory only, bounded, never persisted or sent): each as
+`#id · N ms wait · root cached/not cached`, where the wait runs from the
+thread component mounting to its first commit with content (errors and
+not-found states don't record; a successful retry records the full
+wait), and cache provenance is judged at commit time from the query's
+`dataUpdatedAt` so a root supplied by the persisted blob hydrating
+mid-wait counts as cached, not fetched — except on the page-load open,
+where only data predating navigation start counts as cached, because the
+entry module's deep-link prefetch is itself a fetch inside the measured
+wait. The open the page itself loaded
+on (reload of an `/item` URL, deep link, PWA relaunch — identified by
+the initial URL, not a time window) additionally carries
+`M ms since page load`: the wall-clock total from navigation start,
+which includes the JS parse, cache restore, and hydrate work that
+happens before the component exists. The list is deliberately not
+live-synced across tabs — opening a thread in the same tab unmounts
+`/debug` first, so the reader always arrives after the opens they're
+diagnosing.
 
 ### MVP (read-only)
 

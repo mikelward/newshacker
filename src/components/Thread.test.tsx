@@ -16,6 +16,10 @@ import {
   uninstallIntersectionObserverMock,
 } from '../test/intersectionObserver';
 import type { HNItem } from '../lib/hn';
+import {
+  _resetThreadOpenStatsForTests,
+  getThreadOpenRecords,
+} from '../lib/threadOpenStats';
 
 function LocationProbe() {
   const loc = useLocation();
@@ -2027,5 +2031,196 @@ describe('<Thread>', () => {
     expect(
       screen.getByLabelText('Loading thread'),
     ).toHaveAttribute('aria-busy', 'true');
+  });
+});
+
+describe('<Thread> open instrumentation', () => {
+  beforeEach(() => {
+    _resetThreadOpenStatsForTests();
+  });
+  afterEach(() => {
+    _resetThreadOpenStatsForTests();
+    vi.unstubAllGlobals();
+  });
+
+  it('records a cold open as root-not-cached once content commits', async () => {
+    installHNFetchMock({
+      items: {
+        700: makeStory(700, { title: 'Cold open', descendants: 0 }),
+      },
+    });
+    renderWithProviders(<Thread id={700} />, { route: '/item/700' });
+    await waitFor(() => {
+      expect(screen.getByText('Cold open')).toBeInTheDocument();
+    });
+    const records = getThreadOpenRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0].id).toBe(700);
+    expect(records[0].rootCached).toBe(false);
+    expect(records[0].waitedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('stamps the initial-route thread open with the time since page load', async () => {
+    // A Thread whose id matches the URL the page loaded on IS the page
+    // load (reload / deep link), however long JS/restore/hydrate took
+    // before it mounted — identified by the initial route, not a time
+    // window. The record carries the wall-clock total since navigation
+    // start.
+    _resetThreadOpenStatsForTests(702);
+    installHNFetchMock({
+      items: {
+        702: makeStory(702, { title: 'Reload open', descendants: 0 }),
+      },
+    });
+    renderWithProviders(<Thread id={702} />, { route: '/item/702' });
+    await waitFor(() => {
+      expect(screen.getByText('Reload open')).toBeInTheDocument();
+    });
+    const records = getThreadOpenRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0].sinceNavMs).toBeGreaterThanOrEqual(0);
+    // The root was fetched during this page load (mirroring the entry
+    // module's deep-link prefetch racing the mount), so a boot open must
+    // not call it cached — only data predating navigation start is.
+    expect(records[0].rootCached).toBe(false);
+  });
+
+  it('counts persisted-blob data as cached for a boot open', async () => {
+    // Data stamped before navigation start can only have come from the
+    // persisted cache hydrating — the one source a boot open's wait
+    // didn't fetch.
+    _resetThreadOpenStatsForTests(705);
+    installHNFetchMock({
+      items: {
+        705: makeStory(705, { title: 'Hydrated open', descendants: 0 }),
+      },
+    });
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0, staleTime: Infinity },
+      },
+    });
+    client.setQueryData(
+      ['itemRoot', 705],
+      {
+        item: makeStory(705, { title: 'Hydrated open', descendants: 0 }),
+        kidIds: [],
+      },
+      // Stamped before this page's timeOrigin, as a hydrated blob is.
+      { updatedAt: 1 },
+    );
+    renderWithProviders(<Thread id={705} />, { route: '/item/705', client });
+    await waitFor(() => {
+      expect(screen.getByText('Hydrated open')).toBeInTheDocument();
+    });
+    const records = getThreadOpenRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0].rootCached).toBe(true);
+    expect(records[0].sinceNavMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('does not stamp an in-app open with a page-load total', async () => {
+    // The page loaded on a feed URL, so this open — however soon after
+    // load — is an in-app navigation, not a boot.
+    _resetThreadOpenStatsForTests(null);
+    installHNFetchMock({
+      items: {
+        703: makeStory(703, { title: 'In-app open', descendants: 0 }),
+      },
+    });
+    renderWithProviders(<Thread id={703} />, { route: '/item/703' });
+    await waitFor(() => {
+      expect(screen.getByText('In-app open')).toBeInTheDocument();
+    });
+    expect(getThreadOpenRecords()[0].sinceNavMs).toBeUndefined();
+  });
+
+  it('spends the boot-open claim at mount even when the open never records', async () => {
+    // The page loaded on /item/706 but the fetch failed and the reader
+    // left. A later in-app mount of the same story must not inherit the
+    // page-load classification — its sinceNavMs would span the session.
+    _resetThreadOpenStatsForTests(706);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('down', { status: 500 })),
+    );
+    const first = renderWithProviders(<Thread id={706} />, {
+      route: '/item/706',
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /retry/i }),
+      ).toBeInTheDocument();
+    });
+    expect(getThreadOpenRecords()).toHaveLength(0);
+    first.unmount();
+
+    installHNFetchMock({
+      items: {
+        706: makeStory(706, { title: 'Second visit', descendants: 0 }),
+      },
+    });
+    renderWithProviders(<Thread id={706} />, { route: '/item/706' });
+    await waitFor(() => {
+      expect(screen.getByText('Second visit')).toBeInTheDocument();
+    });
+    const records = getThreadOpenRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0].sinceNavMs).toBeUndefined();
+  });
+
+  it('does not record an error state, and records the full wait after a retry succeeds', async () => {
+    // The root fetch failing flips isPending without content — that is
+    // not an open. The record must land only when content commits, with
+    // the wait spanning the failed attempt too.
+    const failingFetch = vi.fn(async () =>
+      new Response('upstream down', { status: 500 }),
+    );
+    vi.stubGlobal('fetch', failingFetch);
+    renderWithProviders(<Thread id={704} />, { route: '/item/704' });
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /retry/i }),
+      ).toBeInTheDocument();
+    });
+    expect(getThreadOpenRecords()).toHaveLength(0);
+
+    installHNFetchMock({
+      items: {
+        704: makeStory(704, { title: 'Recovered open', descendants: 0 }),
+      },
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Recovered open')).toBeInTheDocument();
+    });
+    const records = getThreadOpenRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0].id).toBe(704);
+  });
+
+  it('records a warm open as root-cached when the query cache already holds the root', async () => {
+    installHNFetchMock({
+      items: {
+        701: makeStory(701, { title: 'Warm open', descendants: 0 }),
+      },
+    });
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0, staleTime: Infinity },
+      },
+    });
+    client.setQueryData(['itemRoot', 701], {
+      item: makeStory(701, { title: 'Warm open', descendants: 0 }),
+      kidIds: [],
+    });
+    renderWithProviders(<Thread id={701} />, { route: '/item/701', client });
+    await waitFor(() => {
+      expect(screen.getByText('Warm open')).toBeInTheDocument();
+    });
+    const records = getThreadOpenRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0].rootCached).toBe(true);
   });
 });

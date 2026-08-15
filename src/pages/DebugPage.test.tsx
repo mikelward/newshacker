@@ -8,6 +8,10 @@ import {
   notePersistRestoreFailure,
 } from '../lib/idbPersister';
 import { renderWithProviders } from '../test/renderUtils';
+import {
+  _resetThreadOpenStatsForTests,
+  noteThreadOpen,
+} from '../lib/threadOpenStats';
 
 interface StatusBody {
   region: string | null;
@@ -160,6 +164,34 @@ describe('<DebugPage>', () => {
     renderWithProviders(<DebugPage />, { route: '/debug' });
     expect(screen.getByText(/no persisted cache found/i)).toBeInTheDocument();
     expect(screen.queryByText(/^\d+ ms/)).toBeNull();
+  });
+
+  it('lists recent thread opens with wait time and cache provenance', async () => {
+    _resetThreadOpenStatsForTests();
+    mockStatus({
+      region: null,
+      build: null,
+      services: {
+        gemini: { configured: false },
+        jina: { configured: false },
+        redis: { configured: false },
+      },
+    });
+    noteThreadOpen({
+      id: 45678,
+      waitedMs: 1840,
+      rootCached: false,
+      sinceNavMs: 2210,
+    });
+    noteThreadOpen({ id: 999, waitedMs: 3, rootCached: true });
+    renderWithProviders(<DebugPage />, { route: '/debug' });
+    // Newest first, boot-open total appended only where present.
+    expect(
+      screen.getByText(
+        /#999 · 3 ms wait · root cached; #45678 · 1840 ms wait · root not cached · 2210 ms since page load/,
+      ),
+    ).toBeInTheDocument();
+    _resetThreadOpenStatsForTests();
   });
 
   it('updates the query census live as queries enter the cache', async () => {
