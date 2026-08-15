@@ -111,6 +111,35 @@ describe('<DebugPage>', () => {
     expect(screen.getByText('Sync')).toBeInTheDocument();
   });
 
+  it('renders the persisted-cache stats section outside the status gate', async () => {
+    // Status fetch fails — the cache section must render anyway, since
+    // a device whose boot is slowed by a huge persisted blob is exactly
+    // the one that may struggle to load /api/status too.
+    mockStatus(
+      {
+        region: null,
+        build: null,
+        services: {
+          gemini: { configured: false },
+          jina: { configured: false },
+          redis: { configured: false },
+        },
+      },
+      false,
+    );
+    renderWithProviders(<DebugPage />, { route: '/debug' });
+
+    expect(
+      screen.getByRole('heading', { name: /persisted cache/i }),
+    ).toBeInTheDocument();
+    // Fresh test module state: no restore has run, no snapshots written.
+    expect(screen.getByText(/no persisted cache found/i)).toBeInTheDocument();
+    expect(screen.getByText(/0 written this session/i)).toBeInTheDocument();
+    // The live query census counts the ['debug-status'] query itself —
+    // findBy, since the census only sees it on the post-fetch rerender.
+    expect(await screen.findByText(/debug-status: 1/i)).toBeInTheDocument();
+  });
+
   it('falls back to the Redis status for Sync when the server omits it', async () => {
     mockStatus({
       region: null,

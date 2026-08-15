@@ -4,6 +4,7 @@ import {
   PERSIST_KEY,
   _resetIdbPersisterForTests,
   createAppPersister,
+  getPersistCacheStats,
   getPersistRestoreFailure,
   idbPersistStorage,
   notePersistRestoreFailure,
@@ -237,6 +238,105 @@ describe('createAppPersister', () => {
       },
       { timeout: 3000 },
     );
+  });
+});
+
+describe('persisted cache stats', () => {
+  it('records blob size and write count for snapshots, and restore duration + size on read', async () => {
+    const persister = createAppPersister();
+    const snapshot = {
+      buster: 'test',
+      timestamp: 123,
+      clientState: { mutations: [], queries: [] },
+    };
+
+    expect(getPersistCacheStats()).toEqual({
+      restoreMs: null,
+      restoredChars: null,
+      lastPersistChars: null,
+      persistCount: 0,
+    });
+
+    await persister.persistClient(snapshot);
+    await vi.waitFor(async () => {
+      expect(getPersistCacheStats().persistCount).toBe(1);
+    });
+    const afterWrite = getPersistCacheStats();
+    expect(afterWrite.lastPersistChars).toBe(JSON.stringify(snapshot).length);
+
+    await persister.restoreClient();
+    const afterRestore = getPersistCacheStats();
+    expect(afterRestore.restoredChars).toBe(JSON.stringify(snapshot).length);
+    expect(afterRestore.restoreMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('reports a missing blob as null size, not a zero-length one', async () => {
+    const persister = createAppPersister();
+    await persister.restoreClient();
+    const stats = getPersistCacheStats();
+    expect(stats.restoredChars).toBeNull();
+    // The restore itself still ran and gets timed.
+    expect(stats.restoreMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('does not count a snapshot whose write failed', async () => {
+    // Regression (Codex review on #512): the write was counted before it
+    // was attempted, so quota-pressure devices — the ones that persist
+    // nothing — reported snapshots on /debug anyway.
+    const brokenDb = {
+      objectStoreNames: { contains: () => true },
+      transaction: () => {
+        throw new Error('tx fail');
+      },
+    };
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        const request = {} as {
+          onsuccess?: () => void;
+          result: typeof brokenDb;
+        };
+        request.result = brokenDb;
+        setTimeout(() => request.onsuccess?.(), 0);
+        return request;
+      },
+    });
+    _resetIdbPersisterForTests();
+
+    await idbPersistStorage.setItem(PERSIST_KEY, '{"lost":true}');
+    const stats = getPersistCacheStats();
+    expect(stats.persistCount).toBe(0);
+    expect(stats.lastPersistChars).toBeNull();
+  });
+
+  it('records stats through the localStorage-only fallback persister too', async () => {
+    // Regression (Codex review on #512): the no-IndexedDB branch handed
+    // createSyncStoragePersister the raw localStorage, bypassing the
+    // accounting — /debug read "no persisted cache" on exactly the
+    // devices that branch supports.
+    vi.stubGlobal('indexedDB', undefined);
+    _resetIdbPersisterForTests();
+    const persister = createAppPersister();
+    const snapshot = {
+      buster: 'test',
+      timestamp: 789,
+      clientState: { mutations: [], queries: [] },
+    };
+
+    persister.persistClient(snapshot);
+    await vi.waitFor(
+      () => {
+        expect(getPersistCacheStats().persistCount).toBe(1);
+      },
+      { timeout: 3000 },
+    );
+    expect(getPersistCacheStats().lastPersistChars).toBe(
+      JSON.stringify(snapshot).length,
+    );
+
+    await persister.restoreClient();
+    const stats = getPersistCacheStats();
+    expect(stats.restoredChars).toBe(JSON.stringify(snapshot).length);
+    expect(stats.restoreMs).toBeGreaterThanOrEqual(0);
   });
 });
 
