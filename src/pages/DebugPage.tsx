@@ -1,3 +1,4 @@
+import { useRef, useSyncExternalStore } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
@@ -72,6 +73,25 @@ export function DebugPage() {
   // Module state written at boot, so a plain read is enough — there is
   // nothing to subscribe to that could change while this page is open.
   const restoreFailure = getPersistRestoreFailure();
+  const queryClient = useQueryClient();
+  const queryCache = queryClient.getQueryCache();
+  // Re-render whenever the census below could have changed: a query
+  // entering or leaving the cache. Family counts only move on
+  // added/removed, so the far chattier per-fetch 'updated' events cause
+  // no render churn. The subscription only forces renders — the census
+  // (and the persist counters read next, which any render refreshes)
+  // recompute in render as before.
+  const censusVersionRef = useRef(0);
+  useSyncExternalStore(
+    (onStoreChange) =>
+      queryCache.subscribe((event) => {
+        if (event.type === 'added' || event.type === 'removed') {
+          censusVersionRef.current += 1;
+          onStoreChange();
+        }
+      }),
+    () => censusVersionRef.current,
+  );
   const cacheStats = getPersistCacheStats();
   // Live query-cache census by key family. After boot the hydrated cache
   // holds everything the persisted blob restored, so this is what answers
@@ -80,9 +100,8 @@ export function DebugPage() {
   // a long-lived profile. Computed on render; /debug is an operator
   // surface and a few thousand map lookups are nothing next to the
   // restore cost being diagnosed.
-  const queryClient = useQueryClient();
   const familyCounts = new Map<string, number>();
-  for (const query of queryClient.getQueryCache().getAll()) {
+  for (const query of queryCache.getAll()) {
     const family = String(query.queryKey[0]);
     familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
   }
@@ -118,16 +137,22 @@ export function DebugPage() {
         <div>
           <dt>Restore</dt>
           <dd>
-            {cacheStats.restoreMs !== null ? (
-              `${cacheStats.restoreMs} ms`
+            {/* Presence keys on restoredChars, not restoreMs: the restore
+                is timed even when it finds nothing, so a fresh profile
+                would otherwise read "0 ms" instead of saying no blob
+                existed. */}
+            {cacheStats.restoredChars !== null ? (
+              <>
+                {cacheStats.restoreMs !== null
+                  ? `${cacheStats.restoreMs} ms`
+                  : 'restored'}
+                <span className="debug-page__muted">
+                  {' '}
+                  · {formatChars(cacheStats.restoredChars)} blob
+                </span>
+              </>
             ) : (
               <em>no persisted cache found</em>
-            )}
-            {cacheStats.restoredChars !== null && (
-              <span className="debug-page__muted">
-                {' '}
-                · {formatChars(cacheStats.restoredChars)} blob
-              </span>
             )}
           </dd>
         </div>
