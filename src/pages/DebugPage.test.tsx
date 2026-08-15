@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DebugPage } from './DebugPage';
 import {
   _resetIdbPersisterForTests,
+  createAppPersister,
   notePersistRestoreFailure,
 } from '../lib/idbPersister';
 import { renderWithProviders } from '../test/renderUtils';
@@ -138,6 +139,52 @@ describe('<DebugPage>', () => {
     // The live query census counts the ['debug-status'] query itself —
     // findBy, since the census only sees it on the post-fetch rerender.
     expect(await screen.findByText(/debug-status: 1/i)).toBeInTheDocument();
+  });
+
+  it('says no persisted cache found even after an empty restore was timed', async () => {
+    // Regression (Codex review on #512): the restore is timed whether or
+    // not it finds a blob, so keying presence on restoreMs made a fresh
+    // profile read "0 ms" instead of "no persisted cache found".
+    mockStatus({
+      region: null,
+      build: null,
+      services: {
+        gemini: { configured: false },
+        jina: { configured: false },
+        redis: { configured: false },
+      },
+    });
+    // Runs a real restore against an empty backend: restoreMs gets set,
+    // restoredChars stays null.
+    await createAppPersister().restoreClient();
+    renderWithProviders(<DebugPage />, { route: '/debug' });
+    expect(screen.getByText(/no persisted cache found/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^\d+ ms/)).toBeNull();
+  });
+
+  it('updates the query census live as queries enter the cache', async () => {
+    // Regression (Codex review on #512): the census was only recomputed
+    // when something else happened to re-render the page, so a query
+    // added while /debug stayed mounted never showed up.
+    mockStatus({
+      region: null,
+      build: null,
+      services: {
+        gemini: { configured: false },
+        jina: { configured: false },
+        redis: { configured: false },
+      },
+    });
+    const { client } = renderWithProviders(<DebugPage />, {
+      route: '/debug',
+    });
+    await screen.findByText(/debug-status: 1/i);
+
+    act(() => {
+      client.setQueryData(['comment', 101], { id: 101 });
+      client.setQueryData(['comment', 102], { id: 102 });
+    });
+    expect(await screen.findByText(/comment: 2/i)).toBeInTheDocument();
   });
 
   it('falls back to the Redis status for Sync when the server omits it', async () => {
