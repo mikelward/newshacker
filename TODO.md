@@ -6,6 +6,26 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 
 ## Performance
 
+- **Stop awaiting the comment batch inside `loadRoot`.** A cold thread
+  open (story not in the cache — e.g. an ordinary non-trending row, or
+  another device) pays two serial round trips before anything but the
+  skeleton paints: `loadRoot` fetches the item, then AWAITS
+  `prefetchCommentBatch` for the first 30 top-level comments, and the
+  whole thread UI gates on `['itemRoot', id]` resolving. Splitting the
+  await would paint the story header/text/action bar after one round
+  trip with comment skeletons streaming in behind. The subtlety that
+  made it an await in the first place: `<Comment>` observers that mount
+  before the batch lands each fire their own single-item Firebase fetch
+  (a 30-request stampede) because `prefetchCommentBatch` fetches outside
+  any query and seeds per-id entries only afterward. The fix needs
+  mounting observers to JOIN the in-flight batch — e.g. a module-level
+  map of id → batch-slot promise that `useCommentItem`'s queryFn
+  consults before falling back to `getItem`. Diagnosed during the
+  2026-08-15 slow-loads work (#512–#515); `/debug`'s Thread opens row
+  (`root not cached · ~N ms wait`) measures exactly the case it fixes.
+  Not urgent now that warm/pinned paths are fast — pick up if cold
+  opens still feel slow in practice.
+
 - **Prefetch page N+1 after each landed page.** With `/api/items`
   batched and edge-cached, each prefetch is effectively free — so
   keeping one page of lookahead warm would eliminate nearly every
