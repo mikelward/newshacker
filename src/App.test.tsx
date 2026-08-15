@@ -5,6 +5,7 @@ import { renderWithProviders } from './test/renderUtils';
 import { installHNFetchMock } from './test/mockFetch';
 import { HOME_FEED_STORAGE_KEY } from './lib/homeFeed';
 import { HOME_PROMO_DISMISSED_STORAGE_KEY } from './lib/homePromo';
+import { CHUNK_RELOAD_KEY } from './lib/staleEntryRecovery';
 
 const analyticsMock = vi.fn((_props: unknown) => null);
 vi.mock('@vercel/analytics/react', () => ({
@@ -86,13 +87,46 @@ describe('<App> routing', () => {
     expect(screen.getByText(/page not found/i)).toBeInTheDocument();
   });
 
-  it('renders the Settings page at /settings', () => {
+  it('renders the Settings page at /settings', async () => {
+    // Settings is one of the lazily-loaded secondary routes, so the
+    // heading appears only after the route chunk resolves — findBy, not
+    // getBy. This doubles as the regression test that the Suspense
+    // route-splitting actually renders the split pages.
     installHNFetchMock({});
     renderWithProviders(<App />, { route: '/settings' });
     expect(
-      screen.getByRole('heading', { level: 1, name: /settings/i }),
+      await screen.findByRole('heading', { level: 1, name: /settings/i }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/page not found/i)).toBeNull();
+  });
+
+  it('renders the Help page at /help (lazy operator-adjacent route)', async () => {
+    installHNFetchMock({});
+    renderWithProviders(<App />, { route: '/help' });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /help/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/page not found/i)).toBeNull();
+  });
+
+  it('re-arms the stale-chunk reload budget when a lazy route loads', async () => {
+    // Regression (Codex review on #512): the one-shot chunk-reload budget
+    // is spent by a stale-deploy recovery and only a successful lazy-route
+    // load may clear it (clearing on boot would loop a genuinely-gone
+    // chunk). Without this wiring, one recovered deploy left the session
+    // unable to auto-recover from the next one.
+    //
+    // Uses /about, a lazy route no other test in this file renders:
+    // React.lazy resolves each chunk once per module instance, so the
+    // clear fires on a chunk's FIRST load — an already-loaded route can't
+    // re-trigger it (in production a recovery reload starts a fresh
+    // session, so every lazy route is a first load again).
+    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
+    installHNFetchMock({});
+    renderWithProviders(<App />, { route: '/about' });
+    await screen.findByRole('heading', { level: 1, name: /about newshacker/i });
+    expect(window.sessionStorage.getItem(CHUNK_RELOAD_KEY)).toBeNull();
+    window.sessionStorage.removeItem(CHUNK_RELOAD_KEY);
   });
 
   it('mounts Vercel Web Analytics', () => {

@@ -95,9 +95,8 @@ export function clearEntryReloadBudget(storage?: Storage | null): void {
 
 // Clears the chunk budget. Wire this to a lazy route's successful mount (NOT to
 // boot — a genuinely-gone chunk would reload → boot fine → clear → re-fail →
-// loop). Leaves the entry budget alone. Exported for the lazy-route success
-// path; the app has no code-split routes today, so it is currently only a
-// forward-compatible seam plus the target of the "budgets stay disjoint" tests.
+// loop). Leaves the entry budget alone. Called by every code-split route's
+// loader in App.tsx (see lazyPage) once its chunk resolves.
 export function clearChunkReloadBudget(storage?: Storage | null): void {
   const s = storage !== undefined ? storage : safeSessionStorage();
   try {
