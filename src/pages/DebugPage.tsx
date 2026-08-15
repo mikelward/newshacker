@@ -1,12 +1,21 @@
 import { Link } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CloudSyncDebugPanel } from '../components/CloudSyncDebugPanel';
 import { LoadingState } from '../components/States';
 import { HnFavoritesSyncDebugPanel } from '../components/HnFavoritesSyncDebugPanel';
 import { buildCommitTime } from '../lib/buildInfo';
 import { formatTimeAgo } from '../lib/format';
-import { getPersistRestoreFailure } from '../lib/idbPersister';
+import {
+  getPersistCacheStats,
+  getPersistRestoreFailure,
+} from '../lib/idbPersister';
 import './DebugPage.css';
+
+function formatChars(chars: number): string {
+  if (chars >= 1024 * 1024) return `${(chars / (1024 * 1024)).toFixed(1)} MB`;
+  if (chars >= 1024) return `${Math.round(chars / 1024)} KB`;
+  return `${chars} B`;
+}
 
 function parseBuildTime(iso: string): Date | null {
   if (!iso) return null;
@@ -63,6 +72,22 @@ export function DebugPage() {
   // Module state written at boot, so a plain read is enough — there is
   // nothing to subscribe to that could change while this page is open.
   const restoreFailure = getPersistRestoreFailure();
+  const cacheStats = getPersistCacheStats();
+  // Live query-cache census by key family. After boot the hydrated cache
+  // holds everything the persisted blob restored, so this is what answers
+  // "what is the blob full of?" — the per-comment entries (7-day gcTime,
+  // one query per comment ever rendered) are the expected top family on
+  // a long-lived profile. Computed on render; /debug is an operator
+  // surface and a few thousand map lookups are nothing next to the
+  // restore cost being diagnosed.
+  const queryClient = useQueryClient();
+  const familyCounts = new Map<string, number>();
+  for (const query of queryClient.getQueryCache().getAll()) {
+    const family = String(query.queryKey[0]);
+    familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
+  }
+  const families = [...familyCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const totalQueries = families.reduce((sum, [, n]) => sum + n, 0);
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['debug-status'],
     queryFn: ({ signal }) => fetchStatus(signal),
@@ -84,6 +109,58 @@ export function DebugPage() {
           persisted cache was discarded and refetched.
         </p>
       )}
+
+      {/* Local-only, so rendered outside the /api/status gate like the
+          restore alert: the boot cost being diagnosed here exists whether
+          or not the status endpoint answers. */}
+      <h2 className="debug-page__heading">Persisted cache</h2>
+      <dl className="debug-page__list">
+        <div>
+          <dt>Restore</dt>
+          <dd>
+            {cacheStats.restoreMs !== null ? (
+              `${cacheStats.restoreMs} ms`
+            ) : (
+              <em>no persisted cache found</em>
+            )}
+            {cacheStats.restoredChars !== null && (
+              <span className="debug-page__muted">
+                {' '}
+                · {formatChars(cacheStats.restoredChars)} blob
+              </span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Snapshots</dt>
+          <dd>
+            {cacheStats.persistCount} written this session
+            {cacheStats.lastPersistChars !== null && (
+              <span className="debug-page__muted">
+                {' '}
+                · last {formatChars(cacheStats.lastPersistChars)}
+              </span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Queries</dt>
+          <dd>
+            {totalQueries}
+            {families.length > 0 && (
+              <span className="debug-page__muted">
+                {' '}
+                (
+                {families
+                  .slice(0, 6)
+                  .map(([family, count]) => `${family}: ${count}`)
+                  .join(', ')}
+                {families.length > 6 ? ', …' : ''})
+              </span>
+            )}
+          </dd>
+        </div>
+      </dl>
 
       {isLoading ? (
         <LoadingState showLabel label="Loading status…" />

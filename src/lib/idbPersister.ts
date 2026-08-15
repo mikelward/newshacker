@@ -161,13 +161,17 @@ export const idbPersistStorage: PersistAsyncStorage = {
     const db = await dbOrNull();
     if (!db) {
       try {
-        return window.localStorage.getItem(key);
+        const value = window.localStorage.getItem(key);
+        noteBlobRead(key, value);
+        return value;
       } catch {
         return null;
       }
     }
     try {
-      return await idbGet(db, key);
+      const value = await idbGet(db, key);
+      noteBlobRead(key, value);
+      return value;
     } catch {
       return null;
     }
@@ -177,6 +181,10 @@ export const idbPersistStorage: PersistAsyncStorage = {
     if (!db) {
       try {
         window.localStorage.setItem(key, value);
+        // Counted only after the write lands — a quota or privacy-mode
+        // failure below fails open, and counting it would make /debug
+        // report snapshots on exactly the devices that persist nothing.
+        noteBlobWrite(key, value);
       } catch {
         // quota/privacy failure — fail-open
       }
@@ -184,6 +192,7 @@ export const idbPersistStorage: PersistAsyncStorage = {
     }
     try {
       await idbSet(db, key, value);
+      noteBlobWrite(key, value); // after the transaction commits, as above
     } catch {
       // fail-open
     }
@@ -205,6 +214,53 @@ export const idbPersistStorage: PersistAsyncStorage = {
     }
   },
 };
+
+// Boot/runtime cost telemetry for the persisted cache, surfaced on
+// /debug. The persisted blob is a single JSON string holding the whole
+// dehydrated query cache: restore must read + parse all of it before any
+// query is allowed to paint or fetch (PersistQueryClientProvider holds
+// `isRestoring` until then), and every throttled snapshot re-serializes
+// all of it. Both costs scale with accumulated cache size, so "how big
+// is the blob and how long did restore take on THIS device" is the
+// question this answers — the sandbox can't see a long-lived reader's
+// IndexedDB. Sizes and durations only; never cache contents (the blob
+// holds query data, `['me']` included — AGENTS.md § Privacy).
+export interface PersistCacheStats {
+  // Duration of the restoreClient call: blob read + JSON.parse. (React
+  // Query's hydrate pass into the cache happens after this, so the full
+  // boot cost is a bit higher than reported.)
+  restoreMs: number | null;
+  // Size of the blob restore found, in UTF-16 code units (~bytes for
+  // the ASCII-heavy JSON involved). null = no persisted blob existed.
+  restoredChars: number | null;
+  // Size of the most recent snapshot written this session.
+  lastPersistChars: number | null;
+  // Snapshot writes this session (throttled to 1/sec upstream, so this
+  // also approximates seconds spent re-serializing the cache).
+  persistCount: number;
+}
+
+const cacheStats: PersistCacheStats = {
+  restoreMs: null,
+  restoredChars: null,
+  lastPersistChars: null,
+  persistCount: 0,
+};
+
+export function getPersistCacheStats(): PersistCacheStats {
+  return { ...cacheStats };
+}
+
+function noteBlobRead(key: string, value: string | null): void {
+  if (key !== PERSIST_KEY || value === null) return;
+  cacheStats.restoredChars = value.length;
+}
+
+function noteBlobWrite(key: string, value: string): void {
+  if (key !== PERSIST_KEY) return;
+  cacheStats.lastPersistChars = value.length;
+  cacheStats.persistCount++;
+}
 
 // A restore that *threw* — a half-written or corrupt blob, a payload
 // this build can't parse. Distinct from every failure above, which fail
@@ -249,8 +305,11 @@ function reportingRestore(persister: Persister): Persister {
   return {
     ...persister,
     restoreClient: async () => {
+      const started = performance.now();
       try {
-        return await persister.restoreClient();
+        const restored = await persister.restoreClient();
+        cacheStats.restoreMs = Math.round(performance.now() - started);
+        return restored;
       } catch (e) {
         notePersistRestoreFailure(e);
         throw e;
@@ -267,10 +326,27 @@ export function createAppPersister(): Persister {
     // No IndexedDB at all (ancient engine, some webviews): keep the old
     // localStorage persister rather than losing persistence entirely.
     // Same key, same shape — a later boot with IDB available migrates.
+    // localStorage is wrapped with the same read/write accounting as
+    // idbPersistStorage — this branch is a real environment, and without
+    // it /debug would report "no persisted cache" there while a blob
+    // restores and snapshots land. Write counted only on success, as in
+    // idbPersistStorage.setItem.
+    const storage =
+      typeof window !== 'undefined' ? window.localStorage : undefined;
     return reportingRestore(
       createSyncStoragePersister({
-        storage:
-          typeof window !== 'undefined' ? window.localStorage : undefined,
+        storage: storage && {
+          getItem: (key: string) => {
+            const value = storage.getItem(key);
+            noteBlobRead(key, value);
+            return value;
+          },
+          setItem: (key: string, value: string) => {
+            storage.setItem(key, value);
+            noteBlobWrite(key, value);
+          },
+          removeItem: (key: string) => storage.removeItem(key),
+        },
         key: PERSIST_KEY,
         throttleTime: 1000,
       }),
@@ -288,4 +364,8 @@ export function createAppPersister(): Persister {
 export function _resetIdbPersisterForTests(): void {
   dbPromise = null;
   lastRestoreFailure = null;
+  cacheStats.restoreMs = null;
+  cacheStats.restoredChars = null;
+  cacheStats.lastPersistChars = null;
+  cacheStats.persistCount = 0;
 }

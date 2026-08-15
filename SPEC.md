@@ -364,6 +364,22 @@ the persisted blob holds query data including the signed-in `['me']`
 record. The name is what answers the question — `SyntaxError` means the
 payload is corrupt, a storage error means the device is.
 
+**`/debug` also reports what the persisted cache costs this device.** The
+persisted blob is one JSON string holding the whole dehydrated query
+cache: boot must read + parse all of it before any query paints or
+fetches (`PersistQueryClientProvider` holds `isRestoring` until then),
+and every throttled snapshot re-serializes all of it — both costs scale
+with accumulated cache size, which a fresh device or sandbox can't
+reproduce. A *Persisted cache* section (outside the `/api/status` gate,
+same reasoning as the restore alert) renders: restore duration and blob
+size, snapshot writes this session with the latest snapshot's size, and
+a live census of the query cache by key family (`comment: N`,
+`itemRoot: N`, …) — the census is what shows *what* the blob is full of,
+e.g. the per-comment entries a long-lived profile accumulates under the
+7-day retention. Sizes, durations, and counts only — never cache
+contents (the blob holds query data, the signed-in `['me']` record
+included).
+
 ### MVP (read-only)
 
 1. **Story feeds**
