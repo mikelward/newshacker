@@ -20,10 +20,16 @@ user-facing feature decisions, see `SPEC.md`; for phase ordering, see
   story in the last 24h" via numericFilters). Worth prototyping a
   side-by-side to see if order / content differs meaningfully from
   Firebase's lists.
-- **Persist item bodies across sessions.** React Query's localStorage
-  persister caches the whole client; for item bodies specifically we
-  could tier the persistence so they survive longer (days) than the
-  ID lists (minutes), since titles/urls rarely change.
+- **Persist item bodies across sessions.** React Query's persister
+  caches the whole client; for item bodies specifically we could tier
+  the persistence so they survive longer (days) than the ID lists
+  (minutes), since titles/urls rarely change. **Partially decided the
+  other way for comments**: `['comment']` queries now persist only for
+  pinned stories (see SPEC *Comment bodies persist to disk only for
+  pinned stories*) — the whole-cache blob had grown to ~7k comment
+  queries / ~7 MB on a long-lived profile and its boot-time
+  restore+hydrate was the measured slow-reload cost. Any future
+  tiering applies to roots/summaries, not comments.
 
 ## PWA / offline
 

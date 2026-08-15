@@ -58,9 +58,40 @@ function lockQueryGcTime(client: QueryClient, queryKey: QueryKey): void {
   (query as unknown as { scheduleGc: () => void }).scheduleGc();
 }
 
+// Walk every cached comment and lock the ones whose ancestry reaches a
+// pinned story. This is what catches NESTED replies the reader expanded
+// BEFORE pinning: the kidIds walk below only covers top-level comments,
+// and the cache subscriber only sees queries added/updated after it —
+// a reply cached pre-pin gets neither. Without this pass those replies
+// kept their finite gcTime, which silently expired them after 7 days
+// despite the pin, and (worse, once comment persistence became
+// pinned-only) dropped them from the very next persisted snapshot.
+// Cost: one comment-cache scan per pin/change event, each already-locked
+// entry skipped, each miss an O(depth) parent walk — pin-frequency work,
+// not hot-path work.
+function lockCachedPinnedComments(
+  client: QueryClient,
+  pinnedIds: Set<number>,
+): void {
+  if (pinnedIds.size === 0) return;
+  for (const query of client
+    .getQueryCache()
+    .findAll({ queryKey: ['comment'] })) {
+    if (query.gcTime === NEVER_EVICT_GC_TIME) continue;
+    const data = query.state.data as
+      | Pick<HNItem, 'parent'>
+      | null
+      | undefined;
+    if (commentBelongsToPinnedStory(client, data, pinnedIds)) {
+      lockQueryGcTime(client, query.queryKey);
+    }
+  }
+}
+
 // Bump gcTime to Infinity on every cached query that belongs to this
-// pinned story: itemRoot, both summaries, and the cached top-level
-// comments (resolved through the itemRoot's kidIds). Idempotent —
+// pinned story: itemRoot, both summaries, the cached top-level comments
+// (resolved through the itemRoot's kidIds), and any already-cached
+// nested replies (resolved through their parent chains). Idempotent —
 // queries that already have Infinity gcTime are a no-op.
 export function lockPinnedQueryGcTime(
   client: QueryClient,
@@ -74,12 +105,22 @@ export function lockPinnedQueryGcTime(
   for (const kidId of kidIds) {
     lockQueryGcTime(client, ['comment', kidId]);
   }
+  lockCachedPinnedComments(client, new Set([storyId]));
 }
 
 export function lockAllPinnedQueriesGcTime(client: QueryClient): void {
-  for (const id of getPinnedIds()) {
-    lockPinnedQueryGcTime(client, id);
+  const pinnedIds = getPinnedIds();
+  for (const id of pinnedIds) {
+    for (const head of STORY_KEY_HEADS) {
+      lockQueryGcTime(client, [head, id]);
+    }
+    const root = client.getQueryData<ItemRoot | null>(['itemRoot', id]);
+    for (const kidId of root?.kidIds ?? []) {
+      lockQueryGcTime(client, ['comment', kidId]);
+    }
   }
+  // One descendant scan for the whole pinned set, not one per story.
+  lockCachedPinnedComments(client, pinnedIds);
 }
 
 // Walk a comment's parent chain looking for a pinned story id. Top-level
