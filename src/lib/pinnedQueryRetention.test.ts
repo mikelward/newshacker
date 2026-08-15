@@ -54,6 +54,47 @@ describe('lockPinnedQueryGcTime', () => {
     expect(effectiveGcTime(client, ['comment', 502])).toBe(Infinity);
   });
 
+  it('locks nested replies that were cached before the pin (Codex P2 on #515)', () => {
+    // A reader who expands replies and THEN pins: those ['comment']
+    // entries predate the pin, so neither the kidIds walk (top-level
+    // only) nor the added/updated cache subscriber reaches them. They
+    // must still get the Infinity lock — pre-trim they silently expired
+    // after 7 days despite the pin; post-trim the persistence filter
+    // would drop them from the very next snapshot.
+    const client = new QueryClient();
+    client.setQueryData(['itemRoot', 42], {
+      item: { id: 42, type: 'story' },
+      kidIds: [501],
+    });
+    client.setQueryData(['comment', 501], {
+      id: 501,
+      type: 'comment',
+      parent: 42,
+    });
+    client.setQueryData(['comment', 601], {
+      id: 601,
+      type: 'comment',
+      parent: 501,
+    });
+    client.setQueryData(['comment', 602], {
+      id: 602,
+      type: 'comment',
+      parent: 601,
+    });
+    // Unrelated comment stays untouched.
+    client.setQueryData(['comment', 999], {
+      id: 999,
+      type: 'comment',
+      parent: 777,
+    });
+
+    lockPinnedQueryGcTime(client, 42);
+
+    expect(effectiveGcTime(client, ['comment', 601])).toBe(Infinity);
+    expect(effectiveGcTime(client, ['comment', 602])).toBe(Infinity);
+    expect(effectiveGcTime(client, ['comment', 999])).not.toBe(Infinity);
+  });
+
   it('does not touch comments outside the pinned story', () => {
     const client = new QueryClient();
     client.setQueryData(['itemRoot', 1], { item: { id: 1 }, kidIds: [10] });

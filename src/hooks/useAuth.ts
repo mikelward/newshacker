@@ -26,6 +26,31 @@ export const ME_QUERY_KEY = ['me'] as const;
 // 'error', data preserved) and the refetch triggers re-confirm it. A
 // logged-out `['me']` (data === null) still rides the default path.
 export function shouldDehydrateAppQuery(query: Query): boolean {
+  // Comment bodies persist to disk only for pinned stories. The pin
+  // machinery (pinnedQueryRetention.ts) locks every pinned-relevant
+  // query — roots, summaries, and comments including nested replies —
+  // at gcTime Infinity, so that lock IS the membership test here. The
+  // general 7-day comment cache stays in memory for the session (thread
+  // re-opens within a sitting still hydrate instantly), but stops
+  // accumulating in the persisted blob: a long-lived profile had grown
+  // ~7,000 comment queries / ~7 MB there, and boot must read, parse,
+  // and hydrate all of it before the first query may resolve — the
+  // measured slow-open cost on reloads — while every snapshot
+  // re-serialized it once per second of cache activity. Unpinned
+  // comments lost across a restart are re-fetched through the normal
+  // batch path (and usually answered by the service worker's HTTP
+  // cache), which is the cheap side of that trade. Unpinning doesn't
+  // immediately un-persist: the lock is deliberately monotonic (see
+  // pinnedQueryRetention.ts on why unpin doesn't lower gcTime), so an
+  // unpinned story's comments keep persisting until the next reload
+  // reseats them at the default gcTime — bounded by one session's pins,
+  // and never worse than the persist-everything behavior this replaced.
+  if (query.queryKey[0] === 'comment') {
+    return (
+      query.gcTime === Number.POSITIVE_INFINITY &&
+      defaultShouldDehydrateQuery(query)
+    );
+  }
   if (defaultShouldDehydrateQuery(query)) return true;
   return query.queryKey[0] === ME_QUERY_KEY[0] && query.state.data != null;
 }

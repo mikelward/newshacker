@@ -309,7 +309,9 @@ describe('shouldDehydrateAppQuery', () => {
     queryKey: readonly unknown[],
     status: 'success' | 'error' | 'pending',
     data: unknown,
-  ): FakeQuery => ({ queryKey, state: { status, data } }) as unknown as FakeQuery;
+    gcTime: number = 5 * 60 * 1000,
+  ): FakeQuery =>
+    ({ queryKey, gcTime, state: { status, data } }) as unknown as FakeQuery;
 
   it('persists a data-bearing ["me"] query even in the error state', () => {
     // A signed-in user retained through a failed background /api/me refetch.
@@ -324,6 +326,29 @@ describe('shouldDehydrateAppQuery', () => {
     expect(shouldDehydrateAppQuery(fake(ME_QUERY_KEY, 'success', null))).toBe(true);
     expect(shouldDehydrateAppQuery(fake(['itemRoot', 1], 'success', { x: 1 }))).toBe(true);
     expect(shouldDehydrateAppQuery(fake(['itemRoot', 1], 'error', { x: 1 }))).toBe(false);
+  });
+
+  it('persists comment queries only when the pin machinery locked them', () => {
+    // Regression for the boot-cost diagnosis on #514: the general 7-day
+    // comment cache accumulated ~7k persisted queries (~7 MB) that boot
+    // had to read, parse, and hydrate before anything painted. Pinned
+    // stories' comments carry gcTime Infinity (pinnedQueryRetention),
+    // and only those belong on disk.
+    const successData = { id: 1, text: 'hi' };
+    expect(
+      shouldDehydrateAppQuery(fake(['comment', 1], 'success', successData)),
+    ).toBe(false);
+    expect(
+      shouldDehydrateAppQuery(
+        fake(['comment', 1], 'success', successData, Number.POSITIVE_INFINITY),
+      ),
+    ).toBe(true);
+    // The pin lock doesn't override the default success requirement.
+    expect(
+      shouldDehydrateAppQuery(
+        fake(['comment', 1], 'error', successData, Number.POSITIVE_INFINITY),
+      ),
+    ).toBe(false);
   });
 
   // End-to-end guard: a real errored-but-data-bearing ['me'] query must

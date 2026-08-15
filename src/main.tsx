@@ -195,11 +195,15 @@ createRoot(document.getElementById('root')!).render(
         persister,
         maxAge: PERSIST_MAX_AGE,
         buster: CACHE_BUSTER,
-        // Persist a data-bearing `['me']` query even in its error state, so
-        // a signed-in user retained through a failed background /api/me
-        // refetch survives a reload during the same failure window instead
-        // of being dropped from IndexedDB (the default persists only
-        // successful queries). See shouldDehydrateAppQuery in useAuth.
+        // Two departures from the default (successful-queries-only)
+        // filter, both in shouldDehydrateAppQuery (useAuth.ts): a
+        // data-bearing `['me']` persists even in its error state, so a
+        // signed-in user survives a reload during a failed background
+        // refetch; and `['comment']` queries persist ONLY when the pin
+        // machinery locked them (gcTime Infinity) — the general comment
+        // cache stays in memory for the session but off disk, because
+        // the blob otherwise grows by one query per comment ever read
+        // and boot parses + hydrates all of it before first paint.
         dehydrateOptions: { shouldDehydrateQuery: shouldDehydrateAppQuery },
       }}
       onSuccess={() => {
