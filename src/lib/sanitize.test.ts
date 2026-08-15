@@ -1,4 +1,6 @@
-// @vitest-environment node
+// @vitest-environment happy-dom
+// (not node: DOMPurify sanitizes with the environment's real DOM parser,
+// which is the point of using it — so these tests need one too)
 import { describe, it, expect } from 'vitest';
 import { sanitizeCommentHtml } from './sanitize';
 
@@ -34,6 +36,50 @@ describe('sanitizeCommentHtml', () => {
   it('drops disallowed attributes like onclick', () => {
     const result = sanitizeCommentHtml('<a href="https://x.com" onclick="evil()">x</a>');
     expect(result).not.toContain('onclick');
+  });
+
+  it('drops javascript: urls hidden behind URL-stripped characters', () => {
+    // Browsers strip tabs/newlines while parsing URLs, so "jav\tascript:"
+    // is executable even though it doesn't literally start with the scheme.
+    const result = sanitizeCommentHtml(
+      '<a href="jav\tascript:alert(1)">x</a><a href="\njavascript:alert(2)">y</a>',
+    );
+    expect(result).not.toContain('ascript:');
+  });
+
+  it('drops data: urls', () => {
+    const result = sanitizeCommentHtml(
+      '<a href="data:text/html,<script>alert(1)</script>">x</a>',
+    );
+    expect(result).not.toContain('data:');
+  });
+
+  it('drops attributes from non-anchor allowed tags', () => {
+    const result = sanitizeCommentHtml(
+      '<p onmouseover="evil()" class="x">hi</p>',
+    );
+    expect(result).toBe('<p>hi</p>');
+  });
+
+  it('drops style tags with their CSS text', () => {
+    const result = sanitizeCommentHtml('A<style>p{color:red}</style><p>B');
+    expect(result).not.toContain('color');
+    expect(result).toContain('<p>A</p>');
+  });
+
+  it('drops HTML comments', () => {
+    const result = sanitizeCommentHtml('A<!-- secret --><p>B');
+    expect(result).toBe('<p>A</p><p>B</p>');
+  });
+
+  it('flattens disallowed wrapper tags but keeps their text', () => {
+    const result = sanitizeCommentHtml('<div><span>kept</span></div>');
+    expect(result).toBe('<p>kept</p>');
+  });
+
+  it('drops img elements entirely', () => {
+    const result = sanitizeCommentHtml('x<img src="https://t.example/p.png" onerror="evil()">y');
+    expect(result).toBe('<p>xy</p>');
   });
 
   it('rewrites HN item links to relative app paths', () => {

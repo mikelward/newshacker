@@ -1,5 +1,3 @@
-import sanitizeHtml from 'sanitize-html';
-
 const HN_HOSTS = new Set(['news.ycombinator.com', 'www.news.ycombinator.com']);
 
 export function rewriteHnHref(href: string | undefined): string | null {
@@ -23,35 +21,118 @@ export function rewriteHnHref(href: string | undefined): string | null {
   return null;
 }
 
-export function sanitizeCommentHtml(input: string): string {
-  const clean = sanitizeHtml(input, {
-    allowedTags: ['a', 'p', 'i', 'em', 'b', 'strong', 'pre', 'code', 'br'],
-    allowedAttributes: {
-      a: ['href', 'rel', 'target'],
-    },
-    allowedSchemes: ['http', 'https', 'mailto'],
-    transformTags: {
-      a: (tagName, attribs) => {
-        const internal = rewriteHnHref(attribs.href);
-        if (internal) {
-          return {
-            tagName,
-            attribs: { href: internal },
-          };
+// Sanitization is an allowlist COPY, not an in-place scrub: the input is
+// parsed with the browser's own parser into an inert document (DOMParser
+// never runs scripts or loads subresources), and a brand-new tree is built
+// holding only allowlisted elements created fresh, text nodes, and the three
+// anchor attributes we construct ourselves. Nothing from the input tree is
+// ever re-attached, so there is no scrubbed-but-forgotten attribute or node
+// to leak — anything not rebuilt simply doesn't exist in the output. Parsing
+// with the same engine that will later parse our output (React sets it via
+// innerHTML) is also what closes the parser-differential (mXSS) gap that a
+// regex- or foreign-parser-based sanitizer has to fight.
+//
+// This replaced the sanitize-html dependency, which dragged htmlparser2 +
+// postcss into the client bundle — ~150 KB minified (a fifth of the whole
+// entry chunk) for what this allowlist needs. DOMPurify was tried as the
+// replacement first but is unusable under happy-dom (the test DOM): its
+// node-iterator pass silently keeps <script> and drops anchors there.
+
+const ALLOWED_TAGS = new Set([
+  'a',
+  'p',
+  'i',
+  'em',
+  'b',
+  'strong',
+  'pre',
+  'code',
+  'br',
+]);
+
+// Disallowed elements whose TEXT must also be dropped, not flattened into the
+// surrounding paragraph: raw-text containers (a script's source code is not
+// comment prose) and embedded-content/foreign roots whose subtrees have no
+// meaning outside their namespace. Every other disallowed element (span, div,
+// u, …) keeps its text content, matching sanitize-html's discard mode.
+const DROP_WITH_CONTENT = new Set([
+  'script',
+  'style',
+  'noscript',
+  'template',
+  'textarea',
+  'title',
+  'option',
+  'iframe',
+  'frame',
+  'object',
+  'embed',
+  'svg',
+  'math',
+]);
+
+const ALLOWED_HREF_SCHEMES = new Set(['http', 'https', 'mailto']);
+// Characters browsers strip during URL parsing (C0 controls, space, and
+// Unicode whitespace). A scheme check has to run on the post-strip form, or
+// "jav\tascript:…" sails past a naive /^javascript:/ while the browser's URL
+// parser collapses it right back into an executable javascript: URL.
+// eslint-disable-next-line no-control-regex -- matching control chars is the point: they are what the URL parser strips
+const URL_STRIPPED_CHARS = /[\u0000-\u0020\u00a0\u1680\u180e\u2000-\u2029\u205f\u3000]/g;
+
+function isSafeHref(href: string): boolean {
+  const cleaned = href.replace(URL_STRIPPED_CHARS, '');
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(cleaned)?.[1];
+  // No scheme = relative URL; allowed, matching the old sanitize-html config.
+  if (!scheme) return true;
+  return ALLOWED_HREF_SCHEMES.has(scheme.toLowerCase());
+}
+
+const ELEMENT_NODE = 1; // Node.ELEMENT_NODE, without touching the global
+const TEXT_NODE = 3; // Node.TEXT_NODE
+
+function copySanitized(from: Node, into: Element, doc: Document): void {
+  for (const child of Array.from(from.childNodes)) {
+    if (child.nodeType === TEXT_NODE) {
+      // A fresh text node serializes with & < > escaped; it cannot re-open
+      // markup when the output is parsed again.
+      into.appendChild(doc.createTextNode(child.nodeValue ?? ''));
+      continue;
+    }
+    // Comments, doctypes, processing instructions: dropped.
+    if (child.nodeType !== ELEMENT_NODE) continue;
+    const tag = (child as Element).tagName.toLowerCase();
+    if (DROP_WITH_CONTENT.has(tag)) continue;
+    if (!ALLOWED_TAGS.has(tag)) {
+      // Disallowed wrapper (div, span, u, …): flatten — keep the children,
+      // lose the element.
+      copySanitized(child, into, doc);
+      continue;
+    }
+    const fresh = doc.createElement(tag);
+    if (tag === 'a') {
+      const href = (child as Element).getAttribute('href');
+      const internal = rewriteHnHref(href ?? undefined);
+      if (internal) {
+        // In-app destination: SPA navigation, no new tab, no rel.
+        fresh.setAttribute('href', internal);
+      } else {
+        if (href !== null && isSafeHref(href)) {
+          fresh.setAttribute('href', href);
         }
-        return {
-          tagName,
-          attribs: {
-            ...attribs,
-            href: attribs.href ?? '',
-            rel: 'noopener noreferrer nofollow',
-            target: '_blank',
-          },
-        };
-      },
-    },
-  });
-  return stripLeadingQuoteParagraphs(normalizeParagraphs(clean));
+        fresh.setAttribute('rel', 'noopener noreferrer nofollow');
+        fresh.setAttribute('target', '_blank');
+      }
+    }
+    into.appendChild(fresh);
+    copySanitized(child, fresh, doc);
+  }
+}
+
+export function sanitizeCommentHtml(input: string): string {
+  const doc = new DOMParser().parseFromString(input, 'text/html');
+  const out = doc.createElement('div');
+  copySanitized(doc.body, out, doc);
+  return stripLeadingQuoteParagraphs(normalizeParagraphs(out.innerHTML));
 }
 
 // HN stores multi-paragraph comments as raw text for the first paragraph and
