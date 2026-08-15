@@ -2,6 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import {
+  _resetInFlightBatchForTests,
+  getInFlightBatchComment,
   prefetchCommentBatch,
   COMMENT_BATCH_LIMIT,
 } from './commentPrefetch';
@@ -146,5 +148,49 @@ describe('prefetchCommentBatch', () => {
 
     const cached = client.getQueryData<HNItem>(['comment', 5]);
     expect(cached?.kids).toEqual([50, 51]);
+  });
+
+  it('registers in-flight slots synchronously and clears them only after the cache writes land', async () => {
+    // Thread load fires the batch without awaiting it, so observers that
+    // mount mid-batch join via these slots. Clearing before the cache
+    // writes would open a window with no slot AND no cache — the
+    // stampede this registry exists to prevent.
+    _resetInFlightBatchForTests();
+    const client = newClient();
+    let release!: (items: Array<HNItem | null>) => void;
+    const gate = new Promise<Array<HNItem | null>>((resolve) => {
+      release = resolve;
+    });
+    const fetcher = vi.fn(async () => gate);
+
+    const done = prefetchCommentBatch(client, [7, 8], fetcher);
+    // Registered synchronously, before the fetch resolves.
+    const slot7 = getInFlightBatchComment(7);
+    expect(slot7).toBeDefined();
+    expect(getInFlightBatchComment(8)).toBeDefined();
+
+    release([makeComment(7), makeComment(8)]);
+    await expect(slot7).resolves.toMatchObject({ id: 7 });
+    await done;
+    // After the awaited prefetch resolves the cache is populated and
+    // the slots are gone.
+    expect(client.getQueryData<HNItem>(['comment', 7])?.id).toBe(7);
+    expect(getInFlightBatchComment(7)).toBeUndefined();
+    expect(getInFlightBatchComment(8)).toBeUndefined();
+  });
+
+  it('resolves joined slots to null on batch failure so observers fall back to single fetches', async () => {
+    _resetInFlightBatchForTests();
+    const client = newClient();
+    const fetcher = vi.fn(async () => {
+      throw new Error('batch down');
+    });
+    const done = prefetchCommentBatch(client, [9], fetcher);
+    const slot = getInFlightBatchComment(9);
+    expect(slot).toBeDefined();
+    await expect(slot).resolves.toBeNull();
+    await done;
+    expect(getInFlightBatchComment(9)).toBeUndefined();
+    expect(client.getQueryData(['comment', 9])).toBeUndefined();
   });
 });
