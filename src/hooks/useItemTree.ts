@@ -1,6 +1,9 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { getItem, getItems, type HNItem } from '../lib/hn';
-import { prefetchCommentBatch } from '../lib/commentPrefetch';
+import {
+  getInFlightBatchComment,
+  prefetchCommentBatch,
+} from '../lib/commentPrefetch';
 import { SUMMARY_RETENTION_MS } from './useSummary';
 
 export interface ItemRoot {
@@ -17,12 +20,22 @@ export async function loadRoot(
   if (!item) return null;
   const kidIds = item.deleted || item.dead ? [] : (item.kids ?? []);
   // Warm the first page of top-level comments in a single /api/items
-  // batch so the Comment observers that mount immediately after the
-  // thread renders hydrate from cache instead of each firing their
-  // own Firebase round-trip. Best-effort — pin/favorite flows already
-  // rely on the same helper, and its failures are non-fatal.
+  // batch — fired, NOT awaited. The whole thread UI gates on this
+  // function resolving, so awaiting here made every cold open pay two
+  // serial round trips (item, then batch) before anything but the
+  // skeleton painted. The batch registers its ids synchronously (see
+  // commentPrefetch.ts), so the <Comment> observers that mount the
+  // moment the story renders JOIN the in-flight batch via useCommentItem
+  // instead of each firing its own Firebase round-trip. Best-effort as
+  // before — a failed batch resolves observers to their single-item
+  // fallback. Load-more (Thread.tsx) and reply expansion (Comment.tsx)
+  // still wait on the same helper before mounting the next page of
+  // observers; the pin/favorite prefetchers were already fire-and-forget
+  // inside their own root queryFns, and their batches now register in
+  // the same in-flight map — so pinning from the feed and immediately
+  // opening the thread joins the pin-time batch too.
   if (client && kidIds.length > 0) {
-    await prefetchCommentBatch(client, kidIds, getItems);
+    void prefetchCommentBatch(client, kidIds, getItems);
   }
   return { item, kidIds };
 }
@@ -44,6 +57,17 @@ export function useCommentItem(id: number) {
   return useQuery({
     queryKey: ['comment', id],
     queryFn: async ({ signal }) => {
+      // Join an in-flight comment batch when one is already fetching
+      // this id — thread load fires its batch without blocking the root
+      // paint, so observers routinely mount mid-batch. A null slot
+      // (batch failure, upstream null) falls through to the single-item
+      // path below so its throw-on-null retry semantics keep owning the
+      // error case.
+      const batched = getInFlightBatchComment(id);
+      if (batched) {
+        const item = await batched;
+        if (item) return item;
+      }
       const item = await getItem(id, signal);
       // Comment ids come from a parent's `kids` array, so they always
       // reference real items — Firebase resolving null here is upstream

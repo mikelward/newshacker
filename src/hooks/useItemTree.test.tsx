@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { Thread, TOP_LEVEL_PAGE_SIZE } from '../components/Thread';
 import { renderWithProviders } from '../test/renderUtils';
@@ -62,6 +62,54 @@ describe('useItemTree batching', () => {
     expect(firebaseItemCalls[0]).toMatch(/\/item\/1\.json/);
     expect(batchCalls).toHaveLength(1);
     expect(batchCalls[0]).toMatch(/fields=full/);
+  });
+
+  it('paints the story after one round trip, before the comment batch lands', async () => {
+    // Regression for the cold-open split: loadRoot fires the comment
+    // batch without awaiting it, so the story header must commit while
+    // the batch is still in flight — and the observers that mount then
+    // must JOIN the batch (no per-id Firebase fetches) rather than
+    // stampede.
+    const kids = [2001, 2002];
+    const items: Record<number, HNItem> = {
+      2: makeStory(2, { kids, title: 'Fast paint' }),
+    };
+    for (const id of kids) items[id] = comment(id);
+    const hnMock = installHNFetchMock({ items });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (String(input).includes('/api/items')) await gate;
+        return hnMock(input);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderWithProviders(<Thread id={2} />, { route: '/item/2' });
+
+    // Story content commits with the batch still held open.
+    expect(await screen.findByText('Fast paint')).toBeInTheDocument();
+    // The mounted comment observers joined the gated batch instead of
+    // firing their own single-item fetches.
+    const midFlightUrls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(
+      midFlightUrls.filter((u) => /\/v0\/item\/200\d\.json/.test(u)),
+    ).toHaveLength(0);
+
+    release();
+    await waitFor(() => {
+      expect(screen.getByText('body 2001')).toBeInTheDocument();
+      expect(screen.getByText('body 2002')).toBeInTheDocument();
+    });
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    // Still exactly one root fetch and one batch — the join held.
+    expect(
+      urls.filter((u) => /\/v0\/item\/\d+\.json/.test(u)),
+    ).toHaveLength(1);
+    expect(urls.filter((u) => u.includes('/api/items'))).toHaveLength(1);
   });
 
   it('still renders the thread when the batch endpoint fails (graceful fallback)', async () => {
