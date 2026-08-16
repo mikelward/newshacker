@@ -207,6 +207,8 @@ jobs:
           check 'npm run typecheck'
           check 'npm run test:coverage'
           check 'npm run build'
+          check 'scripts/docs-lane.test.sh'
+          check 'shellcheck -s bash -S error scripts/docs-lane.sh scripts/docs-lane.test.sh'
           cat checks.md >> "$GITHUB_STEP_SUMMARY"
           if [ $failed -eq 0 ]; then
             echo 'passed=true' >> "$GITHUB_OUTPUT"
@@ -450,17 +452,29 @@ jobs:
           # THE DEFAULT BRANCH — a workflow GitHub cannot see there is not
           # dispatchable, however the branch under test spells it.
           #
-          # Dispatched HERE, before the body is composed, so the body can state
-          # what actually happened. Reporting a failure only into the run summary
-          # would leave the PR itself promising a CI run that is never coming —
-          # which is exactly the "no checks means it passed" reading this whole
-          # thing exists to prevent, and the assignee reads the PR, not the run
-          # log.
-          #
-          # Non-fatal either way: the branch is pushed by this point and the job
-          # has already run every check itself, so a failed dispatch must not
-          # turn a pushed branch into no PR.
-          if gh workflow run ci.yml --ref "$branch"; then
+          # The PR is created BEFORE the dispatch, with a placeholder body,
+          # because the dispatch must name the pull request it reports for:
+          # ci.yml's docs lane refuses an anonymous branch dispatch, which is
+          # what keeps a dispatched verdict from labeling a commit some other
+          # pull request heads. The real body lands right after the dispatch
+          # (still composed after it, so it can state what actually happened
+          # — the assignee reads the PR, not the run log).
+          # Scoped to THIS repository's own branch: `gh pr list --head` filters
+          # by bare branch name, which can also match a fork's PR of the same
+          # name; the REST head= filter names the owner, so only the branch
+          # just pushed here can answer.
+          pr=$(gh api "repos/${GITHUB_REPOSITORY}/pulls?head=${GITHUB_REPOSITORY_OWNER}:${branch}&state=open" --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            pr_url=$(gh pr create --title "$title" \
+              --body 'Opening — the checks report lands in a moment.' \
+              --base '${{ github.event.repository.default_branch }}' --head "$branch")
+            pr=${pr_url##*/}
+          fi
+
+          # Non-fatal either way: the branch is pushed and the PR is open by
+          # this point, and the job has already run every check itself, so a
+          # failed dispatch must not turn a pushed branch into no PR.
+          if gh workflow run ci.yml --ref "$branch" -f pr="$pr"; then
             ci_started=true
           else
             ci_started=false
@@ -505,11 +519,23 @@ jobs:
             echo '_Opened by the weekly `dependency-update` workflow._'
           } > body.md
 
-          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
-            gh pr edit "$branch" --title "$title" --body-file body.md
-          else
-            gh pr create --title "$title" --body-file body.md \
-              --base '${{ github.event.repository.default_branch }}' --head "$branch"
+          # `gh pr edit` failing here (a transient API error) must not strand
+          # the PR on its placeholder body under `set -e` — the assignment
+          # and review request below still have to run, because the assignee
+          # is how an unattended PR gets seen. Retry, then downgrade to a
+          # loud note: a placeholder body with a red warning beats no
+          # assignee at all.
+          edited=false
+          for _ in 1 2 3; do
+            if gh pr edit "$pr" --title "$title" --body-file body.md; then
+              edited=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "$edited" != true ]; then
+            echo "::warning::Could not publish the PR body for #$pr; it still carries the placeholder."
+            echo "PR body update failed for #$pr — placeholder body remains." >> "$GITHUB_STEP_SUMMARY"
           fi
 
           # Put it in front of a human. Without this the PR only exists in the
@@ -528,7 +554,7 @@ jobs:
           # point. An opened-but-unassigned PR is recoverable; a failed step
           # that leaves a pushed branch with no PR is not.
           reviewer='${{ github.repository_owner }}'
-          if ! gh pr edit "$branch" --add-assignee "$reviewer" --add-reviewer "$reviewer"; then
+          if ! gh pr edit "$pr" --add-assignee "$reviewer" --add-reviewer "$reviewer"; then
             echo "Could not assign or request review from @$reviewer — the PR is open and needs a look." \
               >> "$GITHUB_STEP_SUMMARY"
           fi

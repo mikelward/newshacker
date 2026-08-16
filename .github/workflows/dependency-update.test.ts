@@ -107,7 +107,15 @@ describe('dependency-update workflow', () => {
     // check in a new runtime has to be taught here, and until it is, it cannot
     // be silently absent from the weekly PR's suite.
     const INFRASTRUCTURE = /^npm (?:ci|install)$/; // sets up the tree, not a check
-    const CHECK = /^(?:npm (?:run [\w:-]+|test)|deno (?:check|test)\b.*)$/;
+    // The docs lane's classify/gate invocations judge a PULL REQUEST — which
+    // files its diff touches, which prefixes its subjects carry — not the
+    // tree, so there is nothing for the update job to mirror: the weekly PR
+    // gets the real thing when this workflow dispatches ci.yml against it,
+    // naming the PR. The lane's own self-test and shellcheck ARE tree
+    // checks, and CHECK classifies them below.
+    const ORCHESTRATION = /^scripts\/docs-lane\.sh (?:classify|gate)\b.*$/;
+    const CHECK =
+      /^(?:npm (?:run [\w:-]+|test)|deno (?:check|test)\b.*|scripts\/docs-lane\.test\.sh|shellcheck .*)$/;
 
     const ciRunLines = [...ci.matchAll(/^\s*(?:- )?run: (.+?)\s*$/gm)].map((m) => m[1]);
     expect(ciRunLines.length).toBeGreaterThan(0);
@@ -121,6 +129,7 @@ describe('dependency-update workflow', () => {
           'skipped entirely',
       ).not.toMatch(/^[|>][-+]?$/);
       if (INFRASTRUCTURE.test(line)) continue;
+      if (ORCHESTRATION.test(line)) continue;
       expect(
         CHECK.test(line),
         `ci.yml runs "${line}", which this parity check cannot classify. ` +
