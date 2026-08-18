@@ -25,10 +25,12 @@ import {
   NODE_ARCH,
   NODE_PLATFORM,
   NOT_A_NODE_TARGET,
+  installedVersions,
   lockfileFailures,
   manifestFailures,
   majorOf,
   resolveEdge,
+  updateSummary,
 } from './check-dependency-update.mjs'
 
 const pkg = (version: string, deps?: Record<string, string>) => ({
@@ -1205,5 +1207,175 @@ describe('installability domains vs. this lockfile', () => {
   it('still reject a target that is neither known nor classified', () => {
     const packages = { 'node_modules/a': { version: '1.0.0', os: ['plan9'] } }
     expect(unclassified(packages, 'os', NODE_PLATFORM)).toEqual(['plan9'])
+  })
+})
+
+// The summary is the opposite of everything above: informational, never a
+// gate. Its failure mode is a MISLEADING PR body — a package that moved but
+// is not listed reads as "did not move" to the reviewer the PR is assigned
+// to — so the cases below pin what gets listed, under which heading, and
+// what happens on input the walk cannot read.
+describe('installedVersions', () => {
+  it('groups every installed copy by name, hoisted and nested alike', () => {
+    const versions = installedVersions({
+      '': { name: 'example', version: '1.0.0' },
+      'node_modules/foo': pkg('2.0.0'),
+      'node_modules/a': pkg('1.0.0', { foo: '*' }),
+      'node_modules/a/node_modules/foo': pkg('1.0.0'),
+      'node_modules/@scope/b': pkg('3.1.4'),
+    })
+    expect([...versions.get('foo')].sort()).toEqual(['1.0.0', '2.0.0'])
+    expect([...versions.get('@scope/b')]).toEqual(['3.1.4'])
+    // The root is the repo, not a dependency.
+    expect(versions.get('example')).toBe(undefined)
+  })
+
+  it('skips workspace link mirrors, which carry no version', () => {
+    const versions = installedVersions({
+      'packages/a': { name: 'a', version: '1.0.0' },
+      'node_modules/a': { link: true, resolved: 'packages/a' },
+    })
+    // Neither entry is an installed dependency: one is the workspace itself
+    // (no node_modules/ segment), the other has no version.
+    expect(versions.size).toBe(0)
+  })
+})
+
+describe('updateSummary', () => {
+  const lock = (packages: Record<string, object>) => ({ lockfileVersion: 3, packages })
+
+  it('lists a direct bump with its range move and installed versions', () => {
+    const out = updateSummary({
+      manifestBefore: { dependencies: { alpha: '^1.2.0' } },
+      manifestAfter: { dependencies: { alpha: '^1.9.9' } },
+      lockBefore: lock({ '': { dependencies: { alpha: '^1.2.0' } }, 'node_modules/alpha': pkg('1.2.3') }),
+      lockAfter: lock({ '': { dependencies: { alpha: '^1.9.9' } }, 'node_modules/alpha': pkg('1.9.9') }),
+    })
+    expect(out).toContain('### Direct')
+    expect(out).toContain('- `alpha` 1.2.3 → 1.9.9 (`^1.2.0` → `^1.9.9`)')
+    expect(out).toContain('Packages changed: 1 direct, 0 transitive.')
+    expect(out).not.toMatch(/### Transitive/)
+  })
+
+  it('names the section for anything outside the root dependencies', () => {
+    const out = updateSummary({
+      manifestBefore: { devDependencies: { beta: '~3.4.5' } },
+      manifestAfter: { devDependencies: { beta: '~3.4.8' } },
+      lockBefore: lock({ '': { devDependencies: { beta: '~3.4.5' } }, 'node_modules/beta': pkg('3.4.5') }),
+      lockAfter: lock({ '': { devDependencies: { beta: '~3.4.8' } }, 'node_modules/beta': pkg('3.4.8') }),
+    })
+    expect(out).toContain('- `beta` 3.4.5 → 3.4.8 (`~3.4.5` → `~3.4.8`, devDependencies)')
+  })
+
+  it('lists transitive moves the package.json diff never shows', () => {
+    const manifest = { dependencies: { a: '^1.0.0' } }
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0', { gamma: '^2.0.0' }),
+        'node_modules/gamma': pkg('2.0.1'),
+      }),
+      lockAfter: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0', { gamma: '^2.0.0' }),
+        'node_modules/gamma': pkg('2.0.4'),
+      }),
+    })
+    expect(out).toContain('### Transitive')
+    expect(out).toContain('- `gamma` 2.0.1 → 2.0.4')
+    expect(out).toContain('Packages changed: 0 direct, 1 transitive.')
+    // The unmoved direct dependency earns no line at all.
+    expect(out).not.toMatch(/- `a`/)
+  })
+
+  it('reports added and removed transitive copies, not just moves', () => {
+    const manifest = { dependencies: { a: '^1.0.0' } }
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0'),
+        'node_modules/epsilon': pkg('0.9.1'),
+      }),
+      lockAfter: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0'),
+        'node_modules/delta': pkg('3.1.0'),
+      }),
+    })
+    expect(out).toContain('- `delta` added at 3.1.0')
+    expect(out).toContain('- `epsilon` removed (was 0.9.1)')
+  })
+
+  it('shows the whole version set when a name has several copies', () => {
+    const manifest = { dependencies: { a: '^1.0.0' } }
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0'),
+        'node_modules/foo': pkg('9.0.0'),
+      }),
+      lockAfter: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0'),
+        'node_modules/foo': pkg('9.0.0'),
+        'node_modules/a/node_modules/foo': pkg('10.0.0'),
+      }),
+    })
+    // Numeric-aware ordering: 10.0.0 after 9.0.0, not before it.
+    expect(out).toContain('- `foo` 9.0.0 → 9.0.0, 10.0.0')
+  })
+
+  it('classifies a workspace-declared package as direct', () => {
+    const rootManifest = { dependencies: {} }
+    const wsBefore = { name: 'a', dependencies: { zeta: '^1.0.0' } }
+    const wsAfter = { name: 'a', dependencies: { zeta: '^1.1.0' } }
+    const out = updateSummary({
+      manifestBefore: rootManifest,
+      manifestAfter: rootManifest,
+      lockBefore: lock({
+        '': {},
+        'packages/a': wsBefore,
+        'node_modules/a': { link: true },
+        'node_modules/zeta': pkg('1.0.0'),
+      }),
+      lockAfter: lock({
+        '': {},
+        'packages/a': wsAfter,
+        'node_modules/a': { link: true },
+        'node_modules/zeta': pkg('1.1.0'),
+      }),
+      workspaces: { 'packages/a': { manifestBefore: wsBefore, manifestAfter: wsAfter } },
+    })
+    expect(out).toContain('### Direct')
+    expect(out).toContain('- `zeta` 1.0.0 → 1.1.0 (`^1.0.0` → `^1.1.0`, dependencies in packages/a)')
+  })
+
+  it('degrades to a manifest-only listing, with a note, on a lockfile it cannot read', () => {
+    const out = updateSummary({
+      manifestBefore: { dependencies: { alpha: '^1.2.0' } },
+      manifestAfter: { dependencies: { alpha: '^1.9.9' } },
+      lockBefore: { lockfileVersion: 1 },
+      lockAfter: { lockfileVersion: 1 },
+    })
+    expect(out).toContain('- `alpha` (`^1.2.0` → `^1.9.9`)')
+    expect(out).toContain('range moves are listed')
+  })
+
+  it('says so when nothing moved, rather than emitting an empty section', () => {
+    const manifest = { dependencies: { a: '^1.0.0' } }
+    const treeShape = lock({ '': { dependencies: { a: '^1.0.0' } }, 'node_modules/a': pkg('1.0.0') })
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: treeShape,
+      lockAfter: treeShape,
+    })
+    expect(out).toContain('No package changes recorded.')
   })
 })
