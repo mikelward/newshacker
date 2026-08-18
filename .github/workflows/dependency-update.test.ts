@@ -254,6 +254,19 @@ describe('dependency-update workflow', () => {
     expect(publish).not.toMatch(/^\s*run: npm (ci|install)\b/m);
   });
 
+  it('names the updated packages in the PR body', () => {
+    // The diffstat only says how many lockfile lines churned — which is the
+    // part the body itself tells reviewers not to read. The summary names the
+    // packages, so it has to exist, come from the same clean context the
+    // validation ran in, and be generated BEFORE the publish step commits: it
+    // diffs the working tree against HEAD exactly as the validator does, so
+    // after the commit it would read as "no changes".
+    const publish = workflow.slice(workflow.indexOf('  publish:'));
+    expect(publish).toContain('check-dependency-update.mjs summary > deps-summary.md');
+    expect(publish).toContain('cat deps-summary.md');
+    expect(publish.indexOf('summary > deps-summary.md')).toBeLessThan(publish.indexOf('git commit -q'));
+  });
+
   it('refuses a transitive major, not just a direct one', async () => {
     // package.json only governs DIRECT dependencies. A bare `npm update` also
     // moves subdependencies to whatever their own ranges allow, and a

@@ -17,7 +17,11 @@
 //
 // Everything here is a pure function over parsed JSON, exported for
 // check-dependency-update.test.ts. The CLI at the bottom is the only part that
-// touches git or the filesystem.
+// touches git or the filesystem. Run with no arguments to validate; run with
+// `summary` to print the PR-body section that names every package the batch
+// moved — generated here, in the same clean context as the validation, so the
+// body's claims are as trustworthy as the verdict rather than being whatever
+// the machine that ran the batch chose to report.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -485,18 +489,158 @@ export function allFailures({ manifestBefore, manifestAfter, lockBefore, lockAft
   ];
 }
 
+// Every installed copy the lockfile records, grouped by package name. Only
+// entries under a node_modules/ segment with a version are dependencies: the
+// root, workspaces and out-of-repo file: paths have no such segment, and a
+// workspace's `link: true` mirror under node_modules carries no version, so
+// all of them fall out of the same two tests.
+export function installedVersions(packages) {
+  const byName = new Map();
+  for (const [path, entry] of Object.entries(packages)) {
+    const cut = path.lastIndexOf("node_modules/");
+    if (cut === -1 || !entry || !entry.version) continue;
+    const name = path.slice(cut + "node_modules/".length);
+    if (!byName.has(name)) byName.set(name, new Set());
+    byName.get(name).add(entry.version);
+  }
+  return byName;
+}
+
+/**
+ * The PR-body section naming every package the batch moved. Everything above
+ * decides whether the batch is acceptable; this describes what it did, for
+ * the reviewer the PR is assigned to — the diffstat the body used to carry
+ * says how many lockfile lines churned, which is exactly the part the body
+ * itself tells reviewers not to read.
+ *
+ * Direct versus transitive is the split that matters to a reviewer: a direct
+ * move is a range the repo declared, while a transitive one is npm exercising
+ * some dependency's own range — invisible in the package.json diff, and the
+ * kind of change the lockfile walk above exists to police. A package counts
+ * as direct when any manifest (root or workspace, either side) declares it.
+ *
+ * Versions are compared as the SET a name resolves to, because one name can
+ * legitimately have several installed copies: a nested copy appearing or
+ * collapsing is a real change worth a line, not noise to dedupe away.
+ *
+ * Purely informational — nothing here gates anything, and a lockfile shape
+ * the walk cannot read degrades to a manifest-only listing with a note
+ * saying so, rather than an empty section that reads as "nothing moved".
+ */
+export function updateSummary({ manifestBefore, manifestAfter, lockBefore, lockAfter, workspaces = {} }) {
+  const isObject = (v) => typeof v === "object" && v !== null;
+  const walkable = isObject(lockBefore?.packages) && isObject(lockAfter?.packages);
+  const verBefore = walkable ? installedVersions(lockBefore.packages) : new Map();
+  const verAfter = walkable ? installedVersions(lockAfter.packages) : new Map();
+
+  // Range moves per declaring manifest, keyed by name. The section is named
+  // only when it adds information: bare `dependencies` of the root is the
+  // default reading, everything else says where the declaration lives.
+  const rangeMoves = new Map();
+  const recordMoves = (before, after, where) => {
+    for (const section of DEP_SECTIONS) {
+      const a = (before && before[section]) || {};
+      const b = (after && after[section]) || {};
+      for (const name of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
+        if (a[name] === b[name]) continue;
+        const label =
+          section === "dependencies" && !where ? "" : `, ${section}${where ? ` in ${where}` : ""}`;
+        const from = name in a ? `\`${a[name]}\`` : "(absent)";
+        const to = name in b ? `\`${b[name]}\`` : "(absent)";
+        if (!rangeMoves.has(name)) rangeMoves.set(name, []);
+        rangeMoves.get(name).push(`${from} → ${to}${label}`);
+      }
+    }
+  };
+  recordMoves(manifestBefore, manifestAfter, "");
+  for (const path of Object.keys(workspaces).sort()) {
+    recordMoves(workspaces[path].manifestBefore, workspaces[path].manifestAfter, path);
+  }
+
+  const directNames = new Set();
+  for (const manifest of [
+    manifestBefore,
+    manifestAfter,
+    ...Object.values(workspaces).flatMap((pair) => [pair.manifestBefore, pair.manifestAfter]),
+  ]) {
+    for (const section of DEP_SECTIONS) {
+      for (const name of Object.keys((manifest && manifest[section]) || {})) directNames.add(name);
+    }
+  }
+
+  // Numeric-aware ordering so `10.0.0` sorts after `9.0.0`; display only, so
+  // prereleases and other shapes semver orders differently are fine as-is.
+  const byVersion = (a, b) => String(a).localeCompare(String(b), "en", { numeric: true });
+  const fmt = (set) => [...(set ?? [])].sort(byVersion).join(", ");
+
+  const names = [...new Set([...verBefore.keys(), ...verAfter.keys(), ...rangeMoves.keys()])].sort();
+  const direct = [];
+  const transitive = [];
+  for (const name of names) {
+    const before = verBefore.get(name);
+    const after = verAfter.get(name);
+    const moved = fmt(before) !== fmt(after);
+    const ranges = rangeMoves.get(name) ?? [];
+    if (!moved && ranges.length === 0) continue;
+    const version = !moved
+      ? ""
+      : before && after
+        ? ` ${fmt(before)} → ${fmt(after)}`
+        : after
+          ? ` added at ${fmt(after)}`
+          : ` removed (was ${fmt(before)})`;
+    const range = ranges.length ? ` (${ranges.join("; ")})` : "";
+    (directNames.has(name) ? direct : transitive).push(`- \`${name}\`${version}${range}`);
+  }
+
+  const lines = ["## Updated packages", ""];
+  if (!direct.length && !transitive.length) {
+    lines.push("No package changes recorded.");
+  } else {
+    lines.push(`Packages changed: ${direct.length} direct, ${transitive.length} transitive.`);
+    if (direct.length) lines.push("", "### Direct", "", ...direct);
+    if (transitive.length) lines.push("", "### Transitive", "", ...transitive);
+  }
+  if (!walkable) {
+    lines.push(
+      "",
+      "> A lockfile here has no `packages` map this summary can read, so only",
+      "> `package.json` range moves are listed. The validation step fails on",
+      "> the same shape, so this note should never appear on an open PR.",
+    );
+  }
+  return lines.join("\n") + "\n";
+}
+
 function main() {
+  const mode = process.argv[2];
+  // A typo'd mode must not fall through to validation: the caller wanted the
+  // summary, and a green validation run on stdout would be quietly embedded
+  // in the PR body in its place.
+  if (mode !== undefined && mode !== "summary") {
+    console.error(
+      `Unknown mode "${mode}". Run with no arguments to validate, or "summary" for the PR-body section.`,
+    );
+    process.exit(2);
+  }
+
   const show = (path) =>
     JSON.parse(execFileSync("git", ["show", `HEAD:${path}`], { encoding: "utf8" }));
   const read = (path) => JSON.parse(readFileSync(path, "utf8"));
 
-  const failures = allFailures({
+  const inputs = {
     manifestBefore: show("package.json"),
     manifestAfter: read("package.json"),
     lockBefore: show("package-lock.json"),
     lockAfter: read("package-lock.json"),
-  });
+  };
 
+  if (mode === "summary") {
+    process.stdout.write(updateSummary(inputs));
+    return;
+  }
+
+  const failures = allFailures(inputs);
   for (const failure of failures) console.error(`::error::${failure}`);
   if (failures.length) process.exit(1);
   console.log("Dependency diff validated: no majors, no out-of-range moves.");
