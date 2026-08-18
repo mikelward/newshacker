@@ -1396,6 +1396,91 @@ describe('updateSummary', () => {
     expect(out).toContain('- `zeta` 1.0.0 → 1.1.0 (`^1.0.0` → `^1.1.0`, dependencies in packages/a)')
   })
 
+  it('omits packages npm can never install, and the bundled tree beneath them', () => {
+    // gedmap's live case: `cpu: ["wasm32"]` matches no value `process.arch`
+    // can take, so npm skips the package on every platform — yet `npm update`
+    // dissolves its bundle and re-resolves it, moving versions nothing
+    // installs. Reporting those would be a standing weekly false alarm.
+    const manifest = { optionalDependencies: { impossible: '^1.0.0' } }
+    const mk = (v, bundled) =>
+      lock({
+        '': { optionalDependencies: { impossible: '^1.0.0' } },
+        'node_modules/impossible': { version: v, optional: true, cpu: ['wasm32'] },
+        'node_modules/impossible/node_modules/bundle': pkg(bundled),
+      })
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: mk('1.0.0', '1.0.0'),
+      lockAfter: mk('1.1.0', '2.0.0'),
+    })
+    expect(out).toContain('No package changes recorded.')
+  })
+
+  it('still lists an optional platform package some machine can install', () => {
+    // Deliberately narrow, like the validator: the test is "no Node target
+    // at all", not "not this runner" — a darwin-arm64 binary is a real
+    // install on a real machine even though CI is linux/x64.
+    const manifest = { optionalDependencies: { native: '^1.0.0' } }
+    const mk = (v) =>
+      lock({
+        '': { optionalDependencies: { native: '^1.0.0' } },
+        'node_modules/native': { version: v, optional: true, cpu: ['arm64'], os: ['darwin'] },
+      })
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: mk('1.0.0'),
+      lockAfter: mk('1.1.0'),
+    })
+    expect(out).toContain('- `native` 1.0.0 → 1.1.0')
+  })
+
+  it('reports consumers trading versions across stable paths, which no multiset sees', () => {
+    // Two surviving foo copies swap versions: every multiset holds still,
+    // but the version at each path moved — a real change for both consumers,
+    // listed per path.
+    const manifest = { dependencies: { a: '^1.0.0', b: '^1.0.0' } }
+    const mk = (hoisted, nested) =>
+      lock({
+        '': { dependencies: { a: '^1.0.0', b: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0', { foo: '^1.0.0' }),
+        'node_modules/b': pkg('1.0.0', { foo: '^1.0.0' }),
+        'node_modules/foo': pkg(hoisted),
+        'node_modules/b/node_modules/foo': pkg(nested),
+      })
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: mk('1.1.0', '1.2.0'),
+      lockAfter: mk('1.2.0', '1.1.0'),
+    })
+    expect(out).toContain(
+      '- `foo` 1.1.0 → 1.2.0 (node_modules/foo), 1.2.0 → 1.1.0 (node_modules/b/node_modules/foo)',
+    )
+  })
+
+  it('stays silent for a copy relocating at the same version', () => {
+    // npm reshaping the tree without moving any version: nothing on disk
+    // changed, so nothing is listed — the deliberate silence the doc names.
+    const manifest = { dependencies: { a: '^1.0.0' } }
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0', { foo: '^1.0.0' }),
+        'node_modules/foo': pkg('1.0.0'),
+      }),
+      lockAfter: lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0', { foo: '^1.0.0' }),
+        'node_modules/a/node_modules/foo': pkg('1.0.0'),
+      }),
+    })
+    expect(out).toContain('No package changes recorded.')
+  })
+
   it('degrades to a manifest-only listing, with a note, on a lockfile it cannot read', () => {
     const out = updateSummary({
       manifestBefore: { dependencies: { alpha: '^1.2.0' } },
