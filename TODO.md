@@ -4,6 +4,22 @@ Short running list of things that aren't in flight but worth doing. For
 user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 `IMPLEMENTATION_PLAN.md`.
 
+## Decisions needing review
+
+- **DEFERRED: US-spelling enforcement (owner call, 2026-08-18).** gedmap
+  enforces its US-English rule with a dictionary-difference test
+  (usSpelling.test.js: an offense is a word valid in en-GB AND invalid in
+  en-US, so names and jargon are unreachable false positives); porting it
+  here was prepared and then set aside — "we can worry about that later."
+  The prepared scan found ~68 British-only spellings — the doubled-l forms
+  of canceled/canceling in the ShareResult literal and sync paths, and the
+  British forms of initialized, behavior, defense, honors, gray, and
+  signaling across api/, src/, and the guides — all mechanical,
+  tsc-checked, suite-green when applied. Reviving
+  it: add nspell + dictionary-en + dictionary-en-gb devDependencies, port
+  the test, land the renames, and reword golden rule 8 and SPEC.md's
+  US-English line so the rules stop quoting the British forms they forbid.
+
 ## Performance
 
 - ~~**Stop awaiting the comment batch inside `loadRoot`.**~~ **Shipped.**
