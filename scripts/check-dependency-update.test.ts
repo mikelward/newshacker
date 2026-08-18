@@ -31,6 +31,7 @@ import {
   majorOf,
   resolveEdge,
   updateSummary,
+  workspacePaths,
 } from './check-dependency-update.mjs'
 
 const pkg = (version: string, deps?: Record<string, string>) => ({
@@ -1215,6 +1216,20 @@ describe('installability domains vs. this lockfile', () => {
 // is not listed reads as "did not move" to the reviewer the PR is assigned
 // to — so the cases below pin what gets listed, under which heading, and
 // what happens on input the walk cannot read.
+describe('workspacePaths', () => {
+  it('finds workspaces and ignores the root, installed copies, and out-of-repo paths', () => {
+    expect(
+      workspacePaths({
+        '': {},
+        'packages/a': { name: 'a', version: '1.0.0' },
+        'node_modules/a': { link: true },
+        'node_modules/foo': { version: '1.0.0' },
+        '../sibling': { version: '1.0.0' },
+      }),
+    ).toEqual(['packages/a'])
+  })
+})
+
 describe('installedVersions', () => {
   it('groups every installed copy by name, hoisted and nested alike', () => {
     const versions = installedVersions({
@@ -1477,6 +1492,31 @@ describe('updateSummary', () => {
         'node_modules/a': pkg('1.0.0', { foo: '^1.0.0' }),
         'node_modules/a/node_modules/foo': pkg('1.0.0'),
       }),
+    })
+    expect(out).toContain('No package changes recorded.')
+  })
+
+  it('stays silent when a relocation redistributes consumers across surviving copies', () => {
+    // The nested 1.1.0 copy moves from under `a` to under `b`, so the two
+    // consumers trade which surviving copy they resolve — while every
+    // version at every surviving path, and every multiset, holds still.
+    // Deliberately no line: the summary is an on-disk inventory, and
+    // per-consumer resolution is the validator's walk, which hard-fails
+    // this exact reshape whenever it crosses a major.
+    const manifest = { dependencies: { a: '^1.0.0', b: '^1.0.0' } }
+    const mk = (nestedUnder) =>
+      lock({
+        '': { dependencies: { a: '^1.0.0', b: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0', { foo: '^1.0.0' }),
+        'node_modules/b': pkg('1.0.0', { foo: '^1.0.0' }),
+        'node_modules/foo': pkg('1.2.0'),
+        [`node_modules/${nestedUnder}/node_modules/foo`]: pkg('1.1.0'),
+      })
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: mk('a'),
+      lockAfter: mk('b'),
     })
     expect(out).toContain('No package changes recorded.')
   })
