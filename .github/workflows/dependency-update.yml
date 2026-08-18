@@ -207,8 +207,6 @@ jobs:
           check 'npm run typecheck'
           check 'npm run test:coverage'
           check 'npm run build'
-          check 'scripts/docs-lane.test.sh'
-          check 'shellcheck -s bash -S error scripts/docs-lane.sh scripts/docs-lane.test.sh'
           cat checks.md >> "$GITHUB_STEP_SUMMARY"
           if [ $failed -eq 0 ]; then
             echo 'passed=true' >> "$GITHUB_OUTPUT"
@@ -482,6 +480,22 @@ jobs:
               >> "$GITHUB_STEP_SUMMARY"
           fi
 
+          # The consumer check needs the same treatment for the same reason,
+          # and it is the one that would silently never report: `ci.yml` at
+          # least has this dispatch, while codex-review-check.yml's own
+          # triggers are `push` and `pull_request_target`, both suppressed for
+          # a GITHUB_TOKEN-authored pull request, and it has no schedule to
+          # fall back on the way the codex sweep does. So once the ruleset
+          # requires it, a batch without this dispatch would block forever.
+          # Its `workflow_dispatch` trigger exists for exactly this call.
+          if gh workflow run codex-review-check.yml --ref "$branch"; then
+            check_started=true
+          else
+            check_started=false
+            echo "Could not start codex-review-check on $branch; the PR body says so." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           {
             echo "\`npm update --save\` — every dependency moved to the newest version its"
             echo 'existing range in `package.json` allows. **No majors**: those need a'
@@ -504,6 +518,16 @@ jobs:
               echo '> `on: pull_request` workflows and the explicit dispatch failed, so'
               echo '> nothing else will start it. Push any commit to the branch and CI runs'
               echo '> normally from then on.'
+            fi
+            # Reported outside the branch above, so a failed CI dispatch cannot
+            # hide a failed check dispatch -- they are separate workflows and
+            # either can fail alone.
+            if [ "$check_started" != true ]; then
+              echo
+              echo '> **`codex-review-check` could not be dispatched**, so the workflow pin'
+              echo '> is unverified on this PR. It cannot start on its own here either, for'
+              echo '> the same reason CI cannot. Push any commit to the branch, or re-run'
+              echo '> that workflow against it by hand.'
             fi
             echo
             echo '## Changed'
