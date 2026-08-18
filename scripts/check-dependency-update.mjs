@@ -532,6 +532,13 @@ export function installedVersions(packages) {
  * collapsing is a real change worth a line, not noise to dedupe away — a
  * plain set of versions would render a same-version dedupe invisible.
  *
+ * Copies at a path present on both sides also compare individually, so two
+ * consumers trading versions — every multiset unchanged — still get their
+ * per-path moves listed. The one deliberate silence: a copy RELOCATING at
+ * the same version, npm reshaping the tree without moving any version
+ * anywhere. What is on disk is identical, and which consumer resolves which
+ * identical copy is the validator's walk above, not a PR-body fact.
+ *
  * Purely informational — nothing here gates anything, and a lockfile shape
  * the walk cannot read degrades to a manifest-only listing with a note
  * saying so, rather than an empty section that reads as "nothing moved".
@@ -539,8 +546,28 @@ export function installedVersions(packages) {
 export function updateSummary({ manifestBefore, manifestAfter, lockBefore, lockAfter, workspaces = {} }) {
   const isObject = (v) => typeof v === "object" && v !== null;
   const walkable = isObject(lockBefore?.packages) && isObject(lockAfter?.packages);
-  const verBefore = walkable ? installedVersions(lockBefore.packages) : new Map();
-  const verAfter = walkable ? installedVersions(lockAfter.packages) : new Map();
+  // What a side actually puts on disk: drop copies no platform can ever
+  // install — an optional package whose cpu/os no Node target satisfies —
+  // and everything recorded beneath them, since bundled dependencies carry
+  // no cpu/os of their own and the only way to them is through the package
+  // that bundles them. `npm update` dissolves and re-resolves bundles
+  // nothing installs, so without this the body reports changes no user can
+  // receive. Per side, not both-sides like the validator's edge prune: a
+  // package BECOMING installable is real code arriving and shows as added,
+  // the reverse as removed.
+  const onDisk = (packages) => {
+    const dead = Object.entries(packages)
+      .filter(([, entry]) => !isInstallable(entry))
+      .map(([path]) => path);
+    if (!dead.length) return packages;
+    return Object.fromEntries(
+      Object.entries(packages).filter(
+        ([path]) => !dead.some((d) => path === d || path.startsWith(d + "/")),
+      ),
+    );
+  };
+  const verBefore = walkable ? installedVersions(onDisk(lockBefore.packages)) : new Map();
+  const verAfter = walkable ? installedVersions(onDisk(lockAfter.packages)) : new Map();
 
   // Range moves per declaring manifest, keyed by name. The section is named
   // only when it adds information: bare `dependencies` of the root is the
@@ -598,34 +625,51 @@ export function updateSummary({ manifestBefore, manifestAfter, lockBefore, lockA
 
   // One name's copies, split into the instances its direct declarers resolve
   // and the nested rest — by path identity, so two declarers landing on the
-  // same hoisted copy count it once.
+  // same hoisted copy count it once. Maps keyed by path, because the paths
+  // are evidence movement() needs below.
   const split = (packages, name, copies, declSet) => {
     const directPaths = new Set();
     for (const consumer of declSet ?? []) {
       const instance = resolveEdgeInstance(packages, consumer, name);
       if (instance) directPaths.add(instance.path);
     }
-    const direct = [];
-    const nested = [];
+    const direct = new Map();
+    const nested = new Map();
     for (const [path, version] of copies ?? []) {
-      (directPaths.has(path) ? direct : nested).push(version);
+      (directPaths.has(path) ? direct : nested).set(path, version);
     }
     return { direct, nested };
   };
 
-  const movement = (before, after) =>
-    fmt(before) === fmt(after)
-      ? ""
-      : before.length && after.length
-        ? ` ${fmt(before)} → ${fmt(after)}`
-        : after.length
-          ? ` added at ${fmt(after)}`
-          : ` removed (was ${fmt(before)})`;
+  const movement = (before, after) => {
+    const was = [...before.values()];
+    const now = [...after.values()];
+    if (fmt(was) !== fmt(now)) {
+      return was.length && now.length
+        ? ` ${fmt(was)} → ${fmt(now)}`
+        : now.length
+          ? ` added at ${fmt(now)}`
+          : ` removed (was ${fmt(was)})`;
+    }
+    // The multiset can hold perfectly still while versions trade places —
+    // one copy moving 1.1.0 -> 1.2.0 while another moves back. A version
+    // changing at a path present on BOTH sides is a real move at a stable
+    // location, so those compare individually, labeled by path. A copy
+    // RELOCATING at the same version stays silent on purpose: nothing about
+    // what is on disk changed, and which consumer resolves which identical
+    // copy is the validator's business, not a PR body's.
+    const moves = [];
+    for (const [path, version] of before) {
+      const v = after.get(path);
+      if (v !== undefined && v !== version) moves.push(`${version} → ${v} (${path})`);
+    }
+    return moves.length ? ` ${moves.join(", ")}` : "";
+  };
 
   const names = [...new Set([...verBefore.keys(), ...verAfter.keys(), ...rangeMoves.keys()])].sort();
   const direct = [];
   const transitive = [];
-  const none = { direct: [], nested: [] };
+  const none = { direct: new Map(), nested: new Map() };
   for (const name of names) {
     const b = walkable ? split(lockBefore.packages, name, verBefore.get(name), declBefore.get(name)) : none;
     const a = walkable ? split(lockAfter.packages, name, verAfter.get(name), declAfter.get(name)) : none;
