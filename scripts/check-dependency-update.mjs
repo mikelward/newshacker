@@ -489,19 +489,22 @@ export function allFailures({ manifestBefore, manifestAfter, lockBefore, lockAft
   ];
 }
 
-// Every installed copy the lockfile records, grouped by package name. Only
-// entries under a node_modules/ segment with a version are dependencies: the
-// root, workspaces and out-of-repo file: paths have no such segment, and a
-// workspace's `link: true` mirror under node_modules carries no version, so
-// all of them fall out of the same two tests.
+// Every installed copy the lockfile records, grouped by package name and
+// keyed by the copy's lockfile path — every copy, not the distinct versions,
+// so two identical copies deduping into one still reads as a change, and the
+// path identity lets a caller tell a directly-resolved copy from a nested
+// one. Only entries under a node_modules/ segment with a version are
+// dependencies: the root, workspaces and out-of-repo file: paths have no such
+// segment, and a workspace's `link: true` mirror under node_modules carries
+// no version, so all of them fall out of the same two tests.
 export function installedVersions(packages) {
   const byName = new Map();
   for (const [path, entry] of Object.entries(packages)) {
     const cut = path.lastIndexOf("node_modules/");
     if (cut === -1 || !entry || !entry.version) continue;
     const name = path.slice(cut + "node_modules/".length);
-    if (!byName.has(name)) byName.set(name, new Set());
-    byName.get(name).add(entry.version);
+    if (!byName.has(name)) byName.set(name, new Map());
+    byName.get(name).set(path, entry.version);
   }
   return byName;
 }
@@ -516,12 +519,18 @@ export function installedVersions(packages) {
  * Direct versus transitive is the split that matters to a reviewer: a direct
  * move is a range the repo declared, while a transitive one is npm exercising
  * some dependency's own range — invisible in the package.json diff, and the
- * kind of change the lockfile walk above exists to police. A package counts
- * as direct when any manifest (root or workspace, either side) declares it.
+ * kind of change the lockfile walk above exists to police. The bucket is
+ * decided by RESOLUTION, not by name: the copies the root and workspaces
+ * actually resolve (per npm's walk-up rule) compare as direct, the nested
+ * rest compare separately as transitive — so a name that is both a direct
+ * dependency and someone's nested copy is not mislabeled when only the
+ * nested copy moves, and can honestly appear in both lists when both do.
  *
- * Versions are compared as the SET a name resolves to, because one name can
- * legitimately have several installed copies: a nested copy appearing or
- * collapsing is a real change worth a line, not noise to dedupe away.
+ * Versions are compared as the MULTISET of a name's installed copies, and
+ * rendered with counts (`1.0.0 ×2`) when a version has several: one name can
+ * legitimately have several installed copies, and a nested copy appearing or
+ * collapsing is a real change worth a line, not noise to dedupe away — a
+ * plain set of versions would render a same-version dedupe invisible.
  *
  * Purely informational — nothing here gates anything, and a lockfile shape
  * the walk cannot read degrades to a manifest-only listing with a note
@@ -557,40 +566,75 @@ export function updateSummary({ manifestBefore, manifestAfter, lockBefore, lockA
     recordMoves(workspaces[path].manifestBefore, workspaces[path].manifestAfter, path);
   }
 
-  const directNames = new Set();
-  for (const manifest of [
-    manifestBefore,
-    manifestAfter,
-    ...Object.values(workspaces).flatMap((pair) => [pair.manifestBefore, pair.manifestAfter]),
-  ]) {
-    for (const section of DEP_SECTIONS) {
-      for (const name of Object.keys((manifest && manifest[section]) || {})) directNames.add(name);
-    }
-  }
+  // Which consumers declare each name directly, per side: the root and every
+  // workspace. Declaration alone does not make a copy direct — the declaring
+  // consumer's own RESOLUTION does, below — but it says whose resolution to
+  // ask for.
+  const declarersFor = (rootManifest, side) => {
+    const byName = new Map();
+    const add = (manifest, path) => {
+      for (const section of DEP_SECTIONS) {
+        for (const name of Object.keys((manifest && manifest[section]) || {})) {
+          if (!byName.has(name)) byName.set(name, new Set());
+          byName.get(name).add(path);
+        }
+      }
+    };
+    add(rootManifest, ROOT);
+    for (const [path, pair] of Object.entries(workspaces)) add(pair[side], path);
+    return byName;
+  };
+  const declBefore = declarersFor(manifestBefore, "manifestBefore");
+  const declAfter = declarersFor(manifestAfter, "manifestAfter");
 
   // Numeric-aware ordering so `10.0.0` sorts after `9.0.0`; display only, so
   // prereleases and other shapes semver orders differently are fine as-is.
   const byVersion = (a, b) => String(a).localeCompare(String(b), "en", { numeric: true });
-  const fmt = (set) => [...(set ?? [])].sort(byVersion).join(", ");
+  const fmt = (versions) => {
+    const counts = new Map();
+    for (const v of [...(versions ?? [])].sort(byVersion)) counts.set(v, (counts.get(v) ?? 0) + 1);
+    return [...counts].map(([v, n]) => (n > 1 ? `${v} ×${n}` : v)).join(", ");
+  };
+
+  // One name's copies, split into the instances its direct declarers resolve
+  // and the nested rest — by path identity, so two declarers landing on the
+  // same hoisted copy count it once.
+  const split = (packages, name, copies, declSet) => {
+    const directPaths = new Set();
+    for (const consumer of declSet ?? []) {
+      const instance = resolveEdgeInstance(packages, consumer, name);
+      if (instance) directPaths.add(instance.path);
+    }
+    const direct = [];
+    const nested = [];
+    for (const [path, version] of copies ?? []) {
+      (directPaths.has(path) ? direct : nested).push(version);
+    }
+    return { direct, nested };
+  };
+
+  const movement = (before, after) =>
+    fmt(before) === fmt(after)
+      ? ""
+      : before.length && after.length
+        ? ` ${fmt(before)} → ${fmt(after)}`
+        : after.length
+          ? ` added at ${fmt(after)}`
+          : ` removed (was ${fmt(before)})`;
 
   const names = [...new Set([...verBefore.keys(), ...verAfter.keys(), ...rangeMoves.keys()])].sort();
   const direct = [];
   const transitive = [];
+  const none = { direct: [], nested: [] };
   for (const name of names) {
-    const before = verBefore.get(name);
-    const after = verAfter.get(name);
-    const moved = fmt(before) !== fmt(after);
+    const b = walkable ? split(lockBefore.packages, name, verBefore.get(name), declBefore.get(name)) : none;
+    const a = walkable ? split(lockAfter.packages, name, verAfter.get(name), declAfter.get(name)) : none;
     const ranges = rangeMoves.get(name) ?? [];
-    if (!moved && ranges.length === 0) continue;
-    const version = !moved
-      ? ""
-      : before && after
-        ? ` ${fmt(before)} → ${fmt(after)}`
-        : after
-          ? ` added at ${fmt(after)}`
-          : ` removed (was ${fmt(before)})`;
+    const directPart = movement(b.direct, a.direct);
+    const nestedPart = movement(b.nested, a.nested);
     const range = ranges.length ? ` (${ranges.join("; ")})` : "";
-    (directNames.has(name) ? direct : transitive).push(`- \`${name}\`${version}${range}`);
+    if (directPart || range) direct.push(`- \`${name}\`${directPart}${range}`);
+    if (nestedPart) transitive.push(`- \`${name}\`${nestedPart}`);
   }
 
   const lines = ["## Updated packages", ""];
