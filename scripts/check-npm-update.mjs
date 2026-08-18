@@ -16,7 +16,7 @@
 //      suite, repeatedly, and each fix reopened the previous one.
 //
 // Everything here is a pure function over parsed JSON, exported for
-// check-dependency-update.test.ts. The CLI at the bottom is the only part that
+// check-npm-update.test.ts. The CLI at the bottom is the only part that
 // touches git or the filesystem. Run with no arguments to validate; run with
 // `summary` to print the PR-body section that names every package the batch
 // moved — generated here, in the same clean context as the validation, so the
@@ -747,8 +747,13 @@ function main() {
     process.exit(2);
   }
 
+  // The `./` prefix makes the pathspec relative to the working directory,
+  // so the same script serves a repository whose npm tree lives in a
+  // subdirectory (a Cloud Functions backend, say) — run it from that
+  // directory. At the repository root, `HEAD:./x` names the same object
+  // as `HEAD:x`, so nothing changes for this repository.
   const show = (path) =>
-    JSON.parse(execFileSync("git", ["show", `HEAD:${path}`], { encoding: "utf8" }));
+    JSON.parse(execFileSync("git", ["show", `HEAD:./${path}`], { encoding: "utf8" }));
   const read = (path) => JSON.parse(readFileSync(path, "utf8"));
 
   const lockBefore = show("package-lock.json");

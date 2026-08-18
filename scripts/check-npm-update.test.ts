@@ -19,7 +19,11 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   NODE_ARCH,
@@ -32,7 +36,7 @@ import {
   resolveEdge,
   updateSummary,
   workspacePaths,
-} from './check-dependency-update.mjs'
+} from './check-npm-update.mjs'
 
 const pkg = (version: string, deps?: Record<string, string>) => ({
   version,
@@ -1115,7 +1119,7 @@ describe('add-and-drop is not a crossing', () => {
   })
 })
 
-// The domains in check-dependency-update.mjs decide what gets pruned, and a
+// The domains in check-npm-update.mjs decide what gets pruned, and a
 // value MISSING from them prunes a real package plus its whole subtree — a
 // missed major, the expensive direction. So rather than trust a hand-written
 // list, assert it covers what the pinned `@types/node` says Node can report:
@@ -1542,5 +1546,62 @@ describe('updateSummary', () => {
       lockAfter: treeShape,
     })
     expect(out).toContain('No package changes recorded.')
+  })
+})
+
+// Proves the HEAD:./ fix (see check-npm-update.mjs's `show` helper): a
+// repository-rooted pathspec would resolve `package-lock.json` against the
+// repo root regardless of cwd, so it would find the same file this test
+// writes at the root and pass for the wrong reason. Running the CLI from a
+// SUBDIRECTORY of the repo is what makes that failure mode distinguishable
+// from success — only the `./`-relative pathspec reads the right lockfile
+// when the working directory and the repo root differ.
+describe('the CLI run from a nested npm tree', () => {
+  const CLI = fileURLToPath(new URL('./check-npm-update.mjs', import.meta.url))
+
+  const lockFor = (version: string) => JSON.stringify({
+    name: 'app',
+    version: '1.0.0',
+    lockfileVersion: 3,
+    requires: true,
+    packages: {
+      '': { name: 'app', version: '1.0.0', dependencies: { dep: '^1.0.0' } },
+      'node_modules/dep': { version, resolved: `https://registry.example.com/dep-${version}.tgz` },
+    },
+  })
+
+  const repoWithNestedTree = () => {
+    const repo = mkdtempSync(join(tmpdir(), 'nested-tree-'))
+    const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+    mkdirSync(join(repo, 'backend'))
+    writeFileSync(
+      join(repo, 'backend', 'package.json'),
+      JSON.stringify({ name: 'app', version: '1.0.0', dependencies: { dep: '^1.0.0' } }),
+    )
+    writeFileSync(join(repo, 'backend', 'package-lock.json'), lockFor('1.0.0'))
+    git('init', '-q')
+    git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'add', '-A')
+    git(
+      '-c', 'user.name=t', '-c', 'user.email=t@example.com',
+      '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
+      'commit', '-q', '-m', 'base',
+    )
+    writeFileSync(join(repo, 'backend', 'package-lock.json'), lockFor('1.0.1'))
+    return repo
+  }
+
+  const runFrom = (cwd: string, ...args: string[]) =>
+    execFileSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf8' })
+
+  it('validates a batch from the subdirectory', () => {
+    const cwd = join(repoWithNestedTree(), 'backend')
+    expect(runFrom(cwd)).toContain('validated')
+  })
+
+  it('summarizes the same batch, naming the moved package', () => {
+    const cwd = join(repoWithNestedTree(), 'backend')
+    const summary = runFrom(cwd, 'summary')
+    expect(summary).toContain('## Updated packages')
+    expect(summary).toContain('`dep` 1.0.0 → 1.0.1')
   })
 })

@@ -15,7 +15,7 @@ on:
   # The weekly dependency PR is opened by `GITHUB_TOKEN`, and GitHub does not
   # let a `GITHUB_TOKEN`-created event start a workflow — so `pull_request`
   # never fires for it. `workflow_dispatch` is the documented exception, and
-  # `dependency-update.yml` dispatches this workflow against the branch it
+  # `npm-update.yml` dispatches this workflow against the branch it
   # pushes — naming the PR it opened first, because the docs lane refuses a
   # dispatched run that names no PR (a verdict computed for one pull request
   # must not label another's commit). Removing this leaves that PR with no
@@ -33,7 +33,7 @@ on:
 # a read-only token whatever the repo's default workflow permissions happen to
 # be set to. That default is a repository SETTING this file cannot see, so
 # read-only is declared here rather than assumed. It matters most on the weekly
-# dependency branch, which `dependency-update.yml` dispatches this workflow
+# dependency branch, which `npm-update.yml` dispatches this workflow
 # against: those runs execute unreviewed dependency code — `npm ci` lifecycle
 # scripts, and the suite loading the packages themselves — and a write-capable
 # token there would undo the no-write-token boundary the update job is built

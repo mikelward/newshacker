@@ -1,4 +1,4 @@
-name: Dependency update
+name: npm update
 
 # One batched dependency PR per week instead of one PR per dependency as soon
 # as it ships. Dependabot and Renovate both defaulted to the latter, which on a
@@ -32,7 +32,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: dependency-update
+  group: npm-update
   cancel-in-progress: false
 
 jobs:
@@ -311,7 +311,7 @@ jobs:
         if: steps.changed.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: dependency-update
+          name: npm-update
           path: |
             package.json
             package-lock.json
@@ -341,7 +341,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: dependency-update
+          name: npm-update
 
       # The artifact travelled through a machine that ran dependency code, so
       # check it against the fingerprints taken before any of it ran. Those
@@ -373,17 +373,17 @@ jobs:
       # the quoting and hands node a TRUNCATED script, which stays valid JS and
       # exits 0 while silently skipping every rule below the cut. That happened
       # here. It also means the rules have unit tests
-      # (scripts/check-dependency-update.test.ts) instead of being verified by
+      # (scripts/check-npm-update.test.ts) instead of being verified by
       # reading them.
       - name: Re-validate the dependency diff from a clean context
-        run: node scripts/check-dependency-update.mjs
+        run: node scripts/check-npm-update.mjs
 
       # Names every package the batch moved, for the PR body. Same clean
       # context as the validation above — and it must stay BEFORE the publish
       # step's commit: the summary diffs the working tree against HEAD exactly
       # as the validator does, so after the commit it would read "no changes".
       - name: Name the updated packages for the PR body
-        run: node scripts/check-dependency-update.mjs summary > deps-summary.md
+        run: node scripts/check-npm-update.mjs summary > deps-summary.md
 
       - name: Stop if the default branch moved while the checks ran
         env:
@@ -554,7 +554,7 @@ jobs:
             echo 'churn underneath them is expected and not worth reading line by line.'
             echo
             echo '---'
-            echo '_Opened by the weekly `dependency-update` workflow._'
+            echo '_Opened by the weekly `npm-update` workflow._'
           } > body.md
 
           # `gh pr edit` failing here (a transient API error) must not strand
