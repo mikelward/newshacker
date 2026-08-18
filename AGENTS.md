@@ -364,8 +364,12 @@ If any of the above fails, fix it — don't disable the check.
   - Name the PR, and say what to re-read rather than what you read. A SHA or
     a list of which PRs are open goes stale before it fires; one PR number
     does not, and the trigger has to be matchable to it.
-  - Merged or closed, take one last reply-or-resolve pass — a review can
-    land after the merge — then cancel it and unsubscribe. `list_triggers`
+  - Merged or closed, take one last reply-and-resolve pass — a review can
+    land after the merge. Nothing is holding the PR now, so on a merged one
+    anything real goes to a follow-up PR, named on the thread, before you
+    resolve it; leaving it open records the work nowhere. A closed-unmerged
+    PR is a stop — the work was abandoned, so answer, resolve, and open
+    nothing. Then cancel the check and unsubscribe. `list_triggers`
     spans the account, so match this session and this PR before updating
     or deleting one; an update reschedules whatever it matches as surely
     as a delete cancels it.
