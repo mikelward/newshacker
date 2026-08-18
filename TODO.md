@@ -1109,5 +1109,10 @@ ends up on the front page on a given day.
   already does the reviewing — CI, the `codex` status, conversation
   resolution — so arming can only remove toil: a green weekly batch
   currently waits for a manual merge that the gates have already earned.
-  Copy gedmap's arming block (deliberately non-fatal, with the
-  workflow-test assertion that goes with it) once the setting is on.
+  One constraint gedmap's arming block does not carry: this repository
+  excludes pre-1.0 (`0.x`) packages from auto-merge — SemVer permits
+  breaking changes in a 0.x minor — so the arming step must first classify
+  the batch's direct moves (the publish job's deps-summary.md already
+  names them) and skip arming when any moved package is pre-1.0, leaving
+  that batch for review. Add the workflow-test assertion alongside, and
+  keep the arming deliberately non-fatal like gedmap's.
