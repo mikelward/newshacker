@@ -1,0 +1,40 @@
+# Advisory scan of the workflows with zizmor (https://docs.zizmor.sh).
+#
+# Advisory MEANS advisory: nothing requires this check, on purpose. Running
+# it fetches zizmor from PyPI, and a registry outage must not stall the merge
+# gate. A red run here is a finding to read, not a gate — ported from
+# mikelward/codex-review, which runs the same scan on itself.
+#
+# The version is pinned because a new zizmor release adds audits, so an
+# unpinned run could turn red with no change in this repository. Bump it
+# deliberately and re-read the findings. Policy exceptions live in
+# .github/zizmor.yml, beside this file.
+#
+# Cost and reliability: PyPI is free, keyless, and unmetered, so this is
+# $0/month at any run volume. A cold pipx install-and-scan typically finishes
+# in well under a minute; the 5-minute timeout is headroom for a slow PyPI
+# resolve, not the expected case. The only new failure mode is a PyPI outage,
+# and it fails only this advisory job -- it cannot block a merge, since
+# nothing requires this check.
+name: zizmor
+on:
+  push:
+    branches: [main]
+    paths: ['.github/**']
+  pull_request:
+    paths: ['.github/**']
+permissions:
+  contents: read
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      # --offline, so the scan talks to nothing: the audits that need the
+      # GitHub API are skipped, deterministically, and the only fetch is
+      # zizmor itself.
+      - name: Scan the workflows
+        run: pipx run --spec zizmor==1.29.0 zizmor --no-progress --offline .
