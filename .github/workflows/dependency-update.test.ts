@@ -20,6 +20,7 @@ const read = (relative: string): string =>
 
 const workflow = read('./dependency-update.yml');
 const ci = read('./ci.yml');
+const consumerCheck = read('./codex-review-check.yml');
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
 describe('dependency-update workflow', () => {
@@ -107,15 +108,13 @@ describe('dependency-update workflow', () => {
     // check in a new runtime has to be taught here, and until it is, it cannot
     // be silently absent from the weekly PR's suite.
     const INFRASTRUCTURE = /^npm (?:ci|install)$/; // sets up the tree, not a check
-    // The docs lane's classify/gate invocations judge a PULL REQUEST — which
-    // files its diff touches, which prefixes its subjects carry — not the
-    // tree, so there is nothing for the update job to mirror: the weekly PR
-    // gets the real thing when this workflow dispatches ci.yml against it,
-    // naming the PR. The lane's own self-test and shellcheck ARE tree
-    // checks, and CHECK classifies them below.
-    const ORCHESTRATION = /^scripts\/docs-lane\.sh (?:classify|gate)\b.*$/;
-    const CHECK =
-      /^(?:npm (?:run [\w:-]+|test)|deno (?:check|test)\b.*|scripts\/docs-lane\.test\.sh|shellcheck .*)$/;
+    // The docs lane's classify/gate steps (the mikelward/lanes action) judge
+    // a PULL REQUEST — which files its diff touches, which prefixes its
+    // subjects carry — not the tree, so there is nothing for the update job
+    // to mirror: the weekly PR gets the real thing when this workflow
+    // dispatches ci.yml against it, naming the PR. They are `uses:` steps,
+    // so this scan over `run:` lines never sees them.
+    const CHECK = /^(?:npm (?:run [\w:-]+|test)|deno (?:check|test)\b.*)$/;
 
     const ciRunLines = [...ci.matchAll(/^\s*(?:- )?run: (.+?)\s*$/gm)].map((m) => m[1]);
     expect(ciRunLines.length).toBeGreaterThan(0);
@@ -129,7 +128,6 @@ describe('dependency-update workflow', () => {
           'skipped entirely',
       ).not.toMatch(/^[|>][-+]?$/);
       if (INFRASTRUCTURE.test(line)) continue;
-      if (ORCHESTRATION.test(line)) continue;
       expect(
         CHECK.test(line),
         `ci.yml runs "${line}", which this parity check cannot classify. ` +
@@ -498,6 +496,37 @@ describe('dependency-update workflow', () => {
       workflow.indexOf('  publish:'),
     );
     expect(update).not.toContain('actions: write');
+  });
+
+  it('starts the consumer check on the branch it opens', () => {
+    // The same loop-prevention rule, and this one is worse: `ci.yml` at least
+    // has this dispatch, while codex-review-check.yml's own triggers are
+    // `push` and `pull_request_target` — both suppressed for a
+    // GITHUB_TOKEN-authored PR — and unlike the `codex` sweep it has no
+    // schedule to fall back on. So once the ruleset requires that check, a
+    // weekly batch without this dispatch would block forever, with the
+    // auto-merge this job arms never firing.
+    const publish = workflow.slice(workflow.indexOf('  publish:'));
+    expect(publish).toContain('gh workflow run codex-review-check.yml --ref "$branch"');
+    // Dispatchable at all only because the template carries the trigger, and
+    // only from the copy on the DEFAULT branch — a workflow GitHub cannot see
+    // there is not dispatchable however the branch under test spells it.
+    expect(consumerCheck).toMatch(/^\s*workflow_dispatch:/m);
+
+    // Same PR-body rule as CI: dispatched before the body is composed, and a
+    // failure said on the PR rather than only in the run summary.
+    expect(publish.indexOf('gh workflow run codex-review-check.yml')).toBeLessThan(
+      publish.indexOf('} > body.md'),
+    );
+    expect(publish).toContain('**`codex-review-check` could not be dispatched**');
+
+    // Reported OUTSIDE the ci_started branch. They are separate workflows and
+    // either can fail alone, so nesting this note under a successful CI
+    // dispatch would let a failed CI dispatch hide a failed check dispatch.
+    const ciElse = publish.indexOf('**CI could not be started on this branch');
+    expect(publish.indexOf('**`codex-review-check` could not be dispatched**')).toBeGreaterThan(
+      ciElse,
+    );
   });
 
   it('dispatches CI that cannot write to the repo', () => {
