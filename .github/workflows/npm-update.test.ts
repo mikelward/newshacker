@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The weekly dependency-update workflow is the only automation left on the
+// The weekly npm-update workflow is the only automation left on the
 // dependency path now that Renovate is disabled (AGENTS.md "Dependency
 // updates"), and its failure modes are the quiet kind this repo keeps getting
 // caught by: it runs unattended every week, unattended, and a workflow that has silently
@@ -18,12 +18,12 @@ import { fileURLToPath } from 'node:url';
 const read = (relative: string): string =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
-const workflow = read('./dependency-update.yml');
+const workflow = read('./npm-update.yml');
 const ci = read('./ci.yml');
 const consumerCheck = read('./codex-review-check.yml');
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
-describe('dependency-update workflow', () => {
+describe('npm-update workflow', () => {
   it('can be run by hand as well as on the schedule', () => {
     // Without workflow_dispatch the only way to run it is to wait for Saturday,
     // or to push a commit editing the cron — which is how a scheduled job becomes
@@ -132,7 +132,7 @@ describe('dependency-update workflow', () => {
         CHECK.test(line),
         `ci.yml runs "${line}", which this parity check cannot classify. ` +
           'Teach it that command shape and mirror the check in ' +
-          'dependency-update.yml — an unclassified check is one the weekly ' +
+          'npm-update.yml — an unclassified check is one the weekly ' +
           'PR can omit without anything going red.',
       ).toBe(true);
       ciChecks.add(line);
@@ -153,7 +153,7 @@ describe('dependency-update workflow', () => {
     for (const check of ciChecks) {
       expect(
         workflowChecks,
-        `ci.yml runs "${check}" but dependency-update.yml does not — the ` +
+        `ci.yml runs "${check}" but npm-update.yml does not — the ` +
           'weekly PR would be merged without it ever having run',
       ).toContain(check);
     }
@@ -213,15 +213,15 @@ describe('dependency-update workflow', () => {
     // The filename allowlist alone lets package.json itself be rewritten —
     // `scripts.test` pointed at `true` would make the suite pass on a manifest
     // `npm update` never produced. That check, and the range comparison that
-    // goes with it, now live in scripts/check-dependency-update.mjs with their
+    // goes with it, now live in scripts/check-npm-update.mjs with their
     // own tests; the assertion here is only that the workflow still runs them.
-    expect(workflow).toContain('node scripts/check-dependency-update.mjs');
+    expect(workflow).toContain('node scripts/check-npm-update.mjs');
     // The filename allowlist alone lets package.json itself be rewritten —
     // `scripts.test` pointed at `true` would make the suite pass on a manifest
     // `npm update` never produced. That check, and the range comparison that
-    // goes with it, now live in scripts/check-dependency-update.mjs with their
+    // goes with it, now live in scripts/check-npm-update.mjs with their
     // own tests; the assertion here is only that the workflow still runs them.
-    expect(workflow).toContain('node scripts/check-dependency-update.mjs');
+    expect(workflow).toContain('node scripts/check-npm-update.mjs');
   });
 
   it('fingerprints the manifests somewhere dependency code cannot reach', () => {
@@ -247,7 +247,7 @@ describe('dependency-update workflow', () => {
     // to happen to mean anything.
     const publish = workflow.slice(workflow.indexOf('  publish:'));
     expect(publish).toContain('Re-validate the dependency diff from a clean context');
-    expect(publish).toContain('node scripts/check-dependency-update.mjs');
+    expect(publish).toContain('node scripts/check-npm-update.mjs');
     // The publish job must not gain an install step: the whole reason the
     // validation happens here is that no dependency code has run on this
     // runner.
@@ -262,7 +262,7 @@ describe('dependency-update workflow', () => {
     // diffs the working tree against HEAD exactly as the validator does, so
     // after the commit it would read as "no changes".
     const publish = workflow.slice(workflow.indexOf('  publish:'));
-    expect(publish).toContain('check-dependency-update.mjs summary > deps-summary.md');
+    expect(publish).toContain('check-npm-update.mjs summary > deps-summary.md');
     expect(publish).toContain('cat deps-summary.md');
     expect(publish.indexOf('summary > deps-summary.md')).toBeLessThan(publish.indexOf('git commit -q'));
   });
@@ -277,9 +277,9 @@ describe('dependency-update workflow', () => {
     // in the YAML. A substring assertion cannot tell a working rule from a
     // commented-out one, and this file used to carry several that passed while
     // the rule they named had been narrowed. The shape-by-shape coverage lives
-    // in scripts/check-dependency-update.test.ts; what this proves is that
+    // in scripts/check-npm-update.test.ts; what this proves is that
     // the thing the workflow invokes actually rejects a crossing.
-    const { lockfileFailures } = await import('../../scripts/check-dependency-update.mjs');
+    const { lockfileFailures } = await import('../../scripts/check-npm-update.mjs');
     const before = {
       '': { dependencies: { a: '^1.0.0' } },
       'node_modules/a': { version: '1.0.0', dependencies: { foo: '*' } },
@@ -307,11 +307,11 @@ describe('dependency-update workflow', () => {
     // never passes.
     //
     // A file cannot be truncated by its own punctuation, so moving the
-    // validator into scripts/check-dependency-update.mjs removes the hazard
+    // validator into scripts/check-npm-update.mjs removes the hazard
     // rather than policing it. This asserts the hazard cannot come back: no
     // inline program in this workflow at all.
     expect(workflow).not.toContain("node -e '");
-    expect(workflow).toContain('node scripts/check-dependency-update.mjs');
+    expect(workflow).toContain('node scripts/check-npm-update.mjs');
   });
 
   it('keeps the validator and its tests present, since the workflow only delegates', () => {
@@ -321,8 +321,8 @@ describe('dependency-update workflow', () => {
     // The rule-by-rule coverage (in-place bump, hoist, dedupe, duplicate
     // consumer swapping majors, consumer bumped and hoisted while crossing,
     // clean batch) is asserted in that suite, not here.
-    expect(existsSync(resolve(root, 'scripts/check-dependency-update.mjs'))).toBe(true);
-    expect(existsSync(resolve(root, 'scripts/check-dependency-update.test.ts'))).toBe(true);
+    expect(existsSync(resolve(root, 'scripts/check-npm-update.mjs'))).toBe(true);
+    expect(existsSync(resolve(root, 'scripts/check-npm-update.test.ts'))).toBe(true);
   });
 
   it('refuses to publish onto a base that moved under it', () => {
@@ -447,7 +447,7 @@ describe('dependency-update workflow', () => {
     for (const action of actions) {
       expect(
         action.startsWith('actions/') || alreadyTrusted.has(action),
-        `dependency-update.yml uses "${action}", which is neither first-party ` +
+        `npm-update.yml uses "${action}", which is neither first-party ` +
           'nor something ci.yml already runs',
       ).toBe(true);
     }
