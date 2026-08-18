@@ -1224,8 +1224,8 @@ describe('installedVersions', () => {
       'node_modules/a/node_modules/foo': pkg('1.0.0'),
       'node_modules/@scope/b': pkg('3.1.4'),
     })
-    expect([...versions.get('foo')].sort()).toEqual(['1.0.0', '2.0.0'])
-    expect([...versions.get('@scope/b')]).toEqual(['3.1.4'])
+    expect([...versions.get('foo').values()].sort()).toEqual(['1.0.0', '2.0.0'])
+    expect([...versions.get('@scope/b').values()]).toEqual(['3.1.4'])
     // The root is the repo, not a dependency.
     expect(versions.get('example')).toBe(undefined)
   })
@@ -1308,6 +1308,46 @@ describe('updateSummary', () => {
     })
     expect(out).toContain('- `delta` added at 3.1.0')
     expect(out).toContain('- `epsilon` removed (was 0.9.1)')
+  })
+
+  it('reports a same-version copy collapsing, which a plain version set would hide', () => {
+    const manifest = { dependencies: { a: '^1.0.0' } }
+    const mk = (nested) =>
+      lock({
+        '': { dependencies: { a: '^1.0.0' } },
+        'node_modules/a': pkg('1.0.0', { foo: '^1.0.0' }),
+        'node_modules/foo': pkg('1.0.0'),
+        ...(nested ? { 'node_modules/a/node_modules/foo': pkg('1.0.0') } : {}),
+      })
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: mk(true),
+      lockAfter: mk(false),
+    })
+    expect(out).toContain('- `foo` 1.0.0 ×2 → 1.0.0')
+  })
+
+  it('keeps a nested-only move under transitive even when the name is also declared direct', () => {
+    const manifest = { dependencies: { foo: '^1.0.0', b: '^1.0.0' } }
+    const mk = (nestedFoo) =>
+      lock({
+        '': { dependencies: { foo: '^1.0.0', b: '^1.0.0' } },
+        'node_modules/foo': pkg('1.0.0'),
+        'node_modules/b': pkg('1.0.0', { foo: '^2.0.0' }),
+        'node_modules/b/node_modules/foo': pkg(nestedFoo),
+      })
+    const out = updateSummary({
+      manifestBefore: manifest,
+      manifestAfter: manifest,
+      lockBefore: mk('2.0.0'),
+      lockAfter: mk('2.1.0'),
+    })
+    // The copy the root resolves held still at 1.0.0; only b's nested copy
+    // moved, and the direct/transitive split has to say so.
+    expect(out).toContain('Packages changed: 0 direct, 1 transitive.')
+    expect(out).toContain('- `foo` 2.0.0 → 2.1.0')
+    expect(out).not.toMatch(/### Direct/)
   })
 
   it('shows the whole version set when a name has several copies', () => {
