@@ -725,14 +725,17 @@ describe('session-start hook: Node provisioning', () => {
     expect(existsSync(join(shimDir, 'node'))).toBe(false);
   });
 
-  it('is a no-op outside Claude Code on the web', () => {
+  it('provisions nothing outside Claude Code on the web', () => {
     writeDistFixture([LATEST], LATEST);
 
     const res = runHook({ CLAUDE_CODE_REMOTE: 'false' });
 
     expect(res.status).toBe(0);
-    expect(res.stdout.trim()).toBe('');
     expect(existsSync(join(nodeRoot, `node${MAJOR}`))).toBe(false);
     expect(readFileSync(envFile, 'utf-8')).toBe('');
+    // Provisioning is what a local machine manages for itself. The unshallow
+    // is not provisioning — a shallow clone answers wrongly wherever it is —
+    // so it runs above the guard and is the one thing allowed to speak here.
+    expect(res.stdout.trim()).toMatch(/^unshallow: /);
   });
 });
