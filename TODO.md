@@ -4,6 +4,21 @@ Short running list of things that aren't in flight but worth doing. For
 user-facing feature decisions, see `SPEC.md`; for phase ordering, see
 `IMPLEMENTATION_PLAN.md`.
 
+## Finish the gate → lanes check rename
+
+The consumer-facing required check was renamed from `gate` to `lanes`
+(mikelward/lanes#9). `lanes` now runs alongside `gate` here (both green),
+but two steps remain, outside what a session without ruleset API access can
+do:
+
+- [ ] Flip the ruleset to require `lanes` instead of `gate`, now that
+      `lanes` has reported on a `pull_request` run here: `repo-rules
+      mikelward/newshacker lanes ...` (naming every check the ruleset
+      should require — `mikelward/scripts`' tool).
+- [ ] Once the ruleset requires `lanes`, delete the now-redundant `gate`
+      job and its parity test (`.github/workflow-check-rename.test.ts`)
+      in a follow-up PR.
+
 ## Decisions needing review
 
 - **DEFERRED: US-spelling enforcement (owner call, 2026-08-18).** gedmap
