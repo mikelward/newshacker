@@ -103,8 +103,38 @@ jobs:
   # skip is INDEPENDENTLY verified as justified: the diff re-derived as
   # housekeeping-only and every commit subject carrying a housekeeping
   # prefix. Any other combination is an explicit red, never a silent pass.
+  # TEMPORARY, alongside `lanes` below: mikelward/lanes renamed its
+  # consumer-facing check from `gate` to `lanes` (mikelward/lanes#9), and the
+  # ruleset here still requires `gate`. Per that PR's staged-rename
+  # procedure, this duplicate keeps `gate` reporting until the ruleset is
+  # flipped to require `lanes` instead — then this job is deleted.
   gate:
     name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [classify, build]
+    if: always()
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: mikelward/lanes@main
+        with:
+          mode: gate
+          pr: ${{ github.event.pull_request.number || inputs.pr }}
+          classify-result: ${{ needs.classify.result }}
+          # Only read on a dispatched run — the base classify recorded before
+          # the heavy jobs ran; a pull_request run takes the same commit from
+          # its own event payload.
+          base-sha: ${{ needs.classify.outputs.base_sha }}
+          results: >-
+            build=${{ needs.build.result }}
+
+  # The renamed check (mikelward/lanes#9) — this is what the ruleset should
+  # require once it has reported at least once. Identical to `gate` above;
+  # see that job's comment for why both exist for now.
+  lanes:
+    name: lanes
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [classify, build]
