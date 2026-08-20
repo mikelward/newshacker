@@ -19,6 +19,26 @@ do:
       job and its parity test (`.github/workflow-check-rename.test.ts`)
       in a follow-up PR.
 
+## Make zizmor a required check, not just advisory
+
+Codex review on #532 (2026-08-20, `.github/workflows/npm-update.test.ts:570`):
+removing the hand-rolled "no expression is spliced into a run: script" test
+in favor of zizmor's `template-injection` audit only holds if that audit
+actually blocks a merge. Today `.github/workflows/zizmor.yml` declares itself
+advisory/non-blocking, so a future regression of the same shape would turn
+the (non-required) zizmor job red while `npm test` and every required gate
+stay green — a real gap, not a false alarm. The fix isn't a new in-repo unit
+test (re-adding a hand-rolled parser is going backwards: the one removed
+missed real cases across six separate Codex-found rounds, so a "required but
+wrong" check is worse than an "advisory but correct" one — it adds false
+confidence without adding real coverage). The fix is making `zizmor` one of
+the ruleset's required status checks, same as `lanes`/`codex` above:
+
+- [ ] `repo-rules mikelward/newshacker lanes codex zizmor` (or the bare
+      `repo-rules mikelward/newshacker`, now that `lanes codex zizmor` is the
+      script's default) once zizmor has reported on a `pull_request` run
+      here — outside what a session without ruleset API access can do.
+
 ## Decisions needing review
 
 - **DEFERRED: US-spelling enforcement (owner call, 2026-08-18).** gedmap
