@@ -19,6 +19,49 @@ do:
       job and its parity test (`.github/workflow-check-rename.test.ts`)
       in a follow-up PR.
 
+## Make zizmor a required check, not just advisory
+
+Codex review on #532 (2026-08-20): removing the hand-rolled "no expression is
+spliced into a run: script" test from `npm-update.test.ts` in favor of
+zizmor's `template-injection` audit only holds if that audit actually blocks
+a merge. `.github/workflows/zizmor.yml` declares itself advisory/non-blocking
+today, so a future regression of that shape would turn the (non-required)
+zizmor job red while every required gate stays green — a real gap, not a
+false alarm. #532 itself became moot before merging (a concurrent PR migrated
+`npm-update.yml`/`npm-update.test.ts` to the `mikelward/npm-update` reusable
+workflow, deleting the very file the fix and the hand-rolled test lived in),
+but the underlying gap this note is about is independent of that file and
+still open: `zizmor.yml` itself is untouched by the migration and is still
+advisory. The fix isn't a new in-repo unit test (re-adding a hand-rolled
+parser would be going backwards even if there were still a file to add it
+to: the one removed missed real cases across six separate Codex-found
+rounds, so a "required but wrong" check is worse than an "advisory but
+correct" one). The fix is making `zizmor` one of the ruleset's required
+status checks, same as `lanes`/`codex`:
+
+- [ ] **First, widen `.github/workflows/zizmor.yml`'s trigger.** Codex
+      review on #532 caught a prerequisite this note missed: both its `push`
+      and `pull_request` triggers are scoped to `paths: ['.github/**']`,
+      which was fine while the job was purely advisory but is a real
+      blocker for making it required — GitHub leaves a required check
+      pending (not passing) when its workflow is skipped by a path filter,
+      so any PR touching `src/`, `api/`, or anything outside `.github/`
+      would become permanently unmergeable the moment `zizmor` is a
+      required check. `repo-rules`' own never-reported guard would not
+      catch this, since the job HAS reported somewhere (on `.github/**`
+      PRs) — the gap is "does it run on every PR", which is a different
+      question than "has it ever run at all". Drop the `paths:` filter on
+      both triggers so it runs on every push/PR; still $0/month per the
+      workflow's own cost note (PyPI, free, keyless, unmetered) even at
+      full volume. Same fix needed in every sibling repo's identical
+      `zizmor.yml` (confirmed: readmo, homepage, gedmap, web all carry the
+      same `.github/**` filter) before any of them can make `zizmor`
+      required either.
+- [ ] Then: `repo-rules mikelward/newshacker lanes codex zizmor` (or the
+      bare `repo-rules mikelward/newshacker`, now that `lanes codex zizmor`
+      is the script's default) once zizmor has reported on a `pull_request`
+      run here — outside what a session without ruleset API access can do.
+
 ## Decisions needing review
 
 - **DEFERRED: US-spelling enforcement (owner call, 2026-08-18).** gedmap
