@@ -233,6 +233,15 @@ jobs:
       # is a decision for a human.
       - name: Verify only dependency files changed
         if: steps.changed.outputs.changed == 'true'
+        env:
+          # Routed through env rather than spliced into the script text
+          # directly: a `${{ }}` expansion inside a run: block is textual
+          # substitution before the shell ever sees it, so a value zizmor
+          # can't prove is safe reads as a potential injection even though
+          # these are hex digests this same job just computed, not
+          # attacker-controlled input.
+          PKG_SHA: ${{ steps.changed.outputs.pkg_sha }}
+          LOCK_SHA: ${{ steps.changed.outputs.lock_sha }}
         run: |
           set -euo pipefail
 
@@ -287,8 +296,8 @@ jobs:
           # Compared against the fingerprints the resolve step recorded as step
           # outputs — values that live outside this filesystem, so unlike a
           # snapshot file they cannot be rewritten alongside what they guard.
-          if [ "$(sha256sum package.json | cut -d" " -f1)" != "${{ steps.changed.outputs.pkg_sha }}" ] \
-             || [ "$(sha256sum package-lock.json | cut -d" " -f1)" != "${{ steps.changed.outputs.lock_sha }}" ]; then
+          if [ "$(sha256sum package.json | cut -d" " -f1)" != "$PKG_SHA" ] \
+             || [ "$(sha256sum package-lock.json | cut -d" " -f1)" != "$LOCK_SHA" ]; then
             echo '::error::A dependency file changed AFTER npm resolved it — something in the check run rewrote it. Not opening a PR.'
             exit 1
           fi
@@ -348,11 +357,14 @@ jobs:
       # came across as job outputs, which live in the runner's control plane
       # rather than on that machine's disk.
       - name: Check the artifact against the pre-check fingerprints
+        env:
+          PKG_SHA: ${{ needs.update.outputs.pkg_sha }}
+          LOCK_SHA: ${{ needs.update.outputs.lock_sha }}
         run: |
           set -euo pipefail
-          [ "$(sha256sum package.json | cut -d" " -f1)" = "${{ needs.update.outputs.pkg_sha }}" ] \
+          [ "$(sha256sum package.json | cut -d" " -f1)" = "$PKG_SHA" ] \
             || { echo '::error::package.json does not match what the update job resolved.'; exit 1; }
-          [ "$(sha256sum package-lock.json | cut -d" " -f1)" = "${{ needs.update.outputs.lock_sha }}" ] \
+          [ "$(sha256sum package-lock.json | cut -d" " -f1)" = "$LOCK_SHA" ] \
             || { echo '::error::package-lock.json does not match what the update job resolved.'; exit 1; }
 
       # The authoritative check on what this commit contains, and the reason
@@ -388,18 +400,22 @@ jobs:
       - name: Stop if the default branch moved while the checks ran
         env:
           GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_BASE: ${{ needs.update.outputs.base }}
         run: |
           set -euo pipefail
-          branch='${{ github.event.repository.default_branch }}'
+          branch="$DEFAULT_BRANCH"
           current=$(gh api "repos/${{ github.repository }}/commits/$branch" --jq .sha)
-          if [ "$current" != '${{ needs.update.outputs.base }}' ]; then
-            echo "::error::$branch moved from ${{ needs.update.outputs.base }} to $current while the checks ran, so the verified manifests and the branch they would land on no longer match. Re-run the workflow."
+          if [ "$current" != "$EXPECTED_BASE" ]; then
+            echo "::error::$branch moved from $EXPECTED_BASE to $current while the checks ran, so the verified manifests and the branch they would land on no longer match. Re-run the workflow."
             exit 1
           fi
 
       - name: Open the pull request
         env:
           GH_TOKEN: ${{ github.token }}
+          PASSED: ${{ needs.update.outputs.passed }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           # Keyed on the RUN DATE, not the month. The job runs weekly, so a
@@ -410,7 +426,7 @@ jobs:
           today=$(date -u +%Y-%m-%d)
           branch="deps/update-$today"
 
-          if [ '${{ needs.update.outputs.passed }}' = 'true' ]; then
+          if [ "$PASSED" = 'true' ]; then
             title="deps: Update dependencies ($today)"
             verdict='All checks passed in the job that produced this branch.'
           else
@@ -472,7 +488,7 @@ jobs:
           if [ -z "$pr" ]; then
             pr_url=$(gh pr create --title "$title" \
               --body 'Opening — the checks report lands in a moment.' \
-              --base '${{ github.event.repository.default_branch }}' --head "$branch")
+              --base "$DEFAULT_BRANCH" --head "$branch")
             pr=${pr_url##*/}
           fi
 

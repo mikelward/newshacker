@@ -27,6 +27,15 @@ rules:
         "actions/*": ref-pin
         # Everything else must pin to a hash.
         "*": hash-pin
+  adhoc-packages:
+    # npm-update.yml's own AGENTS.md section ("The npm floor is not a
+    # dependency") explains why this exists: the job checks the runner's
+    # npm against package.json's engines.npm floor and installs a newer
+    # one, --ignore-scripts, so .npmrc's min-release-age cooldown is
+    # actually honored. That's the point of the line, not an accident to
+    # route around a lockfile for.
+    ignore:
+      - npm-update.yml:106
   dangerous-triggers:
     # These pull_request_target triggers are load-bearing and reasoned
     # through in each workflow's own header: neither checks out or

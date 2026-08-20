@@ -560,4 +560,33 @@ describe('npm-update workflow', () => {
     );
   });
 
+  it('routes steps/needs/default-branch expressions through a bare mapping, never inline in a run: script', () => {
+    // The zizmor template-injection findings fixed above were all this same
+    // shape: a `${{ }}` expression textually spliced into a run: script,
+    // where it's plain string substitution before the shell ever runs. The
+    // fix routes each through a bare `key: ${{ expr }}` YAML mapping —
+    // env:, a job's outputs:, or a step's with: — and references it as a
+    // shell variable (or lets GitHub itself resolve it, for outputs/with:)
+    // instead. This locks that shape in so a future edit can't quietly
+    // splice one back into a script line.
+    //
+    // A line that is NOTHING BUT `key: ${{ single-expression }}` is always
+    // one of those safe, GitHub-resolved mappings — never a shell run: line,
+    // since bash has no bare `word: value` assignment syntax. That is
+    // deliberately case- and key-name-agnostic: env: keys are conventionally
+    // uppercase here, but a job's `outputs:` and a step's `with:` keys
+    // (`changed:`, `ref:`, ...) are not, and are just as safe.
+    const bareMapping = (line: string) => /^\s+[\w-]+:\s*\$\{\{[^}]+\}\}\s*$/.test(line);
+
+    const stepsOrNeedsOffenders = workflow
+      .split('\n')
+      .filter((line) => /\$\{\{\s*(steps\.|needs\.)/.test(line) && !bareMapping(line));
+    expect(stepsOrNeedsOffenders).toEqual([]);
+
+    const defaultBranchOffenders = workflow
+      .split('\n')
+      .filter((line) => line.includes('github.event.repository.default_branch'))
+      .filter((line) => !bareMapping(line));
+    expect(defaultBranchOffenders).toEqual([]);
+  });
 });
