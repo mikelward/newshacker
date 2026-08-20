@@ -21,6 +21,11 @@ rules:
         "mikelward/codex-review": ref-pin
         "mikelward/codex-review/.github/workflows/check-consumer.yml": ref-pin
         "mikelward/lanes": ref-pin
+        # Same reasoning as codex-review above: this repo tracks the
+        # reusable workflow deliberately, there is no release step on its
+        # side, and a pin would be a thing to bump here on every merge
+        # there.
+        "mikelward/npm-update/.github/workflows/npm-update.yml": ref-pin
         # Official actions may pin to a tag, as every workflow here does.
         # Hash-pinning them instead is a deliberate open question, tracked
         # the same way mikelward/codex-review tracks it for itself.
