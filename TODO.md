@@ -34,10 +34,28 @@ wrong" check is worse than an "advisory but correct" one — it adds false
 confidence without adding real coverage). The fix is making `zizmor` one of
 the ruleset's required status checks, same as `lanes`/`codex` above:
 
-- [ ] `repo-rules mikelward/newshacker lanes codex zizmor` (or the bare
-      `repo-rules mikelward/newshacker`, now that `lanes codex zizmor` is the
-      script's default) once zizmor has reported on a `pull_request` run
-      here — outside what a session without ruleset API access can do.
+- [ ] **First, widen `.github/workflows/zizmor.yml`'s trigger.** Codex
+      review on #532 caught a prerequisite this note missed: both its `push`
+      and `pull_request` triggers are scoped to `paths: ['.github/**']`,
+      which was fine while the job was purely advisory but is a real
+      blocker for making it required — GitHub leaves a required check
+      pending (not passing) when its workflow is skipped by a path filter,
+      so any PR touching `src/`, `api/`, or anything outside `.github/`
+      would become permanently unmergeable the moment `zizmor` is a
+      required check. `repo-rules`' own never-reported guard would not
+      catch this, since the job HAS reported somewhere (on `.github/**`
+      PRs) — the gap is "does it run on every PR", which is a different
+      question than "has it ever run at all". Drop the `paths:` filter on
+      both triggers so it runs on every push/PR; still $0/month per the
+      workflow's own cost note (PyPI, free, keyless, unmetered) even at
+      full volume. Same fix needed in every sibling repo's identical
+      `zizmor.yml` (confirmed: readmo, homepage, gedmap, web all carry the
+      same `.github/**` filter) before any of them can make `zizmor`
+      required either.
+- [ ] Then: `repo-rules mikelward/newshacker lanes codex zizmor` (or the
+      bare `repo-rules mikelward/newshacker`, now that `lanes codex zizmor`
+      is the script's default) once zizmor has reported on a `pull_request`
+      run here — outside what a session without ruleset API access can do.
 
 ## Decisions needing review
 
