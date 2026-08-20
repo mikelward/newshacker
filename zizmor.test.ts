@@ -98,6 +98,7 @@ describe('zizmor policy', () => {
       'mikelward/codex-review: ref-pin',
       'mikelward/codex-review/.github/workflows/check-consumer.yml: ref-pin',
       'mikelward/lanes: ref-pin',
+      'mikelward/npm-update/.github/workflows/npm-update.yml: ref-pin',
       'actions/*: ref-pin',
       '*: hash-pin',
     ]);
