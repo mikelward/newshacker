@@ -57,10 +57,37 @@ status checks, same as `lanes`/`codex`:
       `zizmor.yml` (confirmed: readmo, homepage, gedmap, web all carry the
       same `.github/**` filter) before any of them can make `zizmor`
       required either.
-- [ ] Then: `repo-rules mikelward/newshacker lanes codex zizmor` (or the
-      bare `repo-rules mikelward/newshacker`, now that `lanes codex zizmor`
-      is the script's default) once zizmor has reported on a `pull_request`
-      run here — outside what a session without ruleset API access can do.
+- [ ] **Second, and this one is a real trade-off, not a mechanical
+      fix — the repo owner's call, not this note's to make.** A second
+      Codex review (on #534, the PR that recorded this note) pointed out
+      what `zizmor.yml`'s own header comment already says outright:
+      "Advisory MEANS advisory: nothing requires this check, on purpose.
+      Running it fetches zizmor from PyPI, and a registry outage must not
+      stall the merge gate." That is the exact thing "make it required"
+      undoes. Once `zizmor` is a required status check, a slow or down
+      PyPI, or a pinned release that stops resolving, makes `pipx run` fail
+      or time out — and a required check that fails or never completes
+      blocks every merge in the repo until it recovers, with no built-in
+      way to bypass it short of editing the ruleset. So this is genuinely
+      two competing costs, not one obviously-correct move: catching a real
+      injection regression with a REQUIRED gate (what this whole note is
+      for) against accepting PyPI's uptime as a new, external, merge-
+      blocking dependency for every PR in the repo (what `lanes` and
+      `codex` already are, worth weighing against their own track record
+      here, but a new one nonetheless). Decide this explicitly — accept the
+      new failure mode, add a mitigation first (a documented manual bypass
+      via the ruleset's `bypass_actors`, a required-but-soft-fail shape,
+      pinning to a vendored/cached zizmor instead of `pipx run`-fetching it
+      every run, or something else), or decide advisory is actually the
+      right permanent state and close this note — before running
+      `repo-rules` below. Don't resolve it by guessing either
+      direction; see this repo's own AGENTS.md on cost/reliability write-ups
+      and on a Codex finding that cites a real trade-off correctly.
+- [ ] Then, once the above is decided: `repo-rules mikelward/newshacker
+      lanes codex zizmor` (or the bare `repo-rules mikelward/newshacker`,
+      now that `lanes codex zizmor` is the script's default) once zizmor
+      has reported on a `pull_request` run here — outside what a session
+      without ruleset API access can do.
 
 ## Decisions needing review
 
