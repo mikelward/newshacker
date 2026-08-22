@@ -39,9 +39,9 @@ rounds, so a "required but wrong" check is worse than an "advisory but
 correct" one). The fix is making `zizmor` one of the ruleset's required
 status checks, same as `lanes`/`codex`:
 
-- [ ] **First, widen `.github/workflows/zizmor.yml`'s trigger.** Codex
+- [x] **First, widen `.github/workflows/zizmor.yml`'s trigger.** Codex
       review on #532 caught a prerequisite this note missed: both its `push`
-      and `pull_request` triggers are scoped to `paths: ['.github/**']`,
+      and `pull_request` triggers were scoped to `paths: ['.github/**']`,
       which was fine while the job was purely advisory but is a real
       blocker for making it required — GitHub leaves a required check
       pending (not passing) when its workflow is skipped by a path filter,
@@ -50,9 +50,12 @@ status checks, same as `lanes`/`codex`:
       required check. `repo-rules`' own never-reported guard would not
       catch this, since the job HAS reported somewhere (on `.github/**`
       PRs) — the gap is "does it run on every PR", which is a different
-      question than "has it ever run at all". Drop the `paths:` filter on
-      both triggers so it runs on every push/PR; still $0/month per the
-      workflow's own cost note (PyPI, free, keyless, unmetered) even at
+      question than "has it ever run at all". Dropped the `paths:` filter
+      on both triggers, added the explicit `pull_request` `types:` list
+      (`edited` included, so a retarget re-scans against the new base
+      instead of the old target's scan satisfying it unexamined) and
+      updated `zizmor.test.ts` to assert the new shape; still $0/month per
+      the workflow's own cost note (PyPI, free, keyless, unmetered) even at
       full volume. Same fix needed in every sibling repo's identical
       `zizmor.yml` (confirmed: readmo, homepage, gedmap, web all carry the
       same `.github/**` filter) before any of them can make `zizmor`
@@ -83,6 +86,16 @@ status checks, same as `lanes`/`codex`:
       `repo-rules` below. Don't resolve it by guessing either
       direction; see this repo's own AGENTS.md on cost/reliability write-ups
       and on a Codex finding that cites a real trade-off correctly.
+- [ ] **Also first: a dispatch route for the weekly dependency PR**
+      (Codex review on the trigger-widening PR). That PR is authored with
+      `GITHUB_TOKEN`, whose events start no workflows — the same trap
+      ci.yml's `workflow_dispatch` fallback and the codex-review-check
+      dispatch exist for — so a required `zizmor` would block every weekly
+      batch forever. Before the flip, give zizmor.yml a `workflow_dispatch`
+      trigger and teach mikelward/npm-update's reusable workflow to
+      dispatch it alongside ci.yml — a shared-mechanism change that lands
+      in that repository, piloted through one consumer per its
+      conventions.
 - [ ] Then, once the above is decided: `repo-rules mikelward/newshacker
       lanes codex zizmor` (or the bare `repo-rules mikelward/newshacker`,
       now that `lanes codex zizmor` is the script's default) once zizmor

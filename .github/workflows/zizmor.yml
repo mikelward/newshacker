@@ -1,9 +1,17 @@
-# Advisory scan of the workflows with zizmor (https://docs.zizmor.sh).
+# Scan of the workflows with zizmor (https://docs.zizmor.sh).
 #
-# Advisory MEANS advisory: nothing requires this check, on purpose. Running
-# it fetches zizmor from PyPI, and a registry outage must not stall the merge
-# gate. A red run here is a finding to read, not a gate — ported from
-# mikelward/codex-review, which runs the same scan on itself.
+# Advisory today, but the trigger below is already the required shape:
+# TODO.md's "Make zizmor a required check, not just advisory" tracks making
+# `zizmor` one of the ruleset's required status checks, same as
+# `lanes`/`codex`, and its first sub-item — widening this trigger — is what
+# this comment documents. That is why there is no `paths:` filter: a
+# workflow filtered out by paths creates NO check run at all (unlike a
+# skipped job, which reports "skipped" and satisfies a ruleset), so a
+# required `zizmor` plus a path filter would leave any pull request not
+# touching `.github/**` waiting forever on a check nothing reports. The scan
+# is a free sub-minute job, so it simply runs on every pull request and
+# every push to main. Until the ruleset itself lists `zizmor` (TODO.md's
+# remaining sub-items), a red scan here is a finding to read, not yet a gate.
 #
 # The version is pinned because a new zizmor release adds audits, so an
 # unpinned run could turn red with no change in this repository. Bump it
@@ -13,16 +21,23 @@
 # Cost and reliability: PyPI is free, keyless, and unmetered, so this is
 # $0/month at any run volume. A cold pipx install-and-scan typically finishes
 # in well under a minute; the 5-minute timeout is headroom for a slow PyPI
-# resolve, not the expected case. The only new failure mode is a PyPI outage,
-# and it fails only this advisory job -- it cannot block a merge, since
-# nothing requires this check.
+# resolve, not the expected case. The one failure mode is a PyPI outage:
+# fetching zizmor is the only network step (--offline covers the scan
+# itself); it cannot block a merge today, since nothing requires this check
+# yet, but TODO.md's second sub-item is deciding whether that changes.
+#
+# `pull_request` lists its types explicitly because the default set lacks
+# `edited`: a retarget regenerates the merge ref against the new base while
+# the head -- and the green `zizmor` check already attached to it -- stays
+# put, so without `edited` the old target's scan would satisfy the new one
+# unexamined. Title and body edits re-run the scan too; redundant but
+# cheap.
 name: zizmor
 on:
   push:
     branches: [main]
-    paths: ['.github/**']
   pull_request:
-    paths: ['.github/**']
+    types: [opened, synchronize, reopened, edited]
 permissions:
   contents: read
 jobs:

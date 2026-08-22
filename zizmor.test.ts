@@ -8,12 +8,13 @@ import { readFileSync } from 'node:fs';
 // The scan's failure modes are all silent: a dropped version pin floats the
 // audit set, so a verdict can change with no change in this repository; a
 // dropped --offline puts the GitHub API inside the scan; a widened policy
-// exempts refs nobody decided to exempt; a narrowed path filter stops
-// re-running the scan on the files it audits. Every one of those leaves the
-// rest of the suite green, because zizmor only runs inside its own
-// workflow — so the contract is pinned here. Read with regexes like the
-// engine repositories' own suites: no YAML parser, on purpose. Ported from
-// mikelward/codex-review's own zizmor.test.js.
+// exempts refs nobody decided to exempt; a reintroduced paths filter stops
+// the (eventually required) check from reporting on PRs that don't touch
+// .github/**. Every one of those leaves the rest of the suite green,
+// because zizmor only runs inside its own workflow — so the contract is
+// pinned here. Read with regexes like the engine repositories' own suites:
+// no YAML parser, on purpose. Ported from mikelward/codex-review's own
+// zizmor.test.js.
 
 const workflow = readFileSync('.github/workflows/zizmor.yml', 'utf8');
 const policy = readFileSync('.github/zizmor.yml', 'utf8');
@@ -74,16 +75,28 @@ describe('zizmor workflow', () => {
     expect([...workflow.matchAll(/^ *permissions:/gm)]).toHaveLength(1);
   });
 
-  it('re-runs when anything it scans changes', () => {
-    // Both triggers filter to the same path, which covers everything the
-    // scan reads: .github/** holds the workflows and the policy. Matched as
-    // one contiguous block by construction, not by scanning for any
-    // `paths:` occurrence — renaming `pull_request:` to another trigger (or
-    // reordering the block) breaks this exact-structure match, so a
-    // `paths:` line can't survive attached to the wrong trigger.
+  it('runs on every pull request and push to main, with no paths filter', () => {
+    // `zizmor` is slated for the ruleset's required set (TODO.md holds the
+    // flip), and a required check must report on every pull request's
+    // head: a workflow filtered out by `paths:` creates NO check run at
+    // all — unlike a skipped job, which reports "skipped" and satisfies
+    // the ruleset — so a filter here would leave any PR not touching the
+    // filtered paths unmergeable behind a check nothing reports. Matched
+    // as one contiguous block running straight from `on:` into
+    // `permissions:`, so `pull_request:` provably carries no nested
+    // configuration — a stray `paths:` filter under it would equally stop
+    // the check reporting on opened or synchronized heads. The one nested
+    // key allowed is the explicit types list, `edited` included: a
+    // retarget regenerates the merge ref against the new base while the
+    // head — and the green check attached to it — stays put, so the
+    // default types (which lack `edited`) would let the old target's scan
+    // satisfy the new one. Read from the comment-stripped text, same as
+    // the run-field checks above — a commented-out line must not count as
+    // live.
     expect(workflowRun).toMatch(
-      /^on:\n {2}push:\n {4}branches: \[main\]\n {4}paths: \['\.github\/\*\*'\]\n {2}pull_request:\n {4}paths: \['\.github\/\*\*'\]\n/m,
+      /^on:\n {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n {4}types: \[opened, synchronize, reopened, edited\]\npermissions:\n/m,
     );
+    expect(workflowRun).not.toMatch(/^\s*paths:/m);
   });
 });
 
