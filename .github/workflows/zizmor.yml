@@ -33,11 +33,20 @@
 # unexamined. Title and body edits re-run the scan too; redundant but
 # cheap.
 name: zizmor
+#
+# `workflow_dispatch` is what keeps the weekly dependency batch mergeable.
+# That PR is opened by `GITHUB_TOKEN`, whose events start no workflows, so
+# `pull_request` never fires for it — and a required check that never runs
+# holds the PR open forever rather than failing it. mikelward/npm-update
+# dispatches this explicitly, named in npm-update.yml's `dispatch-workflows`;
+# the trigger has to be visible on the DEFAULT BRANCH for that call to
+# resolve, however the branch under test spells it.
 on:
   push:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, edited]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

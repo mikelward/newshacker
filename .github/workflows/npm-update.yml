@@ -28,3 +28,10 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+    with:
+      # The batch's PR is opened by GITHUB_TOKEN, which starts no
+      # `on: pull_request` workflow, so every check its ruleset requires has
+      # to be dispatched by hand. ci.yml and codex-review-check.yml the hub
+      # always dispatches; zizmor.yml is this repository's own and has to be
+      # named here.
+      dispatch-workflows: zizmor.yml
