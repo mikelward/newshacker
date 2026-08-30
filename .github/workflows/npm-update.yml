@@ -35,3 +35,12 @@ jobs:
       # always dispatches; zizmor.yml is this repository's own and has to be
       # named here.
       dispatch-workflows: zizmor.yml
+    secrets:
+      # Opens the batch PR as a real collaborator rather than as
+      # `GITHUB_TOKEN`, so the ordinary `pull_request` round runs for it —
+      # every check the ruleset requires, including ones added after this
+      # line was written, rather than only the names `dispatch-workflows`
+      # above happens to list. That input stays as the fallback and is
+      # redundant while this is set; mikelward/npm-update's TODO.md tracks
+      # retiring it once every consumer supplies a credential.
+      token: ${{ secrets.NPM_UPDATE_PAT }}

@@ -106,6 +106,25 @@ describe('npm-update caller', () => {
     );
   });
 
+  it('opens the batch PR as a real collaborator, not as GITHUB_TOKEN', () => {
+    // The dispatch declaration above closes one required check at a time,
+    // by name; this closes the class. A PR opened by GITHUB_TOKEN starts no
+    // `on: pull_request` workflow at all, so a required check nobody
+    // thought to name holds the weekly PR open forever on a status nothing
+    // produces -- no red tick, no explanation, which reads as verified.
+    // With this secret the ordinary round runs for the batch PR like any
+    // other, covering checks added after this line was written. Losing the
+    // line is silent in the worst way: the batch keeps opening PRs, they
+    // just stop being checked.
+    //
+    // Matched under `secrets:` specifically -- the hub declares no such
+    // `with:` input, so the same line one block up would fail the call
+    // rather than quietly downgrade the credential.
+    const secrets = workflow.match(/^ {4}secrets:\n((?: {6}.*\n?)+)/m);
+    expect(secrets).not.toBeNull();
+    expect(secrets![1]).toContain('token: ${{ secrets.NPM_UPDATE_PAT }}');
+  });
+
   it('serializes runs so a slow run cannot overlap the next schedule', () => {
     expect(workflow).toMatch(/^concurrency:\n {2}group: npm-update\n {2}cancel-in-progress: false\n/m);
   });
