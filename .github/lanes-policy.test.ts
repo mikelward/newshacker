@@ -50,7 +50,9 @@ describe('the lane policy', () => {
       { verdict: 'code', pattern: 'src/**' },
       { verdict: 'code', pattern: 'api/**' },
       { verdict: 'code', pattern: 'public/**' },
-      { verdict: 'docs', pattern: '**/*.md' },
+      { verdict: 'docs', pattern: '*.md' },
+      { verdict: 'docs', pattern: 'docs/**/*.md' },
+      { verdict: 'docs', pattern: 'reports/**/*.md' },
     ]);
     // The WHOLE directives object, not per-key reads: a newly added directive
     // changes classify/gate behavior, so an unexpected key fails here rather
@@ -58,12 +60,36 @@ describe('the lane policy', () => {
     expect(directives).toEqual({
       prefixes: ['deps', 'docs', 'todo', 'test', 'build', 'refactor'],
       'dispatch-without-pr': ['refuse'],
+      'lint-title': ['no'],
     });
   });
 
-  it('classifies markdown outside the shipped trees as docs', () => {
-    for (const path of ['README.md', 'SPEC.md', 'TODO.md', 'CRON.md', 'reports/notes.md']) {
+  it('classifies root markdown and the prose trees as docs', () => {
+    for (const path of [
+      'README.md',
+      'SPEC.md',
+      'TODO.md',
+      'CRON.md',
+      'reports/notes.md',
+      'docs/notes.md',
+      // Both tree rules use `**`, so each reaches every depth below its own
+      // directory. Writing either `docs/*.md` would strand these on code.
+      'docs/a/b/deep.md',
+      'reports/2026/deep.md',
+    ]) {
       expect(classify(path), path).toBe('docs');
+    }
+  });
+
+  it('does not treat markdown as docs merely for its extension', () => {
+    // The narrowed rules replaced a bare `**/*.md`, which made a markdown
+    // file documentation at ANY depth. Being documentation is now a matter
+    // of where a file lives: the root, or a named prose tree. Markdown
+    // anywhere else can sit beside code or config that CI validates, so it
+    // stays on the code lane. None of these paths exists today, which is the
+    // point -- the rule has to hold for a tree nobody has added yet.
+    for (const path of ['scripts/README.md', 'a/b/notes.md', 'notdocs/README.md']) {
+      expect(classify(path), path).toBe('code');
     }
   });
 

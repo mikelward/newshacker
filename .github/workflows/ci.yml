@@ -46,9 +46,12 @@ permissions:
 
 jobs:
   # Decides whether the build may skip: true only when every changed file
-  # in the PR is housekeeping (markdown outside src/, api/, and public/ —
-  # see .github/lanes.conf for the rule; the engine is mikelward/lanes).
-  # Pushes to main are always classified as code, so they run everything.
+  # in the PR is housekeeping (root-level markdown and the docs/ and
+  # reports/ prose trees — see .github/lanes.conf for the rule; the engine
+  # is mikelward/lanes). Markdown elsewhere is code: being documentation is
+  # a matter of where a file lives, since markdown inside a tree can sit
+  # beside what CI validates. Pushes to main are always classified as code,
+  # so they run everything.
   classify:
     name: Classify the diff
     runs-on: ubuntu-latest
