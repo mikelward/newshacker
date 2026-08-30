@@ -93,8 +93,14 @@ describe('zizmor workflow', () => {
     // satisfy the new one. Read from the comment-stripped text, same as
     // the run-field checks above — a commented-out line must not count as
     // live.
+    //
+    // `workflow_dispatch` is pinned by the same match. The weekly batch's
+    // pull request is opened by `GITHUB_TOKEN`, which starts no
+    // `on: pull_request` workflow, so mikelward/npm-update dispatches this
+    // one by name; deleting the trigger would leave that PR pending forever
+    // on a check nothing can produce, which is not a failure anyone sees.
     expect(workflowRun).toMatch(
-      /^on:\n {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n {4}types: \[opened, synchronize, reopened, edited\]\npermissions:\n/m,
+      /^on:\n {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n {4}types: \[opened, synchronize, reopened, edited\]\n {2}workflow_dispatch:\npermissions:\n/m,
     );
     expect(workflowRun).not.toMatch(/^\s*paths:/m);
   });

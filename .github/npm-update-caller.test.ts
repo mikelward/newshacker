@@ -24,6 +24,16 @@ const consumerCheck = readFileSync(
   'utf8',
 );
 
+// The `dispatch-workflows` input, as a list of file names. Accepts the
+// inline form the caller uses today and a block scalar, since either is
+// valid YAML for it and the contract is about the names, not the spelling.
+const dispatchedWorkflows = (): string[] => {
+  const inline = workflow.match(/^ *dispatch-workflows: *(?![|>])(\S.*)$/m);
+  if (inline) return [inline[1].trim()];
+  const block = workflow.match(/^ *dispatch-workflows: *[|>][-+]?\n((?: +\S.*\n)+)/m);
+  return block ? block[1].split('\n').map((l) => l.trim()).filter(Boolean) : [];
+};
+
 describe('npm-update caller', () => {
   it('can be run by hand as well as on the schedule', () => {
     // Without workflow_dispatch the only way to run it is to wait for
@@ -40,6 +50,35 @@ describe('npm-update caller', () => {
     expect(cron![1].trim().split(/\s+/)[4]).toBe('6');
   });
 
+  it('names zizmor.yml among the workflows the hub must dispatch', () => {
+    // The batch's PR is opened by GITHUB_TOKEN, which starts no
+    // `on: pull_request` workflow. ci.yml and codex-review-check.yml the hub
+    // dispatches unconditionally; anything else this repository's ruleset
+    // requires — zizmor, once it is required here — only runs because it is
+    // named in this input. Dropping the line would leave the weekly PR
+    // pending forever on a check nothing produces, which is not a failure
+    // anyone sees.
+    expect(dispatchedWorkflows()).toContain('zizmor.yml');
+  });
+
+  it('names only workflows that are actually dispatchable', () => {
+    // The other half of the same contract, and the half that fails
+    // silently: `gh workflow run` on a file with no `workflow_dispatch:`
+    // trigger errors, the hub reports it in the PR body and carries on, and
+    // the check still never reports. Derived from the caller rather than
+    // hard-coded, so a workflow added to the input later is covered by this
+    // the day it is added.
+    const named = dispatchedWorkflows();
+    expect(named.length).toBeGreaterThan(0);
+    for (const file of named) {
+      const text = readFileSync(
+        fileURLToPath(new URL(`./workflows/${file}`, import.meta.url)),
+        'utf8',
+      );
+      expect(text).toMatch(/^\s*workflow_dispatch:/m);
+    }
+  });
+
   it('calls the hub reusable workflow at @main', () => {
     expect(workflow).toContain(
       'uses: mikelward/npm-update/.github/workflows/npm-update.yml@main',
@@ -52,13 +91,18 @@ describe('npm-update caller', () => {
     // grant that's missing one of these silently breaks whichever hub job
     // needs it (the update job needs none of these; the publish job needs
     // all three); a grant that's wider than this hands the hub job more
-    // than it asks for. Anchored to the end of the file (this is the
-    // workflow's last section) so a FOURTH scope appended after
-    // `actions: write` fails here too — a plain "these three lines appear
-    // somewhere, consecutively" match would still pass with one added.
+    // than it asks for. The whole block is captured and compared, so a
+    // FOURTH scope appended after `actions: write` fails here too — a plain
+    // "these three lines appear somewhere, consecutively" match would still
+    // pass with one added. Captured rather than anchored to end-of-file:
+    // the grant is no longer the workflow's last section now that the job
+    // carries a `with:` block, and an anchor that a later input breaks is
+    // one that stops testing the thing it was written for.
     const jobs = workflow.slice(workflow.indexOf('\njobs:'));
-    expect(jobs).toMatch(
-      /permissions:\n {6}contents: write\n {6}pull-requests: write\n {6}actions: write\n?$/,
+    const grant = jobs.match(/permissions:\n((?: {6}[a-z-]+: \S+\n)+)/);
+    expect(grant).not.toBeNull();
+    expect(grant![1]).toBe(
+      '      contents: write\n      pull-requests: write\n      actions: write\n',
     );
   });
 
