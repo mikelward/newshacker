@@ -59,6 +59,11 @@ describe('the lane policy', () => {
     // than passing unexamined.
     expect(directives).toEqual({
       prefixes: ['deps', 'docs', 'todo', 'test', 'build', 'refactor'],
+      // A push to main is classified from the range it added, not taken as
+      // code by default. Dropping this makes every docs-only merge run the
+      // full suite again, and — since scripts/vercel-ignore.mjs reads the
+      // same file — deploy again.
+      push: ['classify'],
       'dispatch-without-pr': ['refuse'],
       'lint-title': ['no'],
     });
