@@ -10,7 +10,7 @@ stopped biting.
 ## Project at a glance
 
 - **newshacker** — an unofficial mobile-friendly reader *for* Hacker News. Not affiliated with Y Combinator. Primary domain `newshacker.app`; `hnews.app` 301s to it.
-- Stack: **React + TypeScript + Vite**, deployed on **Vercel**.
+- Stack: **React + TypeScript + Vite**, deployed on **Vercel** — auto-deploy on push, except a docs-only commit: `vercel.json`'s `ignoreCommand` runs `scripts/vercel-ignore.mjs`, which reads the same `.github/lanes.conf` the docs lane reads and cancels the build when every changed path is documentation. It measures from the last successful deployment of that project and branch, so **production skips from the first docs-only merge onward, and a branch builds its first preview then skips the docs-only pushes after it** — there is no earlier deployment to measure a first one against. It fails open, saying in the build log which case it hit and what the underlying failure said.
 - Stretch goals (login, voting) use **Vercel serverless functions** under `/api`.
 - Read data comes from the Firebase HN API; write actions scrape HN's web forms.
 - See `SPEC.md` for the product spec and `IMPLEMENTATION_PLAN.md` for the phased plan.

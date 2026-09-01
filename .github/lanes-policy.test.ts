@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { matchesGlob } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { isDocs, parsePolicy } from '../scripts/vercel-ignore.mjs';
+
 // Tests for this repository's lane policy, .github/lanes.conf.
 //
 // The engine (mikelward/lanes) is tested in its own repository; what it
@@ -103,6 +105,43 @@ describe('the lane policy', () => {
     // import any file, api/ deploys as functions, public/ ships verbatim.
     for (const path of ['src/App.tsx', 'src/notes.md', 'api/items.ts', 'api/README.md', 'public/manifest.webmanifest']) {
       expect(classify(path), path).toBe('code');
+    }
+  });
+
+  // Vercel deploys outside GitHub Actions, so scripts/vercel-ignore.mjs is a
+  // second reader of this same policy file — the deployment's half of the
+  // lane. Two readers can agree with the policy and still disagree with each
+  // other on a path neither was asked about, and that disagreement is exactly
+  // a docs-only merge that skips CI but deploys anyway (or the reverse). So
+  // every path this suite classifies is put to the script's reader too, and
+  // the two must answer the same.
+  it('agrees with the Vercel ignore step on every path above', () => {
+    const { rules: scriptRules, unknown } = parsePolicy(text);
+    expect(unknown).toEqual([]);
+    expect(scriptRules).toEqual(rules);
+
+    for (const path of [
+      'README.md',
+      'AGENTS.md',
+      'SPEC.md',
+      'CRON.md',
+      'docs/notes.md',
+      'docs/a/b/deep.md',
+      'reports/notes.md',
+      'reports/2026/deep.md',
+      'scripts/README.md',
+      'src/App.tsx',
+      'src/notes.md',
+      'api/items.ts',
+      'api/README.md',
+      'public/manifest.webmanifest',
+      'package.json',
+      'vite.config.ts',
+      '.github/workflows/ci.yml',
+      '.github/lanes.conf',
+      '.gitignore',
+    ]) {
+      expect(isDocs(path, scriptRules), path).toBe(classify(path) === 'docs');
     }
   });
 
