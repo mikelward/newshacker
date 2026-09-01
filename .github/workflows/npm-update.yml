@@ -35,12 +35,17 @@ jobs:
       # always dispatches; zizmor.yml is this repository's own and has to be
       # named here.
       dispatch-workflows: zizmor.yml
-    secrets:
-      # Opens the batch PR as a real collaborator rather than as
-      # `GITHUB_TOKEN`, so the ordinary `pull_request` round runs for it —
-      # every check the ruleset requires, including ones added after this
-      # line was written, rather than only the names `dispatch-workflows`
-      # above happens to list. That input stays as the fallback and is
-      # redundant while this is set; mikelward/npm-update's TODO.md tracks
-      # retiring it once every consumer supplies a credential.
-      token: ${{ secrets.NPM_UPDATE_PAT }}
+    # `inherit`, not a `secrets:` block naming NPM_UPDATE_PAT: the publish
+    # job reads the credential from this repository's `npm-update`
+    # environment, and an environment secret reaches a called workflow no
+    # other way. A secret passed by name reaches the runner of every job in
+    # the called workflow, the untrusted update job included, which is what
+    # this replaces — see that repository's README. The credential opens the
+    # batch PR as a real collaborator rather than as `GITHUB_TOKEN`, so the
+    # ordinary `pull_request` round runs for it — every check the ruleset
+    # requires, including ones added after this line was written, rather
+    # than only the names `dispatch-workflows` above happens to list; that
+    # input stays as the fallback. The corresponding zizmor finding
+    # (secrets-inherit) is allowed for this file in .github/zizmor.yml, with
+    # the same reason.
+    secrets: inherit

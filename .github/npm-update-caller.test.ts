@@ -117,12 +117,17 @@ describe('npm-update caller', () => {
     // line is silent in the worst way: the batch keeps opening PRs, they
     // just stop being checked.
     //
-    // Matched under `secrets:` specifically -- the hub declares no such
-    // `with:` input, so the same line one block up would fail the call
-    // rather than quietly downgrade the credential.
-    const secrets = workflow.match(/^ {4}secrets:\n((?: {6}.*\n?)+)/m);
-    expect(secrets).not.toBeNull();
-    expect(secrets![1]).toContain('token: ${{ secrets.NPM_UPDATE_PAT }}');
+    //
+    // The credential travels as `secrets: inherit`, not as a `secrets:`
+    // block naming NPM_UPDATE_PAT: the hub's publish job reads it from this
+    // repository's `npm-update` environment, and an environment secret
+    // reaches a called workflow no other way -- a secret passed by name
+    // reaches the runner of every job in the called workflow, the untrusted
+    // update job included. Matched as the job-level key, so a block that
+    // quietly went back to naming the secret fails here rather than
+    // downgrading the isolation.
+    expect(workflow).toMatch(/^ {4}secrets: inherit$/m);
+    expect(workflow).not.toContain('NPM_UPDATE_PAT }}');
   });
 
   it('serializes runs so a slow run cannot overlap the next schedule', () => {

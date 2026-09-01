@@ -32,6 +32,19 @@ rules:
         "actions/*": ref-pin
         # Everything else must pin to a hash.
         "*": hash-pin
+  secrets-inherit:
+    # The weekly batch caller passes `secrets: inherit` on purpose: the
+    # publish job of the called workflow reads NPM_UPDATE_PAT from this
+    # repository's `npm-update` environment, and an environment secret
+    # reaches a called workflow no other way. The alternative zizmor prefers
+    # -- naming the secret in a `secrets:` block -- delivers it to the runner
+    # of every job in the called workflow, the untrusted update job included,
+    # which is the exposure the environment exists to close. The price of
+    # `inherit` is that every repository-level secret here reaches that job
+    # too, so this repository keeps its secrets environment-scoped
+    # (mikelward/repo's `repo audit` reports any that are not).
+    ignore:
+      - npm-update.yml
   dangerous-triggers:
     # These pull_request_target triggers are load-bearing and reasoned
     # through in each workflow's own header: neither checks out or

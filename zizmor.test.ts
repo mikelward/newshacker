@@ -135,4 +135,16 @@ describe('zizmor policy', () => {
     const ignored = m ? [...m[1].matchAll(/^ +- (\S+)$/gm)].map((mm) => mm[1]) : [];
     expect(ignored).toEqual(['codex-review.yml', 'codex-review-check.yml']);
   });
+
+  it('lets only the batch caller inherit secrets', () => {
+    // npm-update.yml passes `secrets: inherit` on purpose: the hub's publish
+    // job reads NPM_UPDATE_PAT from this repository's `npm-update`
+    // environment, and an environment secret reaches a called workflow no
+    // other way. Read from that rule's own block, and compared whole, so a
+    // second workflow handing every secret to a called workflow is still
+    // flagged.
+    const m = policyRules.match(/^ {2}secrets-inherit:\n {4}ignore:\n((?: {6}- .*\n?)+)/m);
+    const ignored = m ? [...m[1].matchAll(/^ +- (\S+)$/gm)].map((mm) => mm[1]) : [];
+    expect(ignored).toEqual(['npm-update.yml']);
+  });
 });
