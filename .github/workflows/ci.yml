@@ -3,6 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    # No paths filter, deliberately: one would be a second copy of
+    # .github/lanes.conf written in another language and verified by nothing.
+    # `push classify` in that file decides the same question from the policy
+    # itself, and the heavy job is already gated on `docs_only`, so a
+    # docs-only push to main starts a run and skips everything in it rather
+    # than never starting one.
+    #
+    # The engine refuses the range rather than guessing whenever it cannot
+    # prove the push added it — a force-push, a first push, a branch deletion,
+    # a comparison that is not `ahead`, or a file list at the API's 300-file
+    # page cap. Every refusal takes the code lane.
   pull_request:
     # `edited` is here because a retarget changes what the PR's diff is
     # measured against while the head — and any `gate` check run already
@@ -50,8 +61,9 @@ jobs:
   # reports/ prose trees — see .github/lanes.conf for the rule; the engine
   # is mikelward/lanes). Markdown elsewhere is code: being documentation is
   # a matter of where a file lives, since markdown inside a tree can sit
-  # beside what CI validates. Pushes to main are always classified as code,
-  # so they run everything.
+  # beside what CI validates. A push to main is classified the same way, from
+  # the range it added (`push classify` in lanes.conf); anything the engine
+  # cannot prove the push added takes the code lane and runs everything.
   classify:
     name: Classify the diff
     runs-on: ubuntu-latest
