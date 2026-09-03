@@ -2,11 +2,12 @@
   /* Asymmetric vertical padding on purpose. The top edge sits
      directly above body text and reads best with a comfortable 8px
      gap. The bottom edge sits below the footer row, whose toggle and
-     toolbar buttons each carry 10px of internal vertical padding for
-     tap-target height — that internal padding already provides
-     substantial visual breathing room below the icons, so a smaller
-     card padding-bottom keeps the bottom from reading heavier than
-     the top. Symmetric 8/8 (or 10/10) made the bottom feel weighted.
+     toolbar buttons each carry 8px of internal vertical padding inside
+     a 36px band — that internal padding already provides visual
+     breathing room below the icons, so a smaller card padding-bottom
+     keeps the bottom from reading heavier than the top. Symmetric 8/8
+     made the bottom feel weighted. The band, not this padding, is the
+     dominant term: see its sizing below for what it cost at 44px.
      The padding-bottom value comes from --comment-stack-gap so it
      stays locked to .comment__children's margin-top below — see
      global.css for the pairing rationale. */
@@ -152,12 +153,13 @@
 }
 
 .comment__toolbar-button {
+  /* Positioned for the ::after that carries the touch hit area below. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 44px;
-  min-height: 44px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 0;
   background: transparent;
   color: var(--nh-meta);
@@ -165,43 +167,6 @@
   border-radius: 4px;
   text-decoration: none;
   font: inherit;
-}
-
-/* Under a precise pointer the footer's icons take the same 36px the thread
-   action bar takes, for the same reason and by the same gate — `(hover: hover)`,
-   pointer type rather than viewport width, so a mouse user in a narrow window
-   gets it too and touch keeps the 44px floor everywhere (SPEC *Thread action
-   bar*).
-
-   It is also what the card's vertical rhythm turns on. The footer's height is
-   set by these buttons, not by the 13px meta text sitting in them, so on desktop
-   a 44px band held ~15px of grey text and the gap under the last line of the
-   comment ran about 4.4x the gap above the first. Trimming the band to 36px is
-   the only part of that which is spendable: the leading is the type's and the
-   rest is the tap target. */
-@media (hover: hover) {
-  .comment__toolbar-button,
-  .comment__toggle {
-    /* An explicit size, not just a floor. These glyphs ship at 22px (toolbar)
-       and 18px (toggle), so `min-height` alone left the buttons at their
-       intrinsic 22 + 8 + 8 = 38px and the band 2px taller than intended —
-       a floor can only raise a box, never shrink one. */
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-    min-height: 36px;
-    padding: 8px;
-  }
-
-  /* And the glyph is sized to match, for the reason `.thread__action--icon`
-     gives: 8px each side leaves a 20px content box, and the global
-     `svg { max-width: 100% }` would otherwise squeeze a 22px glyph's width to
-     20 while its height stayed 22. */
-  .comment__toolbar-button svg,
-  .comment__toggle svg {
-    width: 20px;
-    height: 20px;
-  }
 }
 
 @media (hover: hover) {
@@ -263,17 +228,16 @@
   background: transparent;
 }
 
-/* Expand/collapse button at the bottom-right of the card. Same
-   tap-target shape as the toolbar buttons (min 44×44, 10/12 padding,
-   borderless background, hover/active feedback) so the four icons
-   on an expanded card read as one consistent action row. */
+/* Expand/collapse button at the bottom-right of the card. Same shape as the
+   toolbar buttons — the band sizing below covers both — so the four icons on
+   an expanded card read as one consistent action row. */
 .comment__toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 44px;
-  min-height: 44px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 0;
   background: transparent;
   color: var(--nh-meta);
@@ -286,6 +250,71 @@
      intent here keeps the layout robust if the meta is ever empty
      (e.g. a comment with no author and no age). */
   margin-left: auto;
+}
+
+/* The footer band is 36px tall on every device, and on touch a pseudo-element
+   puts the missing 8px back as hit area rather than as paint.
+
+   The band is what sets the card's vertical rhythm: its height comes from these
+   buttons, not from the 13px meta text sitting in them, so a 44px band left
+   13px of empty button under the toggle glyph and the card's own 4px on top of
+   that — 17px below a collapsed comment's last ink against 11.75px above its
+   first. Painting 36px brings that to 12px, near enough to symmetric.
+
+   Sizing the paint and sizing the target are separate questions, and only the
+   second one has a floor (maintainer, 2026-09-03: "the intention was hit
+   area"). So nothing is traded away here — the touch target is still a full
+   44x44, it is just no longer the same rectangle as the ink. */
+.comment__toolbar-button,
+.comment__toggle {
+  /* An explicit size, not just a floor. These glyphs ship at 22px (toolbar)
+     and 18px (toggle), so `min-height` alone left the buttons at their
+     intrinsic 22 + 8 + 8 = 38px — a floor can only raise a box, never shrink
+     one. */
+  height: 36px;
+  min-height: 36px;
+}
+
+/* And the glyph is sized to match, for the reason `.thread__action--icon`
+   gives: 8px each side leaves a 20px content box, and the global
+   `svg { max-width: 100% }` would otherwise squeeze a 22px glyph's width to
+   20 while its height stayed 22. */
+.comment__toolbar-button svg,
+.comment__toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* The touch hit area: 4px above and below restores the 44px height the paint
+   gave up, leaving a 44x44 target (the width is untouched — `min-width: 44px`
+   already holds it, and widening it here would eat into the 2px between
+   neighboring toolbar buttons, which are three *different* actions).
+
+   Vertical only, so it grows into the card's own bottom padding and the body's
+   bottom half-leading and reaches neither the card below nor the one above. */
+.comment__toolbar-button::after,
+.comment__toggle::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+}
+
+@media (hover: hover) {
+  /* A cursor is precise, so the target is the paint. This is also what keeps
+     the expanded area from swallowing hover 4px outside the button. */
+  .comment__toolbar-button::after,
+  .comment__toggle::after {
+    content: none;
+  }
+
+  /* Freed from the touch floor, the width closes to the square the thread
+     action bar uses at this size (SPEC *Thread action bar*). */
+  .comment__toolbar-button,
+  .comment__toggle {
+    width: 36px;
+    min-width: 36px;
+    padding: 8px;
+  }
 }
 
 @media (hover: hover) {
@@ -386,13 +415,18 @@
 }
 
 /* Reserved-height stand-in for an unloaded top-level comment. min-height
-   tracks a typical collapsed comment (clamped body + 44px footer) so the
+   tracks a typical collapsed comment (clamped body + 36px footer) so the
    thread's scroll height is set up front and the real card swapping in
    only nudges layout below the fold rather than appending at the bottom.
-   Non-interactive — it's a skeleton, not a card the reader can toggle. */
+   Non-interactive — it's a skeleton, not a card the reader can toggle.
+
+   Down 8px with the band: this was 100px against a 44px footer, and a
+   figure calibrated on the old geometry would now over-reserve on every
+   unloaded card — which is the reflow it exists to avoid, in the other
+   direction. */
 .comment--placeholder {
   cursor: default;
-  min-height: 100px;
+  min-height: 92px;
 }
 
 .comment__placeholder-body {
