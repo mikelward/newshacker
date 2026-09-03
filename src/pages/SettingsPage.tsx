@@ -5,13 +5,12 @@ import { HotRuleEditor } from '../components/ListToolbar';
 import { ChromeIcon, ThemeIcon } from '../components/appearanceIcons';
 import {
   CHROME_OPTIONS,
-  FONT_SIZE_OPTIONS,
   THEME_OPTIONS,
 } from '../components/appearanceOptions';
+import { TextSizeControl } from '../components/TextSizeControl';
 import { TooltipButton } from '../components/TooltipButton';
 import { useTheme } from '../hooks/useTheme';
 import { useChrome } from '../hooks/useChrome';
-import { useFontSize } from '../hooks/useFontSize';
 import { useHomeFeed } from '../hooks/useHomeFeed';
 import {
   useHideOnScroll,
@@ -25,7 +24,6 @@ import './SettingsPage.css';
 export function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { chrome, setChrome } = useChrome();
-  const { fontSize, setFontSize } = useFontSize();
   const { homeFeed, setHomeFeed } = useHomeFeed();
   const { hideOnScroll, setHideOnScroll } = useHideOnScroll();
   const { stickyBottomBar, setStickyBottomBar } = useStickyBottomBar();
@@ -97,33 +95,7 @@ export function SettingsPage() {
         <div className="settings-page__field-label" id="settings-textsize-label">
           Text size
         </div>
-        <div
-          className="settings-page__segmented"
-          role="radiogroup"
-          aria-labelledby="settings-textsize-label"
-        >
-          {FONT_SIZE_OPTIONS.map((opt) => (
-            <TooltipButton
-              key={opt.value}
-              type="button"
-              role="radio"
-              aria-checked={fontSize === opt.value}
-              tooltip={opt.label}
-              aria-label={opt.label}
-              className="settings-page__segmented-btn"
-              data-active={fontSize === opt.value || undefined}
-              onClick={() => setFontSize(opt.value)}
-            >
-              <span
-                className="settings-page__size-glyph"
-                style={{ fontSize: opt.glyph }}
-                aria-hidden="true"
-              >
-                A
-              </span>
-            </TooltipButton>
-          ))}
-        </div>
+        <TextSizeControl className="settings-page__text-size" />
       </section>
 
       <section className="settings-page__section">

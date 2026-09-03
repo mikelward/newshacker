@@ -1,0 +1,81 @@
+/* Text-size stepper: smaller / current / larger. Shared by the drawer and
+   Settings; the outer margin is left to the consumer, which is what lets it sit
+   in the drawer's segmented-row rhythm without hard-coding it. Its width no
+   longer depends on how many rungs the ladder has. */
+.text-size {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--nh-bg-code);
+  border: 1px solid var(--nh-border);
+  border-radius: 8px;
+}
+
+.text-size__step {
+  /* Fixed at the tap floor rather than flex-grown: the two steppers are equal
+     controls, and giving the readout the remaining space is what keeps the
+     current size centered as its glyph changes width. */
+  flex: 0 0 var(--tap-min);
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--nh-text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.text-size__step[aria-disabled='true'] {
+  color: var(--nh-meta);
+  cursor: default;
+}
+
+/* Two nested boxes because the readout needs both alignments at once, and a
+   flex line can only hold one: the pair sits on a shared baseline, and the pair
+   as a whole sits centered in the row. Baseline-aligned flex items are placed
+   flush to the cross-start edge, so asking one box for both leaves "A 20px"
+   riding the top of the row while the steppers beside it are centered — and
+   drifting further as the glyph grows. */
+.text-size__value {
+  flex: 1 1 auto;
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nh-text);
+}
+
+.text-size__readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* line-height: 1 trims the glyph's own box to the letter, so the centering
+   above measures the "A" rather than the font's leading. */
+.text-size__glyph {
+  font-weight: 700;
+  line-height: 1;
+}
+
+.text-size__px {
+  color: var(--nh-meta);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-size__step:not([aria-disabled='true']):active {
+  background: var(--nh-bg-card);
+}
+
+@media (hover: hover) {
+  .text-size__step:not([aria-disabled='true']):hover {
+    background: var(--nh-bg-card);
+  }
+}

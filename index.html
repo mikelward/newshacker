@@ -74,11 +74,34 @@
           if (c === 'duo' || c === 'classic') {
             document.documentElement.setAttribute('data-chrome', c);
           }
-          // Text size — explicit whitelist (medium is the 16px baseline, no
-          // attribute) so a corrupt value falls back to medium rather than
-          // activating a `:root[data-font-size]` override with no token.
+          // Text size. Must resolve a stored value exactly as
+          // `parseFontSize` in src/lib/fontSize.ts does, or the first paint
+          // shows one size and React immediately repaints another: the three
+          // names this scale replaced map to the px they were worth, an
+          // off-ladder number snaps to the nearest rung (ties up, matching
+          // `nearestFontSize`), and anything else falls back to the 16px
+          // baseline, which carries no attribute.
+          var sizes = [14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30, 32];
+          var legacy = { small: '15', medium: '16', large: '17' };
           var fs = localStorage.getItem('newshacker:font-size');
-          if (fs === 'small' || fs === 'large') {
+          if (legacy[fs]) fs = legacy[fs];
+          if (fs && sizes.indexOf(Number(fs)) === -1) {
+            var px = Number(fs);
+            fs = null;
+            if (isFinite(px)) {
+              var best = null;
+              var bestDistance = Infinity;
+              for (var i = 0; i < sizes.length; i++) {
+                var distance = Math.abs(sizes[i] - px);
+                if (distance <= bestDistance) {
+                  bestDistance = distance;
+                  best = sizes[i];
+                }
+              }
+              fs = best === null ? null : String(best);
+            }
+          }
+          if (fs && fs !== '16') {
             document.documentElement.setAttribute('data-font-size', fs);
           }
           // Seed the <meta name="theme-color"> from the *resolved* theme

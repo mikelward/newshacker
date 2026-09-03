@@ -5,15 +5,14 @@ import { FEEDS, feedLabel } from '../lib/feeds';
 import { getStoryIds } from '../lib/hn';
 import { useTheme } from '../hooks/useTheme';
 import { useChrome } from '../hooks/useChrome';
-import { useFontSize } from '../hooks/useFontSize';
 import { useHomeFeed } from '../hooks/useHomeFeed';
 import { HOME_FEED_OPTIONS } from '../lib/homeFeed';
 import { ChromeIcon, ThemeIcon } from './appearanceIcons';
 import {
   CHROME_OPTIONS,
-  FONT_SIZE_OPTIONS,
   THEME_OPTIONS,
 } from './appearanceOptions';
+import { TextSizeControl } from './TextSizeControl';
 import { TooltipButton } from './TooltipButton';
 import './AppDrawer.css';
 
@@ -27,7 +26,6 @@ export function AppDrawer({ open, onClose }: Props) {
   const lastLocationRef = useRef(location.key);
   const { theme, setTheme } = useTheme();
   const { chrome, setChrome } = useChrome();
-  const { fontSize, setFontSize } = useFontSize();
   const { homeFeed, setHomeFeed } = useHomeFeed();
   const client = useQueryClient();
 
@@ -193,33 +191,7 @@ export function AppDrawer({ open, onClose }: Props) {
           ))}
         </div>
         <div className="app-drawer__section-title">Text size</div>
-        <div
-          className="app-drawer__segmented"
-          role="radiogroup"
-          aria-label="Text size"
-        >
-          {FONT_SIZE_OPTIONS.map((opt) => (
-            <TooltipButton
-              key={opt.value}
-              type="button"
-              role="radio"
-              aria-checked={fontSize === opt.value}
-              tooltip={opt.label}
-              aria-label={opt.label}
-              className="app-drawer__segmented-btn"
-              data-active={fontSize === opt.value || undefined}
-              onClick={() => setFontSize(opt.value)}
-            >
-              <span
-                className="app-drawer__size-glyph"
-                style={{ fontSize: opt.glyph }}
-                aria-hidden="true"
-              >
-                A
-              </span>
-            </TooltipButton>
-          ))}
-        </div>
+        <TextSizeControl className="app-drawer__text-size" />
 
         <div className="app-drawer__section-title">Feeds</div>
         <ul className="app-drawer__list">
