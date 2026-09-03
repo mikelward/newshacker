@@ -63,7 +63,7 @@ function ToolbarReplyIcon() {
 // not-yet-loaded top-level kid so the full row count — and therefore
 // the scroll height — is established at load time instead of growing
 // as the reader scrolls and successive pages mount. `min-height`
-// approximates a typical collapsed comment (body + 44px footer) so the
+// approximates a typical collapsed comment (body + 36px footer) so the
 // real card swapping in causes only a small, off-screen reflow rather
 // than appending fresh height at the bottom. aria-hidden because it
 // carries no content for assistive tech to announce.
