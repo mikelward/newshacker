@@ -167,6 +167,43 @@
   font: inherit;
 }
 
+/* Under a precise pointer the footer's icons take the same 36px the thread
+   action bar takes, for the same reason and by the same gate — `(hover: hover)`,
+   pointer type rather than viewport width, so a mouse user in a narrow window
+   gets it too and touch keeps the 44px floor everywhere (SPEC *Thread action
+   bar*).
+
+   It is also what the card's vertical rhythm turns on. The footer's height is
+   set by these buttons, not by the 13px meta text sitting in them, so on desktop
+   a 44px band held ~15px of grey text and the gap under the last line of the
+   comment ran about 4.4x the gap above the first. Trimming the band to 36px is
+   the only part of that which is spendable: the leading is the type's and the
+   rest is the tap target. */
+@media (hover: hover) {
+  .comment__toolbar-button,
+  .comment__toggle {
+    /* An explicit size, not just a floor. These glyphs ship at 22px (toolbar)
+       and 18px (toggle), so `min-height` alone left the buttons at their
+       intrinsic 22 + 8 + 8 = 38px and the band 2px taller than intended —
+       a floor can only raise a box, never shrink one. */
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 8px;
+  }
+
+  /* And the glyph is sized to match, for the reason `.thread__action--icon`
+     gives: 8px each side leaves a 20px content box, and the global
+     `svg { max-width: 100% }` would otherwise squeeze a 22px glyph's width to
+     20 while its height stayed 22. */
+  .comment__toolbar-button svg,
+  .comment__toggle svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
 @media (hover: hover) {
   .comment__toolbar-button:hover {
     color: var(--nh-text);
