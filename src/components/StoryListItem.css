@@ -9,7 +9,15 @@
   display: flex;
   align-items: stretch;
   gap: 8px;
-  padding: 6px 12px;
+  /* No VERTICAL padding here, deliberately. `.pin-btn` is a flex child with
+     `min-height: var(--tap-min)`, so it already forces this row's content box
+     to 48px — and any vertical padding stacks on top of that, which is what
+     pinned every row to 60px however small the text got. Breathing room lives
+     on `.story-row__body` instead, inside the 48px rather than added to it.
+     The floor is stated here too: the stretched `::after` (inset: 0) makes the
+     whole row the link's hit area, so the row is what has to clear 48px. */
+  padding: 0 12px;
+  min-height: var(--tap-min);
   touch-action: pan-y;
   -webkit-touch-callout: none;
 }
@@ -60,8 +68,11 @@
   justify-content: center;
   color: var(--nh-text);
   text-decoration: none;
-  min-height: var(--tap-min);
-  padding: 4px 0;
+  /* The row's former 6px, moved here. Same optical inset above the title and
+     below the meta, and the same room for the pressed/hover highlight — but
+     inside the 48px tap floor rather than stacked on top of it, so the row is
+     free to shrink toward that floor as the text gets smaller. */
+  padding: 6px 0;
   border-radius: 6px;
 }
 
