@@ -4,6 +4,7 @@ import {
   PULL_TO_REFRESH_TRIGGER_PX,
   usePullToRefresh,
 } from './usePullToRefresh';
+import { cancelPointerGestures } from '../lib/gestureCancel';
 
 function dispatch(
   target: Element,
@@ -57,6 +58,37 @@ describe('usePullToRefresh', () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('abandons a pull armed in the same tick a pinch claims the fingers', () => {
+    // The race: the second finger lands just as the first crosses the arm
+    // threshold. `setPhase('pulling')` is queued but the effect that syncs
+    // `phaseRef` has not run, so a cancel handler that trusts the ref alone
+    // reads `idle`, clears the tracked pointer, and skips the reset — leaving
+    // the queued `pulling` painted with nothing left to finish it.
+    const onRefresh = vi.fn();
+    render(<Harness onRefresh={onRefresh} />);
+    const el = screen.getByTestId('ptr');
+
+    dispatch(el, 'pointerdown', 100, 100);
+    // Arm and cancel inside one act(), so no effect flushes between them.
+    act(() => {
+      const evt = new Event('pointermove', { bubbles: true, cancelable: true });
+      Object.assign(evt, {
+        pointerId: 1,
+        pointerType: 'touch',
+        clientX: 100,
+        clientY: 200,
+        button: 0,
+        isPrimary: true,
+      });
+      el.dispatchEvent(evt);
+      cancelPointerGestures();
+    });
+
+    expect(el.dataset.phase).toBe('idle');
+    expect(el.dataset.pull).toBe('0');
+    expect(onRefresh).not.toHaveBeenCalled();
   });
 
   it('fires onRefresh when a downward pull crosses the trigger distance', () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
+import { onGestureCancel } from '../lib/gestureCancel';
 
 // Drag distance in CSS px at which a release will trigger the refresh.
 // Matches Android's PTR feel — roughly a thumb's worth of pull.
@@ -133,6 +134,31 @@ export function usePullToRefresh({
       finish();
     }
   }, [resetToIdle]);
+
+  // A pinch has claimed the fingers: abandon a pull in flight. Only a pull that
+  // hasn't committed yet — once it is refreshing or settling the fetch is
+  // already away, and yanking the indicator out from under it would be a
+  // different kind of wrong.
+  useEffect(
+    () =>
+      onGestureCancel(() => {
+        const start = startRef.current;
+        // `phaseRef` is synced by an effect, so it still reads `idle` for a
+        // pull armed earlier in this same tick — the exact case a second
+        // finger landing right on the threshold produces. `armed` is set
+        // synchronously beside `setPhase('pulling')`, so ask it too; without
+        // it the queued `pulling` paints with no pointer left to finish or
+        // cancel it, and the indicator sticks.
+        const pulling = phaseRef.current === 'pulling' || start?.armed === true;
+        if (!start && !pulling) return;
+        startRef.current = null;
+        if (pulling) {
+          setPhase('idle');
+          setPull(0);
+        }
+      }),
+    [],
+  );
 
   const onPointerDown = useCallback(
     (e: PointerEvent<HTMLElement>) => {

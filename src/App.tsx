@@ -22,6 +22,7 @@ import { DonePage } from './pages/DonePage';
 import { PinnedPage } from './pages/PinnedPage';
 import { FavoritesPage } from './pages/FavoritesPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { usePinchFontSize } from './hooks/usePinchFontSize';
 
 // Secondary surfaces load on demand so the entry chunk carries only what a
 // reader hits on a normal visit: the feeds, the thread page, and the library
@@ -113,6 +114,11 @@ function HomeRoute() {
 }
 
 export default function App() {
+  // Two-finger pinch anywhere in the app steps the "Text size" ladder. Mounted
+  // here rather than on the thread alone: text size is one app-wide setting, so
+  // the gesture that changes it works on every screen, sign-in included.
+  usePinchFontSize();
+
   return (
     <ToastProvider>
       <LoginDialogProvider>
