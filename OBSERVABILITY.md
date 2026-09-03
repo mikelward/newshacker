@@ -317,7 +317,17 @@ alternatives for the "record" of what was considered.
 
 ### Heavyweight options (peers)
 
-#### OpsGenie (Atlassian)
+#### OpsGenie (Atlassian) — CLOSED TO NEW CUSTOMERS
+
+> Kept for the comparison it provides, not as an option. Atlassian ended
+> new OpsGenie sales in June 2025 with end of support announced for April
+> 2027, so nothing here can be signed up for. Everything the survey says
+> about paging-first products still reads true of its peers — which is why
+> the section stays — but treat every availability and pricing claim in
+> this whole survey as needing a re-check before it is acted on: it was
+> written at one moment, and at least two products in it have since
+> retired (see also Grafana Cloud OnCall, closed to new customers March
+> 2025 and end-of-life March 2026).
 
 Paging-first. Incident management is the whole product.
 
@@ -453,9 +463,12 @@ recent addition; the core value prop is the incident *lifecycle*
 
 Paging is the operator's stated primary goal. Decision guide:
 
-- **Pick OpsGenie** if you want a paging-first specialist with a
-  generous free tier and a mature feature set, and your workplace
-  uses the Atlassian stack.
+> **OpsGenie is not on this list**, though the survey above still
+> describes it: it is closed to new customers, so "pick" is not a thing
+> anyone can do with it. Its entry stays for the comparison; this guide
+> is instructions, and instructions that name an unavailable product
+> waste a reader's time at exactly the moment they are acting.
+
 - **Pick PagerDuty** if you want the most broadly transferable
   paging-workflow learning (it's the industry default), and are
   OK with the paid-tier ceiling once you outgrow the Developer
@@ -464,16 +477,16 @@ Paging is the operator's stated primary goal. Decision guide:
   paging is "good enough, not deep." Simpler operationally; less
   paging-specific depth.
 - **Pick Better Stack** if you want a cheaper, newer
-  one-tool-for-everything alternative to Datadog+OpsGenie and are
-  willing to accept less depth per feature.
+  one-tool-for-everything alternative to a monitoring-plus-paging pair
+  and are willing to accept less depth per feature.
 - **Pick incident.io** only if you plan to grow into full
   incident-lifecycle workflows and are OK working in Slack. Weak
   match for the current single-operator, no-Slack setup.
-- **Pick two** — e.g. Datadog for monitors + OpsGenie (or
-  PagerDuty) for paging — if you want to exercise the real-world
-  separation between the observability platform and the incident
-  manager. Most "chainsaw-like" layout and the closest match to
-  what a production SRE team runs.
+- **Pick two** — e.g. Datadog for monitors + a paging specialist
+  for paging — if you want to exercise the real-world separation
+  between the observability platform and the incident manager. Most
+  "chainsaw-like" layout and the closest match to what a production
+  SRE team runs.
 
 ### Lighter alternatives (documented for the record, not the primary pitch)
 
@@ -511,11 +524,17 @@ Given paging is the stated primary goal:
 
 - **Monitors:** either Axiom (current, free) or Datadog (learning
   dividend). Both route cleanly to any of the paging heavyweights.
-- **Paging:** OpsGenie or PagerDuty on the free tier, mobile app
-  push as the primary delivery. Pick between them based on which
-  ecosystem you want learning-transfer from; they're otherwise
-  peers for this use case. Email as a secondary route for
-  non-critical alerts.
+- **Paging:** a paging-first specialist on its free tier, mobile app
+  push as the primary delivery, email as a secondary route for
+  non-critical alerts. PagerDuty is the one this survey compared that is
+  still open to signups. Confirm availability and free-tier terms before
+  committing — see Phase 3, and note that this survey has already
+  outlived two of the products in it.
+  **Datadog's own push is a one-tool alternative only once Datadog hosts
+  the monitors** — its notification targets fire from Datadog monitors,
+  so with the monitors still in Axiom it is not reachable and there is no
+  route to the phone. Choosing it means doing Phase 4 first, which is a
+  bigger decision than picking a pager.
 - **Optional:** Twilio-SMS backchannel via a serverless proxy if
   the chosen paging tool's free SMS cap becomes a constraint. Not
   needed to start.
@@ -551,7 +570,7 @@ Shipped:
   outcome line).
 
 Still to do in later phases: Axiom monitors keying off these
-lines (Phase 2), OpsGenie / PagerDuty integration (Phase 3), and
+lines (Phase 2), paging-provider integration (Phase 3), and
 optionally Datadog migration (Phase 4).
 
 ### Phase 1.5 — in-app analytics dashboard (shipped)
@@ -600,31 +619,194 @@ caps worst-case page latency at 5 s.
 
 **Definition of done:** each monitor fires at least once against
 synthetic traffic (manually triggered); email arrives. No phone
-push yet.
+push yet. **"Synthetic" here means matching records against the
+UNCHANGED production query** — inject events shaped like the real log
+lines and let each monitor's own thresholds and filters decide whether
+they fire. This phase is the only step that tests those predicates, so
+retargeting a query at something benign — which Phase 3 allows as a
+delivery-only fallback — would sign this phase off with a malformed
+threshold, project filter or time window still in place. And the
+Jina-credit monitor cannot be fired by causing the real condition and
+must not be: the app has no fault-injection path, so the only way to
+produce that line for real is exhausting the shared production key
+(`TODO.md` says **don't**). Inject its record like the others.
 
-### Phase 3 — paging (OpsGenie)
+**Injecting a record — provision this before starting the phase, since
+the gate above depends on it.** Post events into the Axiom dataset
+through its ingest API, shaped like the Phase 1 log lines the monitor
+queries. **Shaped like the ingested event, not like the log line** —
+those are different things, and getting it wrong means a correct event
+body that fires nothing. The Vercel integration wraps each stdout line
+in an envelope and adds the fields every query filters on
+(`['vercel.projectName']`, `['vercel.source'] == "lambda"`, the log
+line itself under `message` — `CRON.md` § *APL gotchas* has the three
+and why they are bracket-quoted); direct ingestion bypasses the
+integration, so the payload has to reproduce them itself. Copy the
+shape from a real row in the dataset rather than reconstructing it. That needs an **ingest-scoped token, which is a second
+credential**: the existing `AXIOM_API_TOKEN` is Query → CREATE, read by
+`/api/admin-stats` behind the HN-verified admin gate (`INSTALL.md`
+§ *Getting an Axiom API token*), and widening a dashboard-read token to
+write into the dataset is the wrong direction. Two consequences worth
+planning for rather than discovering:
+- **The synthetic records land in the same dataset as production logs**,
+  so they show up in every query that reads those lines — `CRON.md`'s
+  outcome histograms and the `/admin` cards included. **Tag them** with a
+  field, and **add the exclusion in the same change** — a tag nothing
+  filters on excludes nothing. **Scope it to the analytics and
+  cost-reporting queries only**: `CRON.md`'s outcome histograms, the
+  `/admin` cards, anything a spend figure is later derived from. The four
+  **monitor predicates must keep seeing these events**, since matching
+  them is the entire point of injecting one — excluding the tag there
+  would make the injected record ineligible and leave Phase 2 with no way
+  to fire a monitor at all. Otherwise a verification run quietly becomes
+  a data point in the cost analysis the breaker weights are derived
+  from.
+- **Cost and reliability (rule 11):** effectively **$0**, and here is the
+  threshold it is measured against rather than a pointer at one. Axiom's
+  free **Personal plan advertises 500 GB/month of ingest**, with the paid
+  **Axiom Cloud tier at a $25/month platform fee** for 1 TB
+  ([axiom.co/pricing](https://axiom.co/pricing), as advertised September
+  2026 — re-check before relying on it). A phase's worth of injected
+  records is a few dozen events, kilobytes: **nine orders of magnitude**
+  below that allowance. So the exact figure cannot change the answer, and
+  a per-request ingest rate limit cannot bind on a handful of manual
+  posts — that gap is the finding, not the number. No user-facing latency
+  either, since nothing on a request path touches it, and dataset quota
+  and retention consumption is negligible at this volume. If ingest is
+  unavailable the only consequence is that this verification is blocked;
+  nothing in production depends on it. (What *could* move the tier is the
+  log volume the Vercel integration already ships — a separate,
+  pre-existing line, not something this procedure adds to.)
 
-- Create OpsGenie free account + mobile app install.
-- Wire Axiom webhook → OpsGenie integration endpoint for the four
-  monitors. (First-class Datadog integration is a Phase 4 choice
-  if we migrate.)
+### Phase 3 — paging (vendor NOT yet chosen)
+
+> **This phase names no vendor, deliberately.** OpsGenie — which every step
+> below used to hard-code — is no longer available to new customers:
+> Atlassian ended new sales in June 2025, with end of support announced for
+> April 2027. An earlier revision of this note suggested replacements off
+> the top of its head and named a second retired product among them
+> (Grafana Cloud OnCall, itself closed to new customers in March 2025 and
+> end-of-life in March 2026). That is the failure mode this block now
+> avoids: **a candidate list written without checking is worse than no
+> list**, because each name reads as vetted.
+>
+> So the first step of this phase is a *check*, not a signup. Confirm
+> current availability and free-tier terms directly with a provider before
+> committing to it, and record its cost and reliability (AGENTS.md rule 11)
+> as part of choosing. Nothing about the monitor wiring depends on which
+> one: every step below is written provider-neutral and stands as-is once a
+> name is filled in.
+
+- **Choose a paging provider.** The requirements below are simply the later
+  steps of this phase read backwards, **on the tier actually being chosen** —
+  a capability behind a paid plan is not a capability if the plan is the free
+  one. Check them before the account exists, because each is something an
+  operator would otherwise discover after wiring everything up. If a step
+  below ever changes, change this list with it.
+  - **Reachable from Axiom** — an inbound webhook, or a first-class Axiom
+    integration. Monitors live in Axiom after Phase 2 and the next step
+    wires Axiom to the provider, so a provider that cannot be reached from
+    it has no route to the phone at all. Anything that only receives alerts
+    from a platform hosting its own monitors is out unless Phase 4 is pulled
+    forward first, which is a separate decision with its own cost.
+  - **Can override Do Not Disturb, and can be configured to do it per
+    priority.** Two of the four monitors are P1 precisely so they wake
+    someone; a provider whose push is an ordinary notification silently fails
+    the one case the phase exists for, and fails it at 3 a.m. rather than in
+    testing. But a provider offering only a *global* critical-alert toggle
+    fails just as surely in the other direction, and it passes a check that
+    asks only "can it override DND": the next step routes two monitors as P1
+    and two as P3, and the definition of done requires the P3 to arrive
+    **without** buzzing — so one switch for everything means either the two
+    low-priority monitors wake you or the two urgent ones don't. Check that
+    the override is settable per priority (or per rule) on the tier being
+    chosen, not that the capability exists somewhere in the product.
+  - **Exposes acknowledgement state**, since the definition of done requires
+    it to be observable — without it there is no way to tell a page that was
+    seen from one that was slept through.
+  - **A Datadog integration is an input, not a veto**: Phase 4's cost turns
+    on it — a provider Datadog can only reach through a generic webhook makes
+    that migration re-wire and re-verify delivery rather than leave it alone.
+    Phase 4 is optional, so this informs the choice rather than deciding it.
+
+  Note its cost/reliability here either way, then create the account +
+  install its mobile app.
+- Wire Axiom webhook → the provider's integration endpoint for the four
+  monitors.
 - Configure alert priorities: Jina credit exhaustion + cache-hit
   collapse = P1 (DND override); Gemini failure + 429 burst = P3
   (push, no DND override).
-- Silence the monitors' email delivery once OpsGenie push is
+- **Grant the provider's app the OS permission its override needs** —
+  iOS Critical Alerts, or an Android channel allowed to bypass Do Not
+  Disturb. Choosing a tier that *supports* override does not turn it on,
+  and the difference is invisible until the night it matters.
+- Silence the monitors' email delivery once provider push is
   confirmed working, to avoid double-paging.
 
-**Definition of done:** synthetic trigger → phone buzzes within
-~60 s. Email is silenced. OpsGenie acknowledgement state is
-observable.
+**Definition of done:** a provider is chosen and its **cost and
+reliability** both recorded — the selection step asks for both and this
+gate kept only the half with a number on it. Reliability here means its
+rate limits, what happens when either hop fails (Axiom → provider, and
+provider → phone), and **what still pages when the provider is down**,
+since a paging dependency with no answer to that is a single point of
+failure for every alert routed through it. Then: email is silenced; the
+provider's acknowledgement state is observable; and **all four monitors
+are fired synthetically, one at a time, with the phone actually in Do
+Not Disturb** — the two P1s (Jina credit exhaustion, cache-hit collapse)
+each buzzing within ~60 s, the two P3s (Gemini failure, 429 burst) each
+**arriving without buzzing**.
+
+Four triggers, not two, and each stated positively — every clause here
+replaces a version that a broken system satisfied:
+- **Per monitor, not per priority.** Two monitors share each priority,
+  so "one P1 and one P3" signs the phase off while the other two may
+  never have been routed to the phone at all. Phase 2 proved each
+  monitor's *email* delivery; the provider action configured here is a
+  different wire, and only firing each one exercises it.
+- **With DND on.** Testing a P1 with DND off proves the push works and
+  leaves the override — the only reason P1 exists — unexercised.
+- **Arriving, not merely silent.** "The P3 doesn't buzz" is satisfied
+  just as well by a P3 that never arrives, which is exactly what a
+  disconnected monitor looks like. Confirm each in the provider's
+  delivery log, or in the notification shade once DND lifts.
+- **Synthetically means a matching EVENT, not a recreated fault.** One
+  of the four is Jina credit exhaustion, and the only thing that emits
+  its line today is Jina actually returning 402/429 (`api/summary.ts`,
+  the `payment_required` branch) — which against the production key
+  means breaking summaries for real readers, with no recovery but the
+  quota window, and `TODO.md` says **don't**. Read literally against
+  that, "all four monitors" makes this phase either impossible or
+  destructive, so the requirement above needs this clause to stand at
+  all. Fire the *monitor*, not the fault — by the same record injection
+  Phase 2 already set up (its definition of done covers the ingest
+  credential, the tagging, and the cost note; don't restate them here).
+  Failing that, point the monitor's query at a benign event that does
+  occur, fire it, and restore the query afterward. Either exercises the
+  wire this phase is about: monitor → Axiom webhook → provider → phone.
+  **Retargeting is a fallback for this
+  phase only** — Phase 2 has already proved each monitor's real query
+  against its own thresholds, and doing it there instead would leave
+  those untested, which is the one thing Phase 2 exists for.
+- **Say what that leaves unproven**, rather than reading the phase as
+  end-to-end. That the handler emits the line when Jina really does
+  return 402 is a *separate* open item, blocked on a throwaway
+  credential or a test-only injection point (`TODO.md`). This phase
+  proves delivery; nothing in it proves detection of the real fault,
+  and the two are worth keeping apart because only one of them is
+  cheap.
 
 ### Phase 4 (optional) — migrate to Datadog
 
 Only if the operator decides the learning dividend is worth it.
 Rewrite APL queries as Datadog Logs Query, install Datadog Vercel
 integration, either dual-ship or cut Axiom cleanly. Monitors get
-rebuilt in Datadog's UI; OpsGenie integration is first-class so
-the paging layer is unchanged.
+rebuilt in Datadog's UI. **Whether the paging layer survives untouched
+depends on the provider Phase 3 picked** — a first-class Datadog
+integration means re-pointing the monitors and nothing else, while a
+generic-webhook provider means rebuilding delivery and re-running the
+synthetic trigger to prove the phone still buzzes. Phase 3 records
+which one it is, so this is a known cost by the time anyone gets here
+rather than a discovery mid-migration.
 
 ### Phase 5 (optional) — automated Jina wallet check
 
@@ -692,7 +874,7 @@ Things left for the operator to pick before Phase 2:
 
 - **Axiom vs Datadog for monitors** — see § Monitoring layer.
   Doesn't block Phase 1.
-- **OpsGenie priority taxonomy** — the P1/P3 split in Phase 3 is
+- **Paging priority taxonomy** — the P1/P3 split in Phase 3 is
   a starting guess; adjust based on how annoying 3 AM buzzes
   actually are.
 - **Runbook storage** — keep in this file, or split per-alert
