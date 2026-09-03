@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { TooltipButton } from './TooltipButton';
+import { cancelPointerGestures } from '../lib/gestureCancel';
 
 // jsdom ships no real PointerEvent constructor, so Testing Library's
 // `fireEvent.pointerEnter/Leave` fall back to a plain Event and drop the
@@ -333,6 +334,55 @@ describe('TooltipButton', () => {
     expect(tip.parentElement).toBe(document.body);
     expect(btn).toHaveAttribute('aria-describedby', tip.id);
     restore();
+  });
+
+  it('tears the long press down when a pinch claims the fingers', () => {
+    // A finger resting on this button is part of the pinch now. The browser
+    // sends no `pointercancel` — the pointer is still down and perfectly
+    // healthy — so without the broadcast the tooltip stays up and its hide
+    // timer keeps running over a gesture that has moved on.
+    render(
+      <TooltipButton tooltip="Pin" data-testid="btn">
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn');
+    const restore = mockRect(btn, {
+      top: 100,
+      left: 40,
+      width: 48,
+      height: 48,
+      right: 88,
+      bottom: 148,
+    });
+    dispatch(btn, 'pointerdown', { pointerType: 'touch' });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    act(() => cancelPointerGestures());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    restore();
+  });
+
+  it('does not activate on the click a pinch-interrupted press leaves behind', () => {
+    // The swallow that covers this lives at the document rather than here,
+    // because the plain `<button>`s this component does not wrap need it just
+    // as much — so what is asserted is the outcome, not where it comes from.
+    const onClick = vi.fn();
+    render(
+      <TooltipButton tooltip="Pin" data-testid="btn" onClick={onClick}>
+        x
+      </TooltipButton>,
+    );
+    const btn = screen.getByTestId('btn');
+
+    dispatch(btn, 'pointerdown', { pointerType: 'touch' });
+    act(() => cancelPointerGestures());
+    fireEvent.click(btn, { detail: 1 });
+
+    expect(onClick).not.toHaveBeenCalled();
   });
 
   it('hides the tooltip after the duration elapses', () => {

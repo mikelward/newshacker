@@ -1,3 +1,4 @@
+import { onGestureCancel } from '../lib/gestureCancel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react';
 
@@ -74,6 +75,28 @@ export function useSwipeToDismiss({
 
   const hasAnyHandler = !!(onSwipeLeft || onSwipeRight || onLongPress);
   const active = enabled && hasAnyHandler;
+
+  // A pinch (or any other multi-touch gesture) has claimed the fingers: abandon
+  // the swipe in flight rather than let its `pointerup` commit. The browser
+  // sends no `pointercancel` for this — the pointer stream is still perfectly
+  // healthy, it just no longer means what this hook thinks it means — so the
+  // broadcast is the only signal. Without it, spreading two fingers across a row
+  // to resize text commits that row's swipe action on release.
+  useEffect(
+    () =>
+      onGestureCancel(() => {
+        if (!startRef.current) return;
+        startRef.current = null;
+        clearLongPressTimer();
+        setDragging(false);
+        setOffset(0);
+        // Swallow the click the browser still fires on lift, the same way the
+        // tail of a real swipe does — otherwise a pinch that started on a row
+        // body opens the story the moment the fingers leave it.
+        justSwipedRef.current = true;
+      }),
+    [clearLongPressTimer],
+  );
 
   const onPointerDown = useCallback(
     (e: PointerEvent<HTMLElement>) => {

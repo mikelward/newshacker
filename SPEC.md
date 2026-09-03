@@ -1209,6 +1209,49 @@ item id from the story and writes it into this user's `done` sync list.
 - Text: `#000` primary, `#4a4a4a` read/opened titles, `#828282` metadata. The opened-title color sits between primary and meta so a row the reader has already opened is clearly de-emphasized without fading into the meta line below it — `#4a4a4a` (nudged darker from the earlier `#5a5a5a`) keeps read-but-pinned rows comfortably readable while staying clearly below the `#000` unread titles. The read/unread distinction works the same way in both light and dark: the `--nh-read` vs. `--nh-text` color gap plus the standard `500`/`400` title-weight step. Titles stay at standard weights (no `550`/`450` intermediates) so glyphs render crisp rather than synthesized, and the read/unread treatment is identical across the two color schemes rather than leaning on weight in one mode and color in the other.
 - Font: self-hosted **Roboto** (Fontsource `@fontsource-variable/roboto`, variable `wght` axis), bundled so the UI renders in a consistent face on every device instead of whatever sans the OS maps. The `--font` token is `'Roboto Variable', var(--font-system)`, where `--font-system` (`-apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif`) carries the first paint until the woff2 loads and remains the fallback if it can't. HN's Verdana looks dated on mobile; we don't use it.
 - **Text size.** A reading-text ladder running **14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30, 32 px**, default 16, labeled by the px values themselves. It reaches **2×** the default — the magnification WCAG 1.4.4 asks for — where the three named steps it replaced spanned 1.06× and were not a large-text mode at all; steps widen past 20px because below that a reader is still nudging and above it another 1px is a change nobody can see. Relative names were dropped because they have to be re-coined every time the ladder grows, and "Large" had already stopped meaning large. A stored value from the old scale keeps the size it was worth (small → 15, medium → 16, large → 17) and an off-ladder value snaps to the nearest rung, ties rounding up, so nobody's setting is lost or quietly shrunk. It is a **stepper** — smaller / current / larger — in the drawer's appearance area, below the Theme/app-bar pickers, with the readout showing the size as a capital **A** rendered at roughly it, so the control demonstrates what it sets; each end goes inert rather than wrapping, and the readout is announced on change. A segmented row of one button per rung was the alternative and does not survive a 13-rung ladder: too many tap targets for one setting, and the glyph ramp is capped by the tap target's own height, so the top rungs would all draw the same size. The stepper costs random access, which the pinch gesture below pays for by being the fast path. It sets `--nh-font-size` (the rem anchor on `<html>`, default 16px), and the reading surfaces — story rows, comments, thread title/body — size their type in `rem`, so the setting scales **what you read** while the px-sized chrome (header, drawer, toolbar, dialogs) stays put and tap targets hold their floor. Persisted per-device in `localStorage` under `newshacker:font-size` (16px owns the bare `:root`, no attribute, mirroring how `system`/`mono` are the attribute-less theme/chrome defaults), applied before first paint via the inline boot script in `index.html`, and synced across tabs via the `newshacker:fontSizeChanged` event.
+- **Pinch with two fingers to resize the text.** Anywhere in the app, the text
+  resizes continuously under the fingers and settles on a rung when they lift,
+  so the whole ladder is one gesture rather than several taps — the trade that
+  makes the stepper's lack of random access affordable. Only the release is
+  persisted, so a gesture is one stored change however far it travels. Overshoot
+  is remembered rather than clamped, so pinching back returns where the fingers
+  ask; a third finger banks the size but not the suppression, and the remaining
+  two pick up from where they are when it lifts; a system interruption keeps
+  what is on screen, since silently reverting would undo a change the reader
+  watched happen.
+- **The pinch suppresses browser zoom per gesture, and the viewport is
+  deliberately NOT locked.** Page zoom and the pinch compete for the same two
+  fingers, and scaling the page leaves the reader panning sideways across a
+  magnified column instead of reflowing to the viewport — so on the gestures it
+  claims, newshacker wins. `user-scalable=no` would be the wrong way to win it:
+  a blanket lock buys nothing that canceling the claimed gestures doesn't
+  already do, is ignored by Safari regardless, and costs the two things that
+  make the override defensible.
+  - **A pinch on something only magnification can help still gets the
+    browser's.** Nothing a reader reads here is that today — comment HTML
+    carries no images and a linked article opens outside the app — so the rule
+    is written for what would arrive: a real graphic marks itself zoomable, and
+    app chrome that merely happens to be drawn with an image is not a
+    photograph and is treated as text. **Where the browser would not have
+    magnified it anyway, the pinch resizes text rather than doing nothing** —
+    standing aside on a surface with no zoom to hand over would suppress the
+    resize and deliver no magnification, which is worse than either outcome
+    alone.
+  - **Zoom still works if the script doesn't.** A meta lock applies before any
+    JS runs and regardless of whether it ever does; this doesn't.
+- **A multi-touch gesture stands the single-pointer ones down.** The row swipe,
+  pull-to-refresh and every button track pointer events while the pinch reads
+  touch events, and the two streams cannot see each other: canceling a touch
+  event leaves the pointer stream flowing, and the browser reports nothing
+  wrong, so a pinch starting on a story row would otherwise commit that row's
+  swipe on release, or activate whatever a finger was resting on. A single
+  broadcast tells them to abandon what they were tracking. Activation is
+  suppressed at the document rather than per component, because there is no one
+  place that activates and the next plain button written would silently lack
+  it; keyboard activation is spared, having no pointer behind it to abandon.
+- **The text ladder is not a general magnifier**, and isn't meant to replace
+  one: it reflows text, so it does not enlarge chrome. That is why the browser
+  keeps the gestures above rather than newshacker taking all of them.
 - **Tap targets: ≥44×44px on touch (project floor; story rows sit higher at 48px), 36px under a precise pointer for the thread action bar; ≥8px spacing between any two distinct targets.**
 - **At most 3 tappable zones per story row**, 2 in the shipped UI (row body + right-side icon button). Anything else is display-only. The right-side button is Pin/Unpin on feed views and the view's own "undo" toggle on library views (see *Library views*). Upvoting is not on the row today; it lives on the thread page (see *Thread action bar*).
 - Layout: single column, centered on desktop. Max-width `720px` up to a viewport of `960px`, then `860px` at `≥960px` so a laptop/desktop monitor doesn't leave the layout feeling like a phone-stretched-wide. Same cap for feed and thread. Collapsed comments keep the same 3-line `-webkit-line-clamp` at every width — the wider column already fits more characters per line, so the same 3 lines surface meaningfully more text on desktop without touching the clamp. Iterating on the clamp (or widening the thread more than the feed) is open follow-up in `TODO.md § Desktop layout`.

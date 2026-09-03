@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useSwipeToDismiss } from './useSwipeToDismiss';
+import { cancelPointerGestures } from '../lib/gestureCancel';
 
 function dispatch(
   target: Element,
@@ -107,6 +108,62 @@ describe('useSwipeToDismiss', () => {
   afterEach(() => {
     restoreRect();
     vi.useRealTimers();
+  });
+
+  it('abandons a swipe when a pinch claims the fingers', () => {
+    // The pointer stream stays perfectly healthy when a second finger lands —
+    // the browser fires no `pointercancel`, because nothing went wrong from its
+    // point of view — so without the broadcast, spreading two fingers across a
+    // row to resize text commits that row's swipe action on release.
+    vi.useFakeTimers();
+    const onSwipeRight = vi.fn();
+    render(<Harness onSwipeRight={onSwipeRight} />);
+    const row = screen.getByTestId('row');
+
+    dispatch(row, 'pointerdown', 100, 100);
+    dispatch(row, 'pointermove', 250, 105);
+    act(() => cancelPointerGestures());
+
+    expect(row.getAttribute('data-dragging')).toBe('false');
+    expect(row.getAttribute('data-offset')).toBe('0');
+
+    dispatch(row, 'pointerup', 250, 105);
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(onSwipeRight).not.toHaveBeenCalled();
+  });
+
+  it('swallows the click a pinch-interrupted row would otherwise open with', () => {
+    // A finger resting on the row body still fires a click when it lifts, and
+    // opening the story mid-resize is the same wrong outcome as committing the
+    // swipe — so the cancel arms the suppression a real swipe's tail uses.
+    const onLinkClick = vi.fn();
+    render(<Harness onLinkClick={onLinkClick} />);
+    const row = screen.getByTestId('row');
+
+    dispatch(row, 'pointerdown', 100, 100);
+    act(() => cancelPointerGestures());
+    // `detail: 1` because the swallow deliberately spares keyboard activation
+    // (`detail === 0`), which has no pointer behind it and so can never be the
+    // tail of an abandoned gesture. A real tap reports 1.
+    fireEvent.click(screen.getByTestId('inner-link'), { detail: 1 });
+
+    expect(onLinkClick).not.toHaveBeenCalled();
+  });
+
+  it('leaves keyboard activation alone while the swallow is armed', () => {
+    // The swallow is disarmed by the next `pointerdown`, so it can never strand
+    // a pointer click — but a keyboard press has no `pointerdown` before it,
+    // and swallowing one would strand the control until someone tapped
+    // something. `detail === 0` is what tells them apart.
+    const onLinkClick = vi.fn();
+    render(<Harness onLinkClick={onLinkClick} />);
+
+    act(() => cancelPointerGestures());
+    fireEvent.click(screen.getByTestId('inner-link'), { detail: 0 });
+
+    expect(onLinkClick).toHaveBeenCalledTimes(1);
   });
 
   it('calls onSwipeRight after a rightward swipe past the threshold', () => {
