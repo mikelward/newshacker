@@ -1,9 +1,9 @@
-// Option lists for the appearance pickers (mode / app-bar / text size), shared
-// by the drawer and the Settings page so the two stay in lockstep. Pure data —
-// the matching icons live in `appearanceIcons.tsx`.
+// Option lists for the appearance pickers (mode / app-bar), shared by the
+// drawer and the Settings page so the two stay in lockstep. Pure data — the
+// matching icons live in `appearanceIcons.tsx`. Text size is not here: it is a
+// stepper over a 13-rung ladder now, not a list of options to lay out.
 import type { Theme } from '../lib/theme';
 import type { Chrome } from '../lib/chrome';
-import { type FontSize, FONT_SIZE_LABELS } from '../lib/fontSize';
 
 // Material Symbols Outlined paths (Apache 2.0, Google), drawn by `ThemeIcon`.
 const LIGHT_PATH =
@@ -24,17 +24,4 @@ export const CHROME_OPTIONS: Array<{ value: Chrome; label: string }> = [
   { value: 'mono', label: 'Mono' },
   { value: 'duo', label: 'Duo' },
   { value: 'classic', label: 'Classic' },
-];
-
-// The text-size picker renders each option as a capital "A" whose glyph size
-// hints the scale (small / medium / large). The accessible name comes from the
-// label, not the glyph.
-export const FONT_SIZE_OPTIONS: Array<{
-  value: FontSize;
-  label: string;
-  glyph: number;
-}> = [
-  { value: 'small', label: FONT_SIZE_LABELS.small, glyph: 14 },
-  { value: 'medium', label: FONT_SIZE_LABELS.medium, glyph: 18 },
-  { value: 'large', label: FONT_SIZE_LABELS.large, glyph: 22 },
 ];

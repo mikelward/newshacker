@@ -46,7 +46,7 @@ describe('<SettingsPage>', () => {
 
   it('mirrors the appearance pickers with the stored values selected', () => {
     renderWithProviders(<SettingsPage />, { route: '/settings' });
-    // Defaults: System mode, Mono app-bar, Medium text size.
+    // Defaults: System mode, Mono app-bar, 16px text size.
     expect(screen.getByRole('radio', { name: 'System' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -55,10 +55,7 @@ describe('<SettingsPage>', () => {
       'aria-checked',
       'true',
     );
-    expect(screen.getByRole('radio', { name: 'Medium' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    expect(screen.getByText('16px')).toBeInTheDocument();
   });
 
   it('changes appearance settings and persists them', () => {
@@ -71,12 +68,10 @@ describe('<SettingsPage>', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 
     act(() => {
-      fireEvent.click(screen.getByRole('radio', { name: 'Large' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Larger text' }));
     });
-    expect(window.localStorage.getItem('newshacker:font-size')).toBe('large');
-    expect(document.documentElement.getAttribute('data-font-size')).toBe(
-      'large',
-    );
+    expect(window.localStorage.getItem('newshacker:font-size')).toBe('17');
+    expect(document.documentElement.getAttribute('data-font-size')).toBe('17');
   });
 
   it('mirrors the Home feed picker (Top default) and persists changes', () => {

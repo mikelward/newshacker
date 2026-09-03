@@ -16,17 +16,15 @@ describe('useFontSize', () => {
 
   it('returns the stored font size and persists changes', () => {
     const { result } = renderHook(() => useFontSize());
-    expect(result.current.fontSize).toBe('medium');
+    expect(result.current.fontSize).toBe('16');
 
-    act(() => result.current.setFontSize('large'));
-    expect(result.current.fontSize).toBe('large');
-    expect(window.localStorage.getItem(FONT_SIZE_STORAGE_KEY)).toBe('large');
-    expect(document.documentElement.getAttribute('data-font-size')).toBe(
-      'large',
-    );
+    act(() => result.current.setFontSize('22'));
+    expect(result.current.fontSize).toBe('22');
+    expect(window.localStorage.getItem(FONT_SIZE_STORAGE_KEY)).toBe('22');
+    expect(document.documentElement.getAttribute('data-font-size')).toBe('22');
 
-    act(() => result.current.setFontSize('medium'));
-    expect(result.current.fontSize).toBe('medium');
+    act(() => result.current.setFontSize('16'));
+    expect(result.current.fontSize).toBe('16');
     expect(window.localStorage.getItem(FONT_SIZE_STORAGE_KEY)).toBeNull();
     expect(document.documentElement.hasAttribute('data-font-size')).toBe(false);
   });
@@ -35,14 +33,14 @@ describe('useFontSize', () => {
     const a = renderHook(() => useFontSize());
     const b = renderHook(() => useFontSize());
 
-    act(() => a.result.current.setFontSize('small'));
-    expect(b.result.current.fontSize).toBe('small');
+    act(() => a.result.current.setFontSize('15'));
+    expect(b.result.current.fontSize).toBe('15');
   });
 
   it('reads the stored value on mount', () => {
-    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, 'large');
+    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, '22');
     const { result } = renderHook(() => useFontSize());
-    expect(result.current.fontSize).toBe('large');
+    expect(result.current.fontSize).toBe('22');
   });
 
   it('repaints data-font-size on a cross-tab storage event', () => {
@@ -50,15 +48,13 @@ describe('useFontSize', () => {
     // applied the <html data-font-size> attribute, so the receiving tab's
     // picker flipped while the page text stayed stale until reload.
     const { result } = renderHook(() => useFontSize());
-    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, 'large');
+    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, '22');
     act(() => {
       window.dispatchEvent(
         new StorageEvent('storage', { key: FONT_SIZE_STORAGE_KEY }),
       );
     });
-    expect(result.current.fontSize).toBe('large');
-    expect(document.documentElement.getAttribute('data-font-size')).toBe(
-      'large',
-    );
+    expect(result.current.fontSize).toBe('22');
+    expect(document.documentElement.getAttribute('data-font-size')).toBe('22');
   });
 });

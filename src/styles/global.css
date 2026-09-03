@@ -166,13 +166,56 @@ button {
 /* ---------- Base ---------- */
 
 /* Text-size scale. Overrides the --nh-font-size token the root font-size reads
-   below; medium (16px) is the default and needs no attribute. */
-:root[data-font-size='small'] {
+   below; 16px is the default and needs no attribute. One rung per value in
+   `FONT_SIZES` — a value with no rule here silently falls back to 16px while
+   the picker reports the size it thinks it set, so `global.css.test.ts` derives
+   this list from that array rather than trusting the two to be edited together. */
+:root[data-font-size='14'] {
+  --nh-font-size: 14px;
+}
+
+:root[data-font-size='15'] {
   --nh-font-size: 15px;
 }
 
-:root[data-font-size='large'] {
+:root[data-font-size='17'] {
   --nh-font-size: 17px;
+}
+
+:root[data-font-size='18'] {
+  --nh-font-size: 18px;
+}
+
+:root[data-font-size='19'] {
+  --nh-font-size: 19px;
+}
+
+:root[data-font-size='20'] {
+  --nh-font-size: 20px;
+}
+
+:root[data-font-size='22'] {
+  --nh-font-size: 22px;
+}
+
+:root[data-font-size='24'] {
+  --nh-font-size: 24px;
+}
+
+:root[data-font-size='26'] {
+  --nh-font-size: 26px;
+}
+
+:root[data-font-size='28'] {
+  --nh-font-size: 28px;
+}
+
+:root[data-font-size='30'] {
+  --nh-font-size: 30px;
+}
+
+:root[data-font-size='32'] {
+  --nh-font-size: 32px;
 }
 
 html {
