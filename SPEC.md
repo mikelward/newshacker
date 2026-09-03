@@ -848,7 +848,16 @@ What is deliberately **not** rendered:
 
 Spacing / sizing:
 
-- Row vertical padding: 16px top and bottom. Min row height: 72px.
+- **Row height tracks the text size; only the 48px tap floor is fixed.** The
+  row's type is set in `rem`, so the row grows and shrinks with the Text size
+  setting instead of holding a fixed height while the type changes inside it.
+  Its breathing room — 6px above the title and below the meta — sits **inside**
+  that floor rather than on top of it: the right-side icon button carries the
+  48px hit area as a child of the row, so it alone already holds the row's
+  content box at 48px, and vertical padding on the row would stack on top and
+  pin every row to 60px however small the text got. That is what made small
+  sizes read as mostly whitespace. (These numbers correct a stale "16px padding,
+  72px min height" that no longer described the code.)
 - Min hit area per tap zone: 48×48px.
 - Min dead space between adjacent tap zones: 8px.
 - Pressed state (subtle background darkening) on every tap zone so the user sees which region received their tap.
