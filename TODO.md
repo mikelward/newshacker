@@ -1235,3 +1235,588 @@ ends up on the front page on a given day.
   weekly bot bumps. Likely `license-checker-rseidelsohn`. GPL/LGPL undecided,
   matching typelauncher#632. Independent of `npm-update`. Work out placement
   and gate/lanes wiring when actually building this.
+
+## Funnel role, cost ceilings, and overload
+
+newshacker's job in the portfolio is **reach**: it is the only product with a
+natural launch channel (Show HN) and its audience is almost exactly readmo's
+market. It stays free — a paywall would reduce the reach that makes it useful,
+and a paywalled unofficial HN client would land badly on the one channel worth
+having. Full reasoning in `readmo/MONETIZATION.md`.
+
+That makes a traffic spike the *expected* case here, not the tail case, so the
+items below are about surviving success.
+
+### Cost ceilings and quota exhaustion
+
+- [ ] **Audit what a 10,000-visitor launch day costs — and it is more than
+      Gemini and Jina.** This was called a "10× traffic day" for several
+      drafts, which was never true of the number under it: `SPEC.md` puts
+      current traffic at **single-digit daily**, so 10,000 is roughly a
+      thousand times the documented baseline, not ten. **Ten times expected
+      traffic is the wrong question for this app** — ten times single-digit is
+      still single-digit-times-ten, free on every tier here — and stating it
+      that way is the point rather than a caveat: what this section budgets
+      for is the **Show HN spike**, an event that arrives at once and bears no
+      relation to the growth curve. So it is a fixed stress bound with a named
+      visitor count, and every figure below carries the scenario it belongs to.
+      An earlier draft also named only Gemini and Jina and called the
+      same-story path near-free. That understates the spike, because two of
+      the costs are **traffic-proportional even on a cache hit**:
+      - **Upstash Redis, and it is the larger of the two.**
+        `warmFeedSummaries` fires *both* summary endpoints as each story row
+        scrolls into view, and both short-circuit on a KV hit — so the steady
+        state is one Redis read per endpoint per visible row. `SPEC.md` puts
+        the cron's own baseline at ~520k commands/month, already **~1.7× the
+        free allowance** (~$1/month at pay-as-you-go), and says outright that
+        it "rises with reader traffic since warm-on-view adds two reads per
+        visible row." **Apply the launch arithmetic to that sentence rather
+        than leaving it as "rises":** ~120 of the invocations a visitor makes
+        (below) each do their own cache read — the two summary endpoints on
+        every visible row — so 10,000 launch-day visitors is ~1.2 M commands,
+        **~$2.40** at ~$0.20 per 100k, before writes and rate-limit commands.
+        Several times the Vercel overage for the same day, so quoting only the
+        ~$1 cron baseline hid the bigger of the two costs behind the smaller
+        one. Gemini being cached does not make the
+        view free.
+      - **State the DURATION with every figure, and don't scale one
+        dependency from another.** This estimate has been wrong six separate
+        ways — the dependency omitted, the curve unquantified, cache hits
+        uncounted, a multiplier standing in for a month, the scenario's own
+        name misdescribing it, an invocation missed, and then a *CDN-absorbed*
+        one counted per visitor — so name the scenario and re-derive each
+        count rather than scaling by a number whose meaning has to be
+        inferred:
+        **Four origin invocations per hot row and four Redis-touching ones**
+        — the same four summary-endpoint calls, which reach the function every
+        time because those two endpoints moved off the edge CDN to Redis
+        (`SPEC.md` §Caching strategy). `/api/items` is the exception in both
+        directions: it reads no KV *and* is edge-cached, so it is neither
+        a Redis command nor a per-visitor invocation. So ~**120 invocations
+        and ~120 commands per visitor**, plus the `/api/items` fills below.
+        - **One launch day** (10,000 visitors: ~1.2 M invocations, ~1.2 M
+          Redis commands): Vercel ~**20¢** (0.2 M past the included million),
+          Redis ~**$2.40**. **That Redis figure is a cache-read lower
+          bound**, and the section's own cold-cache scenario is where it
+          stops holding: the per-IP limiter is gated on a cache *miss*
+          (`IMPLEMENTATION_PLAN.md` §Rate limiting), so a warm row spends
+          nothing there, while every miss adds an `INCR` per enabled tier —
+          two steady-state, up to four in the first window after a counter
+          rolls. It is not linear either, because the burst tier short-
+          circuits: `checkRateLimit` returns the moment a tier is over its
+          limit (`api/summary.ts:163-181`), so one address's first 120 cold
+          requests cost 40 `INCR`s for the 20 that clear the 20-per-10-min
+          burst, 2 first-use `EXPIRE`s, and 1 apiece for the 100 rejected —
+          ~142, not 240. Parameterize by miss count rather than folding a
+          guess in: how much of a launch is cold depends on how much of it
+          lands on rows the cron never warmed, which nothing here measures,
+          same as the `/api/items` fills above.
+        - **A month sustained at that daily rate** — 30 x: ~36 M invocations,
+          ~35 M billable ≈ **$35**; Redis ~36 M ≈ **$72**; ~**$107**
+          together. A *stress bound*, not a forecast: a Show HN is one spike
+          and a decay curve, not thirty launch days.
+        - **The realistic month** sits between the two and depends on how fast
+          the curve decays, which nothing here measures. Don't invent a figure
+          for it — the bound above is what to budget against.
+        Around $100/month at the bound is real money and not existential,
+        which is why the **threshold behavior** — pay the overage, or
+        pause/throttle at the limit — is still the thing to settle for each
+        before launch day rather than the total.
+      - **Vercel invocations**, on the same curve and with the arithmetic
+        applied, because it lands differently from the pin-prefetch estimate
+        in `IMPLEMENTATION_PLAN.md`. That one is bounded by *qualifying loads
+        per month* and comes to ~3–9 % of the million invocations Vercel Pro
+        includes for the $20 already being paid. This one is bounded by
+        *visible rows*, and **the server cache does not reduce it** — a KV hit
+        short-circuits the expensive generation *inside* the handler, after the
+        request has already been made and billed. So two invocations per row
+        scrolled past, and **four on a row over the prefetch threshold,
+        whatever the cache holds**: the duplicate warm below is a second HTTP
+        request rather than a second generation, and those four
+        summary-endpoint calls are all of it. **A fifth HTTP request goes out
+        and mostly does not reach the function.** `prefetchFeedStory` →
+        `prefetchPinnedStory` fires `prefetchCommentBatch` inside its root
+        fetch, which calls `getItems` → `/api/items` — but that endpoint alone
+        kept the edge CDN (`public, max-age=60, s-maxage=60,
+        stale-while-revalidate=300`, `api/items.ts:124-134`; `SPEC.md`
+        §Caching strategy says why it stayed), so on a hot story thousands of
+        visitors share one fill rather than each billing an invocation.
+        Exactly one *request*, not a chunked several: `prefetchCommentBatch`
+        returns immediately for zero kids and otherwise slices to
+        `COMMENT_BATCH_LIMIT` = 30 *before* calling `getItems`
+        (`src/lib/commentPrefetch.ts:72-81`), so `getItems` never reaches its
+        own chunking path from here however many top-level comments the story
+        has. **What bounds the fills is content and geography, not traffic** —
+        the cache key is the exact `?ids=<30 ids>&fields=full` URL, so a fill
+        happens when the story's first-30 kid slice changes (comment threads
+        accumulate continuously, per `reports/2026-04-29-cache-strategy.md`
+        Finding 2) or the 60 s shared TTL lapses, once per POP serving it.
+        That is thousands a day across the front page, not hundreds of
+        thousands — but it is a *measurement*, not a figure to assert: read
+        the actual origin count off Vercel's analytics before quoting one.
+        The root `getItem` is free of all this: it goes straight to Firebase,
+        not through our functions. On /top most of the front page is over the
+        threshold, which puts a launch at the top of the range rather than the
+        bottom: thirty rows a visitor is ~120 invocations, so
+        **10,000 visitors in a launch day is ~1.2 M — the whole monthly
+        allowance and a fifth again, in a day**, where the pin path takes a
+        month to reach a tenth of it. Only the duplicated *generation* and
+        the rate-limit debits depend on a cold cache; the invocations and the
+        Redis reads do not. At ~$1/million overage the launch day itself is
+        ~200k invocations past the included million, about **20¢** — but the
+        allowance is gone on day one and every invocation for the rest of the
+        month bills from zero, which is why the duration bullet above gives
+        the monthly figures separately (~$35 here, ~$107 with Redis, at the
+        sustained bound). **What the project is configured to do at the
+        threshold is still the first question, ahead of the total**: paying
+        the overage costs that; a spend limit that pauses the project takes
+        the site down at its most-visited moment, which is the opposite of
+        what a launch wants. Check which is set before launch day, not after.
+        Re-derive every figure against Vercel's and Upstash's current pricing
+        pages rather than reusing these — the `IMPLEMENTATION_PLAN.md` note
+        says the same of its own.
+      - **And a hot row pays that twice, not once.** Above
+        `FEED_PREFETCH_SCORE_THRESHOLD` (100 points — most of the /top front
+        page) a row entering the viewport fires *two* independent warms:
+        `warmFeedSummaries` with a raw `fetch`, and `prefetchFeedStory` →
+        `summaryQueryOptions` / `commentsSummaryQueryOptions` through React
+        Query (`StoryList.tsx:813,847`, `pinnedStoryPrefetch.ts:86-95`). The
+        raw fetch is never registered with the query cache, so React Query's
+        own dedup cannot see it and both go out — which is where all four of
+        the invocations above come from, already counted there rather than
+        doubled on top. The worse case is the one to carry: two *cold*
+        requests for the same story can both miss the KV cache and each start
+        a Gemini call. Either count it in the estimate or deduplicate the two
+        paths — routing `warmFeedSummaries` through the same query options
+        would make React Query dedupe them for free.
+- [ ] **Deduplicate those two warms BEFORE launch — this is not just an
+      accounting line.** Both endpoints debit the same per-IP bucket
+      (`newshacker:ratelimit:aisummary:`, identical prefix in `api/summary.ts`
+      and `api/comments-summary.ts`), whose burst tier is **20 requests per 10
+      minutes** and which gates cache *misses* only. On a cold cache a hot row
+      with both an article and comments costs **four** debits — two endpoints,
+      each requested twice — so **five rows exhaust an ordinary visitor's
+      burst quota** and everything after it 429s. That is a launch-day
+      cold-cache shape, not an abuse shape, and counting the duplicate spend
+      does nothing about it.
+      **But deduplicating is necessary and NOT sufficient, so this item needs
+      both halves.** Dedup halves a cold row from four debits to two, which
+      moves the wall from five rows to ten — still short of the thirty a
+      visitor scrolls on `/top`, so the same reader still 429s, just later.
+      The limit itself has to move with it: **re-tier the burst allowance to
+      the real per-row cost of a cold scroll**, or stop charging speculative
+      warms against a bucket sized for demand traffic — the underlying
+      mismatch is that `warmFeedSummaries` is *prefetch*, and the limiter was
+      built for a refetch loop from one bad client. (Not charging them at all
+      reopens the abuse vector the limiter exists for, since anyone can call
+      the endpoint directly; so if that is the route, the exemption has to
+      turn on something a caller cannot assert about itself.) Whichever, the
+      capacity change ships with the dedup, not after it.
+      **Cost of the re-tier, before mandating it (rule 11).** Raising the
+      burst tier to pass a cold thirty-row scroll means at least **60**
+      endpoint requests per address per ten minutes, up from 20 — and since
+      the tier gates cache misses, those are all provider-touching: for link
+      stories with comments, ~**30 Jina fetches and ~60 Gemini generations
+      from one address**, roughly **3× today's per-address exposure**. That
+      is the real price of the fix and it is not obviously worth paying as
+      stated, which is why the two options are not equivalent: re-tiering
+      buys the cold scroll by widening what a single abusive address can
+      spend, while exempting prefetch buys it without moving the ceiling for
+      demand traffic — at the cost of needing an exemption signal a caller
+      cannot forge. **Land cross-client single-flight first and the question
+      shrinks**, since a shared winner means most of those misses never reach
+      a provider at all. Record which option was chosen and what it costs
+      before implementing either.
+      **Pass criterion:** a single visitor scrolling all thirty rows of `/top`
+      against a cold cache completes with **no 429**. "The duplicate is gone"
+      is not the test — it passes while the reader still hits the wall.
+      Exercise it in the spike test below on a cold cache, since a warm-cache
+      test never touches the bucket at all and would pass regardless.
+- [ ] **And the bigger duplicate at launch is CROSS-CLIENT, which no amount of
+      React Query fixes.** Routing both warms through the same query options
+      dedupes them *within one browser*; a Show HN sends thousands of separate
+      browsers at the same cold story, and separate clients — and separate
+      serverless instances — all miss Redis before any of them writes back.
+      **Each one pays one Jina fetch and TWO Gemini calls**, not one: after
+      browser-local dedup a cold hot row still sends one request to each
+      endpoint, and `/api/summary` does the Jina fetch plus a Gemini
+      generation while `/api/comments-summary` does a second, separate Gemini
+      generation off the comment transcript (no Jina — it works from comments
+      already fetched). So the Gemini stampede is **twice** the Jina one, and
+      an estimate written from "a Jina fetch and a Gemini call" halves the
+      side that is larger and hits its quota first. That is the duplicate
+      that scales with the spike, and the in-browser one is the smaller half
+      of the problem. `IMPLEMENTATION_PLAN.md` already carries
+      the fix as **Single-flight the generation**, with two prior designs to
+      copy from, its cost envelope, and the lease-TTL failure mode — read it
+      there rather than re-deriving it here. What belongs on *this* list is
+      the launch decision it forces: either single-flight lands **before**
+      launch day, or this audit states the unbounded provider-cost and
+      quota-exhaustion figure that not having it implies. Right now it does
+      neither, which is the gap.
+- [ ] **Include Redis quota-exhaustion behavior in that audit — it inverts the
+      cost model.** `SPEC.md` is explicit: the record reads are
+      `.catch(() => null)`, and a null record is indistinguishable from a
+      never-seen one, so an unreachable or quota-exhausted Redis loses the
+      age/interval backoff — the one gate that reads the record — and every
+      *eligible* track takes the `first_seen` path and regenerates each tick.
+      Losing the cache doesn't just cost more Redis; it turns the cheapest
+      outcome into the most expensive one, on Gemini, exactly during the spike
+      that exhausted the quota. The signature is an anomalous `first_seen`
+      spike among eligible tracks. State this failure mode and its dollar
+      impact (guardrail 11) as part of the audit, not after it.
+- [x] **`summary_budget_exhausted` already degrades visibly, and is tested.**
+      `summaryErrorDetail` maps it to user-facing temporary-unavailability copy
+      (`src/components/Thread.tsx:257`), with a regression test driving the 503
+      and asserting that copy renders (`src/components/Thread.test.tsx:1330`).
+      Nothing to build. This is the property the gedmap geocoder lacked
+      (mikelward/gedmap#164) — worth noting that newshacker already had it.
+- [ ] What genuinely remains for **Jina** is confirming the budget copy
+      appears against a real deployment, not just under jsdom — but **this is
+      blocked on something to force it with, and that does not exist yet.**
+      The handler branches on Jina's 402/429 only, so an invalid key won't do
+      it (that is a 401, a different failure), and there is no fault-injection
+      path in the tree. What is left is depleting or throttling the same
+      `JINA_API_KEY` every uncached summary uses — deliberately breaking
+      summaries for real readers to check a message. **Don't**, and the reason
+      is worse than "wait for the window": the two branches this handler
+      treats alike recover differently. A **429** is throttling and does come
+      back on its own. A **402 is exhausted credit, and Jina's free grant is a
+      one-time 10M-token allotment per key that does not refresh** (`SPEC.md`
+      § *Cost/reliability*, and the cron's own measured ~12.9M tokens/day
+      means the grant is a day or two of traffic, not a month's). Draining it
+      leaves summaries down until someone tops up in paid blocks or rotates
+      the key — an unbounded outage with a purchase in the middle of it, not a
+      ten-minute wait. The prerequisite is either a
+      throwaway Jina account whose credit is spent on purpose, wired to a
+      preview deployment, or a test-only injection point that returns the
+      `payment_required` failure on request. Build one of those first and this
+      becomes a two-minute check; without one the item stays open rather than
+      being satisfied against production.
+      **This does not block `OBSERVABILITY.md` Phase 3**, and the two are
+      worth keeping apart. That phase requires all four monitors — the
+      Jina-credit one among them — to fire through the paging integration,
+      which needs only an *event matching the monitor's query*, not a real
+      402: post one into the Axiom dataset, or point the query at something
+      benign and restore it. What is blocked here is the other half, and the
+      more expensive one — proving the handler emits that line when Jina
+      really does return 402. Phase 3 says so itself rather than reading as
+      end-to-end.
+- [ ] **The Gemini ceiling is a different, unverified path — cover it
+      separately.** `summary_budget_exhausted` is emitted *only* for Jina's
+      402/429 (`api/summary.ts`, the `jinaResult.failure ===
+      'payment_required'` branch). A Gemini quota or ceiling rejection falls
+      through the generation `try` instead and surfaces as
+      `summarization_failed` / HTTP 502. So the tested degradation covers one
+      of the two metered providers, and the provider-hard-cap item above adds a
+      ceiling to the one that is *not* covered. Add a Gemini-cap test, and
+      state the user-visible reliability impact of that path (guardrail 11's
+      cost-and-reliability note) before calling launch degradation verified.
+- [ ] **Cover BOTH Gemini-backed endpoints, not just `api/summary.ts`.**
+      `/api/comments-summary` has its own ceiling path and its own
+      user-visible outcome: its Gemini catch returns a bare
+      `502 { error: 'Summarization failed' }`
+      (`api/comments-summary.ts:733-739`), and `CommentsSummaryErrorReason`
+      (`src/hooks/useCommentsSummary.ts:19`) recognizes only `rate_limited` —
+      so there is no reason code a budget-exhaustion message could hang off,
+      and the discussion-summary card degrades differently from the article
+      one. An article-summary cap test passes while that stays unverified.
+      Give the comments endpoint its own exhaustion outcome and copy, and its
+      own test, before launch degradation counts as covered.
+- [ ] **Set a hard spend ceiling at the provider — and note it would be the
+      ONLY global hard control there is.** "Not just in code" implied an
+      aggregate in-code guard exists. It does not: the summary handlers
+      rate-limit per **IP** (`newshacker:ratelimit:aisummary:<tier>:<ip>:<win>`),
+      which bounds one visitor and does nothing against a crowd of distinct
+      ones — precisely the launch shape — and `WALL_CLOCK_BUDGET_MS` only stops
+      a cron tick *starting* more work after 50 s. `SPEC.md` says so itself: it
+      "bounds how many stories a runaway tick starts, not how long that tick
+      runs or what it spends, and nothing bounds the damage across ticks."
+- [ ] **Add an aggregate cost circuit breaker**, so the provider cap is a
+      backstop rather than the only line. A global generation/spend counter per
+      window that sheds generation (serving cached-or-nothing) once tripped,
+      covering the user-request path and the cron alike. It would be the first
+      **in-app, aggregate** control — not the first thing to notice a runaway,
+      which the GCP billing budget already does at 50/80/100 % of the monthly
+      cap (`OBSERVABILITY.md` § *Current state*, already configured). The gap
+      it fills is between noticing and stopping: a budget alert is an email
+      about spend that has already accrued, and the provider hard ceiling above
+      it is all-or-nothing at the provider and not yet set. A breaker is the
+      only one of the three that can shed the expensive path while keeping the
+      app serving.
+- [ ] **Cost and outage policy for that breaker, decided before it is built**
+      (rule 11). It is a *shared* counter, so it adds a store round trip to
+      both paths that spend money. **Increment where the spend is reserved,
+      not where work is selected** — the two are far apart on the cron. A
+      selected track exits before Gemini on two separate gates: a backoff skip
+      returns before any fetch at all (`api/warm-summaries.ts:1429-1442`), and
+      an `unchanged` verdict returns after the content fetch but without
+      generating. So charging the counter per selected track would count
+      non-spend and shed summaries early — the breaker tripping on work that
+      cost nothing is worse than no breaker, because it takes the feature down
+      to protect a bill that was never accruing. Note the asymmetry the two
+      gates create: a backoff skip spends nothing, while `unchanged` has
+      already spent a Jina fetch, so a counter that means *spend* rather than
+      *generations* has to decide whether Jina counts. Say which before
+      building it. **It has to count it, and that means two reservation
+      points rather than one** — the answer this item kept deferring. The
+      cron's Jina fetch happens at `api/warm-summaries.ts:1464-1467`, and the
+      outcomes that pay for it and then never reach Gemini are not an edge
+      case: `reports/2026-04-29-cache-strategy.md` Finding 5 puts `unchanged`
+      at 700 events and 8.04M Jina tokens with zero Gemini, plus `error` at 29
+      events and 250K — together **64% of the day's 12.93M Jina tokens**. A
+      counter keyed on generations sits still while the majority of the Jina
+      bill accrues, which is the failure this breaker exists to prevent. So
+      reserve **before each Jina fetch and again before each Gemini call**, or
+      keep a budget per provider; either way the shed decision is per
+      provider, since exhausting Jina and exhausting Gemini are different
+      outages with different degradations (`summary_budget_exhausted` versus
+      the 502 path, per the item below).
+      **And a count of summaries is not a count of spend, so a flat `INCR`
+      cannot enforce a cost ceiling at all.** An article generation costs far
+      more Gemini prompt tokens than a comment one *and* adds a Jina fetch the
+      comments track never makes, so one counter against one threshold is
+      wrong in both directions: an article-heavy window trips it only after
+      the budget is already spent, and a comments-heavy one sheds summaries
+      costing a fraction of what the threshold assumed. So the unit is
+      weighted cost — charge each **billable call** an estimate of its own
+      spend — or the two tracks get separate budgets. **And an estimate is
+      not a ceiling, so say which instrument this is.** A weight derived
+      from measured per-call spend under-reserves whenever a call runs long
+      — article bodies vary by an order of magnitude, and nothing caps the
+      tokens a single Jina fetch feeds Gemini — so accepted work can outrun
+      its reservation with no concurrency involved at all. Two honest
+      options and they are not the same product: reserve a **conservative
+      per-call upper bound** and reconcile against actual usage after the
+      call, which costs a second write per call and sheds earlier than the
+      budget strictly requires; or call this a **soft expected-cost
+      throttle** and leave the provider-side cap as the only hard ceiling,
+      which is cheaper and admits it can overshoot. The second is probably
+      right here — the provider cap is already the item above, and a
+      breaker that sheds early is the failure mode this item opened by
+      warning about — but it must be *written down as a soft throttle*
+      rather than described with "ceiling" language it cannot deliver. Note "call", not
+      "generation": the paragraph above is what fixes the unit, and this one
+      must not quietly re-key the counter to generations and drop the Jina
+      fetches that never reach one. That is the same decision as the Jina
+      question above seen from the other side: both ask what one tick of the
+      counter is denominated in. **The Redis bound below rises, though it
+      stays small** — a weighted increment is still one command, but the
+      article track now reserves twice per check where it reserves at all
+      (Jina, then Gemini) against the comments track's once — which is the
+      ~26k `INCR`s/day the **Cost** paragraph below now prices. Still the
+      bound and not the bill, for the same reason: in steady state the
+      backoff means most tracks reserve nothing at all.
+      **Measure the weight; do not derive it from the track totals.** The
+      tempting number is Finding 3's headline **12.7×**, and it is a ratio
+      between 24-hour *track totals* (article 5.04M prompt tokens, comments
+      398K), not between calls — turning it into a per-call weight needs the
+      generation counts, and the obvious shortcut for those does not hold.
+      Near-equal output totals (16.6K vs 14.7K) do **not** imply near-equal
+      call counts, because the two prompts ask for different amounts: an
+      article summary is one sentence (`api/summary.ts:466`), a comments
+      summary is up to five insights (`api/comments-summary.ts:425-452`), so a
+      comments call emits several times the output of an article one. The two
+      sides of the report also point opposite ways on frequency — Finding 5's
+      per-outcome table and Finding 2's 96–99% comments change rate — which is
+      the tell that no per-call ratio is recoverable from track aggregates at
+      all. **One side is directly available and the other is not.** Finding 5
+      gives the article track per outcome: 410 `changed` + 89 `first_seen` =
+      **499 generations/day** against 5.04M prompt tokens, i.e. **~10,100
+      prompt tokens per article generation** (and ~33 output, consistent with
+      one sentence). The comments track has no equivalent table — the report
+      says its deeper analyses were filtered to `track == "article"` — so its
+      per-call figure has to come from the logged `first_seen`/`changed`
+      counts for that track, or from per-call token spend measured directly.
+      Do that before setting any weight; an earlier draft of this item
+      asserted ~11× off the equal-output shortcut and it was wrong.
+      **Define the window before any of this is implementable.** "A global
+      counter per window" is not yet a ceiling: three things decide what it
+      enforces, and none is settled here. **Duration** — a short window lets
+      the same budget be spent again every time it rolls, so an hourly window
+      with a daily-sized threshold protects nothing; the window has to be the
+      period the ceiling is expressed in, which for this app means matching
+      the **monthly** GCP billing budget the breaker backstops, with a
+      shorter window only as a separate burst tier on top. **Align it to
+      the provider's actual reset boundary, not to an arbitrary 30 days.**
+      A window starting at the first increment, or an epoch-aligned fixed
+      window of the kind `checkRateLimit` uses, straddles a calendar
+      billing reset — and a window straddling the reset admits close to two
+      thresholds inside one billed month, which is the one thing a monthly
+      breaker exists to prevent. Either pin the window to the provider
+      budget's own reset date, or use a rolling window with carry-over.
+      Cheap to get right at design time and invisible until the month it
+      fails. **Reset** — a
+      fixed-window key with a TTL (the shape `checkRateLimit` already uses)
+      resets cleanly; a counter with no expiry eventually sheds every
+      generation permanently, which looks identical to the feature being
+      broken. **Threshold** — a spend number, not a call count, per the
+      weighting above. Until those three exist, none of the daily and monthly
+      figures below can be related to what the breaker actually protects,
+      which is the point of computing them.
+      **Cost:** priced that way the cron's ceiling and its
+      steady state are far apart. With the two reservation points above —
+      Jina then Gemini on the article track, Gemini alone on the comments
+      track — 288 ticks/day x 30 stories x 3 reservations bounds it at
+      **~26k `INCR`s/day, ~778k/month, ~$1.56/month** at Upstash's ~$0.20
+      per 100k commands, on top of the ~$1 the two-key backoff read already
+      costs (`SPEC.md` §Warm-summaries cron). (It was ~17k/day and ~$1 when
+      this assumed one reservation per track; the Jina fetches being metered
+      is what moved it, and the two figures have to stay in step.) That is
+      the pathological case where nothing is skipped and everything
+      regenerates. In steady state the backoff is doing its job and most
+      tracks never reach the increment, so treat ~$1.56/month as the bound,
+      not the bill. **The request path is priced by the same
+      two-reservation rule, so it is not one `INCR` per uncached summary
+      either** — it is one per billable call, and how many that is depends on
+      the story. An uncached `/api/summary` on a **link** story reserves
+      twice, Jina then Gemini; on a **self-post** it reserves once, because
+      the Jina fetch is gated on `hasArticleUrl` (`api/summary.ts:962`) and a
+      self-post is summarized from the stored HN `text`. An uncached
+      `/api/comments-summary` reserves once — that endpoint has no Jina at
+      all. So a cold link story with comments is three reservations, a cold
+      self-post two. **Bound it rather than calling it "cheap", since the
+      section above supplies the traffic to bound it with — and the answer
+      turns entirely on whether cross-client single-flight lands first.**
+      Reservations happen only on a cache *miss* (a hit returns before any
+      provider call), so:
+      - **Single-flight first:** the reservations are bounded by *distinct
+        cold stories*, not by visitors — one winner reserves and everyone
+        else waits on it. The cron already keeps the top 30 warm, so the
+        cold set is the long tail: order thousands of commands a day,
+        genuinely negligible, and it stays negligible as traffic grows.
+        That is a second, independent reason to land single-flight before
+        the breaker rather than after.
+      - **Without it:** every client that misses reserves, so it scales with
+        visitors × cold rows. At the launch-day bound — 10,000 visitors,
+        thirty rows, three reservations for a cold link story with comments —
+        that is up to **~900k commands (~$1.80) in a day**, on top of the
+        ~1.2 M cache reads, and it is the same shape as the Gemini stampede
+        rather than a separate risk. The realistic figure is far lower
+        because most of `/top` is warm, but it is the same unmeasured
+        cold-row share as everywhere else in this section, so don't invent
+        one — record the ordering assumption instead.
+      Don't reuse the cron's per-check figure here either way: same rule,
+      different mix.
+      **Outage:** Redis unavailable is the case that decides what the breaker
+      is *for*, and both answers are bad in a different direction. Failing open
+      matches `checkRateLimit`'s existing per-tier `continue` and keeps
+      summaries live, but removes the only global spend protection at exactly
+      the moment the record reads have *also* stopped gating (same section: an
+      unreachable Redis loses the backoff and pushes eligible tracks into the
+      regenerate path), so the two failures compound into the worst-case bill.
+      Failing closed bounds the spend and takes live summarization down with
+      it. Recommendation: **fail closed on both paths**, written down with its
+      reason before the breaker ships rather than after. Open on the request
+      path is the tempting answer and it is wrong for this app's launch shape:
+      `warmFeedSummaries` fires `/api/summary` **and** `/api/comments-summary`
+      for every row that scrolls into view (`StoryList.tsx:813`), so a crowd of
+      first-time visitors *is* the request path, not a side channel to it. And
+      during a Redis outage everything else there has already failed open — the
+      cache read treats an error as a miss and proceeds to live generation, and
+      the per-IP limiter `continue`s past its own failure — so a breaker that
+      also fails open leaves nothing bounding spend at the one moment it is
+      needed. Closed costs live summarization during the outage; the page still
+      serves cached-or-nothing, which is a degradation rather than a broken app.
+- [ ] **Give the shed path its own outcome code and copy.** The existing
+      `summary_budget_exhausted` / 503 degradation is emitted *only* for Jina
+      402/429 (see the Gemini-ceiling item above), so a request shed by the
+      breaker would fall through to `summarization_failed` / 502 and read to a
+      visitor as a broken summary rather than a temporary limit. A breaker that
+      sheds into the generic error path repeats the exact failure the
+      degradation work above exists to prevent.
+- [ ] **Confirm rate limiting holds under a real spike, not just a loop —
+      and drive it from SHARED addresses, not distinct ones.** The existing
+      limiter was built for a refetch loop from one bad client; thousands of
+      legitimate first-time visitors is a different shape and must not be
+      mistaken for abuse. But `checkRateLimit` keys every bucket by
+      `normalizedIp` (`api/summary.ts:157-165`, IPv6 truncated to its `/64`),
+      so a spike from **distinct** addresses cannot trip it however large it
+      gets — a check built that way passes without exercising anything. The
+      false-positive case is many legitimate readers **behind one address**:
+      carrier-grade NAT, an office or campus egress, a shared `/64`. With four
+      debits per hot row against a 20-per-10-minute bucket, five cold rows
+      spend it, so a handful of readers on one NAT start seeing 429s.
+      **So this is ONE test, from one machine, not two** — the shared-address
+      cohort is the whole rate-limit check, and one load generator is already
+      one address. Don't pay for the other one: `extractClientIp` prefers
+      Vercel's `x-real-ip`, which the proxy sets from the actual peer
+      specifically so a client cannot influence it (`api/summary.ts:101-116`
+      says so in its own comment), so a distinct-address cohort cannot be
+      faked with headers — it needs genuinely distributed egress, a paid
+      load-testing service, to run a check established above as unable to
+      fail. What that infrastructure *would* exercise is Vercel/Redis/Gemini
+      capacity under concurrency, which is a real question but a different one
+      and a separately-costed item, not a rate-limit test.
+- [ ] **Re-derive this test's objective from whichever limiter design is
+      chosen — as written it now describes a system the prerequisite above
+      removes.** "Exhaust a 20-per-10-minute window with a shared-address
+      cold scroll" was written against today's limiter, and the dedup +
+      capacity change makes that arithmetic obsolete in both directions: run
+      it *before* the fix and it cannot meet the pass criterion (thirty rows,
+      no 429), run it *after* and the four-debits-per-row scenario it
+      describes no longer exists. So the load and the expected threshold are
+      not writable until the design is: **re-tiered burst** means a
+      shared-address scroll of N rows against the new allowance, checking the
+      wall lands where the new tier says; **prefetch exempted** means proving
+      speculative warms cost nothing while a demand-traffic burst still trips
+      at the old figure, which is a different test with a different fixture.
+      Write it once the choice is recorded, and keep only the two things that
+      hold either way: it must run on a **cold** cache (a warm one never
+      touches the bucket) and from a **shared** address (the cohort that
+      matters, per the item above).
+- [ ] **Prerequisite for running that check at all — it spends a real bucket.**
+      Whatever threshold it ends up exercising, exhausting it is the *point*
+      of the test, so against production every reader sharing that egress
+      address eats 429s until the window rolls. Same shape as the Jina smoke
+      test above — with the difference that this one *does* recover on its
+      own: run it somewhere else, and name where before requiring it.
+      The catch is that "somewhere else" is not automatic:
+      `RATE_LIMIT_KEY_PREFIX` is a bare constant with no environment segment
+      (`api/summary.ts:37`,
+      `api/comments-summary.ts:95`) and the store comes from
+      `KV_REST_API_URL` / `UPSTASH_REDIS_REST_URL`, so a preview deployment
+      that inherits production's Upstash credentials shares production's
+      buckets exactly. Confirm the preview has its own store (or give the
+      prefix an environment segment) **before** the first run; the recovery
+      window is bounded — ten minutes, no manual cleanup — but it is ten
+      minutes of real 429s if this is got wrong.
+
+### Alerting — see `OBSERVABILITY.md`, don't restate it here
+
+An earlier draft of this section said there was no alerting and proposed
+picking "two or three" conditions. Both were wrong, and a second plan competing
+with the real one is worse than no plan: `OBSERVABILITY.md` is the ground truth
+and already has a **configured** Gemini spend alert emailing the operator
+(§"Gemini spend alert"), already selects **four** alert conditions
+(§"What we want to know"), and already defines the phases from Axiom monitors
+to phone paging — with the cost and failure analysis the paging dependency
+needs.
+
+- [ ] Work the remaining phases there (Phase 2 monitors → Phase 3 paging),
+      rather than re-deciding conditions that are already chosen.
+
+### Funnel instrumentation (for the readmo bridge)
+
+The `newshacker-sync` bridge already mirrors Done and Pinned state both ways
+(readmo's `newshacker_link`, 0050, and the `apply_newshacker_state` RPCs), so
+the usual funnel-killer — starting over with an empty account — is largely
+solved. What is missing is knowing whether anyone crosses.
+
+- [ ] Instrument the crossing: link established, and how many linked users are
+      active in both. Without it, "does cross-promotion work?" is unanswerable
+      and the 1–3% expectation stays a guess.
+- [ ] Present the bridge as a product feature, not an ad — *"You read HN here.
+      Read everything else the same way, and your Done and Pinned state comes
+      with you."* Propose the wording to the repo owner and wait for a yes
+      before it ships. (Stated here rather than cited: this repo's `AGENTS.md`
+      has no copy sign-off rule — that is readmo's guardrail 12 — so an earlier
+      draft's "see AGENTS.md" pointed at nothing.)
+
+### Before any Show HN
+
+- [ ] Confirm the "unofficial, not affiliated with Y Combinator" framing is
+      unmissable on first load. It is already a golden rule; a launch day is
+      when it gets tested.
+- [ ] Have the spend ceiling and the degrade path verified first. The failure
+      mode of a good launch is a bill or a broken app, and both are avoidable.
