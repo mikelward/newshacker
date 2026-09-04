@@ -27,6 +27,9 @@ interface HNItemFixture {
   score?: number;
   dead?: boolean;
   deleted?: boolean;
+  // Mirrors the handler's HNItem: the submitter's username, read on the
+  // self-post path so the summary names them rather than speaking as them.
+  by?: string;
 }
 
 function makeRequest(
@@ -400,6 +403,60 @@ describe('handleSummaryRequest', () => {
     expect(prompt).toContain('no external article');
   });
 
+  // The submitter is the SUBJECT of an Ask HN / Show HN, so the third-person
+  // rewrite names them by their HN username rather than dropping into "I".
+  it('names the submitter by username in the self-post prompt', async () => {
+    const fetchItem = fetchItemFor({
+      35: {
+        id: 35,
+        type: 'story',
+        title: 'Ask HN: how do you version internal APIs?',
+        text: '<p>I maintain a few internal services and I keep breaking callers.</p>',
+        by: 'hnuser',
+        score: 10,
+      },
+    });
+    const client = createFakeClient([{ text: 'ok' }]);
+    await handleSummaryRequest(makeRequest(35), {
+      createClient: () => client,
+      fetchImpl: vi.fn(async () => {
+        throw new Error('Jina should not be called for self-posts');
+      }),
+      fetchItem,
+      store: null,
+    });
+    const prompt = client.models.generateContent.mock.calls[0]![0].contents;
+    expect(prompt).toContain('hnuser');
+    expect(prompt).toMatch(/Write in the third person/);
+    expect(prompt).toMatch(/Never write in the first person/);
+    expect(prompt).not.toMatch(/voice of the submitter/i);
+  });
+
+  // A deleted or absent author must not leave the model inventing a handle.
+  it('falls back to "the submitter" when the story has no author', async () => {
+    const fetchItem = fetchItemFor({
+      36: {
+        id: 36,
+        type: 'story',
+        title: 'Ask HN: how do you version internal APIs?',
+        text: '<p>I maintain a few internal services and I keep breaking callers.</p>',
+        score: 10,
+      },
+    });
+    const client = createFakeClient([{ text: 'ok' }]);
+    await handleSummaryRequest(makeRequest(36), {
+      createClient: () => client,
+      fetchImpl: vi.fn(async () => {
+        throw new Error('Jina should not be called for self-posts');
+      }),
+      fetchItem,
+      store: null,
+    });
+    const prompt = client.models.generateContent.mock.calls[0]![0].contents;
+    expect(prompt).toContain('the submitter');
+    expect(prompt).toMatch(/Never invent a different name/);
+  });
+
   it('summarizes a self-post even when JINA_API_KEY is unset', async () => {
     // Self-posts don't touch Jina, so the missing-jina-key check that
     // gates the article path must not reject them.
@@ -547,8 +604,11 @@ describe('handleSummaryRequest', () => {
       store: null,
     });
     const prompt = client.models.generateContent.mock.calls[0]![0].contents;
-    expect(prompt).toMatch(/voice of the author/i);
+    // The no-meta-framing steer stays; the voice-of-the-author ask that used to
+    // sit beside it is gone (see the third-person cases below).
     expect(prompt).toMatch(/The article argues/);
+    expect(prompt).toMatch(/Write in the third person/);
+    expect(prompt).not.toMatch(/voice of the author/i);
   });
 
   it('returns 502 with source_unreachable when Jina fails', async () => {

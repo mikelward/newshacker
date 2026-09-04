@@ -287,6 +287,9 @@ interface HNItem {
   score?: number;
   dead?: boolean;
   deleted?: boolean;
+  // The submitter's HN username. Read only on the self-post path, where the
+  // submitter is the subject of the summary sentence (see buildSelfPostPrompt).
+  by?: string;
 }
 
 const HN_ITEM_URL = (id: number) =>
@@ -464,11 +467,18 @@ function isValidHttpUrl(value: string): boolean {
 function buildPrompt(articleUrl: string, content: string): string {
   return (
     `Summarize the article below in a single, concise sentence without using bullet points or introductory text. ` +
-    `Write the sentence as a direct assertion of the article's main point, in the voice of the author — ` +
-    `as if the author (or someone speaking on their behalf) is stating the claim itself. ` +
+    `Write the sentence as a direct assertion of the article's main point — a claim ` +
+    `about its subject, not a description of the article. ` +
     `Do not refer to "the article", "the author", "the piece", "the post", "this story", or similar. ` +
     `Do not begin with meta-framing such as "The article argues", "The author claims", "This piece explains", ` +
     `"The post describes", or any variant. Just state the point. ` +
+    `Write in the third person, naming whoever or whatever the point is about ` +
+    `("The council has approved…", "The study found…"). Never write in the first person — ` +
+    `no "we", "us", "our", "I" or "my" — even where the article itself does, unless the ` +
+    `pronoun falls inside a direct quotation. Where the article is a first-person account ` +
+    `and its writer is never named, "the writer" is an acceptable subject ` +
+    `("The writer quit after five years and regrets it") — but only as the subject of the ` +
+    `claim, never as framing about the article ("The writer argues that…"). Never invent a name. ` +
     `The article was fetched from ${articleUrl}. Ignore navigation, boilerplate, and markup; focus on the main body.\n\n` +
     `--- BEGIN ARTICLE ---\n${content}\n--- END ARTICLE ---`
   );
@@ -479,15 +489,27 @@ function buildPrompt(articleUrl: string, content: string): string {
 // prompt drops the "fetched from <url>" clause and acknowledges that the
 // submitter's question is often the whole point (e.g. "Ask HN: how do I
 // do X?" → the summary should state the question, not the meta).
-function buildSelfPostPrompt(title: string, content: string): string {
+function buildSelfPostPrompt(
+  title: string,
+  content: string,
+  submitter: string | undefined,
+): string {
+  // The submitter IS the subject of an Ask HN / Show HN, so the third-person
+  // rewrite names them by their HN username where we have it. Falling back to
+  // "the submitter" keeps the sentence grammatical on a deleted/absent author
+  // rather than leaving the model to invent a handle.
+  const subject = submitter ? `"${submitter}"` : 'the submitter';
   return (
     `Summarize the Hacker News self-post below in a single, concise sentence without using bullet points or introductory text. ` +
     `The title is "${title}". ` +
-    `Write the sentence as a direct assertion of the post's main point or question, in the voice of the submitter — ` +
-    `as if the submitter is stating the claim or asking the question themselves. ` +
-    `Do not refer to "the article", "the author", "the submitter", "the piece", "the post", "this story", or similar. ` +
+    `Write the sentence as a direct assertion of the post's main point or question. ` +
+    `Do not refer to "the article", "the piece", "the post", "this story", or similar. ` +
     `Do not begin with meta-framing such as "The post asks", "The submitter claims", "The author wonders", ` +
     `"This post describes", or any variant. Just state the point or the question directly. ` +
+    `Write in the third person: the submitter is the subject, so refer to them as ${subject} ` +
+    `("${submitter ?? 'the submitter'} is looking for a tool that…", "${submitter ?? 'the submitter'} built a CLI that…"). ` +
+    `Never write in the first person — no "we", "us", "our", "I" or "my" — even though the post itself does, ` +
+    `unless the pronoun falls inside a direct quotation. Never invent a different name. ` +
     `There is no external article — the body below is the full submission.\n\n` +
     `--- BEGIN POST ---\n${content}\n--- END POST ---`
   );
@@ -1020,7 +1042,7 @@ export async function handleSummaryRequest(
     // in-hand via the Firebase item, so there's no Jina round-trip — the
     // only spend is the Gemini call itself.
     content = selfPostBody;
-    prompt = buildSelfPostPrompt(story.title ?? '', content);
+    prompt = buildSelfPostPrompt(story.title ?? '', content, story.by);
   }
 
   const client: SummaryClient = deps.createClient
