@@ -177,8 +177,8 @@ If any of the above fails, fix it — don't disable the check.
   only one sentence. Don't let it queue up behind an in-flight chain of tool calls.
 - **Don't narrate routine machinery.** A check run flipping, a re-run, a scheduled check
   re-arming, a webhook echo, a resolved thread — act on those silently; the noise buries
-  the one line that matters. Reports another rule requires stand (the Codex SHA and
-  comment count, a CI timing regression).
+  the one line that matters. Reports another rule requires stand (each review and its
+  findings, a CI timing regression).
 - **Don't report your own caught-and-fixed mistakes.** A wrong turn you noticed
   and corrected before it reached anything is not news — no "one thing worth
   flagging", no narration of the recovery. Say it only when it left something
@@ -452,7 +452,7 @@ up.
 
   > **History.** This was previously documented as broken: the response stripped the thread node ID, leaving no way to obtain a `threadId`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (fix). Verified working against a real Codex review thread on PR #406 (2026-07-24). Kept as a note rather than deleted so the next agent that hits a resolve failure knows this was a real, since-fixed upstream bug and doesn't re-derive it.
 
-- **Report each review in chat, and what it said.** Name the commit it read and the finding count — say so when that commit is no longer the head — then one bullet per finding: review comment, top-level comment or review body alike, most blocking first — what it claims, where, and what you did about it, or the options where it's the maintainer's call. Summarize them all in that one reply, ahead of *keep replies short*; ask only the most blocking question.
+- **Report each review in chat, and what it said — any reviewer's, not only Codex's.** Name the commit it read and the finding count — say so when that commit is no longer the head — then one bullet per finding: review comment, top-level comment or review body alike, most blocking first — what it claims, where, and what you did about it, or the options where it's the maintainer's call. Summarize them all in that one reply, ahead of *keep replies short*; ask only the most blocking question.
 - **Read the Codex verdict, don't infer it.** It reacts to the PR body
   (`issue_read` → `reactions`), not to a review thread, whose `Useful?` bar
   reads true on any PR it has commented on. `eyes` means reading, `+1` means
