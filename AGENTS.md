@@ -452,7 +452,7 @@ up.
 
   > **History.** This was previously documented as broken: the response stripped the thread node ID, leaving no way to obtain a `threadId`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (fix). Verified working against a real Codex review thread on PR #406 (2026-07-24). Kept as a note rather than deleted so the next agent that hits a resolve failure knows this was a real, since-fixed upstream bug and doesn't re-derive it.
 
-- **Report when Codex finishes reviewing a fresh push.** Codex's review runs asynchronously after each push; once its review event lands for the latest commit, surface a one-liner naming the SHA and comment count — e.g. `Codex reviewed 87d9f02 — 0 comments` or `Codex reviewed 87d9f02 — 3 comments, addressing now`. Tie it to the *latest* pushed SHA so a stale review of a superseded commit isn't conflated with the current state. The user uses this to know when the automated pass is done vs. still pending.
+- **Report each review in chat, and what it said.** Name the commit it read and the finding count — say so when that commit is no longer the head — then one bullet per finding: review comment, top-level comment or review body alike, most blocking first — what it claims, where, and what you did about it, or the options where it's the maintainer's call. Summarize them all in that one reply, ahead of *keep replies short*; ask only the most blocking question.
 - **Read the Codex verdict, don't infer it.** It reacts to the PR body
   (`issue_read` → `reactions`), not to a review thread, whose `Useful?` bar
   reads true on any PR it has commented on. `eyes` means reading, `+1` means
