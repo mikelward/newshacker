@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEntryStore, isEntry } from './entryStore';
+import {
+  resetStorageHealthForTest,
+  subscribeStorageFailure,
+} from './storageHealth';
 
 const KEY = 'newshacker:test:entries';
 const EVENT = 'newshacker:test:entriesChanged';
@@ -746,6 +750,41 @@ describe('createEntryStore', () => {
     expect(JSON.parse(window.localStorage.getItem(KEY) ?? 'null')).toEqual([
       { id: 1, at: 5001, deleted: true },
     ]);
+  });
+
+  it('reports a blocked read too, not just a refused write', async () => {
+    // A private window that refuses storage outright throws on `getItem`, and
+    // the store then never attempts a write at all — it does not overwrite a
+    // list it could not read. Reporting only refused writes left exactly the
+    // user the "storage blocked" message is for hearing nothing.
+    resetStorageHealthForTest();
+    const heard = vi.fn();
+    const stop = subscribeStorageFailure(heard);
+    const s = make();
+    const restore = refuseWrites(true);
+    s.getIds(1000);
+    restore();
+    await Promise.resolve(); // delivery is deferred off the read (storageHealth)
+    stop();
+
+    expect(heard).toHaveBeenCalledWith('denied');
+  });
+
+  it('reports a refused write so the user can be told', async () => {
+    // The change is held and replayed, so nothing is lost while the tab is
+    // open — but it will not survive a reload, and that is the user's to know
+    // (StorageFailureWatcher turns this into a toast).
+    resetStorageHealthForTest();
+    const heard = vi.fn();
+    const stop = subscribeStorageFailure(heard);
+    const s = make();
+    const restore = refuseWrites();
+    s.addId(1, 1000);
+    restore();
+    await Promise.resolve();
+    stop();
+
+    expect(heard).toHaveBeenCalledWith('quota');
   });
 
   it('isEntry validates shape (id/at numbers, deleted only true)', () => {

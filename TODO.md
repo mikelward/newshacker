@@ -102,33 +102,6 @@ status checks, same as `lanes`/`codex`:
       has reported on a `pull_request` run here — outside what a session
       without ruleset API access can do.
 
-## Tell the user when this device cannot store their lists
-
-PR #555 stops a refused `localStorage` write from losing a pin, but the outage
-is still invisible: the change holds for the session and is gone after a reload,
-with only a `console.debug` to say so. The user should be told.
-
-Shape (all the pieces exist):
-
-- `createEntryStore`'s `tryStore` catch already holds the `DOMException`.
-  Classify it: `QuotaExceededError` / code 22 / Firefox's 1014 → out of space;
-  `SecurityError` → storage blocked (a private window, blocked cookies);
-  anything else → unknown.
-- Report it from a module-level subscription — the condition is per ORIGIN, not
-  per key, so one report covers all four stores.
-- Surface it with the existing toast: `ToastProvider` is already at the app root
-  and `AppUpdateWatcher` is the precedent for a passive watcher sitting inside
-  it and calling `showToast`.
-- **Only for a condition, not a blip.** Out of space and blocked access both
-  hold until the user frees space or changes a setting, so those surface on the
-  first refusal; an unclassified failure could be a one-off, so it waits for a
-  second. Once per kind per session — a toast per refused pin would be worse
-  than silence.
-
-Copy needs approving before it ships (proposal, to be replaced): *"This device
-is out of storage — your lists won't be kept for next time."* / *"Your browser
-is blocking storage — …"* / *"Couldn't save to this device — …"*.
-
 ## Decisions needing review
 
 - **DEFERRED: US-spelling enforcement (owner call, 2026-08-18).** gedmap

@@ -5,6 +5,7 @@ import { clearChunkReloadBudget } from './lib/staleEntryRecovery';
 import { Analytics } from '@vercel/analytics/react';
 import { AppHeader } from './components/AppHeader';
 import { AppUpdateWatcher } from './components/AppUpdateWatcher';
+import { StorageFailureWatcher } from './components/StorageFailureWatcher';
 import { ScrollToTop } from './components/ScrollToTop';
 import { FeedBarProvider } from './components/FeedBarContext';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
@@ -124,6 +125,7 @@ export default function App() {
       <LoginDialogProvider>
         <Analytics />
         <AppUpdateWatcher />
+        <StorageFailureWatcher />
         <FeedBarProvider>
           <CloudSyncBridge />
           <HnFavoritesSyncBridge />
