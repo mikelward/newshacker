@@ -206,7 +206,11 @@ one made in another tab both survive, and what is already stored is never
 overwritten by a list assembled while the device was reading nothing.
 **It does not survive a reload** — nothing reached disk — so the device
 falls back to whatever it last managed to store, plus whatever cloud sync
-brings back for a signed-in reader.
+brings back for a signed-in reader. **And the reader is told**, once per
+session, by a toast naming what they can act on: out of storage, storage
+blocked, or neither identified. Out of space and blocked access both hold
+until the user does something, so they surface on the first refusal; an
+unidentified failure could be a one-off and waits to see it repeat.
 
 **Retention today:** Favorite, Pinned, and Done entries (and their
 tombstones) are all permanent; Hidden entries (and tombstones) expire

@@ -8,6 +8,8 @@
 // on device A, then removed at `at`" — a stale additive copy from another device
 // must not resurrect a removed id. See src/lib/cloudSync.ts for the merge.
 
+import { reportStorageFailure } from './storageHealth';
+
 export interface StoreEntry {
   id: number;
   at: number;
@@ -216,6 +218,11 @@ export function createEntryStore(config: EntryStoreConfig): EntryStore {
         loggedReadFailure = true;
         console.debug(`entryStore: read of ${storageKey} failed`, error);
       }
+      // A blocked read is a storage outage the user should hear about too, and
+      // on the browser this message is most for — a private window refusing
+      // storage outright — it is the ONLY signal: the write is never attempted,
+      // because nothing is written over a list this device could not read.
+      reportStorageFailure(error);
       return { ok: false };
     }
   }
@@ -229,6 +236,12 @@ export function createEntryStore(config: EntryStoreConfig): EntryStore {
         loggedWriteFailure = true;
         console.debug(`entryStore: write to ${storageKey} refused`, error);
       }
+      // The change is held and replayed, so nothing is lost while the tab is
+      // open — but it will not survive a reload, and that is the user's to
+      // know. Reported per origin rather than per key (see storageHealth), and
+      // deliberately on EVERY refusal: the threshold for saying something is
+      // that module's to decide, not each store's.
+      reportStorageFailure(error);
       return false;
     }
   }
@@ -294,7 +307,9 @@ export function createEntryStore(config: EntryStoreConfig): EntryStore {
         );
       }
       // Nothing is lost: the key keeps its legacy name and the read below
-      // returns [] until storage takes the rename.
+      // returns [] until storage takes the rename. Still a refusal from the
+      // same origin, so it counts toward telling the user.
+      reportStorageFailure(error);
     }
   }
 
