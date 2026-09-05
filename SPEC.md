@@ -193,6 +193,21 @@ one-shot rename of the legacy `newshacker:dismissedStoryIds` key to
 `newshacker:hiddenStoryIds`, which is the current key — the vocabulary
 switched from "ignore/dismiss" to "hide" to match HN's own term.
 
+**When the device cannot store the list:** on a browser that refuses
+`localStorage` writes — an exhausted per-origin quota, a private window —
+a pin, unpin, favorite or hide still takes effect and reads back for the
+rest of the session; the store keeps the refused change rather than
+letting the row snap back with nothing to say why. What it keeps is the
+*change* — the pin, the unpin — not the list that change produced, and it
+is replayed onto whatever the device finds stored once storage answers
+again: by the next write to that list, or by the next read that finds the
+key readable (there is no timer). So an edit made during the outage and
+one made in another tab both survive, and what is already stored is never
+overwritten by a list assembled while the device was reading nothing.
+**It does not survive a reload** — nothing reached disk — so the device
+falls back to whatever it last managed to store, plus whatever cloud sync
+brings back for a signed-in reader.
+
 **Retention today:** Favorite, Pinned, and Done entries (and their
 tombstones) are all permanent; Hidden entries (and tombstones) expire
 after 7 days. Only Favorite is clearly intended to be forever — see
