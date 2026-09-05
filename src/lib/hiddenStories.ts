@@ -38,13 +38,4 @@ export const replaceHiddenEntries = store.replaceEntries;
 // and re-serializing the whole list and firing a change event (→ a full list
 // re-render) per swept row, O(rows × list size), which visibly stalled. Same
 // semantics as addHiddenId per id: later ids win, no duplicates.
-export function addHiddenIds(
-  ids: readonly number[],
-  now: number = Date.now(),
-): void {
-  if (ids.length === 0) return;
-  const idSet = new Set(ids);
-  const entries = store.readRaw(now).filter((e) => !idSet.has(e.id));
-  for (const id of idSet) entries.push({ id, at: now });
-  store.writeRaw(entries);
-}
+export const addHiddenIds = store.addIds;
