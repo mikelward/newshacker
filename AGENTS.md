@@ -460,18 +460,19 @@ rebutted false positive, or where *Read the Codex verdict* below says the
   (`issue_read` → `reactions`), not to a review thread, whose `Useful?` bar
   reads true on any PR it has commented on. `eyes` means reading, `+1` means
   clean, and Codex revokes it on push — so a visible one belongs to the
-  visible head, and `+1` with green CI is a merge. The count names no
-  author, so leave PR-body reactions to Codex: nobody else's is revoked, and
-  a review is the attributable form, naming the commit it read. Findings
-  arrive as review comments, as a top-level comment, or as a review — read
+  visible head, and `+1` with green CI is a merge. The count names no author,
+  so leave PR-body reactions to Codex: nobody else's is revoked, and a review
+  is the attributable form, naming the commit it read. Findings arrive as
+  review comments, as a top-level comment, or as a review — read
   `get_review_comments`, `get_comments` and `get_reviews` to the last page,
   since all three page oldest first — and they block the merge until fixed,
   rebutted, or deferred (see *Deferring a finding* below); an acknowledgement
   is not an answer. A pending `codex` status is one of three things. Findings
   to address — address them. A clean review that left no reaction, or a
-  rebuttal it hasn't answered — poke `@codex review` once, now. Nothing back
-  at all — poke once, five minutes after the push. Escalate five minutes
-  after the poke rather than poking a second time.
+  rebuttal it hasn't answered — poke `@codex review` once, five minutes after
+  that review or rebuttal. Nothing back at all — poke once, five minutes
+  after the push. Escalate five minutes after the poke rather than poking a
+  second time.
 - **Skip echo events silently.** `mcp__github__add_reply_to_pull_request_comment` / `add_issue_comment` post under whichever GitHub identity backs the MCP auth (typically the repo owner's), so a moment after you post a reply the same body comes back as a webhook event authored by that identity. That's the echo of your own reply, not user feedback — treat it as a duplicate and continue the in-progress task without a chat-side acknowledgement. The test is "did *I* just post this body?", not "who is the author?" — a real review comment from the same identity still gets the usual reply-or-resolve handling.
 ## Pull requests and reviews
 
@@ -481,7 +482,7 @@ rebutted false positive, or where *Read the Codex verdict* below says the
   — and merge once CI is green and Codex's verdict for the current head is
   in.
 - Open PRs ready for review (not draft) unless asked otherwise.
-- **Judge every review comment on merit, whoever wrote it.** Verify the claim before acting; if it doesn't hold up, reply saying why and decline. A comment citing a rule is a *reading* of that rule, not the rule — check what the rule actually says. Codex misreads the privacy rules especially, and in one direction: stricter always feels safer, so an over-strict finding quietly costs capability the product needs. Quote the rule and decline rather than narrowing the code to satisfy it; where the rule really does forbid what the product needs, that conflict is the maintainer's call, not one to settle either way yourself. Declining doesn't clear the required `codex` status: post the rebuttal, then poke as *Read the Codex verdict* allows — a push does the same if the rebuttal is up first. Escalate if it re-raises.
+- **Judge every review comment on merit, whoever wrote it.** Verify the claim before acting; if it doesn't hold up, reply saying why and decline. A comment citing a rule is a *reading* of that rule, not the rule — check what the rule actually says. Codex misreads the privacy rules especially, and in one direction: stricter always feels safer, so an over-strict finding quietly costs capability the product needs. Quote the rule and decline rather than narrowing the code to satisfy it; where the rule really does forbid what the product needs, that conflict is the maintainer's call, not one to settle either way yourself. Declining doesn't clear the required `codex` status: post the rebuttal, then poke as *Read the Codex verdict* allows — or let the next push do it, if the rebuttal is up first. Escalate if it re-raises.
 - **A second verified finding in the same mechanism is evidence about the design, not another bug.** Before fixing it, look for the same shape elsewhere and ask whether a different design would delete the class rather than the instance. Say what you chose on the thread; a design change is the maintainer's call, autopilot included.
 - **Never leave a review comment thread silently dismissed.** Answer on the thread, then resolve it — a reply alone leaves it open, and under *require conversations resolved* that blocks the merge as firmly as ignoring it. A deferral is resolved the same way, once its follow-up is recorded (see *Deferring a finding*). When you think a comment is a false positive, say *why* on the thread (one or two sentences): the reasoning is exactly what the user wants surfaced, and "Vercel-only failure, doesn't apply" is more useful on the PR than buried in chat history. Acknowledgement noise ("good catch, will do") is fine and preferred over silence; the discipline is "say something or resolve", not "say nothing". This applies to human reviewers too, not just Codex.
 - **Deferring a real-but-out-of-scope finding.** Don't ask the maintainer to merge past it: note the follow-up in `TODO.md`, commit and push that first, reply on the thread citing the sha, and resolve. A finding with no thread (top-level comment or review body) still gets the `TODO.md` record, the push, and the reply — only the resolve is skipped. The push re-triggers Codex, so poke only as *Read the Codex verdict* allows; escalate if the re-review re-raises it.
