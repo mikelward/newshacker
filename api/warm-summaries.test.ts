@@ -24,8 +24,16 @@ import {
   type SummaryStore,
   type WarmFeed,
   type WarmKnobs,
+  __resetStoreWriteBreaker,
 } from './warm-summaries';
 import { detectPaywall as detectPaywallSummary } from './summary';
+
+// The store write breaker is module-scoped and persists across cases; a
+// test that trips it must not leave it open for the next. Reset before every
+// test in the file.
+beforeEach(() => {
+  __resetStoreWriteBreaker();
+});
 
 interface HNItemFixture {
   id?: number;
@@ -896,6 +904,199 @@ describe('handleWarmRequest', () => {
     expect(record.summary).toBe('self-post summary');
     // Hash is computed on the stripped plain-text body, not the raw HTML.
     expect(record.articleHash).toBe(hashArticle('Body of the self-post.'));
+  });
+
+  it('skipped_store_unreachable: a Redis read error skips both tracks without generating', async () => {
+    // Circuit breaker: if the record store is unreachable the cron must
+    // NOT take every eligible story down the first_seen → regenerate path
+    // every tick (the outage runaway). It skips, generating nothing.
+    const articleUrl = 'https://example.com/kv-down';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
+    });
+    const fetchItem = fetchItemFor({
+      3001: {
+        id: 3001,
+        type: 'story',
+        url: articleUrl,
+        title: 'KV down',
+        score: 10,
+        kids: [3002],
+        time: 1_700_000_000,
+      },
+      3002: { id: 3002, type: 'comment', text: 'hi', time: 1 },
+    });
+    const throwingStore: SummaryStore = {
+      async get() {
+        throw new Error('redis unreachable');
+      },
+      async set() {
+        throw new Error('redis unreachable');
+      },
+    };
+    const throwingCommentsStore: CommentsSummaryStore = {
+      async get() {
+        throw new Error('redis unreachable');
+      },
+      async set() {
+        throw new Error('redis unreachable');
+      },
+    };
+    // Empty queue: any Gemini call would throw "unexpected".
+    const client = createFakeClient([]);
+    const { logger, stories, runs } = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [3001],
+      createClient: () => client,
+      store: throwingStore,
+      commentsStore: throwingCommentsStore,
+      logger,
+      now: () => 1_700_000_000_000,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    const comments = stories.find((s) => s.track === 'comments')!;
+    expect(article.outcome).toBe('skipped_store_unreachable');
+    expect(comments.outcome).toBe('skipped_store_unreachable');
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled(); // no Jina either
+    expect(runs[0]!.outcomes.article.skipped_store_unreachable).toBe(1);
+    expect(runs[0]!.outcomes.comments.skipped_store_unreachable).toBe(1);
+  });
+
+  it('write breaker: a failed set trips the breaker so the next tick skips before generating', async () => {
+    // The read-side breaker misses a store that reads (miss) but rejects
+    // writes: the story generates, the write fails, nothing caches, and the
+    // next tick would regenerate. A failed set opens the write breaker;
+    // while open, a fresh story skips before any Jina/Gemini work.
+    __resetStoreWriteBreaker();
+    const now = 1_700_000_000_000;
+    const writeRejectingStore: SummaryStore = {
+      async get() {
+        return null; // reads succeed as a genuine miss
+      },
+      async set() {
+        throw new Error('redis write rejected');
+      },
+    };
+    const commentsStore = createCommentsTestStore();
+
+    // Tick 1: a fresh link post — reads miss, the article generates, the
+    // write throws, and the breaker opens. No kids, so the comments track
+    // is skipped_no_content and never writes.
+    const url1 = 'https://example.com/writes-fail-1';
+    const fetch1 = createFakeFetch({
+      [`https://r.jina.ai/${url1}`]: { body: jinaBody('body one') },
+    });
+    const client1 = createFakeClient([{ text: 'summary one' }]);
+    const cap1 = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl: fetch1,
+      fetchItem: fetchItemFor({
+        3010: { id: 3010, type: 'story', url: url1, score: 10 },
+      }),
+      fetchFeedIds: async () => [3010],
+      createClient: () => client1,
+      store: writeRejectingStore,
+      commentsStore,
+      logger: cap1.logger,
+      now: () => now,
+    });
+    const article1 = cap1.stories.find((s) => s.track === 'article')!;
+    expect(article1.outcome).toBe('first_seen');
+    expect(client1.models.generateContent).toHaveBeenCalledTimes(1);
+
+    // Tick 2 (same instance, same clock, within the 60 s cooldown): a
+    // different fresh story. The breaker is open, so it skips before Jina
+    // or Gemini — no throwaway spend on work we still can't persist.
+    const url2 = 'https://example.com/writes-fail-2';
+    const fetch2 = createFakeFetch({
+      [`https://r.jina.ai/${url2}`]: { body: jinaBody('body two') },
+    });
+    const client2 = createFakeClient([]); // must never be called
+    const cap2 = captureLogger();
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl: fetch2,
+      fetchItem: fetchItemFor({
+        3011: { id: 3011, type: 'story', url: url2, score: 10 },
+      }),
+      fetchFeedIds: async () => [3011],
+      createClient: () => client2,
+      store: writeRejectingStore,
+      commentsStore,
+      logger: cap2.logger,
+      now: () => now,
+    });
+    const article2 = cap2.stories.find((s) => s.track === 'article')!;
+    expect(article2.outcome).toBe('skipped_store_unreachable');
+    expect(client2.models.generateContent).not.toHaveBeenCalled();
+    expect(fetch2).not.toHaveBeenCalled(); // no Jina either
+    expect(cap2.runs[0]!.outcomes.article.skipped_store_unreachable).toBe(1);
+  });
+
+  it('pre-flight probe: a write-failing store skips the whole tick before any generation', async () => {
+    // The per-story breaker can't bound the concurrent first wave — with
+    // two fresh stories, both would generate before either `set` rejects.
+    // The pre-flight probe trips the breaker before the pool starts, so
+    // every story skips with nothing generated. Reads succeed (a miss), so
+    // this is the write-only outage the read breaker misses.
+    __resetStoreWriteBreaker();
+    const now = 1_700_000_000_000;
+    let probes = 0;
+    let gets = 0;
+    const writeFailingStore: SummaryStore = {
+      async get() {
+        gets += 1;
+        return null; // reads are a genuine miss
+      },
+      async set() {
+        throw new Error('redis write rejected');
+      },
+      async probe() {
+        probes += 1;
+        throw new Error('redis write rejected');
+      },
+    };
+    const url1 = 'https://example.com/probe-1';
+    const url2 = 'https://example.com/probe-2';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${url1}`]: { body: jinaBody('one') },
+      [`https://r.jina.ai/${url2}`]: { body: jinaBody('two') },
+    });
+    const fetchItem = fetchItemFor({
+      3020: { id: 3020, type: 'story', url: url1, score: 10 },
+      3021: { id: 3021, type: 'story', url: url2, score: 10 },
+    });
+    const client = createFakeClient([]); // must never be called
+    const cap = captureLogger();
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [3020, 3021],
+      createClient: () => client,
+      store: writeFailingStore,
+      commentsStore: createCommentsTestStore(),
+      logger: cap.logger,
+      now: () => now,
+    });
+
+    expect(probes).toBe(1); // one probe for the whole tick, before the pool
+    const articles = cap.stories.filter((s) => s.track === 'article');
+    expect(articles).toHaveLength(2);
+    expect(articles.every((s) => s.outcome === 'skipped_store_unreachable')).toBe(
+      true,
+    );
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled(); // no Jina for either story
+    // A failed probe skips the pool entirely: no record reads and no HN item
+    // fetches, so a write-outage tick stops hammering Redis/HN.
+    expect(gets).toBe(0);
+    expect(fetchItem).not.toHaveBeenCalled();
+    expect(cap.runs[0]!.outcomes.article.skipped_store_unreachable).toBe(2);
   });
 
   it('unchanged: bumps lastCheckedAt but does not call Gemini', async () => {

@@ -67,6 +67,14 @@ const MAX_N = 100;
 const KV_KEY_PREFIX = 'newshacker:summary:article:';
 // Matches api/comments-summary.ts.
 const COMMENTS_KV_KEY_PREFIX = 'newshacker:summary:comments:';
+// Key PREFIX for the pre-flight write probe (see SummaryStore.probe). Each
+// probe appends a fresh UUID so every probe SET allocates a new key — matching
+// a real record write, which noeviction rejects on allocation; a fixed key
+// overwritten in place could slip through once resident. Written and never
+// read; the short TTL self-clears them. Article and comments stores share one
+// Redis, so a single probe covers both.
+const PROBE_KEY = 'newshacker:summary:__probe__:';
+const PROBE_TTL_SECONDS = 60;
 
 // Comments track constants — mirror api/comments-summary.ts.
 const TOP_LEVEL_SAMPLE_SIZE = 20;
@@ -267,6 +275,11 @@ export interface SummaryStore {
     record: SummaryRecord,
     ttlSeconds: number,
   ): Promise<void>;
+  // Optional cheap write-reachability check, run once before the pool so a
+  // write-failing store (maxmemory/quota/unreachable) trips the breaker
+  // before any concurrent worker can snapshot it closed. A store without
+  // one just isn't pre-probed (the per-story write breaker still applies).
+  probe?(): Promise<void>;
 }
 
 function parseRecord(raw: unknown): SummaryRecord | null {
@@ -601,23 +614,31 @@ function createDefaultStore(): SummaryStore | null {
   const redis = new Redis({ url, token });
   return {
     async get(storyId) {
-      try {
-        const raw = await redis.get<unknown>(`${KV_KEY_PREFIX}${storyId}`);
-        return parseRecord(raw);
-      } catch {
-        return null;
-      }
+      // Let a Redis error propagate so processStory can tell "unreachable"
+      // from "no record yet" and skip the story instead of taking every
+      // one down the first_seen regenerate-every-tick path. A genuine miss
+      // returns null without throwing.
+      const raw = await redis.get<unknown>(`${KV_KEY_PREFIX}${storyId}`);
+      return parseRecord(raw);
     },
     async set(storyId, record, ttlSeconds) {
-      try {
-        await redis.set(
-          `${KV_KEY_PREFIX}${storyId}`,
-          JSON.stringify(record),
-          { ex: ttlSeconds },
-        );
-      } catch {
-        // best-effort write
-      }
+      // Let a Redis error propagate so the track can trip the write
+      // breaker; a store that serves reads but rejects writes would
+      // otherwise regenerate every story, every tick, with nothing cached.
+      await redis.set(
+        `${KV_KEY_PREFIX}${storyId}`,
+        JSON.stringify(record),
+        { ex: ttlSeconds },
+      );
+    },
+    async probe() {
+      // Exercise the real write path (SET + EX) once, on a FRESH key so it
+      // allocates like a real record write — under maxmemory/noeviction a new
+      // allocation is rejected exactly as a new record would be. Caught before
+      // the pool; lets the error propagate.
+      await redis.set(`${PROBE_KEY}${globalThis.crypto.randomUUID()}`, '1', {
+        ex: PROBE_TTL_SECONDS,
+      });
     },
   };
 }
@@ -638,25 +659,24 @@ function createDefaultCommentsStore(): CommentsSummaryStore | null {
   const redis = new Redis({ url, token });
   return {
     async get(storyId) {
-      try {
-        const raw = await redis.get<unknown>(
-          `${COMMENTS_KV_KEY_PREFIX}${storyId}`,
-        );
-        return parseCommentsRecord(raw);
-      } catch {
-        return null;
-      }
+      // Let a Redis error propagate so processStory can tell "unreachable"
+      // from "no record yet" and skip the story instead of taking every
+      // one down the first_seen regenerate-every-tick path. A genuine miss
+      // returns null without throwing.
+      const raw = await redis.get<unknown>(
+        `${COMMENTS_KV_KEY_PREFIX}${storyId}`,
+      );
+      return parseCommentsRecord(raw);
     },
     async set(storyId, record, ttlSeconds) {
-      try {
-        await redis.set(
-          `${COMMENTS_KV_KEY_PREFIX}${storyId}`,
-          JSON.stringify(record),
-          { ex: ttlSeconds },
-        );
-      } catch {
-        // best-effort
-      }
+      // Let a Redis error propagate so the track can trip the write
+      // breaker; a store that serves reads but rejects writes would
+      // otherwise regenerate every story, every tick, with nothing cached.
+      await redis.set(
+        `${COMMENTS_KV_KEY_PREFIX}${storyId}`,
+        JSON.stringify(record),
+        { ex: ttlSeconds },
+      );
     },
   };
 }
@@ -665,6 +685,76 @@ function getDefaultCommentsStore(): CommentsSummaryStore | null {
   if (defaultCommentsStore === undefined)
     defaultCommentsStore = createDefaultCommentsStore();
   return defaultCommentsStore;
+}
+
+// Circuit breaker for cache WRITE failures — twin of the one in
+// api/summary.ts and api/comments-summary.ts (kept inlined per the
+// no-shared-modules rule). The read-side fail-closed (get throws →
+// storeUnavailable → skip) doesn't catch a store that serves reads but
+// rejects writes: the read succeeds (miss), we generate, the write fails,
+// nothing caches, and the next story — and the next tick — regenerates,
+// which is the outage runaway this whole PR exists to stop. A failed
+// write opens this breaker; while open, every remaining story in the run
+// (and any within the cooldown of a subsequent tick on a warm instance)
+// skips before generating. ctx.now is fixed for the run, so one failure
+// closes the door for the rest of it.
+const WRITE_BREAKER_COOLDOWN_MS = 60_000;
+let writeBreakerOpenUntil = 0;
+
+// Test hook — reset the breaker between cases.
+export function __resetStoreWriteBreaker(): void {
+  writeBreakerOpenUntil = 0;
+}
+
+// Sanitized structured log for a Redis read/write failure — track +
+// operation + storyId + error name only, never a body, url, or the error
+// message (which can carry a connection string / credentials).
+// A Redis error reply leads with an uppercase code token (OOM, NOAUTH,
+// WRONGPASS, ERR, NOPERM, MASTERDOWN, ...); @upstash/redis carries it as the
+// start of the error message. Extract just that token as a sanitized failure
+// classification — never the rest of the message, which can carry the command
+// body / key. A transport error ("fetch failed") or a non-Redis body doesn't
+// match and the code is omitted, leaving `err.name` (TypeError vs UpstashError)
+// as the coarse signal. (Inlined per the no-shared-modules rule; twin in
+// api/summary.ts and api/comments-summary.ts.)
+function redisErrorCode(err: unknown): string | undefined {
+  if (!(err instanceof Error) || typeof err.message !== 'string') {
+    return undefined;
+  }
+  const match = /^([A-Z][A-Z0-9_]{1,31})\b/.exec(err.message);
+  return match ? match[1] : undefined;
+}
+
+function logStoreFailure(
+  track: WarmTrack,
+  op: 'read' | 'write' | 'probe',
+  storyId: number | undefined,
+  err: unknown,
+): void {
+  const code = redisErrorCode(err);
+  console.warn(
+    JSON.stringify({
+      type: 'warm-store-failed',
+      track,
+      op,
+      ...(storyId !== undefined ? { storyId } : {}),
+      error: err instanceof Error ? err.name : 'unknown',
+      ...(code ? { code } : {}),
+    }),
+  );
+}
+
+// A cache write failed: log it sanitized and open the breaker so the rest
+// of this run (ctx.now is fixed, so this closes the door for every later
+// story) skips before generating what it can't persist.
+function tripWriteBreaker(
+  track: WarmTrack,
+  storyId: number,
+  now: number,
+  err: unknown,
+): void {
+  writeBreakerOpenUntil = now + WRITE_BREAKER_COOLDOWN_MS;
+  logStoreFailure(track, 'write', storyId, err);
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -934,6 +1024,11 @@ export type CheckOutcome =
   // "this particular article host is blocking Jina".
   | 'skipped_payment_required'
   | 'skipped_budget'
+  // Both tracks: the record store (Upstash) was unreachable this tick, so
+  // we can't read the backoff state or persist a result. Skip rather than
+  // regenerate — a summary we can't cache is thrown away and redone next
+  // tick, the outage runaway. Circuit breaker; see processStory.
+  | 'skipped_store_unreachable'
   | 'first_seen'
   | 'unchanged'
   | 'changed'
@@ -1135,6 +1230,7 @@ function emptyOutcomeCounts(): Record<CheckOutcome, number> {
     skipped_unreachable: 0,
     skipped_payment_required: 0,
     skipped_budget: 0,
+    skipped_store_unreachable: 0,
     first_seen: 0,
     unchanged: 0,
     changed: 0,
@@ -1421,6 +1517,7 @@ async function processArticleTrack(
   existing: SummaryRecord | null,
   store: SummaryStore,
   ctx: StoryContext,
+  storeUnavailable: boolean,
 ): Promise<StoryLog> {
   const { deps, knobs, now, fetchFn, jinaApiKey, apiKey } = ctx;
   const baseLog = makeLog('article', storyId);
@@ -1444,6 +1541,15 @@ async function processArticleTrack(
       ...storyAgeFields,
       ...extra,
     });
+
+  // Circuit breaker: the record store threw on read (Redis unreachable),
+  // or a write earlier in this run failed (breaker open). Either way skip
+  // before any Jina/Gemini work — the backoff state we gate on is gone or
+  // unwritable, and a summary we generate can't be persisted, so it would
+  // regenerate every tick. See processStory.
+  if (storeUnavailable) {
+    return log({ outcome: 'skipped_store_unreachable' });
+  }
 
   if (existing) {
     const { skip, stableFor } = shouldSkipArticleByBackoff(existing, now, knobs);
@@ -1599,8 +1705,8 @@ async function processArticleTrack(
     };
     try {
       await store.set(storyId, updated, RECORD_TTL_SECONDS);
-    } catch {
-      // best-effort
+    } catch (err) {
+      tripWriteBreaker('article', storyId, now, err);
     }
     return log({
       outcome: 'unchanged',
@@ -1668,8 +1774,8 @@ async function processArticleTrack(
   };
   try {
     await store.set(storyId, record, RECORD_TTL_SECONDS);
-  } catch {
-    // best-effort
+  } catch (err) {
+    tripWriteBreaker('article', storyId, now, err);
   }
   if (!existing) {
     return log({
@@ -1706,6 +1812,7 @@ async function processCommentsTrack(
   existing: CommentsSummaryRecord | null,
   store: CommentsSummaryStore,
   ctx: StoryContext,
+  storeUnavailable: boolean,
 ): Promise<StoryLog> {
   const { deps, knobs, now, apiKey } = ctx;
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
@@ -1724,6 +1831,13 @@ async function processCommentsTrack(
         };
   const log = (extra: Partial<StoryLog>): StoryLog =>
     baseLog({ ...storyAgeFields, ...extra });
+
+  // Circuit breaker: the record store threw on read (Redis unreachable),
+  // or a write earlier in this run failed (breaker open) — either way skip
+  // before generating insights we can't persist. See processStory.
+  if (storeUnavailable) {
+    return log({ outcome: 'skipped_store_unreachable' });
+  }
 
   if (existing) {
     const { skip, stableFor } = shouldSkipCommentsByBackoff(
@@ -1799,8 +1913,8 @@ async function processCommentsTrack(
     };
     try {
       await store.set(storyId, updated, RECORD_TTL_SECONDS);
-    } catch {
-      // best-effort
+    } catch (err) {
+      tripWriteBreaker('comments', storyId, now, err);
     }
     return log({
       outcome: 'unchanged',
@@ -1859,8 +1973,8 @@ async function processCommentsTrack(
   };
   try {
     await store.set(storyId, record, RECORD_TTL_SECONDS);
-  } catch {
-    // best-effort
+  } catch (err) {
+    tripWriteBreaker('comments', storyId, now, err);
   }
   if (!existing) {
     return log({
@@ -1903,15 +2017,50 @@ async function processStory(
   const { deps } = ctx;
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
 
-  const [existing, existingComments, story] = await Promise.all([
-    store.get(storyId).catch(() => null),
-    commentsStore.get(storyId).catch(() => null),
+  // Capture whether each record read *failed* (Redis unreachable) vs.
+  // merely returned no record. A swallowed null looks like a never-seen
+  // story and sends every one down the first_seen → regenerate path on an
+  // outage; the circuit breaker in each track needs to tell them apart.
+  const [existingRes, existingCommentsRes, story] = await Promise.all([
+    store.get(storyId).then(
+      (record) => ({ ok: true as const, record }),
+      (err) => {
+        logStoreFailure('article', 'read', storyId, err);
+        return { ok: false as const, record: null };
+      },
+    ),
+    commentsStore.get(storyId).then(
+      (record) => ({ ok: true as const, record }),
+      (err) => {
+        logStoreFailure('comments', 'read', storyId, err);
+        return { ok: false as const, record: null };
+      },
+    ),
     fetchItem(storyId, ctx.signal).catch(() => null),
   ]);
 
+  // The write breaker is shared across stories and both tracks: once any
+  // store write in this run fails, every later story skips before
+  // generating, since ctx.now is fixed and can't reach writeBreakerOpenUntil.
+  const writeBreakerOpen = ctx.now < writeBreakerOpenUntil;
+
   const [articleLog, commentsLog] = await Promise.all([
-    processArticleTrack(storyId, story, existing, store, ctx),
-    processCommentsTrack(storyId, story, existingComments, commentsStore, ctx),
+    processArticleTrack(
+      storyId,
+      story,
+      existingRes.record,
+      store,
+      ctx,
+      !existingRes.ok || writeBreakerOpen,
+    ),
+    processCommentsTrack(
+      storyId,
+      story,
+      existingCommentsRes.record,
+      commentsStore,
+      ctx,
+      !existingCommentsRes.ok || writeBreakerOpen,
+    ),
   ]);
   return [articleLog, commentsLog];
 }
@@ -1998,6 +2147,27 @@ export async function handleWarmRequest(
     signal: request.signal,
   };
 
+  // Pre-flight write probe: one sentinel write before the concurrent pool.
+  // A per-story write breaker can't bound the cron's first concurrency
+  // window — up to CONCURRENCY stories × 2 tracks all snapshot the breaker
+  // closed before the first `set` rejects — and its cooldown is shorter
+  // than the cron interval, so it never carries to the next tick either.
+  // Probing writes up front, before any worker starts, trips the breaker
+  // ahead of every per-story check: on a write-failing Redis the whole
+  // tick then skips (`skipped_store_unreachable`) with nothing generated.
+  // The per-story breaker stays as the mid-tick safeguard for a write that
+  // starts failing after a healthy probe.
+  let probeFailed = false;
+  if (store.probe) {
+    try {
+      await store.probe();
+    } catch (err) {
+      writeBreakerOpenUntil = now + WRITE_BREAKER_COOLDOWN_MS;
+      logStoreFailure('article', 'probe', undefined, err);
+      probeFailed = true;
+    }
+  }
+
   const outcomes = emptyTrackOutcomes();
   let processed = 0;
   let storyCount = 0;
@@ -2005,23 +2175,33 @@ export async function handleWarmRequest(
   let geminiPromptTokensTotal = 0;
   let geminiOutputTokensTotal = 0;
 
-  const logGroups = await runPool(
-    selected,
-    CONCURRENCY,
-    async (storyId) => {
-      if ((deps.now ?? Date.now)() - startedAt > WALL_CLOCK_BUDGET_MS) {
-        return [
-          makeLog('article', storyId)({ outcome: 'skipped_budget' }),
-          makeLog('comments', storyId)({ outcome: 'skipped_budget' }),
-        ];
-      }
-      return processStory(storyId, store, commentsStore, ctx);
-    },
-    (_err, storyId) => [
-      makeLog('article', storyId)({ outcome: 'error' }),
-      makeLog('comments', storyId)({ outcome: 'error' }),
-    ],
-  );
+  // A failed pre-flight probe already tripped the breaker, so every story
+  // would skip `skipped_store_unreachable` anyway — but only after
+  // `processStory` did its two cache reads and the HN item fetch first. Skip
+  // the pool entirely and emit the skips directly, so a tick during a known
+  // write outage issues no reads and no HN requests at all.
+  const logGroups = probeFailed
+    ? selected.map((storyId) => [
+        makeLog('article', storyId)({ outcome: 'skipped_store_unreachable' }),
+        makeLog('comments', storyId)({ outcome: 'skipped_store_unreachable' }),
+      ])
+    : await runPool(
+        selected,
+        CONCURRENCY,
+        async (storyId) => {
+          if ((deps.now ?? Date.now)() - startedAt > WALL_CLOCK_BUDGET_MS) {
+            return [
+              makeLog('article', storyId)({ outcome: 'skipped_budget' }),
+              makeLog('comments', storyId)({ outcome: 'skipped_budget' }),
+            ];
+          }
+          return processStory(storyId, store, commentsStore, ctx);
+        },
+        (_err, storyId) => [
+          makeLog('article', storyId)({ outcome: 'error' }),
+          makeLog('comments', storyId)({ outcome: 'error' }),
+        ],
+      );
 
   for (const group of logGroups) {
     storyCount += 1;

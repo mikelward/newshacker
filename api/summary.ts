@@ -330,6 +330,14 @@ function parseStoryId(raw: string | null): number | null {
 // between sibling `api/*.ts` handlers (see AGENTS.md § "Vercel api/
 // gotchas"), which is why the two copies exist.
 export const KV_KEY_PREFIX = 'newshacker:summary:article:';
+// Key PREFIX for the write-health probe (see SummaryStore.probe / the miss
+// path). Each probe appends a fresh UUID, so every probe SET allocates a new
+// key — matching a real record write, which noeviction rejects on allocation.
+// A fixed key overwritten in place could slip through once resident (the
+// overwrite grows no memory). No story maps under it, so probe keys are
+// written and never read; the short TTL self-clears them.
+const PROBE_KEY = 'newshacker:summary:__probe__:';
+const PROBE_TTL_SECONDS = 60;
 
 export interface SummaryRecord {
   summary: string;
@@ -367,6 +375,13 @@ export interface SummaryStore {
     record: SummaryRecord,
     ttlSeconds: number,
   ): Promise<void>;
+  // Optional cheap write-reachability check, run on a cache miss before any
+  // paid generation. It proves writes work rather than letting the breaker
+  // resume generation optimistically after its cooldown — otherwise a store
+  // that keeps rejecting writes drips one generation per cooldown per warm
+  // instance (and one per cold instance). A store without one skips the
+  // probe (the post-generation set + breaker still apply).
+  probe?(): Promise<void>;
 }
 
 let defaultStore: SummaryStore | null | undefined;
@@ -380,26 +395,88 @@ function createDefaultStore(): SummaryStore | null {
   const redis = new Redis({ url, token });
   return {
     async get(storyId) {
-      try {
-        const raw = await redis.get<unknown>(`${KV_KEY_PREFIX}${storyId}`);
-        return parseRecord(raw);
-      } catch {
-        // Fail-open: KV unreachable falls through to live generation.
-        return null;
-      }
+      // Let a Redis error propagate. The handler fails *closed* on it
+      // (503 store_unreachable) rather than generating a summary it can
+      // neither cache nor rate-limit — that fall-through is what ran up an
+      // unbounded Gemini bill during an Upstash outage. A genuine miss (key
+      // absent) returns null without throwing, so normal cold generation
+      // is unaffected.
+      const raw = await redis.get<unknown>(`${KV_KEY_PREFIX}${storyId}`);
+      return parseRecord(raw);
     },
     async set(storyId, record, ttlSeconds) {
-      try {
-        await redis.set(
-          `${KV_KEY_PREFIX}${storyId}`,
-          JSON.stringify(record),
-          { ex: ttlSeconds },
-        );
-      } catch {
-        // Best-effort write; a missed set is no worse than a cache miss.
-      }
+      // Let a Redis error propagate so the handler can trip the write
+      // breaker. A store that serves reads but persistently rejects
+      // writes (e.g. Redis at maxmemory with noeviction) would otherwise
+      // regenerate on every request with nothing ever cached.
+      await redis.set(
+        `${KV_KEY_PREFIX}${storyId}`,
+        JSON.stringify(record),
+        { ex: ttlSeconds },
+      );
+    },
+    async probe() {
+      // Exercise the real write path (SET + EX) once, on a FRESH key so it
+      // allocates like a real record write — under maxmemory/noeviction a new
+      // allocation is rejected exactly as a new record would be. Lets the
+      // error propagate so the miss path can fail closed before generating.
+      await redis.set(`${PROBE_KEY}${globalThis.crypto.randomUUID()}`, '1', {
+        ex: PROBE_TTL_SECONDS,
+      });
     },
   };
+}
+
+// Circuit breaker for cache WRITE failures. The read-side fail-closed
+// (get throws) doesn't catch a store that serves reads but rejects
+// writes: the read succeeds (miss), we generate, the write fails, nothing
+// caches, and the next request repeats — unbounded. A failed write opens
+// this breaker for a cooldown; while open, a cache miss fails closed
+// (503) instead of paying to generate what we can't store. Module-scoped,
+// so it bounds cost per warm serverless instance.
+const WRITE_BREAKER_COOLDOWN_MS = 60_000;
+let writeBreakerOpenUntil = 0;
+
+// Test hook — reset the breaker between cases.
+export function __resetStoreWriteBreaker(): void {
+  writeBreakerOpenUntil = 0;
+}
+
+// Sanitized structured log for a Redis read/write failure — operation +
+// storyId + error name only, never a body, url, or the error message
+// (which can carry a connection string / credentials). AGENTS.md § Error
+// handling: don't swallow, log sanitized.
+// A Redis error reply leads with an uppercase code token (OOM, NOAUTH,
+// WRONGPASS, ERR, NOPERM, MASTERDOWN, ...); @upstash/redis carries it as the
+// start of the error message. Extract just that token as a sanitized failure
+// classification — never the rest of the message, which can carry the command
+// body / key. A transport error or a non-Redis body doesn't match and the code
+// is omitted, leaving `err.name` (TypeError vs UpstashError) as the coarse
+// signal. (Inlined per the no-shared-modules rule; twin in
+// api/comments-summary.ts and api/warm-summaries.ts.)
+export function redisErrorCode(err: unknown): string | undefined {
+  if (!(err instanceof Error) || typeof err.message !== 'string') {
+    return undefined;
+  }
+  const match = /^([A-Z][A-Z0-9_]{1,31})\b/.exec(err.message);
+  return match ? match[1] : undefined;
+}
+
+function logStoreFailure(
+  op: 'read' | 'write' | 'probe',
+  storyId: number,
+  err: unknown,
+): void {
+  const code = redisErrorCode(err);
+  console.warn(
+    JSON.stringify({
+      type: 'summary-store-failed',
+      op,
+      storyId,
+      error: err instanceof Error ? err.name : 'unknown',
+      ...(code ? { code } : {}),
+    }),
+  );
 }
 
 function getDefaultStore(): SummaryStore | null {
@@ -892,24 +969,53 @@ export async function handleSummaryRequest(
     deps.store === undefined ? getDefaultStore() : deps.store;
 
   if (store) {
-    // Fail-open at the handler layer too: if the store implementation
-    // forgets to catch (the default Upstash one does, but tests and
-    // future stores might not), KV trouble must not break the endpoint.
-    // Any record present means "return it" — freshness is owned by the
-    // cron, not by this read path.
+    // Circuit breaker. A cache hit returns immediately; a genuine miss
+    // (null) falls through to live generation. But a *store read error*
+    // means Redis is unreachable, and we fail CLOSED: generating a
+    // summary we cannot cache — and cannot rate-limit, since the limiter
+    // shares this Redis and fails open — is unbounded, throwaway spend,
+    // the exact runaway that ran up an unbounded Gemini bill during an
+    // Upstash outage. Serve "temporarily unavailable" instead. Freshness is
+    // owned by the cron, so a healthy read never needs to re-generate.
+    let cached: SummaryRecord | null;
     try {
-      const cached = await store.get(storyId);
-      if (cached) {
-        emitSummaryOutcome('cached', storyId, undefined, {
-          chars: cached.summary.length,
-          ...(cached.paywalled !== undefined
-            ? { paywalled: cached.paywalled }
-            : {}),
-        });
-        return json({ summary: cached.summary, cached: true });
-      }
-    } catch {
-      // fall through to live generation
+      cached = await store.get(storyId);
+    } catch (err) {
+      logStoreFailure('read', storyId, err);
+      emitSummaryOutcome('error', storyId, 'store_unreachable');
+      return json(
+        {
+          error: 'Summary is temporarily unavailable',
+          reason: 'store_unreachable',
+        },
+        503,
+      );
+    }
+    if (cached) {
+      emitSummaryOutcome('cached', storyId, undefined, {
+        chars: cached.summary.length,
+        ...(cached.paywalled !== undefined
+          ? { paywalled: cached.paywalled }
+          : {}),
+      });
+      return json({ summary: cached.summary, cached: true });
+    }
+    // A genuine miss. Check the write breaker's in-memory OPEN state here —
+    // right after the miss, before the story fetch and the rate-limit INCRs —
+    // so a request that hits an already-open breaker short-circuits to 503
+    // without hammering Redis/HN or spending the caller's rate-limit quota on
+    // a response that is guaranteed to be 503. The actual write PROBE stays
+    // after the rate-limit gate below (it is a Redis write, so it must not
+    // fire for a rejected or over-quota request).
+    if ((deps.now ?? Date.now)() < writeBreakerOpenUntil) {
+      emitSummaryOutcome('error', storyId, 'store_unreachable');
+      return json(
+        {
+          error: 'Summary is temporarily unavailable',
+          reason: 'store_unreachable',
+        },
+        503,
+      );
     }
   }
 
@@ -973,6 +1079,34 @@ export async function handleSummaryRequest(
   if (rateLimitResult && !rateLimitResult.ok) {
     emitSummaryOutcome('rate_limited', storyId, undefined);
     return rateLimited(rateLimitResult.retryAfterSeconds ?? 60);
+  }
+
+  // Write PROBE, on a cache miss about to pay for generation. Deliberately
+  // placed here — after every free validation and the rate-limit gate — so a
+  // rejected request (low score, no article, over quota) never issues the
+  // probe write, which would otherwise burn the same Upstash command quota
+  // this breaker exists to protect. It proves a write works before
+  // Jina/Gemini rather than letting the cooldown resume generation
+  // optimistically (which would drip one generation per cooldown per warm
+  // instance, and one per cold instance). The breaker's in-memory OPEN state
+  // was already checked right after the miss above. `store` is null only in
+  // the deliberate no-cache mode.
+  if (store?.probe) {
+    const nowMs = (deps.now ?? Date.now)();
+    try {
+      await store.probe();
+    } catch (err) {
+      writeBreakerOpenUntil = nowMs + WRITE_BREAKER_COOLDOWN_MS;
+      logStoreFailure('probe', storyId, err);
+      emitSummaryOutcome('error', storyId, 'store_unreachable');
+      return json(
+        {
+          error: 'Summary is temporarily unavailable',
+          reason: 'store_unreachable',
+        },
+        503,
+      );
+    }
   }
 
   let content: string;
@@ -1118,8 +1252,12 @@ export async function handleSummaryRequest(
     };
     try {
       await store.set(storyId, record, RECORD_TTL_SECONDS);
-    } catch {
-      // best-effort write
+    } catch (err) {
+      // The generated summary still serves this request, but the write
+      // failed — trip the breaker so the next miss fails closed instead
+      // of regenerating what we can't persist.
+      writeBreakerOpenUntil = now + WRITE_BREAKER_COOLDOWN_MS;
+      logStoreFailure('write', storyId, err);
     }
   }
   emitSummaryOutcome('generated', storyId, undefined, {
