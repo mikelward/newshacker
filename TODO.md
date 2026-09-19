@@ -118,6 +118,39 @@ status checks, same as `lanes`/`codex`:
   the test, land the renames, and reword golden rule 8 and SPEC.md's
   US-English line so the rules stop quoting the British forms they forbid.
 
+- **DEFERRED: global request serialization for the reader-endpoint
+  same-instant write-fail race (owner call, 2026-09-19; PR #577).** #577's
+  reader miss path now probes a write before generating, so a *sustained*
+  write-only Redis outage (reads OK, writes rejected) generates nothing —
+  each miss probes, fails, and 503s, and the breaker cooldown no longer
+  resumes generation optimistically. The one residual: concurrent misses on
+  one warm instance whose probes all succeed in the brief window *before*
+  Redis starts rejecting the real `set` each generate once — a same-instant
+  race, self-limiting (the next probe re-closes the breaker). Eliminating it
+  would need global in-process single-flight across concurrent misses in
+  `/api/summary` and `/api/comments-summary`, which throttles healthy traffic
+  to guard a race that only opens for ~one request's duration at the exact
+  onset of a write outage — not worth it unless it proves costly in practice.
+  Reversible (pure addition; no persisted state).
+
+- **DEFERRED: record-sized write probe vs. accept the bound (owner call,
+  2026-09-19; PR #577).** The write probe writes a **fresh key each call**, so
+  an allocation rejection under `maxmemory`/`noeviction` fails it exactly as a
+  new record write would — that failure mode is fully covered. What a small
+  probe can't detect is a *strictly size-proportional* byte quota with room for
+  the tiny probe value but not the multi-KB JSON record. Codex raised this
+  twice (PR #577, on `9c49cd8` then `c7d93fa`) asking for a "representative
+  record-sized" probe. Not taken, because (a) it's implausible for
+  summary-sized records — a byte quota within ~KB of its ceiling that rejects
+  proportionally; (b) records vary in size, so no fixed probe size can
+  guarantee the *next* record fits — it narrows the gap, doesn't close it; and
+  (c) the write breaker already bounds this edge (the failed real `set` trips
+  it) to one generation per cooldown per instance — a first concurrency window
+  per tick on the cron — never the per-request runaway the PR replaced. The
+  design choice — invest in a representative-size / reservation probe vs. accept
+  the documented bound — is the maintainer's. Reversible (probe value/size is a
+  one-line change; no persisted state).
+
 ## Performance
 
 - ~~**Stop awaiting the comment batch inside `loadRoot`.**~~ **Shipped.**
