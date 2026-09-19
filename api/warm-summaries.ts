@@ -79,6 +79,17 @@ const DEFAULT_STABLE_CHECK_INTERVAL = 60 * 60 * 2; // 2 h for stable stories
 const DEFAULT_STABLE_THRESHOLD = 60 * 60 * 6; // "stable" = unchanged ≥ 6 h
 const DEFAULT_MAX_STORY_AGE = 60 * 60 * 32; // give up after 32 h (article track)
 const DEFAULT_TOP_N = 30;
+// Article track only: skip the Gemini regeneration when the Jina-clean
+// body changed by fewer than this many bytes against the last real
+// regeneration. Absorbs dynamic-page noise (rotating timestamps, ad
+// slots, related-items widgets) that flips the content hash without
+// changing what a one-sentence summary would say. reports/
+// 2026-04-29-cache-strategy.md (Finding 1) measured ~60% of article
+// "changed" ticks as sub-100-byte noise, over half of cron Gemini spend.
+// 256 catches the whole <100 B noise band plus most of the 100-256 B
+// two-state oscillation, and misses only sub-256 B real edits — which
+// don't materially move a one-sentence summary.
+const DEFAULT_MIN_DELTA_BYTES = 256;
 // Comments-track tiered schedule: a doubling ladder keyed off HN
 // story age (now − story.time). The first tier whose maxAge the
 // story is still under decides the re-check interval. Past the
@@ -132,6 +143,9 @@ export interface WarmKnobs {
   // by design and match the ageBand analytics axis.
   commentsMaxStoryAgeSeconds: number;
   commentsMinKids: number;
+  // Article-track delta guard threshold (bytes). See
+  // DEFAULT_MIN_DELTA_BYTES.
+  minDeltaBytes: number;
 }
 
 export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
@@ -160,6 +174,10 @@ export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
     commentsMinKids: parsePositiveInt(
       env.WARM_COMMENTS_MIN_KIDS,
       DEFAULT_COMMENTS_MIN_KIDS,
+    ),
+    minDeltaBytes: parsePositiveInt(
+      env.WARM_MIN_DELTA_BYTES,
+      DEFAULT_MIN_DELTA_BYTES,
     ),
   };
 }
@@ -934,6 +952,11 @@ export type CheckOutcome =
   // "this particular article host is blocking Jina".
   | 'skipped_payment_required'
   | 'skipped_budget'
+  // Article-track only: the content hash differed, but the body moved
+  // by fewer than WARM_MIN_DELTA_BYTES against the last regeneration, so
+  // the change is treated as dynamic-page noise and the Gemini call is
+  // skipped. See DEFAULT_MIN_DELTA_BYTES.
+  | 'skipped_minor_delta'
   | 'first_seen'
   | 'unchanged'
   | 'changed'
@@ -1135,6 +1158,7 @@ function emptyOutcomeCounts(): Record<CheckOutcome, number> {
     skipped_unreachable: 0,
     skipped_payment_required: 0,
     skipped_budget: 0,
+    skipped_minor_delta: 0,
     first_seen: 0,
     unchanged: 0,
     changed: 0,
@@ -1612,6 +1636,64 @@ async function processArticleTrack(
       ...(effectivePaywalled !== undefined
         ? { paywalled: effectivePaywalled }
         : {}),
+      ...buildHypothesisLogFields(existing),
+    });
+  }
+
+  // Article-track delta guard — *link posts only* (`hasArticleUrl`). The
+  // noise this absorbs (rotating timestamps, ad slots, related-items
+  // widgets) is a property of Jina-fetched external pages; a self-post
+  // body comes straight from HN's `text`, so any hash change there is a
+  // real author edit, not noise, and must regenerate. If the body's byte
+  // length moved by fewer than WARM_MIN_DELTA_BYTES against the last
+  // *real* regeneration, treat it as dynamic-page noise and skip Gemini.
+  // Refresh lastCheckedAt only — leave articleHash, contentBytes,
+  // lastChangedAt and summary intact so a *monotonic* drift (a growing
+  // in-body counter) accumulates against the fixed baseline and
+  // eventually crosses the threshold. This is a byte-length proxy, not a
+  // content diff: a same-length (or within-threshold) full rewrite keeps
+  // the delta near zero and is NOT caught by accumulation — it waits for
+  // a larger edit or the WARM_MAX_STORY_AGE_SECONDS cutoff. Gating on the
+  // already-logged lede/correction signals to catch that is the tracked
+  // follow-up (TODO.md). Jina was already paid this tick, so `tokens` is
+  // still logged; only the Gemini spend is saved. See
+  // reports/2026-04-29-cache-strategy.md (Finding 1).
+  if (
+    hasArticleUrl &&
+    existing &&
+    typeof existing.contentBytes === 'number' &&
+    Math.abs(contentBytes - existing.contentBytes) < knobs.minDeltaBytes
+  ) {
+    const deltaBytes = Math.abs(contentBytes - existing.contentBytes);
+    const updated: SummaryRecord = { ...existing, lastCheckedAt: now };
+    try {
+      await store.set(storyId, updated, RECORD_TTL_SECONDS);
+    } catch (err) {
+      // Best-effort like the sibling write paths (unchanged / changed /
+      // first_seen), but not silent: a dropped write leaves lastCheckedAt
+      // stale, so the next tick re-checks — one extra Jina fetch, never a
+      // wrong summary. Log it sanitized (storyId is a public HN id; no
+      // body, url, or error message) so the skip line below isn't read as
+      // a clean success. AGENTS.md § Error handling.
+      console.warn(
+        JSON.stringify({
+          type: 'warm-store-write-failed',
+          track: 'article',
+          op: 'skipped_minor_delta',
+          storyId,
+          error: err instanceof Error ? err.name : 'unknown',
+        }),
+      );
+    }
+    return log({
+      outcome: 'skipped_minor_delta',
+      ageMinutes: minutes(now - existing.firstSeenAt),
+      stableForMinutes: minutes(now - existing.lastChangedAt),
+      sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
+      contentBytes,
+      deltaBytes,
+      tokens: jinaTokens,
+      ...(paywalled !== undefined ? { paywalled } : {}),
       ...buildHypothesisLogFields(existing),
     });
   }

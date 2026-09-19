@@ -857,6 +857,28 @@ ends up on the front page on a given day.
   never change, pull `WARM_MAX_STORY_AGE_SECONDS` from 48 h down
   to 24 h. Both tweaks are env-var-only, no code change.
 
+- **Content-aware delta gate for the article warmer (follow-up to
+  `WARM_MIN_DELTA_BYTES`, PR #575).** The shipped guard skips Gemini
+  regeneration when the body's byte length moved less than the threshold
+  against the last regeneration. It is a byte-length proxy, and Codex's
+  P2 on #575 is correct that it has a real miss: a same-length (or
+  within-threshold) *full rewrite* keeps the delta near zero, so the guard
+  skips it every tick and the cached summary stays stale until a later
+  larger edit or the `WARM_MAX_STORY_AGE_SECONDS` cutoff — accumulation
+  does not save it, since the baseline delta never grows. Accepted as the
+  byte-delta v1 per `reports/2026-04-29-cache-strategy.md` (which chose
+  byte-delta first and named the content signals as the measured
+  follow-up). The fix: also regenerate when the already-computed
+  `ledeChanged` / `correctionKeywordDelta` / `titleChanged` signals fire,
+  even under the byte threshold — closing the rewrite hole at near-zero
+  extra cost (those signals rarely fire on pure noise, which is the point
+  of logging them). Gate on ~a week of `skipped_minor_delta` lines first
+  to confirm how often the signals fire under the threshold before wiring
+  them in, so the gate doesn't quietly give back the savings. Decision
+  needing review: byte-delta only (cheaper, misses rewrites) vs.
+  signal-augmented (closes the miss, slightly more regens) — maintainer's
+  call.
+
 - **Consider alternate slices for the warmer.** Today the cron hits
   `topstories` first-30. Worth revisiting once the analytics are
   in: should `/new` or `/best` also be warmed? `/new` in particular
