@@ -75,6 +75,7 @@ until you have a week of real `warm-story` logs to base a tweak on.
 | `WARM_COMMENTS_MAX_AGE_SECONDS` | `115200` (32 h) | Comments only | Twin of the article cutoff. Past this we stop hashing transcripts; cached insights still serve until Upstash evicts at 30 days. |
 | `WARM_TOP_N` | `30` | Both tracks | How many feed ids to process per tick when `?n=` isn't in the URL. **The scheduled cron always passes `?n=30`, so this never applies to it** — it's the fallback for a manual request. Change the tick size in `vercel.json`. |
 | `WARM_COMMENTS_MIN_KIDS` | `5` | Comments only | Minimum usable top-level comments before the cron creates a `first_seen` record. Avoids caching 2-comment thin threads. |
+| `WARM_MIN_DELTA_BYTES` | `256` | Article only | Delta guard. When the body hash differs but the byte length moved less than this against the last regeneration, skip the Gemini call and log `skipped_minor_delta` (dynamic-page noise: timestamps, ad slots). The guard is `delta < threshold`, so **raise** it if noise is still getting through (you still see `changed` regenerations on trivially-different bodies), and **lower** it (toward `128`) if real short edits are being suppressed. Cannot be disabled via the env (a positive value is required; junk/≤0 falls back to `256`) — to force regeneration on every change, remove the guard in code. |
 
 Comments also use a **compile-time ladder** (`COMMENTS_TIERS` in `api/warm-summaries.ts`) keyed off HN `story.time`: 15/30/60/120/240/480 min intervals for 0-1/1-2/2-4/4-8/8-16/16-32 h age bands. Bucket widths are 1:1 with the `ageBand` log field, so "polled per band" and "changed per band" plot against the same x-axis. To reshape the ladder, edit the constant and redeploy — it's deliberately not an env var.
 
@@ -164,9 +165,13 @@ before they age out. Copy the logs down (CLI: `vercel logs production
 jq -r 'select(.type=="warm-story") | [.track, .outcome] | @tsv' warm.jsonl \
   | sort | uniq -c | sort -rn
 
-# Change rate by content age (articles)
-jq -r 'select(.type=="warm-story" and .track=="article" and (.outcome=="unchanged" or .outcome=="changed"))
-       | [(.ageMinutes//0 | tonumber / 60 | floor), .outcome] | @tsv' warm.jsonl \
+# Change rate by content age (articles). skipped_minor_delta is a
+# completed poll that found sub-threshold noise, so it counts with
+# unchanged — matching the APL change-rate query below.
+jq -r 'select(.type=="warm-story" and .track=="article"
+             and (.outcome=="unchanged" or .outcome=="changed" or .outcome=="skipped_minor_delta"))
+       | [(.ageMinutes//0 | tonumber / 60 | floor),
+          (if .outcome=="changed" then "changed" else "unchanged" end)] | @tsv' warm.jsonl \
   | sort | uniq -c
 
 # Per-run duration and throughput
@@ -225,11 +230,11 @@ Paste any of these into the Axiom query console:
 | where message contains "warm-story"
 | extend e = parse_json(message)
 | where tostring(e.track) == "article"
-| where tostring(e.outcome) in ("changed", "unchanged")
+| where tostring(e.outcome) in ("changed", "unchanged", "skipped_minor_delta")
 | extend ageHours = bin(todouble(e.ageMinutes) / 60, 1)
 | summarize
     changed = countif(tostring(e.outcome) == "changed"),
-    unchanged = countif(tostring(e.outcome) == "unchanged"),
+    unchanged = countif(tostring(e.outcome) in ("unchanged", "skipped_minor_delta")),
     total = count()
   by ageHours
 | extend changeRate = round(todouble(changed) / todouble(total), 3)
@@ -290,10 +295,10 @@ Paste any of these into the Axiom query console:
 | where message contains "warm-story"
 | extend e = parse_json(message)
 | where tostring(e.track) == "comments"
-| where tostring(e.outcome) in ("changed", "unchanged")
+| where tostring(e.outcome) in ("changed", "unchanged", "skipped_minor_delta")
 | summarize
     changed = countif(tostring(e.outcome) == "changed"),
-    unchanged = countif(tostring(e.outcome) == "unchanged"),
+    unchanged = countif(tostring(e.outcome) in ("unchanged", "skipped_minor_delta")),
     total = count()
   by ageBand = tostring(e.ageBand)
 | extend changeRate = round(todouble(changed) / todouble(total), 3)
@@ -326,10 +331,10 @@ Paste any of these into the Axiom query console:
 | where message contains "warm-story"
 | extend e = parse_json(message)
 | where tostring(e.track) == "article"
-| where tostring(e.outcome) in ("changed", "unchanged")
+| where tostring(e.outcome) in ("changed", "unchanged", "skipped_minor_delta")
 | summarize
     changed = countif(tostring(e.outcome) == "changed"),
-    unchanged = countif(tostring(e.outcome) == "unchanged"),
+    unchanged = countif(tostring(e.outcome) in ("unchanged", "skipped_minor_delta")),
     total = count(),
     medianDelta = percentile(toint(e.deltaBytes), 50),
     p90Delta = percentile(toint(e.deltaBytes), 90)
@@ -344,7 +349,9 @@ Paste any of these into the Axiom query console:
 // detectPaywall() verdict on the Jina-clean body — true when Jina's
 // response looked like a paywall teaser / overlay, false when it
 // looked like real article content. Filter to outcomes that actually
-// ran the detector (first_seen / unchanged / changed) and group by
+// ran the detector (first_seen / unchanged / changed /
+// skipped_minor_delta — the delta guard fires after Jina + paywall
+// detection, so those lines carry a paywalled verdict too) and group by
 // host to see which publishers Jina is routinely getting a wall from
 // vs the ones it's getting real content from. Combine with the
 // jitter query above to disambiguate "stable paywall" from "stable
@@ -359,7 +366,7 @@ Paste any of these into the Axiom query console:
 | where message contains "warm-story"
 | extend e = parse_json(message)
 | where tostring(e.track) == "article"
-| where tostring(e.outcome) in ("first_seen", "unchanged", "changed")
+| where tostring(e.outcome) in ("first_seen", "unchanged", "changed", "skipped_minor_delta")
 | where isnotnull(e.paywalled)
 | summarize
     paywalled = countif(tobool(e.paywalled) == true),
@@ -400,6 +407,9 @@ Paste any of these into the Axiom query console:
 // events have all three flags absent, a future skip rule can
 // treat them as no-ops with high confidence; if any one of them
 // fires often, that's the signal worth wiring into the gate.
+// Includes skipped_minor_delta: the delta guard now diverts most
+// sub-256 B link-post events there (that is the tier this query
+// measures), so a changed-only filter would see almost none of them.
 ['vercel']
 | where _time > ago(7d)
 | where ['vercel.projectName'] == "newshacker"
@@ -407,7 +417,7 @@ Paste any of these into the Axiom query console:
 | where message contains "warm-story"
 | extend e = parse_json(message)
 | where tostring(e.track) == "article"
-| where tostring(e.outcome) == "changed"
+| where tostring(e.outcome) in ("changed", "skipped_minor_delta")
 // Exclude legacy `changed` rows whose prior record predated
 // `contentBytes` persistence — those have no `deltaBytes`, and
 // `toint(null)` evaluates to 0, which would mis-classify them
@@ -453,6 +463,31 @@ Paste any of these into the Axiom query console:
 | order by track asc
 ```
 
+```apl
+// Delta-guard effectiveness, last 24 h. How many article `changed`
+// regenerations the WARM_MIN_DELTA_BYTES guard is now absorbing as
+// `skipped_minor_delta`, and the deltaBytes distribution of what it
+// caught vs what it let through. A healthy guard shows
+// skipped_minor_delta ≳ changed (noise was the majority). If
+// skipped_minor_delta dwarfs changed AND its p90 deltaBytes is near the
+// threshold, consider lowering WARM_MIN_DELTA_BYTES; if `changed` still
+// dominates with a low-deltaBytes mode, consider raising it.
+['vercel']
+| where _time > ago(24h)
+| where ['vercel.projectName'] == "newshacker"
+| where ['vercel.source'] == "lambda"
+| where message contains "warm-story"
+| extend e = parse_json(message)
+| where tostring(e.track) == "article"
+| where tostring(e.outcome) in ("changed", "skipped_minor_delta")
+| summarize
+    events = count(),
+    medianDelta = percentile(toint(e.deltaBytes), 50),
+    p90Delta = percentile(toint(e.deltaBytes), 90)
+  by outcome = tostring(e.outcome)
+| order by outcome asc
+```
+
 Save any of these as **Starred queries** in Axiom (star icon on a
 run) so you can re-run them with one click instead of re-pasting.
 The in-app dashboard at `/admin` (see `SPEC.md` § *Operator
@@ -477,8 +512,12 @@ That's the evaluation in about 5–10 minutes of Axiom clicks. The `warm-story` 
 
 After a week of `warm-story` logs, look for:
 
-- **Article track — "changed" rate per age bucket.** If articles
-  almost never change past 4–6 h (`stableFor` is long and
+- **Article track — "changed" rate per age bucket.** Until the delta
+  guard shipped this curve was flat (noise flooded every bucket), so
+  `WARM_STABLE_CHECK_INTERVAL_SECONDS` had nothing to bite into. Give it
+  ~48 h of post-deploy `warm-story` logs to let `skipped_minor_delta`
+  absorb the noise and the real change-rate taper to emerge, then: if
+  articles almost never change past 4–6 h (`stableFor` is long and
   `summaryChanged` stays false), push `WARM_STABLE_CHECK_INTERVAL_SECONDS`
   up from 2 h → 4 h. If the stable threshold catches things too
   slowly (you see recent `changed` with `stableFor < 6 h`), lower
@@ -570,7 +609,7 @@ At defaults with 5-min cadence:
 - **Vercel invocations:** 288 per day. Well inside Pro's limits.
 - **HN Firebase:** ≤8,640 top-story fetches/day + comments child-fetches. Free, no rate limits.
 - **Jina Reader:** ~1,500–3,000/day realistic, ~45–90k/month. At a planning figure of ~5,000 tokens per Reader call that's ~7.5–15M tokens/day, so the one-time 10M-token free grant per key (does not refresh daily or monthly) drains in **roughly a day or two** of steady cron traffic, not weeks. After that you top up (~$0.02/M tokens, ~$5–10/month for ongoing use at this volume) or rotate the key. Measured: 12.93M tokens/day in the 24h census, **~$8/month** — the one line of this cost model production confirmed. The handler returns 503 `summary_budget_exhausted` and the cron logs `skipped_payment_required` between top-ups; see `SPEC.md` § "Scheduled warming and change analytics" for the full cost breakdown.
-- **Gemini:** **~$17/month, measured — not the ~$3–5 realistic / ~$15 worst-case this line used to project.** `reports/2026-04-29-cache-strategy.md` censused 24h of cron-only usage on this configuration: 5,440,518 prompt + 31,283 output tokens/day (article 5.04M/16.6K, comments 398K/14.7K), which at $0.10/M input + $0.40/M output is $0.557/day. That report computes at $0.075/$0.30 and flags the rate as unconfirmed — at its pair the same census is ~$12.50/month. Budget on the higher and confirm against Google's current pricing. **Over half the article-track spend is regeneration on content deltas too small to change the summary**; the `WARM_MIN_DELTA_BYTES` fix specified in that report has not shipped, so that waste is live.
+- **Gemini:** **~$17/month, measured — not the ~$3–5 realistic / ~$15 worst-case this line used to project.** `reports/2026-04-29-cache-strategy.md` censused 24h of cron-only usage on this configuration: 5,440,518 prompt + 31,283 output tokens/day (article 5.04M/16.6K, comments 398K/14.7K), which at $0.10/M input + $0.40/M output is $0.557/day. That report computes at $0.075/$0.30 and flags the rate as unconfirmed — at its pair the same census is ~$12.50/month. Budget on the higher and confirm against Google's current pricing. **Over half the article-track spend was regeneration on content deltas too small to change the summary**; the `WARM_MIN_DELTA_BYTES` delta guard specified in that report now skips those (logging `skipped_minor_delta`), so expect this figure to roughly halve — confirm against 24–48 h of post-deploy logs.
 - **Upstash:** Two keys per story, and `processStory` reads *both* for every selected id on every tick, unconditionally — the backoff gate decides off what those reads return, so it cannot skip them. At defaults that is 288 ticks × 30 stories × 2 GETs = **17,280 commands/day (~520k/month)** before record writes, the rate limiter's `INCR`/`EXPIRE`, telemetry `LPUSH`/`LTRIM`, or user-facing summary reads. This line previously read "Well inside the free tier"; that was wrong — it is roughly 1.7× a 10k commands/day free allowance. At Upstash's pay-as-you-go rate (~$0.20 per 100k commands) that is **~$1/month** for the cron baseline alone, rising with reader traffic — the reader write-probe adds one `SET` per cache miss that reaches generation (after the eligibility and rate-limit gates), which tracks *distinct summaries generated* rather than visits since a miss recurs only until the 30-day record caches: one extra command per generation, negligible against this baseline. So **provision a paid Upstash plan rather than assuming the free tier covers this**, and if you need to stay inside a free allowance, the two knobs that move this number are the story count and the cadence — **both of which live in `vercel.json`, not the environment.** Setting `WARM_TOP_N` does nothing to a scheduled run: the cron path is `/api/warm-summaries?feed=top&n=30` and the handler reads `parseWarmN(searchParams.get('n'), knobs.topN)` (`api/warm-summaries.ts:1928`), so the explicit `n=30` wins and the env var is only the fallback for a URL that omits `?n=`. To actually shrink the tick, edit `n=` in the cron path and redeploy; to widen the cadence, edit the `schedule` next to it.
 
   **An unreachable Redis now fails closed (circuit breaker).** `processStory` tells a read *error* from a genuine miss and skips both tracks with **`skipped_store_unreachable`**, generating nothing; the user-facing `/api/summary` and `/api/comments-summary` return **503 `store_unreachable`** on a read error rather than generating a summary they can't cache or rate-limit. So a Redis outage costs a rerun, not a Gemini bill. The signature of an outage is now a **`skipped_store_unreachable` spike** across both tracks. **This replaced the old fail-open runaway**, worth stating because it is the incident this repo actually had: the reads were `.catch(() => null)`, a null record looked like a never-seen one, and every eligible story took the `first_seen` path and regenerated on every tick — an Upstash outage that ran up an unbounded Gemini bill (the warm-on-view reader path, hitting the same endpoints, was the larger share). `WALL_CLOCK_BUDGET_MS` never bounded that — it gates *starting* a queued story, not what the in-flight ones spend. **A store that reads but rejects writes** (Redis at `maxmemory` with `noeviction`, or a tier that bills writes past a quota) is the harder case: the read is a genuine miss, so the read breaker doesn't fire — generation succeeds and the write fails, caching nothing, so it regenerates every request. A **write breaker** closes it: a failed `store.set` opens a 60 s cooldown (per warm instance) during which a miss fails closed the same way — `skipped_store_unreachable` on the cron, 503 on the reader endpoints. Both surfaces **probe writes before generating** (`SummaryStore.probe`, a single sentinel `SET`): the reader endpoints on each miss, so a store that keeps rejecting writes never resumes generation after the cooldown (and a cold instance is gated too); the cron once before its pool, since it runs 5 stories × 2 tracks concurrently and a per-story check can't bound that first wave (and 60 s < the 5-minute tick, so the cooldown never carries forward on its own). A failed probe fails closed with nothing generated, so a sustained write-only outage generates nothing for every failure the probe can observe — Redis unreachable, an auth failure, a command-count quota, or (because the probe writes a fresh key each call) a `maxmemory`/`noeviction` allocation rejection. The one write failure it can't predict is a strictly size-proportional byte quota that fits the tiny probe but not the KB record — implausible for summary-sized records; the write breaker still catches the failed real `set` and bounds it to one generation per cooldown per instance (a first concurrency window per tick on the cron), never the per-request runaway. Signature: `skipped_store_unreachable` across both cron tracks (or reader 503s) plus a `warm-store-failed` / `*-store-failed` log with `op: "probe"`.
