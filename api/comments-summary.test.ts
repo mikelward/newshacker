@@ -9,7 +9,15 @@ import {
   type CommentsSummaryStore,
   type RateLimitStore,
   type RateLimitTier,
+  __resetStoreWriteBreaker,
 } from './comments-summary';
+
+// The store write breaker is module-scoped and persists across cases; a
+// test that trips it must not leave it open for the next. Reset before every
+// test in the file.
+beforeEach(() => {
+  __resetStoreWriteBreaker();
+});
 // Local type mirrors the handler's internal HNItem — duplicated
 // intentionally so the test doesn't reach into the handler's private
 // module shape.
@@ -664,9 +672,10 @@ describe('handleCommentsSummaryRequest', () => {
     expect(parseCommentsRecord(JSON.stringify(good))).toEqual(good);
   });
 
-  it('falls through to live generation when the shared store throws (fail-open)', async () => {
-    // Defense-in-depth: even if a store implementation forgets to catch
-    // its own errors, KV trouble must not break the endpoint.
+  it('fails closed with 503 when the store read errors (circuit breaker, no generation)', async () => {
+    // Redis unreachable. Generating insights we can neither cache nor
+    // rate-limit is unbounded, throwaway spend — the outage runaway.
+    // Serve 503 instead of paying Gemini on every request.
     const fetchItem = fetchItemFrom({
       1400: {
         id: 1400,
@@ -681,20 +690,204 @@ describe('handleCommentsSummaryRequest', () => {
       get: vi.fn(async () => {
         throw new Error('kv get failed');
       }),
+      set: vi.fn(async () => {}),
+    };
+    const client = createFakeClient([{ text: 'live insight' }]);
+    const res = await handleCommentsSummaryRequest(makeRequest('1400'), {
+      fetchItem,
+      createClient: () => client,
+      now: () => 1_700_000_000_000,
+      store,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'Summary is temporarily unavailable',
+      reason: 'store_unreachable',
+    });
+    expect(store.get).toHaveBeenCalledTimes(1);
+    // Fail closed: no Gemini, no write.
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it('opens the write breaker on a failed set, then fails closed on the next miss', async () => {
+    // Reads succeed (miss) but writes throw, so the read breaker never
+    // fires: the first request generates, the write fails, nothing caches,
+    // and without the write breaker every following request would repeat
+    // that. The failed set opens the breaker; the next miss serves 503.
+    __resetStoreWriteBreaker();
+    const fetchItem = fetchItemFrom({
+      1410: {
+        id: 1410,
+        type: 'story',
+        kids: [1411],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+      1411: { id: 1411, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const store: CommentsSummaryStore = {
+      get: vi.fn(async () => null),
       set: vi.fn(async () => {
         throw new Error('kv set failed');
       }),
     };
-    const res = await handleCommentsSummaryRequest(makeRequest('1400'), {
+    const client = createFakeClient([{ text: 'live insight' }]);
+    const deps = {
       fetchItem,
-      createClient: () => createFakeClient([{ text: 'live insight' }]),
+      createClient: () => client,
       now: () => 1_700_000_000_000,
       store,
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ insights: ['live insight'] });
-    expect(store.get).toHaveBeenCalledTimes(1);
+    };
+
+    // First request: miss, generate, write throws — still served here, but
+    // the breaker is now open.
+    const first = await handleCommentsSummaryRequest(makeRequest('1410'), deps);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ insights: ['live insight'] });
     expect(store.set).toHaveBeenCalledTimes(1);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+
+    // Second request within the cooldown: miss again, breaker open, fail
+    // closed without generating.
+    const second = await handleCommentsSummaryRequest(makeRequest('1410'), deps);
+    expect(second.status).toBe(503);
+    expect(await second.json()).toEqual({
+      error: 'Summary is temporarily unavailable',
+      reason: 'store_unreachable',
+    });
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('probe-gates every miss: a write-only outage never generates', async () => {
+    // Reads succeed (miss) but writes are rejected. The pre-generation probe
+    // fails closed on every miss — cold instance and after the cooldown alike
+    // — so a sustained write-only outage generates nothing.
+    __resetStoreWriteBreaker();
+    const fetchItem = fetchItemFrom({
+      1420: {
+        id: 1420,
+        type: 'story',
+        kids: [1421],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+      1421: { id: 1421, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const store: CommentsSummaryStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+      probe: vi.fn(async () => {
+        throw new Error('kv write rejected');
+      }),
+    };
+    const client = createFakeClient([]); // must never be called
+    let clock = 1_700_000_000_000;
+    const deps = {
+      fetchItem,
+      createClient: () => client,
+      now: () => clock,
+      store,
+    };
+
+    const first = await handleCommentsSummaryRequest(makeRequest('1420'), deps);
+    expect(first.status).toBe(503);
+    expect(await first.json()).toEqual({
+      error: 'Summary is temporarily unavailable',
+      reason: 'store_unreachable',
+    });
+    // Past the cooldown: the breaker would re-open, but the probe re-gates.
+    clock += 61_000;
+    const second = await handleCommentsSummaryRequest(makeRequest('1420'), deps);
+    expect(second.status).toBe(503);
+
+    expect(store.probe).toHaveBeenCalledTimes(2);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it('does not probe for a request rejected before generation (low score)', async () => {
+    // The probe write sits after the free validations, so a rejected request
+    // (low-score story) never burns Upstash write quota.
+    __resetStoreWriteBreaker();
+    const fetchItem = fetchItemFrom({
+      1430: {
+        id: 1430,
+        type: 'story',
+        kids: [1431],
+        time: OLD_STORY_TIME,
+        score: 1,
+      },
+      1431: { id: 1431, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const store: CommentsSummaryStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+      probe: vi.fn(async () => {}),
+    };
+    const res = await handleCommentsSummaryRequest(makeRequest('1430'), {
+      fetchItem,
+      createClient: () => createFakeClient([]),
+      store,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('low_score');
+    expect(store.probe).not.toHaveBeenCalled();
+  });
+
+  it('bounds a store that accepts the probe but rejects the record write', async () => {
+    // A store whose probe SET succeeds but whose record SET fails (a strictly
+    // size-proportional quota where the tiny probe fits but the record does
+    // not — the default store's fresh-key probe already tracks a
+    // new-allocation rejection like noeviction). The probe can't catch this,
+    // but the write breaker does: the first miss generates once, the failed
+    // record set trips the breaker, and the next miss fails closed — one
+    // generation per cooldown per instance, not the unbounded runaway.
+    __resetStoreWriteBreaker();
+    const fetchItem = fetchItemFrom({
+      1440: {
+        id: 1440,
+        type: 'story',
+        kids: [1441],
+        time: OLD_STORY_TIME,
+        score: 10,
+      },
+      1441: { id: 1441, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const store: CommentsSummaryStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {
+        throw new Error('kv set failed');
+      }),
+      probe: vi.fn(async () => {}), // probe write is accepted
+    };
+    const client = createFakeClient([{ text: 'live insight' }]);
+    const deps = {
+      fetchItem,
+      createClient: () => client,
+      now: () => 1_700_000_000_000,
+      store,
+    };
+
+    // First miss: probe passes, generate, record set throws — served here,
+    // but the failed set opens the breaker.
+    const first = await handleCommentsSummaryRequest(makeRequest('1440'), deps);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ insights: ['live insight'] });
+    expect(store.probe).toHaveBeenCalledTimes(1);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+
+    // Second miss within the cooldown: the in-memory open-breaker check fails
+    // closed right after the miss — before the story + comment-item fetches,
+    // the rate-limit INCRs, and the probe — bounded to the one generation.
+    const second = await handleCommentsSummaryRequest(makeRequest('1440'), deps);
+    expect(second.status).toBe(503);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.probe).toHaveBeenCalledTimes(1); // not re-probed while open
+    // The open breaker short-circuits before any HN fetch: only the first
+    // request fetched (story 1440 + comment 1441 = 2), not the second.
+    expect(fetchItem).toHaveBeenCalledTimes(2);
   });
 });
 

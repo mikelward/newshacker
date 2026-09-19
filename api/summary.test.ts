@@ -14,7 +14,16 @@ import {
   type RateLimitTier,
   type SummaryRecord,
   type SummaryStore,
+  __resetStoreWriteBreaker,
+  redisErrorCode,
 } from './summary';
+
+// The store write breaker is module-scoped and persists across cases; a
+// test that trips it must not leave it open for the next. Reset before every
+// test in the file.
+beforeEach(() => {
+  __resetStoreWriteBreaker();
+});
 
 const ALLOWED_REFERER = 'https://newshacker.app/item/1';
 
@@ -1008,11 +1017,11 @@ describe('handleSummaryRequest', () => {
     expect(parseRecord(JSON.stringify(good))).toEqual(good);
   });
 
-  it('falls through to live generation when the shared store throws (fail-open)', async () => {
-    // Defense-in-depth: even if a store implementation forgets to catch
-    // its own errors, KV trouble must not break the endpoint. The
-    // default Upstash store catches internally; this guards the
-    // handler's belt-and-braces try/catch.
+  it('fails closed with 503 when the store read errors (circuit breaker, no generation)', async () => {
+    // Redis unreachable. Generating a summary we can neither cache nor
+    // rate-limit (the limiter shares this Redis and fails open) is
+    // unbounded, throwaway spend — the outage runaway that ran up an
+    // unbounded Gemini bill. Serve 503 instead of paying Gemini on every request.
     const articleUrl = 'https://example.com/kv-down';
     const fetchImpl = createFakeFetch({
       [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
@@ -1024,22 +1033,235 @@ describe('handleSummaryRequest', () => {
       get: vi.fn(async () => {
         throw new Error('kv get failed');
       }),
-      set: vi.fn(async () => {
-        throw new Error('kv set failed');
-      }),
+      set: vi.fn(async () => {}),
     };
+    const client = createFakeClient([{ text: 'live' }]);
     const res = await handleSummaryRequest(makeRequest(190), {
-      createClient: () => createFakeClient([{ text: 'live' }]),
+      createClient: () => client,
       fetchImpl,
       fetchItem,
       store,
     });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ summary: 'live' });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'Summary is temporarily unavailable',
+      reason: 'store_unreachable',
+    });
     expect(store.get).toHaveBeenCalledTimes(1);
-    // The handler still attempted to write — which also threw — but the
-    // response is sent regardless.
+    // Fail closed: no Gemini, no Jina fetch, no write.
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it('opens the write breaker on a failed set, then fails closed on the next miss', async () => {
+    // A store that reads (miss) but rejects writes: the read breaker never
+    // fires, so the first request generates, the write fails, and nothing
+    // caches. Without the write breaker every following request would repeat
+    // that — a per-request runaway. The failed set opens the breaker; the
+    // next miss serves 503 instead of paying Gemini again.
+    __resetStoreWriteBreaker();
+    const articleUrl = 'https://example.com/writes-fail';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
+    });
+    const fetchItem = fetchItemFor({
+      191: { id: 191, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store: SummaryStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {
+        throw new Error('kv set failed');
+      }),
+    };
+    const client = createFakeClient([{ text: 'live' }]);
+    const deps = {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+    };
+
+    // First request: miss, generate, write throws — still served to this
+    // caller, but the breaker is now open.
+    const first = await handleSummaryRequest(makeRequest(191), deps);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ summary: 'live' });
     expect(store.set).toHaveBeenCalledTimes(1);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+
+    // Second request within the cooldown: miss again, but the breaker is
+    // open, so fail closed without generating.
+    const second = await handleSummaryRequest(makeRequest(191), deps);
+    expect(second.status).toBe(503);
+    expect(await second.json()).toEqual({
+      error: 'Summary is temporarily unavailable',
+      reason: 'store_unreachable',
+    });
+    // No second generation, no second write attempt.
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('probe-gates every miss: a write-only outage never generates', async () => {
+    // Reads succeed (miss) but writes are rejected. The pre-generation probe
+    // must fail closed on EVERY miss — including a fresh/cold instance (breaker
+    // starts closed) and every request after the cooldown would otherwise
+    // elapse — so a sustained write-only outage generates nothing, rather than
+    // dripping one generation per cooldown per instance.
+    __resetStoreWriteBreaker();
+    const articleUrl = 'https://example.com/writes-down';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
+    });
+    const fetchItem = fetchItemFor({
+      192: { id: 192, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store: SummaryStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+      probe: vi.fn(async () => {
+        throw new Error('kv write rejected');
+      }),
+    };
+    const client = createFakeClient([]); // must never be called
+    let clock = 1_700_000_000_000;
+    const deps = {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+      now: () => clock,
+    };
+
+    // Cold instance, breaker closed: the probe still gates it.
+    const first = await handleSummaryRequest(makeRequest(192), deps);
+    expect(first.status).toBe(503);
+    expect(await first.json()).toEqual({
+      error: 'Summary is temporarily unavailable',
+      reason: 'store_unreachable',
+    });
+    // Advance past the 60s cooldown: the breaker would now "re-open", but the
+    // probe re-runs and fails, so generation is still gated — no per-cooldown
+    // drip.
+    clock += 61_000;
+    const second = await handleSummaryRequest(makeRequest(192), deps);
+    expect(second.status).toBe(503);
+
+    expect(store.probe).toHaveBeenCalledTimes(2); // gated on both misses
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled(); // no Jina either
+    expect(store.set).not.toHaveBeenCalled(); // never reached the cache write
+  });
+
+  it('does not probe for a request rejected before generation (low score)', async () => {
+    // The probe is a Redis write, so it must sit after the free validations
+    // and the rate-limit gate — otherwise a rejected request (here, a
+    // low-score story) burns the very Upstash write quota the breaker guards.
+    __resetStoreWriteBreaker();
+    const fetchItem = fetchItemFor({
+      193: { id: 193, type: 'story', url: 'https://example.com/x', score: 1 },
+    });
+    const store: SummaryStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+      probe: vi.fn(async () => {}),
+    };
+    const res = await handleSummaryRequest(makeRequest(193), {
+      createClient: () => createFakeClient([]),
+      fetchItem,
+      store,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('low_score');
+    expect(store.probe).not.toHaveBeenCalled(); // no probe write on a reject
+  });
+
+  it('bounds a store that accepts the probe but rejects the record write', async () => {
+    // A store whose probe SET succeeds but whose record SET fails (e.g. a
+    // strictly size-proportional quota where the tiny probe fits but a larger
+    // record does not — the default store's fresh-key probe already tracks a
+    // new-allocation rejection like noeviction). The probe can't catch this,
+    // but the write breaker does: the first miss generates once, the failed
+    // record set trips the breaker, and the next miss fails closed — one
+    // generation per cooldown per instance, not the unbounded per-request
+    // runaway.
+    __resetStoreWriteBreaker();
+    const articleUrl = 'https://example.com/probe-ok-set-fails';
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
+    });
+    const fetchItem = fetchItemFor({
+      194: { id: 194, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store: SummaryStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {
+        throw new Error('kv set failed');
+      }),
+      probe: vi.fn(async () => {}), // probe write is accepted
+    };
+    const client = createFakeClient([{ text: 'live' }]);
+    const deps = {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store,
+    };
+
+    // First miss: probe passes, generate, record set throws — served to this
+    // caller, but the failed set opens the breaker.
+    const first = await handleSummaryRequest(makeRequest(194), deps);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ summary: 'live' });
+    expect(store.probe).toHaveBeenCalledTimes(1);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+
+    // Second miss within the cooldown: the in-memory open-breaker check fails
+    // closed right after the miss — before the story fetch, the rate-limit
+    // INCRs, and the probe — bounded to the one generation above.
+    const second = await handleSummaryRequest(makeRequest(194), deps);
+    expect(second.status).toBe(503);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.probe).toHaveBeenCalledTimes(1); // not re-probed while open
+    // The open breaker short-circuits before the story fetch: fetchItem ran
+    // once (the first request), not again for the guaranteed-503 second one.
+    expect(fetchItem).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('redisErrorCode', () => {
+  it('extracts the leading Redis error-code token', () => {
+    expect(redisErrorCode(new Error('OOM command not allowed'))).toBe('OOM');
+    expect(redisErrorCode(new Error('NOAUTH Authentication required.'))).toBe(
+      'NOAUTH',
+    );
+    expect(
+      redisErrorCode(new Error('WRONGPASS invalid username-password pair')),
+    ).toBe('WRONGPASS');
+    expect(redisErrorCode(new Error('ERR max requests limit exceeded'))).toBe(
+      'ERR',
+    );
+  });
+
+  it('returns nothing for transport errors and non-Redis bodies', () => {
+    // A truly unreachable Redis throws a lowercase transport message.
+    expect(redisErrorCode(new Error('fetch failed'))).toBeUndefined();
+    expect(redisErrorCode(new TypeError('Failed to fetch'))).toBeUndefined();
+    expect(redisErrorCode(new Error('Upstash request failed'))).toBeUndefined();
+    expect(redisErrorCode('not an error')).toBeUndefined();
+    expect(redisErrorCode(null)).toBeUndefined();
+  });
+
+  it('never returns anything past the code token (no message body leaks)', () => {
+    // The rest of a Redis error line can name the key/command; only the
+    // uppercase code is safe to log. The result is the token alone.
+    const code = redisErrorCode(
+      new Error('NOPERM this user has no permissions to run the SET command'),
+    );
+    expect(code).toBe('NOPERM');
+    expect(code).not.toContain(' ');
+    expect(code).not.toContain('SET');
   });
 });
 
