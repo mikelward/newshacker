@@ -1589,6 +1589,32 @@ retryAfterSeconds: N }` plus a `Retry-After: N` header; the UI renders
 a short "Too many requests — try again later." message in the
 affected summary card.
 
+**Emergency cost throttles.** Two operator env vars sit above the
+rate limiter as blunt levers for a runaway generation bill, both read
+per request (so they take effect on the next Vercel redeploy) and
+honored identically on `/api/summary`, `/api/comments-summary`, and
+the warm cron:
+- **`SUMMARY_MIN_SCORE`** raises the eligibility floor. The anti-abuse
+  minimum is `score > 1` (see *Minimum-upvote visibility*); this env
+  var replaces the `1` with its integer value, so `SUMMARY_MIN_SCORE=100`
+  only generates for stories above 100 points. Unset (or blank/
+  non-numeric) keeps the original `> 1`. It raises the floor for
+  generation only — the feed's own `score > 1` visibility rule is
+  unchanged, so the site still lists stories it will no longer
+  summarize on demand.
+- **`SUMMARY_GENERATION_DISABLED`** (`1`/`true`/`yes`/`on`) is the kill
+  switch: every new summary refuses with `503 generation_disabled`
+  before any Gemini or Jina call, and the cron skips its whole tick
+  before the feed load or any other I/O — ahead of the feed fetch (so a
+  slow/unreachable feed can't `502` a kill-switched cron), the write
+  probe, and every per-story read/fetch. Such a tick emits no per-story
+  lines; its `warm-run` log carries `generationDisabled: true`.
+  **Cached summaries keep serving** — the switch gates the miss path
+  only, so the site degrades to "no new summaries" rather than going
+  dark. It differs from unsetting `GOOGLE_API_KEY` (which also stops
+  generation) by being summary-specific and by skipping the cron's
+  reads/fetches entirely rather than 503-ing after them.
+
 Client IP is read from `x-real-ip` (set by Vercel's proxy from the
 actual peer, so a client can't influence it) with `x-forwarded-for`'s
 leftmost entry as a fallback — preferring XFF would let a client on a

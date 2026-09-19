@@ -339,6 +339,24 @@ export const KV_KEY_PREFIX = 'newshacker:summary:article:';
 const PROBE_KEY = 'newshacker:summary:__probe__:';
 const PROBE_TTL_SECONDS = 60;
 
+// Emergency cost throttles, read per request so a Vercel env change (with a
+// redeploy) takes effect. SUMMARY_MIN_SCORE raises the eligibility floor
+// (default 1, i.e. the original `score > 1`); SUMMARY_GENERATION_DISABLED,
+// when truthy, refuses all new Gemini/Jina generation while cached summaries
+// keep serving — the kill switch for a runaway. Duplicated per api/*.ts (no
+// shared modules — see AGENTS.md § "Vercel api/ gotchas").
+function minSummaryScore(): number {
+  const raw = process.env.SUMMARY_MIN_SCORE;
+  const n = raw != null && raw.trim() !== '' ? Number(raw) : NaN;
+  // Clamp to the anti-abuse floor: the knob only RAISES the minimum, so a
+  // mistyped 0 or negative can never drop it below the original `score > 1`.
+  return Number.isFinite(n) ? Math.max(1, Math.trunc(n)) : 1;
+}
+function generationDisabled(): boolean {
+  const v = (process.env.SUMMARY_GENERATION_DISABLED ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
 export interface SummaryRecord {
   summary: string;
   articleHash: string;
@@ -1019,6 +1037,17 @@ export async function handleSummaryRequest(
     }
   }
 
+  // Kill switch: a cached summary was already served above; a genuine miss
+  // stops here, before the story fetch and any Gemini/Jina call. Refuse new
+  // generation so an operator can halt a runaway with one env var + redeploy.
+  if (generationDisabled()) {
+    emitSummaryOutcome('error', storyId, 'generation_disabled');
+    return json(
+      { error: 'Summary generation is disabled', reason: 'generation_disabled' },
+      503,
+    );
+  }
+
   const fetchItem = deps.fetchItem ?? defaultFetchItem;
   let story: HNItem | null;
   try {
@@ -1042,7 +1071,7 @@ export async function handleSummaryRequest(
   // score ≤ 1 rows (see StoryList.tsx), so in normal usage this
   // endpoint will never even be invoked below the floor; the check is
   // a belt-and-braces defense for direct requests.
-  if (!(typeof story.score === 'number' && story.score > 1)) {
+  if (!(typeof story.score === 'number' && story.score > minSummaryScore())) {
     emitSummaryOutcome('error', storyId, 'low_score');
     return json(
       { error: 'Story is not eligible for summary', reason: 'low_score' },

@@ -1276,3 +1276,62 @@ describe('handleCommentsSummaryRequest — comments-summary-outcome log events',
     });
   });
 });
+
+describe('handleCommentsSummaryRequest cost throttles', () => {
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origDisabled = process.env.SUMMARY_GENERATION_DISABLED;
+  const origMinScore = process.env.SUMMARY_MIN_SCORE;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+  });
+  afterEach(() => {
+    for (const [k, v] of [
+      ['GOOGLE_API_KEY', origGoogle],
+      ['SUMMARY_GENERATION_DISABLED', origDisabled],
+      ['SUMMARY_MIN_SCORE', origMinScore],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  it('SUMMARY_GENERATION_DISABLED refuses a miss with 503 and never fetches or generates', async () => {
+    process.env.SUMMARY_GENERATION_DISABLED = 'on';
+    const fetchItem = vi.fn(async () => null);
+    const client = createFakeClient([]);
+    const res = await handleCommentsSummaryRequest(makeRequest('4001'), {
+      fetchItem,
+      createClient: () => client,
+      store: createTestStore(),
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'Summary generation is disabled',
+      reason: 'generation_disabled',
+    });
+    expect(fetchItem).not.toHaveBeenCalled();
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('SUMMARY_MIN_SCORE raises the eligibility floor', async () => {
+    process.env.SUMMARY_MIN_SCORE = '100';
+    const fetchItem = fetchItemFrom({
+      // Score 50 clears the default `> 1` floor but not a raised `> 100`.
+      4002: {
+        id: 4002,
+        type: 'story',
+        kids: [4003],
+        time: OLD_STORY_TIME,
+        score: 50,
+      },
+      4003: { id: 4003, type: 'comment', by: 'x', text: 'hi', time: 1 },
+    });
+    const res = await handleCommentsSummaryRequest(makeRequest('4002'), {
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('low_score');
+  });
+});
