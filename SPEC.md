@@ -1906,6 +1906,21 @@ id-list retry policy (`feedQueryRetry`).
   - `ADMIN_USERNAME=mikelward` (HN username permitted to load
     `/api/admin` and see `/admin`; defaults to `mikelward`)
 
+**Crawler exclusion.** `public/robots.txt` (served by Vercel at
+`/robots.txt`) carries `User-agent: *` / `Disallow: /api/`. The API
+routes serve no indexable content, and each `/api/summary` hit does real
+work — a summary generation for an eligible story plus an Upstash command
+on every request — so a compliant crawler enumerating story ids there is
+pure cost (AhrefsBot did exactly this, walking `/api/summary?id=N` across
+the HN id space). `vercel.json`'s SPA catch-all rewrite lists `robots.txt`
+in its negative lookahead alongside `api/` and `assets/`, so the static
+file is served rather than rewritten to `index.html`. This does **not**
+touch the social-preview path (*Link preview metadata*): those crawlers
+request `/item/:id` and are rewritten server-side to `/api/og` — they
+never request an `/api/` URL, so the disallow rule doesn't reach them.
+robots.txt binds only compliant bots; a Vercel Firewall rate-limit on the
+`/api/` paths is the enforcement backstop for the rest.
+
 ## Analytics
 
 Vercel Web Analytics is mounted at the app root (`<Analytics />` from

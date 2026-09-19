@@ -1,0 +1,4 @@
+# API routes trigger server-side work (summary generation, cache reads)
+# and serve no indexable content, so keep crawlers out of them entirely.
+User-agent: *
+Disallow: /api/
