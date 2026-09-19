@@ -2213,3 +2213,125 @@ describe('parseRecord — paywalled field round-trip', () => {
     expect(parsed!.paywalled).toBeUndefined();
   });
 });
+
+describe('handleSummaryRequest cost throttles', () => {
+  const origDisabled = process.env.SUMMARY_GENERATION_DISABLED;
+  const origMinScore = process.env.SUMMARY_MIN_SCORE;
+  const origGoogle = process.env.GOOGLE_API_KEY;
+  const origJina = process.env.JINA_API_KEY;
+
+  beforeEach(() => {
+    process.env.GOOGLE_API_KEY = 'test-key';
+    process.env.JINA_API_KEY = 'test-jina-key';
+  });
+  afterEach(() => {
+    for (const [k, v] of [
+      ['SUMMARY_GENERATION_DISABLED', origDisabled],
+      ['SUMMARY_MIN_SCORE', origMinScore],
+      ['GOOGLE_API_KEY', origGoogle],
+      ['JINA_API_KEY', origJina],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  it('SUMMARY_GENERATION_DISABLED refuses a miss with 503 and never calls Gemini or Jina', async () => {
+    process.env.SUMMARY_GENERATION_DISABLED = 'true';
+    const fetchImpl = createFakeFetch({}); // any Jina call → unexpected fetch throw
+    const fetchItem = fetchItemFor({
+      301: { id: 301, type: 'story', url: 'https://example.com/x', score: 10 },
+    });
+    const client = createFakeClient([{ text: 'must-not-run' }]);
+    const res = await handleSummaryRequest(makeRequest(301), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: createTestStore(),
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'Summary generation is disabled',
+      reason: 'generation_disabled',
+    });
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    // The story fetch is also skipped — the switch stops before it.
+    expect(fetchItem).not.toHaveBeenCalled();
+  });
+
+  it('SUMMARY_GENERATION_DISABLED still serves a cached summary', async () => {
+    process.env.SUMMARY_GENERATION_DISABLED = '1';
+    const store = createTestStore();
+    const now = 1_700_000_000_000;
+    await store.set(
+      302,
+      {
+        summary: 'cached-body',
+        articleHash: hashArticle('body'),
+        firstSeenAt: now,
+        summaryGeneratedAt: now,
+        lastCheckedAt: now,
+        lastChangedAt: now,
+      },
+      60,
+    );
+    const client = createFakeClient([{ text: 'must-not-run' }]);
+    const res = await handleSummaryRequest(makeRequest(302), {
+      createClient: () => client,
+      store,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ summary: 'cached-body', cached: true });
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('SUMMARY_MIN_SCORE raises the eligibility floor', async () => {
+    process.env.SUMMARY_MIN_SCORE = '100';
+    const fetchItem = fetchItemFor({
+      // Score 50 clears the default `> 1` floor but not a raised `> 100`.
+      303: { id: 303, type: 'story', url: 'https://example.com/x', score: 50 },
+    });
+    const res = await handleSummaryRequest(makeRequest(303), {
+      fetchItem,
+      store: null,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('low_score');
+  });
+
+  it('SUMMARY_MIN_SCORE below 1 is clamped to the anti-abuse floor (never lowers it)', async () => {
+    // A mistyped 0 / negative must not drop the floor below `score > 1` and
+    // reopen the direct-request abuse path the floor exists to close.
+    for (const bad of ['0', '-5']) {
+      process.env.SUMMARY_MIN_SCORE = bad;
+      const fetchItem = fetchItemFor({
+        305: { id: 305, type: 'story', url: 'https://example.com/one', score: 1 },
+      });
+      const res = await handleSummaryRequest(makeRequest(305), {
+        fetchItem,
+        store: null,
+      });
+      expect(res.status).toBe(400);
+      expect((await res.json()).reason).toBe('low_score');
+    }
+  });
+
+  it('SUMMARY_MIN_SCORE unset preserves the original score > 1 floor', async () => {
+    delete process.env.SUMMARY_MIN_SCORE;
+    const fetchImpl = createFakeFetch({
+      'https://r.jina.ai/https://example.com/two': { body: jinaBody('hi') },
+    });
+    const fetchItem = fetchItemFor({
+      304: { id: 304, type: 'story', url: 'https://example.com/two', score: 2 },
+    });
+    const client = createFakeClient([{ text: 'ok' }]);
+    const res = await handleSummaryRequest(makeRequest(304), {
+      createClient: () => client,
+      fetchImpl,
+      fetchItem,
+      store: createTestStore(),
+    });
+    expect(res.status).toBe(200);
+  });
+});

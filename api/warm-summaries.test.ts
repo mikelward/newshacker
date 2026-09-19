@@ -967,6 +967,105 @@ describe('handleWarmRequest', () => {
     expect(runs[0]!.outcomes.comments.skipped_store_unreachable).toBe(1);
   });
 
+  it('SUMMARY_GENERATION_DISABLED skips the whole tick before the feed load or any I/O', async () => {
+    const orig = process.env.SUMMARY_GENERATION_DISABLED;
+    process.env.SUMMARY_GENERATION_DISABLED = 'true';
+    try {
+      const fetchFeedIds = vi.fn(async () => [3101]);
+      const fetchItem = vi.fn(async () => null);
+      const fetchImpl = createFakeFetch({});
+      const store: SummaryStore = {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => {}),
+        probe: vi.fn(async () => {}),
+      };
+      const commentsStore: CommentsSummaryStore = {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => {}),
+      };
+      const client = createFakeClient([]); // any generate call → unexpected
+      const { logger, stories, runs } = captureLogger();
+
+      const res = await handleWarmRequest(makeRequest({ secret: null }), {
+        fetchImpl,
+        fetchItem,
+        fetchFeedIds,
+        createClient: () => client,
+        store,
+        commentsStore,
+        logger,
+        now: () => 1_700_000_000_000,
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ generationDisabled: true });
+      // The whole tick is skipped before any I/O — the feed load included,
+      // which is the point (a slow/unreachable feed must not 502 a
+      // kill-switched cron). No per-story lines are emitted at all.
+      expect(fetchFeedIds).not.toHaveBeenCalled();
+      expect(store.probe).not.toHaveBeenCalled();
+      expect(store.get).not.toHaveBeenCalled();
+      expect(fetchItem).not.toHaveBeenCalled();
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(client.models.generateContent).not.toHaveBeenCalled();
+      expect(stories).toHaveLength(0);
+      expect(runs[0]!.generationDisabled).toBe(true);
+      expect(runs[0]!.processed).toBe(0);
+      expect(runs[0]!.storyCount).toBe(0);
+    } finally {
+      if (orig === undefined) delete process.env.SUMMARY_GENERATION_DISABLED;
+      else process.env.SUMMARY_GENERATION_DISABLED = orig;
+    }
+  });
+
+  it('SUMMARY_MIN_SCORE raises the cron eligibility floor', async () => {
+    const orig = process.env.SUMMARY_MIN_SCORE;
+    process.env.SUMMARY_MIN_SCORE = '100';
+    try {
+      const articleUrl = 'https://example.com/below-floor';
+      const fetchImpl = createFakeFetch({
+        [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody('body') },
+      });
+      const fetchItem = fetchItemFor({
+        // Score 50 clears the default `> 1` but not the raised `> 100`.
+        3201: {
+          id: 3201,
+          type: 'story',
+          url: articleUrl,
+          title: 'Below floor',
+          score: 50,
+          kids: [3202],
+          time: 1_700_000_000,
+        },
+        3202: { id: 3202, type: 'comment', text: 'hi', time: 1 },
+      });
+      const store = createTestStore();
+      const commentsStore = createCommentsTestStore();
+      const client = createFakeClient([]);
+      const { logger, stories } = captureLogger();
+
+      await handleWarmRequest(makeRequest({ secret: null }), {
+        fetchImpl,
+        fetchItem,
+        fetchFeedIds: async () => [3201],
+        createClient: () => client,
+        store,
+        commentsStore,
+        logger,
+        now: () => 1_700_000_000_000,
+      });
+
+      const article = stories.find((s) => s.track === 'article')!;
+      const comments = stories.find((s) => s.track === 'comments')!;
+      expect(article.outcome).toBe('skipped_low_score');
+      expect(comments.outcome).toBe('skipped_low_score');
+      expect(client.models.generateContent).not.toHaveBeenCalled();
+    } finally {
+      if (orig === undefined) delete process.env.SUMMARY_MIN_SCORE;
+      else process.env.SUMMARY_MIN_SCORE = orig;
+    }
+  });
+
   it('write breaker: a failed set trips the breaker so the next tick skips before generating', async () => {
     // The read-side breaker misses a store that reads (miss) but rejects
     // writes: the story generates, the write fails, nothing caches, and the

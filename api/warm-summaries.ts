@@ -76,6 +76,24 @@ const COMMENTS_KV_KEY_PREFIX = 'newshacker:summary:comments:';
 const PROBE_KEY = 'newshacker:summary:__probe__:';
 const PROBE_TTL_SECONDS = 60;
 
+// Emergency cost throttles, read per request so a Vercel env change (with a
+// redeploy) takes effect. SUMMARY_MIN_SCORE raises the eligibility floor
+// (default 1, i.e. the original `score > 1`); SUMMARY_GENERATION_DISABLED,
+// when truthy, refuses all new Gemini/Jina generation while cached summaries
+// keep serving — the kill switch for a runaway. Duplicated per api/*.ts (no
+// shared modules — see AGENTS.md § "Vercel api/ gotchas").
+function minSummaryScore(): number {
+  const raw = process.env.SUMMARY_MIN_SCORE;
+  const n = raw != null && raw.trim() !== '' ? Number(raw) : NaN;
+  // Clamp to the anti-abuse floor: the knob only RAISES the minimum, so a
+  // mistyped 0 or negative can never drop it below the original `score > 1`.
+  return Number.isFinite(n) ? Math.max(1, Math.trunc(n)) : 1;
+}
+function generationDisabled(): boolean {
+  const v = (process.env.SUMMARY_GENERATION_DISABLED ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
 // Comments track constants — mirror api/comments-summary.ts.
 const TOP_LEVEL_SAMPLE_SIZE = 20;
 const MAX_COMMENT_CHARS = 2000;
@@ -1210,6 +1228,11 @@ export interface RunLog {
   // already in the per-story lines if needed.
   geminiPromptTokensTotal: number;
   geminiOutputTokensTotal: number;
+  // Present and `true` only on a tick skipped by SUMMARY_GENERATION_DISABLED
+  // (see the kill-switch early-return). The whole tick is skipped before the
+  // feed load, so such a run has no per-story lines — this run-level marker
+  // is the only signal that the cron ran but the kill switch was on.
+  generationDisabled?: boolean;
 }
 
 type Logger = (entry: StoryLog | RunLog) => void;
@@ -1569,7 +1592,7 @@ async function processArticleTrack(
   if (!story || story.deleted || story.dead) {
     return log({ outcome: 'skipped_unreachable' });
   }
-  if (!(typeof story.score === 'number' && story.score > 1)) {
+  if (!(typeof story.score === 'number' && story.score > minSummaryScore())) {
     return log({ outcome: 'skipped_low_score' });
   }
   const hasArticleUrl = !!story.url && isValidHttpUrl(story.url);
@@ -1865,7 +1888,7 @@ async function processCommentsTrack(
   if (!story || story.deleted || story.dead) {
     return log({ outcome: 'skipped_unreachable' });
   }
-  if (!(typeof story.score === 'number' && story.score > 1)) {
+  if (!(typeof story.score === 'number' && story.score > minSummaryScore())) {
     return log({ outcome: 'skipped_low_score' });
   }
   const kidIds = (story.kids ?? []).slice(0, TOP_LEVEL_SAMPLE_SIZE);
@@ -2096,6 +2119,30 @@ export async function handleWarmRequest(
   const n = parseWarmN(searchParams.get('n'), knobs.topN);
   if (n === null) {
     return json({ error: 'Invalid n parameter' }, 400);
+  }
+
+  // Kill switch: skip the whole tick before any network I/O — the feed load,
+  // the write probe, the per-story reads/fetches, and every generation. This
+  // sits ahead of the feed fetch (which can 502 feed_unreachable) so a
+  // disabled cron truly spends nothing, matching the SPEC promise. Cached
+  // summaries keep serving from the reader endpoints.
+  if (generationDisabled()) {
+    const entry: RunLog = {
+      type: 'warm-run',
+      durationMs: 0,
+      processed: 0,
+      storyCount: 0,
+      outcomes: emptyTrackOutcomes(),
+      topNRequested: n,
+      feed,
+      knobs,
+      articleTokensTotal: 0,
+      geminiPromptTokensTotal: 0,
+      geminiOutputTokensTotal: 0,
+      generationDisabled: true,
+    };
+    logger(entry);
+    return json({ ok: true, generationDisabled: true, processed: 0 }, 200);
   }
 
   const store = deps.store === undefined ? getDefaultStore() : deps.store;

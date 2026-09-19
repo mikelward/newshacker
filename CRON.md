@@ -504,6 +504,17 @@ After a week of `warm-story` logs, look for:
 
 In priority order:
 
+1. **Set `SUMMARY_GENERATION_DISABLED=1` in Vercel and redeploy.** The
+   summary-specific kill switch, and unlike everything below it also
+   covers the **reader endpoints**, not just the cron: every new
+   summary returns `503 generation_disabled` before any Gemini/Jina
+   call, and the cron skips its whole tick before the feed load or any
+   other I/O (its `warm-run` log carries `generationDisabled: true`).
+   **Cached summaries keep serving**, so the site degrades to "no new
+   summaries" rather than going dark — the first move for a runaway
+   bill from either path. `SUMMARY_MIN_SCORE=<n>` is the softer lever:
+   it keeps generating for high-score stories only (default floor is
+   `1`), for when you want to throttle rather than stop.
 1. **Remove the `crons` entry from `vercel.json` and redeploy.** The
    cleanest stop. Vercel stops scheduling it. User-facing summaries
    still work, but understand what "no cron-maintained freshness"
@@ -535,7 +546,7 @@ In priority order:
    and hash-checks but never regenerate. Nuclear option if Gemini
    billing is the problem.
 
-All four are reversible — put the env var / `crons` entry back and
+All of these are reversible — put the env var / `crons` entry back and
 redeploy.
 
 ## Troubleshooting
