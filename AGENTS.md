@@ -353,7 +353,7 @@ If any of the above fails, fix it — don't disable the check.
   failures. It cannot deliver CI *success*, a push, the merge, Codex's clean
   verdict (a reaction), or Codex never answering at all — so keep exactly one
   check armed for as long as the PR is open (each event and each check costs
-  a model turn). Under drive, arm auto-merge at PR open too — but only where
+  a model turn). Under drive (but never under merge in order), arm auto-merge at PR open too — but only where
   the ruleset makes the Codex verdict a required check AND requires
   conversations resolved: where CI is the only requirement it merges before
   Codex has answered, and an open review comment holds nothing back on its own.
@@ -481,6 +481,17 @@ rebutted false positive, or where *Read the Codex verdict* below says the
   comment — fix it if you agree, reply on the thread saying why if you don't
   — and merge once CI is green and Codex's verdict for the current head is
   in.
+- **"Merge in order"** (or "drive in order") is *drive to merge* for PRs in
+  flight together, each merged only once every lower-numbered active PR has.
+  Waiting holds only the merge: keep driving a queued PR — review comments,
+  CI, rebases — so it is green with Codex's `+1` the moment it is the lowest.
+  Merge by hand, never auto-merge (disarm any already armed), rechecking the
+  lower PRs just before. Each merge moves the base, so rebase the next one per
+  the `dirty`/`behind` rule even where the ruleset allows `behind`, and merge
+  on its new verdict. Active means open, not a draft, and either green with a
+  `+1` and only waiting its turn, or opened, reopened, pushed to, reviewed or
+  commented on in the last 30 minutes; say which lower PRs you skipped as
+  stale.
 - Open PRs ready for review (not draft) unless asked otherwise.
 - **Judge every review comment on merit, whoever wrote it.** Verify the claim before acting; if it doesn't hold up, reply saying why and decline. A comment citing a rule is a *reading* of that rule, not the rule — check what the rule actually says. Codex misreads the privacy rules especially, and in one direction: stricter always feels safer, so an over-strict finding quietly costs capability the product needs. Quote the rule and decline rather than narrowing the code to satisfy it; where the rule really does forbid what the product needs, that conflict is the maintainer's call, not one to settle either way yourself. Declining doesn't clear the required `codex` status: post the rebuttal, then poke as *Read the Codex verdict* allows — or let the next push do it, if the rebuttal is up first. Escalate if it re-raises.
 - **A second verified finding in the same mechanism is evidence about the design, not another bug.** Before fixing it, look for the same shape elsewhere and ask whether a different design would delete the class rather than the instance. Say what you chose on the thread; a design change is the maintainer's call, autopilot included.
