@@ -34,7 +34,7 @@
     "@vercel/analytics": "^2.0.1",
     "node-html-parser": "^9.0.4",
     "react": "^19.3.0",
-    "react-dom": "^19.2.8",
+    "react-dom": "^19.3.0",
     "react-router": "^8.4.0",
     "workbox-window": "^7.4.1"
   },
