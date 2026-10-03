@@ -147,9 +147,18 @@ persist_on_path() {
         if [ -n "$real_home" ] && [ -n "$real_probe" ]; then
           case "$real_probe" in
             "$real_home" | "$real_home"/*)
-              # A missing entry under $HOME is ours to create; the sandbox image
-              # lists ~/.local/bin on PATH whether or not it exists yet.
-              [ -d "$candidate" ] || mkdir -p "$candidate" 2>/dev/null || true
+              # Only ~/.local/bin is ours to create: the sandbox image lists it
+              # on PATH whether or not it exists yet. Any other missing entry
+              # under $HOME belongs to whatever tool put it there, and creating
+              # it would squat its path — ~/.nix-profile is a symlink Nix makes
+              # on first use, and a plain directory there breaks Nix.
+              if [ ! -d "$candidate" ]; then
+                case "$candidate" in
+                  "${HOME}/.local/bin" | "${HOME}/.local/bin/")
+                    mkdir -p "$candidate" 2>/dev/null || true
+                    ;;
+                esac
+              fi
               if [ -d "$candidate" ] && [ -w "$candidate" ]; then
                 # Re-resolve what was actually created or found: the ancestor
                 # check clears the way, this one confirms the destination.
