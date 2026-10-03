@@ -663,7 +663,9 @@ rebutted false positive, or where *Read the Codex verdict* below says the
   harness snapshots the environment before hooks run, so an rc edit lands a
   session late while looking like it worked. So the fallback changes what the
   NAME resolves to instead: symlinks for `node`/`npm`/`npx` (and `deno` where
-  the hook installs one) in the first PATH directory **under `$HOME`**, which
+  the hook installs one) in the first PATH directory **under `$HOME`** that
+  exists — it creates only `~/.local/bin`, never another tool's missing
+  directory such as `~/.nix-profile/bin` — which
   wins the lookup whatever a later shell sources. Three refusals keep that
   from being a lie: it links nothing if any tool is missing or unrunnable in the source,
   nothing if any *earlier* PATH entry still supplies one of the names (node

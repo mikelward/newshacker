@@ -158,6 +158,11 @@ function runHookCapturingAll(
     ['-c', `bash "${HOOK}" 2>&1`],
     {
       encoding: 'utf-8',
+      // stdin closed, as in runHook. Node's default stdin is a socket on Linux,
+      // and Debian's bash reads /etc/bash.bashrc for a non-interactive shell on
+      // a socket with no SHLVL — so an image whose bashrc sets up Nix prepends
+      // $HOME/.nix-profile/bin under the fixture HOME, and the hook links there.
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: Object.fromEntries(
         Object.entries({
           PATH: process.env.PATH ?? '',
@@ -597,6 +602,41 @@ describe('session-start hook: Node provisioning', () => {
 
     expect(out).toContain('npm does not run');
     expect(existsSync(join(shimDir, 'node'))).toBe(false);
+  });
+
+  it('creates only ~/.local/bin, never another missing directory under HOME', () => {
+    // ~/.local/bin is created because the image lists it on PATH before it
+    // exists. Any other missing entry belongs to some other tool: Nix lists
+    // ~/.nix-profile/bin and makes ~/.nix-profile a symlink on first use, so a
+    // plain directory squatting that path breaks it.
+    writeDistFixture([LATEST], LATEST);
+    const nixBin = join(work, '.nix-profile', 'bin');
+    const shimDir = join(work, '.local', 'bin');
+
+    runHookCapturingAll(
+      { PATH: `${nixBin}:${shimDir}:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    expect(existsSync(join(work, '.nix-profile'))).toBe(false);
+    const provisioned = join(nodeRoot, `node${MAJOR}`, 'bin');
+    expect(realpathSync(join(shimDir, 'node'))).toBe(join(provisioned, 'node'));
+  });
+
+  it('still creates ~/.local/bin when PATH spells it with a trailing slash', () => {
+    // `~/.local/bin/` names the same directory, and the hook created it before
+    // the rule narrowed — an exact-string match would refuse it and leave the
+    // session with nowhere to link.
+    writeDistFixture([LATEST], LATEST);
+    const shimDir = join(work, '.local', 'bin');
+
+    runHookCapturingAll(
+      { PATH: `${shimDir}/:${process.env.PATH ?? ''}` },
+      ['CLAUDE_ENV_FILE'],
+    );
+
+    const provisioned = join(nodeRoot, `node${MAJOR}`, 'bin');
+    expect(realpathSync(join(shimDir, 'node'))).toBe(join(provisioned, 'node'));
   });
 
   it('treats an empty PATH field as the current directory when checking for an earlier supplier', () => {
