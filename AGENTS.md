@@ -1,7 +1,7 @@
 ---
 trigger: always_on
 alwaysApply: true
-last_modified: 2026-10-04
+last_modified: 2026-10-06
 ---
 
 # AGENTS.md
@@ -378,9 +378,11 @@ If any of the above fails, fix it — don't disable the check.
     outstanding; longer once only a human is left; short again after a push.
   - A PR reading `dirty` — always — or `behind` where the ruleset requires
     branches up to date, needs a rebase onto its base and a force-push
-    guarded by `--force-with-lease --force-if-includes`. Nothing reports a
-    base advance, so only this check catches it. Fetch both refs by explicit
-    refspec, unshallow a shallow clone, and rebase onto the fetched
+    guarded by `--force-with-lease --force-if-includes`. Read
+    `mergeable_state` at every scheduled check, PR-event wake and drive
+    step, not this check alone, and act at once, unasked: nothing reports a
+    base advance, so that read is the only signal. Fetch both refs by
+    explicit refspec, unshallow a shallow clone, and rebase onto the fetched
     `origin/<base>` — not always `main`, never the local branch a fetch
     leaves behind. Both flags, because a fetch refreshes the ref the lease
     compares against and only `--force-if-includes` then refuses a push
