@@ -776,6 +776,10 @@ describe('session-start hook: Node provisioning', () => {
     // Provisioning is what a local machine manages for itself. The unshallow
     // is not provisioning — a shallow clone answers wrongly wherever it is —
     // so it runs above the guard and is the one thing allowed to speak here.
-    expect(res.stdout.trim()).toMatch(/^unshallow: /);
+    // Both streams: outside a repository it reports on stderr that it cannot
+    // inspect one (after git's own complaint), which is still the unshallow
+    // step speaking.
+    const all = runHookCapturingAll({ CLAUDE_CODE_REMOTE: 'false' });
+    expect(all.trim()).toMatch(/^unshallow: /m);
   });
 });
