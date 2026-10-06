@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -107,6 +107,27 @@ describe('unshallow', () => {
     expect(isShallow(clone)).toBe(false);
     expect(git(clone, 'rev-list', '--count', 'HEAD')).toBe('4');
     expect(out).toMatch(/deepened to 4 commits/);
+  });
+
+  it('fetches main too, from a single-branch clone of another branch', () => {
+    // A bare `git fetch` follows the configured refspec, which a single-branch
+    // clone narrows to its own branch: HEAD would deepen and `origin/main`
+    // would stay missing, so anything counting main's history reads nothing.
+    const { origin, root } = fixture({ commits: 2, depth: 1 });
+    git(origin, 'checkout', '--quiet', '-b', 'feature');
+    git(origin, 'commit', '--quiet', '--allow-empty', '-m', 'feature 0');
+    git(origin, 'commit', '--quiet', '--allow-empty', '-m', 'feature 1');
+    git(origin, 'checkout', '--quiet', 'main');
+    git(origin, 'commit', '--quiet', '--allow-empty', '-m', 'main 2');
+    const clone = join(root, 'feature-clone');
+    execFileSync('git', ['clone', '--quiet', '--depth', '1', '--single-branch', '--branch', 'feature', `file://${origin}`, clone]);
+    expect(git(clone, 'for-each-ref', 'refs/remotes/origin/main')).toBe('');
+
+    run(clone);
+
+    expect(isShallow(clone)).toBe(false);
+    expect(git(clone, 'rev-list', '--count', 'HEAD')).toBe('4');
+    expect(git(clone, 'rev-list', '--count', 'origin/main')).toBe('3');
   });
 
   it('is a no-op on a complete clone', () => {
@@ -281,6 +302,159 @@ describe('unshallow', () => {
     execFileSync('sh', [SCRIPT], { cwd: clone, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env });
 
     expect(readFileSync(seen, 'utf8').trim()).toBe('600');
+  });
+
+  it('waits out a failed fetch rather than paying the deadline on every hook run', () => {
+    // SessionStart fires on resume, clear and compaction too, so without a
+    // memory of the failure an unreachable origin costs the full deadline
+    // each time. The second run must not attempt the fetch at all.
+    const { clone, bin, tried } = hangingGit({ commits: 3 });
+    const path = `${bin}:${process.env.PATH}`;
+
+    runWith(clone, path);
+    expect(existsSync(tried)).toBe(true);
+    expect(existsSync(join(clone, '.git', 'unshallow-failed'))).toBe(true);
+
+    rmSync(tried);
+    const started = Date.now();
+    runWith(clone, path);
+
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(existsSync(tried)).toBe(false);
+    expect(isShallow(clone)).toBe(true);
+  }, 25_000);
+
+  it('clears the failure stamp once a later fetch deepens the clone', () => {
+    const { clone } = fixture({ commits: 4, depth: 1 });
+    const stamp = join(clone, '.git', 'unshallow-failed');
+    // An hour old, so outside the window: the fetch runs and succeeds.
+    writeFileSync(stamp, '1\n');
+    // Node's own API, not `touch -d @1`: that epoch form is GNU-only.
+    utimesSync(stamp, 1, 1);
+
+    run(clone);
+
+    expect(isShallow(clone)).toBe(false);
+    expect(existsSync(stamp)).toBe(false);
+  });
+
+  it('reads the shallow flag from stdout alone, so a trace on stderr cannot hide it', () => {
+    // GIT_TRACE writes to stderr on a successful rev-parse. Folded into the
+    // flag, "true" stops matching and a shallow clone reads as complete.
+    const { clone } = fixture({ commits: 3, depth: 1 });
+
+    const out = execFileSync('sh', [SCRIPT], {
+      cwd: clone, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, GIT_TRACE: '1' },
+    });
+
+    expect(out).toMatch(/deepened to 3 commits/);
+    expect(isShallow(clone)).toBe(false);
+  });
+
+  for (const bad of ['0', 'abc']) {
+    it(`keeps the fetch bounded when UNSHALLOW_TIMEOUT is ${JSON.stringify(bad)}`, () => {
+      // perl `alarm 0` and GNU `timeout 0` both mean "no deadline", so an
+      // invalid value must fall back to the default rather than reach them.
+      // The stub perl records the deadline it was handed and runs nothing.
+      const { clone, root } = fixture({ commits: 3, depth: 1 });
+      const bin = join(root, 'bin');
+      const seen = join(root, 'seen');
+      execFileSync('mkdir', ['-p', bin]);
+      writeFileSync(join(bin, 'perl'), `#!/bin/sh\necho "$3" > ${seen}\nexit 1\n`, { mode: 0o755 });
+
+      execFileSync('sh', [SCRIPT], {
+        cwd: clone,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, UNSHALLOW_TIMEOUT: bad },
+      });
+
+      expect(readFileSync(seen, 'utf8').trim()).toBe('120');
+    });
+  }
+
+  it('reports a failed commit count rather than printing a blank one', () => {
+    // The deepen worked, so the session is fine; the count is cosmetic and
+    // must not come out as "deepened to  commits".
+    const { clone, root } = fixture({ commits: 3, depth: 1 });
+    const bin = join(root, 'bin');
+    execFileSync('mkdir', ['-p', bin]);
+    writeFileSync(
+      join(bin, 'git'),
+      '#!/bin/sh\n'
+      + '[ "$1" = rev-list ] && { echo "rev-list exploded" >&2; exit 1; }\n'
+      + 'exec "$REAL_GIT" "$@"\n',
+      { mode: 0o755 },
+    );
+    const result = spawnSync('sh', [SCRIPT], {
+      cwd: clone,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, REAL_GIT: which('git') },
+    });
+
+    expect(result.status).toBe(0);
+    expect(isShallow(clone)).toBe(false);
+    expect(result.stdout).not.toMatch(/deepened to/);
+    expect(result.stderr).toMatch(/rev-list exploded[\s\S]*deepened, but could not count commits/);
+  });
+
+  it('does not call a fetch that deepened but could not write origin/main a success', () => {
+    // A stale origin/main/<x> ref blocks the refspec's destination: git
+    // removes the shallow boundary, exits non-zero, and leaves origin/main
+    // missing -- which is what a count of main's history reads.
+    const { origin, root } = fixture({ commits: 3, depth: 1 });
+    git(origin, 'checkout', '--quiet', '-b', 'feature');
+    const clone = join(root, 'feature-clone');
+    execFileSync('git', ['clone', '--quiet', '--depth', '1', '--single-branch', '--branch', 'feature', `file://${origin}`, clone]);
+    git(clone, 'update-ref', 'refs/remotes/origin/main/stale', 'HEAD');
+
+    const result = spawnSync('sh', [SCRIPT], { cwd: clone, encoding: 'utf8' });
+
+    expect(result.status).toBe(0);
+    expect(isShallow(clone)).toBe(false);
+    expect(result.stdout).not.toMatch(/deepened to/);
+    expect(result.stderr).toMatch(/history is complete, but the fetch failed/);
+  });
+
+  it('treats a fetch killed by a signal as failed, not as a success', () => {
+    // perl's `$? >> 8` is 0 for a signaled child. The stub deepens for real,
+    // then dies on TERM before returning, as an OOM kill or a cancel might.
+    if (!PERL) return;
+    const { clone, root } = fixture({ commits: 3, depth: 1 });
+    const bin = join(root, 'bin');
+    execFileSync('mkdir', ['-p', bin]);
+    writeFileSync(
+      join(bin, 'git'),
+      '#!/bin/sh\n'
+      + 'for a in "$@"; do [ "$a" = fetch ] && { "$REAL_GIT" "$@"; kill -TERM $$; }; done\n'
+      + 'exec "$REAL_GIT" "$@"\n',
+      { mode: 0o755 },
+    );
+    const result = spawnSync('sh', [SCRIPT], {
+      cwd: clone,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, REAL_GIT: which('git') },
+    });
+
+    expect(result.status).toBe(0);
+    expect(isShallow(clone)).toBe(false);
+    expect(result.stderr).toMatch(/fetch did not complete \(exit 143\)/);
+    expect(result.stdout).not.toMatch(/deepened to/);
+  });
+
+  it('fails loudly outside a repository rather than calling it complete', () => {
+    // A shallow flag git could not report is not a complete history; callers
+    // trust the result before counting commits.
+    const dir = mkdtempSync(join(tmpdir(), 'unshallow-norepo-'));
+    roots.push(dir);
+    let error;
+    try {
+      execFileSync('sh', [SCRIPT], { cwd: dir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, GIT_CEILING_DIRECTORIES: tmpdir() } });
+    } catch (e) {
+      error = e;
+    }
+    expect(error?.status).toBe(1);
+    expect(error?.stderr).toMatch(/cannot inspect the repository/);
   });
 
   it('warns and exits 0 when the remote is gone, rather than failing the session', () => {
