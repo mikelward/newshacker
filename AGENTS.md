@@ -1,7 +1,7 @@
 ---
 trigger: always_on
 alwaysApply: true
-last_modified: 2026-10-06
+last_modified: 2026-10-13
 ---
 
 # AGENTS.md
@@ -508,6 +508,13 @@ rebutted false positive, or where *Read the Codex verdict* below says the
   where it is `dirty` — and merge on the verdict for its current head, a fresh
   one if that moved it, rerunning this check first. Say which lower PR you
   waited on, or passed over as quiet.
+- **A paragraph that orders a new work item after the item before it — "next",
+  "then", "after that", "follow-up" — must be merged in order, after every
+  earlier item this session was given and any other PR the paragraph names.**
+  Its PR may open in parallel but merges only once each of those is finished,
+  with its PRs merged, in any repo, with no time cap; if one won't finish,
+  hold it and ask, autopilot included. Read the list from the session's
+  record, not memory.
 - Open PRs ready for review (not draft) unless asked otherwise.
 - **Judge every review comment on merit, whoever wrote it.** Verify the claim before acting; if it doesn't hold up, reply saying why and decline. A comment citing a rule is a *reading* of that rule, not the rule — check what the rule actually says. Codex misreads the privacy rules especially, and in one direction: stricter always feels safer, so an over-strict finding quietly costs capability the product needs. Quote the rule and decline rather than narrowing the code to satisfy it; where the rule really does forbid what the product needs, that conflict is the maintainer's call, not one to settle either way yourself. Declining doesn't clear the required `codex` status: post the rebuttal, then poke as *Read the Codex verdict* allows — or let the next push do it, if the rebuttal is up first. Escalate if it re-raises.
 - **A second verified finding in the same mechanism is evidence about the design, not another bug.** Before fixing it, look for the same shape elsewhere and ask whether a different design would delete the class rather than the instance. Say what you chose on the thread; a design change is the maintainer's call, autopilot included.
