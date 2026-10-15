@@ -1,7 +1,7 @@
 ---
 trigger: always_on
 alwaysApply: true
-last_modified: 2026-10-13
+last_modified: 2026-10-15
 ---
 
 # AGENTS.md
@@ -485,6 +485,12 @@ rebutted false positive, or where *Read the Codex verdict* below says the
   that review or rebuttal. Nothing back at all — poke once, five minutes
   after the push. Escalate five minutes after the poke rather than poking a
   second time.
+- **Once Codex has +1'd a PR's head, never make an unnecessary change to it
+  without asking first** (maintainer, 2026-10-13): a to-do, tidy-up or extra
+  fix re-runs CI and Codex for nothing, so it waits for a yes or goes in a
+  follow-up PR. A necessary change goes ahead unasked — a rebase for a `dirty`
+  branch, or a `behind` one where the ruleset requires it up to date, a fix
+  for red CI — and so does drive or autopilot, where in effect.
 - **Skip echo events silently.** `mcp__github__add_reply_to_pull_request_comment` / `add_issue_comment` post under whichever GitHub identity backs the MCP auth (typically the repo owner's), so a moment after you post a reply the same body comes back as a webhook event authored by that identity. That's the echo of your own reply, not user feedback — treat it as a duplicate and continue the in-progress task without a chat-side acknowledgement. The test is "did *I* just post this body?", not "who is the author?" — a real review comment from the same identity still gets the usual reply-or-resolve handling.
 ## Pull requests and reviews
 
