@@ -185,15 +185,14 @@ If any of the above fails, fix it — don't disable the check.
   — the "sent while you were working" interjection — is addressed in your very next
   output, before any further tool call, even if it's one sentence. A merge cue is the
   exception — its hygiene runs first, and announcing the switch is that answer.
-- **Don't narrate routine machinery.** A check run flipping, a re-run, a scheduled check
-  re-arming, a webhook echo, a resolved thread — act on those silently; the noise buries
-  the one line that matters. Reports another rule requires stand (each review and its
-  findings, a CI timing regression).
-- **Don't report your own caught-and-fixed mistakes.** A wrong turn you noticed
-  and corrected before it reached anything is not news — no "one thing worth
-  flagging", no narration of the recovery. Say it only when it left something
-  the user has to act on: work actually lost, a bad push someone may have
-  pulled, a decision they would make differently knowing it.
+- **Message only when the user needs to see it** (maintainer, 2026-10-15): each one
+  notifies their phone. Work and listen in silence; speak up for a question or blocker,
+  something to merge or act on, a merge, an autopilot decision (to review when seen,
+  never waited on), or a change from the plan, `SPEC.md` or their instructions, a
+  review-prompted one included. Never for progress (a client's nudge doesn't count), a
+  review or a push alone (its report rides the next message), routine machinery, or a
+  mistake caught and fixed before it reached the repo. The session-start `AGENTS.md`
+  line still opens every session.
 - **Keep replies short — don't dump a full page.** Lead with the single most
   important point and stop. If there's more, say the first point and ask
   whether they're ready for the next one rather than emptying everything at
@@ -344,8 +343,8 @@ If any of the above fails, fix it — don't disable the check.
 - Creating new `<agent>/<short-topic>` branches and creating PRs via `mcp__github__create_pull_request` are safe — this file is the standing ask (see *Autonomy*), so don't wait for a per-thread one and don't re-ask.
 - Sandbox git proxy can't delete branches (HTTP 403). Flag it and move on; auto-delete-on-merge handles GitHub's side.
 - **Unshallow before answering anything that depends on git history depth.** Claude Code sessions get this automatically — `scripts/unshallow.sh` runs from the session-start hook — but the hook is Claude-only, so in any other environment run that script (or `git fetch --unshallow`) yourself first. The sandbox clones shallow, so `git rev-list --count`, `git log` past the shallow boundary, and blame return wrong answers without warning; where no remote is reachable (Codex cloud), say the history is truncated rather than quoting a count.
-- **After every push and after every merge, report the resulting HEAD SHA in the end-of-turn summary** so the operator can compare it against `/debug`'s `build` field to know when Vercel has caught up — `/debug` only shows the deployed build, so the operator can't otherwise tell whether the URL they're testing is the commit you just pushed or a stale preview from earlier in the conversation. Format: `pushed <short-sha>` after a push (branch head on `origin/<branch>`); `merged at <short-sha>` after a merge webhook (the resulting commit on `origin/main`). 7-char prefix is fine — that's what `/debug` displays. Mention it once per push; if you push, then immediately push again to amend, only the last SHA matters.
-- **Update the PR title and body with the push — body first, then push — and print the PR link.** Pushing to a branch that has an open PR and editing the PR title and description are one step, not two: (`mcp__github__update_pull_request`) so they still match what's on the branch — new commits, reversed decisions, changed scope — and print the PR link in the chat reply for that push, not only at the end of the conversation. If no PR exists yet, do this as soon as one is opened.
+- **After every push and after every merge, report the resulting HEAD SHA** in the next message you send, so the operator can compare it against `/debug`'s `build` field to know when Vercel has caught up — `/debug` only shows the deployed build, so the operator can't otherwise tell whether the URL they're testing is the commit you just pushed or a stale preview from earlier in the conversation. Format: `pushed <short-sha>` after a push (branch head on `origin/<branch>`); `merged at <short-sha>` after a merge webhook (the resulting commit on `origin/main`). 7-char prefix is fine — that's what `/debug` displays. Mention it once per push; if you push, then immediately push again to amend, only the last SHA matters.
+- **Update the PR title and body with the push — body first, then push — and print the PR link.** Pushing to a branch that has an open PR and editing the PR title and description are one step, not two: (`mcp__github__update_pull_request`) so they still match what's on the branch — new commits, reversed decisions, changed scope — and print the PR link in the next message after that push, not only at the end of the conversation. If no PR exists yet, do this as soon as one is opened.
 - End every reply with the open-PR link (or `.../compare/main...<branch>` until a PR exists). Never link to a closed or merged PR. In a no-remote sandbox there is no link to give: say the branch is local and unpushed rather than inventing a URL. When a pending decision also needs restating (see *Talking to the user*), the link goes second-to-last and the question is the final line.
 
 ## Autonomy
@@ -467,7 +466,7 @@ rebutted false positive, or where *Read the Codex verdict* below says the
 
   > **History.** This was previously documented as broken: the response stripped the thread node ID, leaving no way to obtain a `threadId`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (fix). Verified working against a real Codex review thread on PR #406 (2026-07-24). Kept as a note rather than deleted so the next agent that hits a resolve failure knows this was a real, since-fixed upstream bug and doesn't re-derive it.
 
-- **Report each review in chat, and what it said — any reviewer's, not only Codex's.** Name the commit it read and the finding count — say so when that commit is no longer the head — then one bullet per finding: review comment, top-level comment or review body alike, most blocking first — what it claims, where, and what you did about it, or the options where it's the maintainer's call. Summarize them all in that one reply, ahead of *keep replies short*; ask only the most blocking question.
+- **Report each review in the next message you send, and what it said — any reviewer's, not only Codex's.** Name the commit it read and the finding count — say so when that commit is no longer the head — then one bullet per finding: review comment, top-level comment or review body alike, most blocking first — what it claims, where, and what you did about it, or the options where it's the maintainer's call. Summarize them all in that one reply, ahead of *keep replies short*; ask only the most blocking question.
 - **Read the Codex verdict, don't infer it.** It reacts to the PR body
   (`issue_read` → `reactions`), not to a review thread, whose `Useful?` bar
   reads true on any PR it has commented on. `eyes` means reading, `+1` means
