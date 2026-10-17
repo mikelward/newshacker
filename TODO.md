@@ -1268,6 +1268,9 @@ ends up on the front page on a given day.
   weekly bot bumps. Likely `license-checker-rseidelsohn`. GPL/LGPL undecided,
   matching typelauncher#632. Independent of `npm-update`. Work out placement
   and gate/lanes wiring when actually building this.
+- [ ] **Check `AGENTS.md` < 24,000 bytes in CI** (as mikelward/stopdash#932 plans): add
+  `test "$(wc -c < AGENTS.md)" -lt 24000` to `ci.yml` on the docs/classify path, so
+  `AGENTS.md` can't silently grow past Antigravity's 24,000-byte per-file rule cap.
 
 ## Funnel role, cost ceilings, and overload
 
