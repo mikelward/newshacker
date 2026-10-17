@@ -6,7 +6,9 @@ last_modified: 2026-10-17
 
 # AGENTS.md
 
-Instructions for AI coding agents (Claude Code, etc.) working in this repo.
+Instructions for AI coding agents (Claude Code, Gemini / Antigravity, Codex, etc.)
+working in this repo. `CLAUDE.md` and `GEMINI.md` are symlinks to this file; edit
+`AGENTS.md`.
 Keep this file short and concrete — add a new rule the first time something
 bites, not the third. Every session loads it whole, so each rule costs context
 on every turn: say it once in the fewest words that carry the *why*, rewrite or
@@ -275,6 +277,12 @@ If any of the above fails, fix it — don't disable the check.
 
 - Write a clear, plain-English subject in sentence case; keep it short
   (≤ ~70 chars, prefix included) and free of internal jargon.
+- **No model identifier** — never name the coding agent's model or version
+  (`Opus 4.8`, `Sonnet`, `Gemini …`, `claude-*`, `gemini-*`) in a commit, PR,
+  comment, or pushed artifact; keep it to chat. A model the product calls (the
+  summaries' Gemini model ID) is not covered. Generic attribution
+  (`Co-Authored-By: Claude` / `Gemini`, `Claude-Session:`, "Generated with
+  Claude Code") is fine.
 - Put the mechanism, the bug fixed, and file:line detail in the body, after a
   blank line — the body is not size-constrained. A commit with nothing to
   explain needs no body: the weekly dependency batch is the standing example,
@@ -318,7 +326,7 @@ If any of the above fails, fix it — don't disable the check.
 
 ## Branching
 
-- **Branch naming.** Feature branches are prefixed with the agent's own short name: `<agent>/<short-topic>` (e.g. `claude/...` for Claude Code, `codex/...` for Codex, `cursor/...` for Cursor, etc.). Human contributors pick a name that identifies them. The placeholder `<agent>` below stands in for whichever prefix you use — don't hard-code `claude/` unless you *are* Claude Code.
+- **Branch naming.** Feature branches are prefixed with the agent's own short name: `<agent>/<short-topic>` (e.g. `claude/...` for Claude Code, `gemini/...` for Gemini / Antigravity, `codex/...` for Codex, `cursor/...` for Cursor, etc.). Human contributors pick a name that identifies them. The placeholder `<agent>` below stands in for whichever prefix you use — don't hard-code `claude/` unless you *are* Claude Code.
 - **Workflow.** `<agent>/<short-topic>` branch off `origin/main` → PR → rebase-merge. One topic per branch. Follow-up work after a merge goes on a new branch. Never commit to `main` / `master`. Squash merging is disabled on every repository in this fleet, so each commit's own subject is what lands — the PR title never becomes one.
 - **Give the PR title the same prefix a commit subject would carry** (see *Commit messages*), judged over the whole branch rather than any one commit, and re-judged on every push — a branch can start documentation-only and stop being so with the next commit. This is a convention for reading, not a gate: the title is what the PR list shows the repo owner, so the prefix says at a glance whether a PR changes what the app does. Only commit subjects are enforced (`lint-title no` in `.github/lanes.conf`), because squash merging is disabled and a title therefore never becomes a commit subject.
 - **Use `git worktree` when it's available.** Give each branch its own worktree instead of switching branches in place, so work in progress on one branch isn't disturbed by work on another.
@@ -356,11 +364,13 @@ If any of the above fails, fix it — don't disable the check.
   satisfied — the ask is here, and it doesn't need repeating per branch.
 - **Watch your own PRs by subscription, plus one scheduled check.** Have a
   subscription — Claude Code makes one when you open a PR; where a client
-  doesn't, call `subscribe_pr_activity`. It delivers reviews, comments and CI
-  failures. It cannot deliver CI *success*, a push, the merge, Codex's clean
-  verdict (a reaction), or Codex never answering at all — so keep exactly one
-  check armed for as long as the PR is open (each event and each check costs
-  a model turn). Under drive, arm auto-merge at PR open too — but only where
+  doesn't, call `subscribe_pr_activity` (exposed only in `claude-code-remote`).
+  It delivers reviews, comments and CI failures. It cannot deliver CI
+  *success*, a push, the merge, Codex's clean verdict (a reaction), or Codex
+  never answering at all — so keep exactly one check armed for as long as the
+  PR is open (each event and each check costs a model turn): `send_later` in
+  Claude Code, `schedule` with `DurationSeconds` in Antigravity (cancel it via
+  `manage_task` `kill`). Under drive, arm auto-merge at PR open too — but only where
   the ruleset makes the Codex verdict a required check AND requires
   conversations resolved: where CI is the only requirement it merges before
   Codex has answered, and an open review comment holds nothing back on its own.
@@ -410,7 +420,8 @@ If any of the above fails, fix it — don't disable the check.
     if it doesn't merge cleanly with it (`git merge-tree --write-tree`, Git
     2.38 or later, exits 1). Any exit but 0 or 1 from either is a failure
     to report, not an answer. Your own rules decide the rebase from there.
-    Skip a PR with no session URL, and don't retry a failed send; its own
+    Skip a PR with no session URL, or every PR when your client only has
+    local subagent messaging, and don't retry a failed send; its own
     scheduled check is the fallback.
   - Merged or closed, take one last reply-and-resolve pass — a review can
     land after the merge. Nothing is holding the PR now, so on a merged one
@@ -481,7 +492,7 @@ rebutted false positive, or where *Read the Codex verdict* below says the
 - **Reply to (and resolve) every addressed Codex comment.** When you land a commit that addresses a Codex review comment, post a short reply on that comment via `mcp__github__add_reply_to_pull_request_comment` (one or two sentences — what you did, e.g. ``Fixed in `abc1234` — switched to `useSyncExternalStore` as suggested.``) and then resolve the thread with `mcp__github__resolve_review_thread` (see the resolve bullet below for where the `threadId` comes from). Do this for each addressed comment, not in bulk.
 - **Never resolve a thread you haven't answered.** A disagreement is an answer: say why on the thread, then resolve it. A deferral is resolved too, once its follow-up is recorded in `TODO.md` (see *Deferring a finding*).
 - **Order of operations on a push that addresses review comments:** (1) push the fix commit, (2) reply on each addressed thread referencing the new sha, then resolve it. Doing (2) before (1) means the sha you cite doesn't exist yet.
-- **`resolve_review_thread` works — the old MCP limitation is fixed.** `mcp__github__pull_request_read` / `get_review_comments` now returns each thread's node ID (`PRRT_*`) on the `review_threads[].id` field, alongside `is_resolved` / `is_outdated` / `is_collapsed`. Pass that `PRRT_*` value straight to `mcp__github__resolve_review_thread` as `threadId`. Do NOT pass a comment's node ID (`PRRC_*`) — that still fails with `Could not resolve to PullRequestReviewThread node`; the thread ID and the comment ID are different objects. So the full round-trip is available: reply, then resolve, with no "replied-but-unresolved, please resolve in the UI" caveat in the end-of-turn summary.
+- **`resolve_review_thread` works — the old MCP limitation is fixed.** `mcp__github__pull_request_read` / `get_review_comments` now returns each thread's node ID (`PRRT_*`) on the `review_threads[].id` field, alongside `is_resolved` / `is_outdated` / `is_collapsed`. Pass that `PRRT_*` value straight to `mcp__github__resolve_review_thread` as `threadId` (without the MCP tools, `gh api graphql` `resolveReviewThread` takes the same ID). Do NOT pass a comment's node ID (`PRRC_*`) — that still fails with `Could not resolve to PullRequestReviewThread node`; the thread ID and the comment ID are different objects. So the full round-trip is available: reply, then resolve, with no "replied-but-unresolved, please resolve in the UI" caveat in the end-of-turn summary.
 
   > **History.** This was previously documented as broken: the response stripped the thread node ID, leaving no way to obtain a `threadId`. Tracked upstream as github/github-mcp-server#2331 (issue) and github/github-mcp-server#2245 (fix). Verified working against a real Codex review thread on PR #406 (2026-07-24). Kept as a note rather than deleted so the next agent that hits a resolve failure knows this was a real, since-fixed upstream bug and doesn't re-derive it.
 
@@ -512,6 +523,8 @@ rebutted false positive, or where *Read the Codex verdict* below says the
 - **Skip echo events silently.** `mcp__github__add_reply_to_pull_request_comment` / `add_issue_comment` post under whichever GitHub identity backs the MCP auth (typically the repo owner's), so a moment after you post a reply the same body comes back as a webhook event authored by that identity. That's the echo of your own reply, not user feedback — treat it as a duplicate and continue the in-progress task without a chat-side acknowledgement. The test is "did *I* just post this body?", not "who is the author?" — a real review comment from the same identity still gets the usual reply-or-resolve handling.
 ## Pull requests and reviews
 
+- Prefer the `mcp__github__*` tools where mounted (Claude Code requires them);
+  otherwise fall back to `gh`.
 - **"Drive to merge"** is the PR stretch of *drive* (see *Autonomy* above):
   open the PR, wait for the automatic Codex review, address every review
   comment — fix it if you agree, reply on the thread saying why if you don't
@@ -676,6 +689,7 @@ rebutted false positive, or where *Read the Codex verdict* below says the
   through exactly this, because what `tsc` loads is whatever npm hoisted.
 - **The web sandbox is the consumer that can't follow on its own.** Its image
   ships whatever Node it ships (22 today), so `.claude/hooks/session-start.sh`
+  (auto-invoked only in Claude Code; other agents run it themselves)
   provisions the `.nvmrc` major before `npm install` — before any native dep
   builds against an ABI. It re-resolves the newest release of that major every
   run rather than trusting the container's cached copy, because container state
