@@ -1,7 +1,7 @@
 ---
 trigger: always_on
 alwaysApply: true
-last_modified: 2026-10-17
+last_modified: 2026-10-22
 ---
 
 # AGENTS.md
@@ -291,8 +291,10 @@ commits; background and history in `AGENTS-REFERENCE.md`.
   `get_review_comments`, `get_comments` and `get_reviews` to the last page; findings block
   the merge until fixed, rebutted or deferred (an acknowledgment isn't an answer). A pending
   `codex` status: address findings; a clean review with no reaction or an unanswered
-  rebuttal gets `@codex review` once, five minutes on; nothing back gets one poke five
-  minutes after the push. Escalate rather than poke twice.
+  rebuttal gets `@codex review` five minutes on; nothing back five minutes after the push,
+  or a review stuck at running (👀) ten minutes on, gets a poke. A poke that hangs the same
+  way gets a second an hour later; escalate only if that one hangs too, never after one
+  (maintainer, 2026-10-22).
 - **Once Codex +1s a head, make no unnecessary change without asking** (maintainer,
   2026-10-13); required rebases, red-CI fixes and drive/autopilot steps proceed unasked.
 - **Report each review (any reviewer's) in your next message**: commit read (say if no
