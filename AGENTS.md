@@ -1,7 +1,7 @@
 ---
 trigger: always_on
 alwaysApply: true
-last_modified: 2026-10-22
+last_modified: 2026-10-23
 ---
 
 # AGENTS.md
@@ -165,8 +165,12 @@ commits; background and history in `AGENTS-REFERENCE.md`.
 
 ## Commit messages
 
-- Plain-English sentence-case subject, ≤ ~70 chars incl. prefix; mechanism and file:line in
-  the body (a commit with nothing to explain, like the weekly batch, needs none).
+- **Title like a changelog line** (maintainer, 2026-10-23): after any prefix, an imperative
+  verb, then the change in the reader's plain words, sentence case, ≤ ~70 chars incl.
+  prefix, e.g. `Fix …` for what was broken, `Improve …` for what got better, `Add …` for
+  what's new; an optional parenthetical says how. Never the scenario or the mechanism:
+  those, and file:line, go in the body (a commit with nothing to explain, like the weekly
+  batch, needs none). PR titles match.
 - **Prefix a subject that doesn't change what the app does**: `docs:` (prose, `SPEC.md`,
   this file), `todo:` (`TODO.md` alone), `test:`, `build:` (toolchain, CI, lint/build
   config, `scripts/`), `refactor:`. Bare means a user could notice. No `feat:`/`fix:`, and
