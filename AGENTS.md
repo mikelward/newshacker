@@ -1,7 +1,7 @@
 ---
 trigger: always_on
 alwaysApply: true
-last_modified: 2026-10-23
+last_modified: 2026-10-26
 ---
 
 # AGENTS.md
@@ -122,7 +122,9 @@ commits; background and history in `AGENTS-REFERENCE.md`.
   proceed on an assumed answer, pick a "recommended" option, or keep working on what it
   affects. Never ask while the user is typing.
 - **Answer a mid-turn message first**, before any further tool call (except a merge cue,
-  whose hygiene runs first and whose announced switch is the answer).
+  whose hygiene runs first and whose announced switch is the answer). **Claude Code only**
+  (maintainer, 2026-10-25): its app reliably shows just a turn's last message, so reply only
+  there, answering a mid-turn message at a stopping point soon.
 - **Message only when the user needs to see it** (maintainer, 2026-10-15): each notifies
   their phone. Work in silence; speak up for a question/blocker, something to merge or act
   on, a merge, an autopilot decision (to review when seen, never waited on), or a change
