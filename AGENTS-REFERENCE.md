@@ -276,3 +276,14 @@ disagree, `AGENTS.md` wins — fix this file.
   the bare major in `.nvmrc` by hand in that branch.
 - Currently Node **24** (the active LTS; 22 dropped to maintenance when 26
   shipped).
+
+
+## Waking PRs a merge leaves behind
+
+On receiving a "base now points at `<sha>`" message, fetch base and PR head by
+refspec (unshallowing) and test that head against the fetched tip, not `<sha>`
+(a later merge may have passed it): `behind` if `git merge-base --is-ancestor
+<tip> <head>` exits 1, `dirty` if `git merge-tree --write-tree` (Git 2.38+)
+exits 1; any other exit is a failure to report, not an answer. Your own rules
+then decide the rebase. The sender names no merge and no other PR because an
+older copy of these rules reads either as its own merge cue.
