@@ -10,7 +10,7 @@ import { FeedBarProvider } from '../components/FeedBarContext';
 import { LoginDialogProvider } from '../components/LoginDialog';
 import { OfflinePage } from './OfflinePage';
 import { renderWithProviders } from '../test/renderUtils';
-import { makeStory } from '../test/mockFetch';
+import { installHNFetchMock, makeStory } from '../test/mockFetch';
 import { summaryQueryKey } from '../hooks/useSummary';
 import { commentsSummaryQueryKey } from '../hooks/useCommentsSummary';
 import { addDoneId } from '../lib/doneStories';
@@ -111,10 +111,10 @@ describe('<OfflinePage>', () => {
 
   it('supports the normal row pin action', async () => {
     const client = newClient();
-    client.setQueryData(['itemRoot', 7], {
-      item: makeStory(7, { title: 'Pin from offline' }),
-      kidIds: [],
-    });
+    const story = makeStory(7, { title: 'Pin from offline' });
+    client.setQueryData(['itemRoot', 7], { item: story, kidIds: [] });
+    // Pinning warms the story's cache; serve that from fixtures.
+    installHNFetchMock({ items: { 7: story } });
 
     renderWithProviders(<OfflinePage />, { client });
     fireEvent.click(screen.getByTestId('pin-btn'));

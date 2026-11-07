@@ -1,8 +1,10 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { AppHeader } from './AppHeader';
 import { trackedFetch } from '../lib/networkStatus';
 import { renderWithProviders } from '../test/renderUtils';
+import { FEEDS, feedEndpoint } from '../lib/feeds';
+import { installHNFetchMock } from '../test/mockFetch';
 
 function setOnline(value: boolean) {
   Object.defineProperty(window.navigator, 'onLine', {
@@ -11,7 +13,30 @@ function setOnline(value: boolean) {
   });
 }
 
+// The header checks /api/me for the account menu, and opening its drawer
+// prefetches every feed's id list. Answer both from fixtures: signed out,
+// and empty feeds.
+function stubBackend() {
+  const hn = installHNFetchMock({
+    feeds: Object.fromEntries(FEEDS.map((feed) => [feedEndpoint(feed), []])),
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === '/api/me'
+        ? new Response(JSON.stringify({ error: 'Not authenticated' }), {
+            status: 401,
+          })
+        : hn(input),
+    ),
+  );
+}
+
 describe('<AppHeader>', () => {
+  beforeEach(() => {
+    stubBackend();
+  });
+
   afterEach(() => {
     setOnline(true);
     vi.unstubAllGlobals();
