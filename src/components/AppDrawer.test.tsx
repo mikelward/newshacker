@@ -8,9 +8,19 @@ import { THEME_STORAGE_KEY } from '../lib/theme';
 import { CHROME_STORAGE_KEY } from '../lib/chrome';
 import { FONT_SIZE_STORAGE_KEY } from '../lib/fontSize';
 import { HOME_FEED_STORAGE_KEY } from '../lib/homeFeed';
+import { FEEDS, feedEndpoint } from '../lib/feeds';
+import { HN_API_BASE } from '../lib/hn';
+import { installHNFetchMock } from '../test/mockFetch';
+
+// Opening the drawer prefetches every feed's id list; answer those from
+// fixtures instead of the live Hacker News API.
+const EMPTY_FEEDS = Object.fromEntries(
+  FEEDS.map((feed) => [feedEndpoint(feed), []]),
+);
 
 describe('<AppDrawer>', () => {
   beforeEach(() => {
+    installHNFetchMock({ feeds: EMPTY_FEEDS });
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-chrome');
@@ -24,6 +34,21 @@ describe('<AppDrawer>', () => {
   it('renders nothing when closed', () => {
     renderWithProviders(<AppDrawer open={false} onClose={() => {}} />);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('warms every feed id list when opened', () => {
+    const fetchMock = installHNFetchMock({ feeds: EMPTY_FEEDS });
+    renderWithProviders(<AppDrawer open={true} onClose={() => {}} />);
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    for (const feed of FEEDS) {
+      expect(urls).toContain(`${HN_API_BASE}/${feedEndpoint(feed)}.json`);
+    }
+  });
+
+  it('does not fetch anything while closed', () => {
+    const fetchMock = installHNFetchMock({ feeds: EMPTY_FEEDS });
+    renderWithProviders(<AppDrawer open={false} onClose={() => {}} />);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('renders feed links and library links when open', () => {

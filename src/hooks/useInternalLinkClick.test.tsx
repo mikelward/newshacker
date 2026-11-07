@@ -51,8 +51,22 @@ describe('useInternalLinkClick', () => {
   it('does not intercept absolute external links', async () => {
     const user = userEvent.setup();
     renderWith('<a href="https://example.com/x" target="_blank">ext</a>');
-    await user.click(screen.getByText('ext'));
-    // No navigation happened — location is unchanged.
+    // Left alone, the click falls through to the browser, which would open
+    // the link. Note that the hook left it alone, then stand in for the
+    // browser so the test environment doesn't load the real page.
+    let leftToBrowser: boolean | undefined;
+    const browser = (e: MouseEvent) => {
+      leftToBrowser = !e.defaultPrevented;
+      e.preventDefault();
+    };
+    document.addEventListener('click', browser);
+    try {
+      await user.click(screen.getByText('ext'));
+    } finally {
+      document.removeEventListener('click', browser);
+    }
+    expect(leftToBrowser).toBe(true);
+    // No router navigation happened — location is unchanged.
     expect(screen.getByTestId('loc').textContent).toBe('/start');
   });
 
