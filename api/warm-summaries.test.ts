@@ -291,6 +291,9 @@ describe('readKnobs', () => {
     expect(knobs.maxStoryAgeSeconds).toBe(32 * 60 * 60);
     expect(knobs.commentsMaxStoryAgeSeconds).toBe(32 * 60 * 60);
     expect(knobs.topN).toBe(30);
+    // Article-track delta guard: skip Gemini regen below 256 bytes of
+    // body movement (dynamic-page noise). See reports/2026-04-29.
+    expect(knobs.minDeltaBytes).toBe(256);
   });
 
   it('reads env overrides and rejects junk values', () => {
@@ -299,11 +302,25 @@ describe('readKnobs', () => {
       WARM_TOP_N: '5',
       WARM_MAX_STORY_AGE_SECONDS: 'not-a-number',
       WARM_COMMENTS_MAX_AGE_SECONDS: '7200',
+      WARM_MIN_DELTA_BYTES: '512',
     });
     expect(knobs.refreshCheckIntervalSeconds).toBe(600);
     expect(knobs.topN).toBe(5);
     expect(knobs.maxStoryAgeSeconds).toBe(32 * 60 * 60); // falls back
     expect(knobs.commentsMaxStoryAgeSeconds).toBe(7200);
+    expect(knobs.minDeltaBytes).toBe(512);
+  });
+
+  it('rejects a sub-1 fractional value that would floor to 0 (guard stays enabled)', () => {
+    // "0.5" is finite and > 0 but floors to 0, which would make
+    // `delta < minDeltaBytes` never fire — silently disabling the guard
+    // despite the "positive required, falls back otherwise" contract.
+    const knobs = readKnobs({
+      WARM_MIN_DELTA_BYTES: '0.5',
+      WARM_TOP_N: '2.9',
+    });
+    expect(knobs.minDeltaBytes).toBe(256); // fallback, not 0
+    expect(knobs.topN).toBe(2); // a ≥1 fraction still floors normally
   });
 });
 
@@ -330,6 +347,7 @@ describe('decideInterval', () => {
     topN: 30,
     commentsMaxStoryAgeSeconds: 32 * 60 * 60,
     commentsMinKids: 5,
+    minDeltaBytes: 256,
   };
 
   it('waits for the fresh-interval when the article is not yet stable', () => {
@@ -389,6 +407,7 @@ describe('decideCommentsInterval', () => {
     topN: 30,
     commentsMaxStoryAgeSeconds: 32 * 60 * 60,
     commentsMinKids: 5,
+    minDeltaBytes: 256,
   };
   const now = 1_700_000_000_000;
 
@@ -1246,7 +1265,10 @@ describe('handleWarmRequest', () => {
   it('changed: regenerates summary and records a new hash + lastChangedAt', async () => {
     const articleUrl = 'https://example.com/edited';
     const oldBody = 'before';
-    const newBody = 'after the update';
+    // A real edit: the body grows well past WARM_MIN_DELTA_BYTES (256),
+    // so this is a genuine change to regenerate — not the sub-threshold
+    // dynamic-page noise the delta guard absorbs (covered separately).
+    const newBody = 'after the update ' + 'x'.repeat(300);
     const fetchImpl = createFakeFetch({
       [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
     });
@@ -1346,6 +1368,272 @@ describe('handleWarmRequest', () => {
     expect(store.map.get(1503)!.contentBytes).toBe(
       Buffer.byteLength(newBody, 'utf8'),
     );
+  });
+
+  it('skipped_minor_delta: sub-threshold body drift skips Gemini and refreshes lastCheckedAt only', async () => {
+    // The dynamic-page-noise case the delta guard exists for: the body
+    // hash flips (a rotating in-body timestamp) but the byte delta is
+    // well under WARM_MIN_DELTA_BYTES (256). Jina was still paid this
+    // tick; only the Gemini regeneration is saved.
+    const articleUrl = 'https://example.com/jitter';
+    const oldBody = 'stable article body ' + 'x'.repeat(1000);
+    const newBody = oldBody + ' 12:34:56 UTC'; // +13 bytes, hash differs
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      2003: { id: 2003, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(2003, {
+      summary: 'cached summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    });
+    // Empty response queue: any Gemini call would throw "unexpected".
+    const client = createFakeClient([]);
+    const { logger, stories, runs } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [2003],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('skipped_minor_delta');
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    expect(article.deltaBytes).toBe(
+      Buffer.byteLength(newBody, 'utf8') - Buffer.byteLength(oldBody, 'utf8'),
+    );
+    expect(article.deltaBytes!).toBeLessThan(256);
+    // Jina still ran — the guard saves Gemini, not the fetch.
+    expect(article.tokens).toBe(123);
+    expect(runs[0]!.outcomes.article.skipped_minor_delta).toBe(1);
+
+    // The accumulation baseline is frozen, so the delta keeps measuring
+    // against the last real regeneration: summary, articleHash,
+    // contentBytes and lastChangedAt are untouched.
+    const updated = store.map.get(2003)!;
+    expect(updated.summary).toBe('cached summary');
+    expect(updated.articleHash).toBe(hashArticle(oldBody));
+    expect(updated.contentBytes).toBe(Buffer.byteLength(oldBody, 'utf8'));
+    expect(updated.lastChangedAt).toBe(firstSeenAt);
+    // lastCheckedAt and the hypothesis snapshot do refresh, so the next
+    // tick's signal deltas come from this check and the hypothesis
+    // query's count() isn't biased by a stale snapshot.
+    expect(updated.lastCheckedAt).toBe(now);
+    expect(updated.ledeHash).toBe(hashLede(newBody));
+    expect(updated.linkCount).toBe(0);
+  });
+
+  it('changed: a body delta of exactly WARM_MIN_DELTA_BYTES regenerates (guard is a strict "<")', async () => {
+    // Boundary lock: |delta| === threshold is NOT below the threshold,
+    // so it takes the regeneration path, not the skip path.
+    const articleUrl = 'https://example.com/boundary';
+    const oldBody = 'x'.repeat(1000);
+    const newBody = 'x'.repeat(1256); // delta = exactly 256 bytes
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      2004: { id: 2004, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(2004, {
+      summary: 'old summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    });
+    const client = createFakeClient([{ text: 'regenerated summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [2004],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(article.deltaBytes).toBe(256);
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.map.get(2004)!.summary).toBe('regenerated summary');
+  });
+
+  it('skipped_minor_delta: a failed lastCheckedAt write trips the breaker and is logged sanitized', async () => {
+    // Codex on PR #575: a rejected Upstash write on the skip path must do
+    // what every sibling write path does — trip the write breaker (so the
+    // rest of the run skips before generating against a store it can't
+    // persist to) and log the failure sanitized (storyId + error name
+    // only, no body / url / message), never swallowed.
+    const articleUrl = 'https://example.com/writefail';
+    const oldBody = 'stable body ' + 'x'.repeat(1000);
+    const newBody = oldBody + ' 09:11'; // sub-threshold drift, hash differs
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      2005: { id: 2005, type: 'story', url: articleUrl, score: 10 },
+    });
+    const firstSeenAt = 1_000_000_000_000;
+    const seeded: SummaryRecord = {
+      summary: 'cached summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    };
+    const store: SummaryStore & { map: Map<number, SummaryRecord> } = {
+      map: new Map([[2005, seeded]]),
+      async get(id) {
+        return this.map.get(id) ?? null;
+      },
+      async set() {
+        const err = new Error('redis://user:pass@host is unreachable');
+        err.name = 'RedisWriteError';
+        throw err;
+      },
+    };
+    const client = createFakeClient([]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+    try {
+      await handleWarmRequest(makeRequest({ secret: null }), {
+        fetchImpl,
+        fetchItem,
+        fetchFeedIds: async () => [2005],
+        createClient: () => client,
+        store,
+        commentsStore: createCommentsTestStore(),
+        logger,
+        now: () => now,
+      });
+
+      const article = stories.find((s) => s.track === 'article')!;
+      expect(article.outcome).toBe('skipped_minor_delta');
+      expect(client.models.generateContent).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const warned = warnSpy.mock.calls[0]![0] as string;
+      // tripWriteBreaker logs through logStoreFailure: the shared
+      // sanitized write-failure line, not the old skip-only shape.
+      expect(warned).toContain('warm-store-failed');
+      expect(warned).toContain('"op":"write"');
+      expect(warned).toContain('2005');
+      // The error *name* is logged; the *message* (which could carry a
+      // connection string / credentials) is not.
+      expect(warned).toContain('RedisWriteError');
+      expect(warned).not.toContain('redis://');
+      expect(warned).not.toContain('stable body');
+
+      // The breaker is now open: a second tick on the same clock skips a
+      // fresh story before any Jina/Gemini work, exactly as a failed
+      // write on the unchanged / first_seen paths would.
+      const url2 = 'https://example.com/writefail-next';
+      const fetch2 = createFakeFetch({
+        [`https://r.jina.ai/${url2}`]: { body: jinaBody('fresh body') },
+      });
+      const client2 = createFakeClient([]); // must never be called
+      const cap2 = captureLogger();
+      await handleWarmRequest(makeRequest({ secret: null }), {
+        fetchImpl: fetch2,
+        fetchItem: fetchItemFor({
+          2006: { id: 2006, type: 'story', url: url2, score: 10 },
+        }),
+        fetchFeedIds: async () => [2006],
+        createClient: () => client2,
+        store,
+        commentsStore: createCommentsTestStore(),
+        logger: cap2.logger,
+        now: () => now,
+      });
+      const next = cap2.stories.find((s) => s.track === 'article')!;
+      expect(next.outcome).toBe('skipped_store_unreachable');
+      expect(client2.models.generateContent).not.toHaveBeenCalled();
+      expect(fetch2).not.toHaveBeenCalled(); // no Jina either
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('changed: an edited self-post under the byte threshold still regenerates (guard is link-posts-only)', async () => {
+    // Codex P2 on PR #575: a self-post body comes from HN `text`, not
+    // Jina, so it has no dynamic-page noise — a small edit is a real
+    // author edit and must regenerate. The delta guard is gated on
+    // hasArticleUrl so it never suppresses a self-post change.
+    const oldBody = 'Ask HN: how should I cache summaries?';
+    const newBody = 'Ask HN: how should I cache summaries? Update: solved.';
+    const fetchItem = fetchItemFor({
+      2006: {
+        id: 2006,
+        type: 'story',
+        title: 'Ask HN: caching',
+        text: newBody,
+        score: 20,
+      },
+    });
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('Jina must not be called for a self-post');
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_000_000_000_000;
+    store.map.set(2006, {
+      summary: 'old summary',
+      // A stale hash so the new body mismatches and reaches the guard /
+      // regeneration path; both bodies are well under 256 bytes, so the
+      // byte delta is sub-threshold — the guard WOULD fire on a link post.
+      articleHash: 'stale-selfpost-hash',
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+    });
+    const client = createFakeClient([{ text: 'regenerated self-post summary' }]);
+    const { logger, stories } = captureLogger();
+    const now = firstSeenAt + 45 * MINUTES;
+
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [2006],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('changed');
+    expect(fetchImpl).not.toHaveBeenCalled(); // self-post: no Jina fetch
+    expect(client.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(store.map.get(2006)!.summary).toBe('regenerated self-post summary');
   });
 
   it('skipped_payment_required: Jina 402 maps to its own outcome, not generic unreachable', async () => {
@@ -2253,6 +2541,59 @@ describe('warm-summaries — paywalled field propagation', () => {
     expect(store.map.get(8004)!.paywalled).toBe(true);
   });
 
+  it('skipped_minor_delta persists the fresh paywall verdict onto the suppressed record', async () => {
+    // A sub-threshold body change can still flip the paywall detector
+    // (a short teaser appears). The skip path emits the fresh verdict,
+    // so it must persist it too, or /api/summary cache hits report the
+    // stale stored value in paywall-prevalence telemetry.
+    const articleUrl = 'https://paywalled.example.com/teaser';
+    const oldBody = 'A short free stub about the article goes here.';
+    const newBody = PAYWALL_BODY; // now a paywall; within 256 B of oldBody
+    const fetchImpl = createFakeFetch({
+      [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
+    });
+    const fetchItem = fetchItemFor({
+      8006: { id: 8006, type: 'story', url: articleUrl, score: 10 },
+    });
+    const store = createTestStore();
+    const firstSeenAt = 1_700_000_000_000 - 60 * 60 * 1000;
+    store.map.set(8006, {
+      summary: 'old summary',
+      articleHash: hashArticle(oldBody),
+      firstSeenAt,
+      summaryGeneratedAt: firstSeenAt,
+      lastCheckedAt: firstSeenAt,
+      lastChangedAt: firstSeenAt,
+      contentBytes: Buffer.byteLength(oldBody, 'utf8'),
+      paywalled: false,
+    });
+    const client = createFakeClient([]); // any Gemini call would throw
+    const { logger, stories } = captureLogger();
+    const now = 1_700_000_000_000;
+    await handleWarmRequest(makeRequest({ secret: null }), {
+      fetchImpl,
+      fetchItem,
+      fetchFeedIds: async () => [8006],
+      createClient: () => client,
+      store,
+      commentsStore: createCommentsTestStore(),
+      logger,
+      now: () => now,
+    });
+    const article = stories.find((s) => s.track === 'article')!;
+    expect(article.outcome).toBe('skipped_minor_delta');
+    expect(article.deltaBytes!).toBeLessThan(256);
+    expect(client.models.generateContent).not.toHaveBeenCalled();
+    // Fresh verdict flips false → true, on both the log and the record.
+    expect(article.paywalled).toBe(true);
+    const updated = store.map.get(8006)!;
+    expect(updated.paywalled).toBe(true);
+    // Accumulation baseline still frozen.
+    expect(updated.summary).toBe('old summary');
+    expect(updated.articleHash).toBe(hashArticle(oldBody));
+    expect(updated.contentBytes).toBe(Buffer.byteLength(oldBody, 'utf8'));
+  });
+
   it('omits paywalled on skipped_unreachable (no Jina fetch happened)', async () => {
     const articleUrl = 'https://example.com/broken';
     const fetchImpl = createFakeFetch({
@@ -2699,7 +3040,7 @@ describe('warm-summaries — hypothesis-testing instrumentation', () => {
     expect(store.map.get(7007)!.title).toBe('Original cached title');
   });
 
-  it('changed: emits ledeChanged + correctionKeywordDelta on a small-delta correction edit (boolean / count signals only — no body samples in logs)', async () => {
+  it('skipped_minor_delta: a sub-threshold correction edit skips Gemini but still emits ledeChanged + correctionKeywordDelta (boolean / count signals only — no body samples in logs)', async () => {
     const articleUrl = 'https://example.com/correction';
     const oldBody = 'Original opening sentence. Body of the article.';
     const newBody =
@@ -2754,7 +3095,12 @@ describe('warm-summaries — hypothesis-testing instrumentation', () => {
     });
 
     const article = stories.find((s) => s.track === 'article')!;
-    expect(article.outcome).toBe('changed');
+    // The correction is under WARM_MIN_DELTA_BYTES, so the delta guard
+    // absorbs it — no Gemini call — but the diagnostic signals still
+    // surface on the skip line so an operator can see a real correction
+    // was skipped (the future gating input per reports/2026-04-29).
+    expect(article.outcome).toBe('skipped_minor_delta');
+    expect(client.models.generateContent).not.toHaveBeenCalled();
     expect(article.deltaBytes).toBeLessThan(256);
     expect(article.ledeChanged).toBe(true);
     expect(article.correctionKeywordDelta).toEqual({
@@ -2766,7 +3112,20 @@ describe('warm-summaries — hypothesis-testing instrumentation', () => {
     });
     expect(article.titleChanged).toBe(false);
 
+    // The accumulation baseline (summary, articleHash, contentBytes,
+    // lastChangedAt) stays frozen, so the delta keeps measuring against
+    // the last real regeneration.
     const updated = store.map.get(7004)!;
+    expect(updated.summary).toBe('old summary');
+    expect(updated.articleHash).toBe(hashArticle(oldBody));
+    expect(updated.lastChangedAt).toBe(firstSeenAt);
+    expect(updated.lastCheckedAt).toBe(now);
+    expect(updated.contentBytes).toBe(Buffer.byteLength(oldBody, 'utf8'));
+    // The hypothesis snapshot *does* refresh to this tick's body, so the
+    // next tick's signal deltas (and the hypothesis query's count()) are
+    // computed from the current check, not a stale one that predates the
+    // correction. bodySample stays in Redis — it's the per-record cache,
+    // not a log line (OBSERVABILITY.md § *Deliberately not logged*).
     expect(updated.correctionKeywordCounts).toEqual({
       update: 0,
       correction: 1,
@@ -2775,9 +3134,6 @@ describe('warm-summaries — hypothesis-testing instrumentation', () => {
       clarification: 0,
     });
     expect(updated.ledeHash).toBe(hashLede(newBody));
-    // bodySample stays in Redis — it's the per-record cache, not
-    // the log line. Logs deliberately don't carry article body
-    // text (OBSERVABILITY.md § *Deliberately not logged*).
     expect(updated.bodySample).toBe(newBody);
   });
 
@@ -2789,7 +3145,12 @@ describe('warm-summaries — hypothesis-testing instrumentation', () => {
     // catches it before the policy drift ships.
     const articleUrl = 'https://example.com/policy-guard';
     const oldBody = 'Some article opening line. Rest of the article.';
-    const newBody = 'Update: Some article opening line. Rest of the article.';
+    // Grow the body well past WARM_MIN_DELTA_BYTES (256) so this stays a
+    // `changed` outcome — the richest article log line, which is what
+    // this policy guard needs to inspect for leaked body/title text.
+    const newBody =
+      'Update: Some article opening line. Rest of the article. ' +
+      'x'.repeat(300);
     const fetchImpl = createFakeFetch({
       [`https://r.jina.ai/${articleUrl}`]: { body: jinaBody(newBody) },
     });

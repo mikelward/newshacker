@@ -105,6 +105,17 @@ const DEFAULT_STABLE_CHECK_INTERVAL = 60 * 60 * 2; // 2 h for stable stories
 const DEFAULT_STABLE_THRESHOLD = 60 * 60 * 6; // "stable" = unchanged ≥ 6 h
 const DEFAULT_MAX_STORY_AGE = 60 * 60 * 32; // give up after 32 h (article track)
 const DEFAULT_TOP_N = 30;
+// Article track only: skip the Gemini regeneration when the Jina-clean
+// body changed by fewer than this many bytes against the last real
+// regeneration. Absorbs dynamic-page noise (rotating timestamps, ad
+// slots, related-items widgets) that flips the content hash without
+// changing what a one-sentence summary would say. reports/
+// 2026-04-29-cache-strategy.md (Finding 1) measured ~60% of article
+// "changed" ticks as sub-100-byte noise, over half of cron Gemini spend.
+// 256 catches the whole <100 B noise band plus most of the 100-256 B
+// two-state oscillation, and misses only sub-256 B real edits — which
+// don't materially move a one-sentence summary.
+const DEFAULT_MIN_DELTA_BYTES = 256;
 // Comments-track tiered schedule: a doubling ladder keyed off HN
 // story age (now − story.time). The first tier whose maxAge the
 // story is still under decides the re-check interval. Past the
@@ -158,6 +169,9 @@ export interface WarmKnobs {
   // by design and match the ageBand analytics axis.
   commentsMaxStoryAgeSeconds: number;
   commentsMinKids: number;
+  // Article-track delta guard threshold (bytes). See
+  // DEFAULT_MIN_DELTA_BYTES.
+  minDeltaBytes: number;
 }
 
 export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
@@ -187,6 +201,10 @@ export function readKnobs(env: NodeJS.ProcessEnv = process.env): WarmKnobs {
       env.WARM_COMMENTS_MIN_KIDS,
       DEFAULT_COMMENTS_MIN_KIDS,
     ),
+    minDeltaBytes: parsePositiveInt(
+      env.WARM_MIN_DELTA_BYTES,
+      DEFAULT_MIN_DELTA_BYTES,
+    ),
   };
 }
 
@@ -195,9 +213,13 @@ function parsePositiveInt(
   fallback: number,
 ): number {
   if (!raw) return fallback;
-  const n = Number(raw);
+  // Floor *before* the positivity check: a fractional value like "0.5"
+  // is finite and > 0 but floors to 0, which would silently disable a
+  // guard (delta < 0 never fires) despite the "positive required, falls
+  // back otherwise" contract. Validate the integer we'd actually use.
+  const n = Math.floor(Number(raw));
   if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
+  return n;
 }
 
 // Matches api/summary.ts + api/comments-summary.ts — kept in lockstep.
@@ -1047,6 +1069,11 @@ export type CheckOutcome =
   // regenerate — a summary we can't cache is thrown away and redone next
   // tick, the outage runaway. Circuit breaker; see processStory.
   | 'skipped_store_unreachable'
+  // Article-track only: the content hash differed, but the body moved
+  // by fewer than WARM_MIN_DELTA_BYTES against the last regeneration, so
+  // the change is treated as dynamic-page noise and the Gemini call is
+  // skipped. See DEFAULT_MIN_DELTA_BYTES.
+  | 'skipped_minor_delta'
   | 'first_seen'
   | 'unchanged'
   | 'changed'
@@ -1254,6 +1281,7 @@ function emptyOutcomeCounts(): Record<CheckOutcome, number> {
     skipped_payment_required: 0,
     skipped_budget: 0,
     skipped_store_unreachable: 0,
+    skipped_minor_delta: 0,
     first_seen: 0,
     unchanged: 0,
     changed: 0,
@@ -1737,6 +1765,82 @@ async function processArticleTrack(
       stableForMinutes: minutes(now - existing.lastChangedAt),
       sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
       contentBytes,
+      tokens: jinaTokens,
+      ...(effectivePaywalled !== undefined
+        ? { paywalled: effectivePaywalled }
+        : {}),
+      ...buildHypothesisLogFields(existing),
+    });
+  }
+
+  // Article-track delta guard — *link posts only* (`hasArticleUrl`). The
+  // noise this absorbs (rotating timestamps, ad slots, related-items
+  // widgets) is a property of Jina-fetched external pages; a self-post
+  // body comes straight from HN's `text`, so any hash change there is a
+  // real author edit, not noise, and must regenerate. If the body's byte
+  // length moved by fewer than WARM_MIN_DELTA_BYTES against the last
+  // *real* regeneration, treat it as dynamic-page noise and skip Gemini.
+  // Refresh lastCheckedAt only — leave articleHash, contentBytes,
+  // lastChangedAt and summary intact so a *monotonic* drift (a growing
+  // in-body counter) accumulates against the fixed baseline and
+  // eventually crosses the threshold. This is a byte-length proxy, not a
+  // content diff: a same-length (or within-threshold) full rewrite keeps
+  // the delta near zero and is NOT caught by accumulation — only a later
+  // above-threshold edit regenerates it. The WARM_MAX_STORY_AGE_SECONDS
+  // cutoff does NOT rescue it: shouldSkipArticleByBackoff returns
+  // skipped_age *before* fetching once that age is reached, so the story
+  // stops being checked and /api/summary serves the stale record for its
+  // remaining TTL. Gating on the already-logged lede/correction signals
+  // to catch the rewrite is the tracked follow-up (TODO.md). Jina was already paid this tick, so `tokens` is
+  // still logged; only the Gemini spend is saved. See
+  // reports/2026-04-29-cache-strategy.md (Finding 1).
+  if (
+    hasArticleUrl &&
+    existing &&
+    typeof existing.contentBytes === 'number' &&
+    Math.abs(contentBytes - existing.contentBytes) < knobs.minDeltaBytes
+  ) {
+    const deltaBytes = Math.abs(contentBytes - existing.contentBytes);
+    // This tick's fresh paywall verdict, carried forward like the sibling
+    // paths: a sub-threshold body can still flip the detector (a teaser
+    // appears), and the skip log emits this value, so persist it or
+    // /api/summary cache hits report a stale paywalled in telemetry.
+    const effectivePaywalled =
+      paywalled !== undefined ? paywalled : existing.paywalled;
+    // Refresh lastCheckedAt, the fresh paywall verdict and the hypothesis
+    // snapshot, but freeze the accumulation baseline (articleHash,
+    // contentBytes, lastChangedAt, summary) so deltaBytes keeps measuring
+    // against the last *real* regeneration — that's the whole point of
+    // suppressing this one. hypothesisRecordFields carries only the
+    // telemetry columns, so the next tick's signal deltas are computed
+    // from this check, not a stale one (else the hypothesis query's
+    // count() is biased).
+    const updated: SummaryRecord = {
+      ...existing,
+      lastCheckedAt: now,
+      ...(effectivePaywalled !== undefined
+        ? { paywalled: effectivePaywalled }
+        : {}),
+      ...hypothesisRecordFields,
+    };
+    try {
+      await store.set(storyId, updated, RECORD_TTL_SECONDS);
+    } catch (err) {
+      // Match the sibling write paths (unchanged / changed / first_seen):
+      // trip the write breaker so a mid-run store outage stops subsequent
+      // work instead of regenerating against a store that can't persist.
+      // tripWriteBreaker logs the failure sanitized (storyId is a public
+      // HN id; no body, url, or message), so the skip line below isn't
+      // read as a clean success. AGENTS.md § Error handling.
+      tripWriteBreaker('article', storyId, now, err);
+    }
+    return log({
+      outcome: 'skipped_minor_delta',
+      ageMinutes: minutes(now - existing.firstSeenAt),
+      stableForMinutes: minutes(now - existing.lastChangedAt),
+      sinceLastCheckMinutes: minutes(now - existing.lastCheckedAt),
+      contentBytes,
+      deltaBytes,
       tokens: jinaTokens,
       ...(effectivePaywalled !== undefined
         ? { paywalled: effectivePaywalled }
